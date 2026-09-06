@@ -1,0 +1,7 @@
+federation ak (group verifying key) = e1d2d02f3340ae5c1772ad9ebec880b75d0489bfe4d941c2b2c8c603c678562a
+deposit address for user index 0: 37d0c4768b9282ec99749d46ebd564f5a018f93cf60c4b4f0928b134e8fa1ad4ed683946c8b01374d18e07
+deposit address for user index 1: a8aaf760368397b87fc3d1f87df340803315b5ec17a0bf7dee60714fdd73a299a5600ebbd1b3e0abb6062a
+deposit address for user index 2: 2ca22291dcc8634d73bc86c8cbaa0530de102103b39fdfce42506ae813912f170f725e1c8d2db46fba0f1d
+2-of-3 randomized FROST signature verifies under the federation ak: true
+same signature rejected under a different randomizer: true
+single signer below threshold rejected: true

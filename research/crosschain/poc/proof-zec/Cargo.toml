@@ -1,0 +1,23 @@
+[package]
+name = "proof-zec"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bp-pallas = { path = "../vendor/bp-pallas" }
+pasta_curves = "0.5"
+group = "0.13"
+ff = "0.13"
+reddsa = { version = "0.5", features = ["std"] }
+orchard = { version = "0.15.5", default-features = false }
+merlin = "3"
+sha2 = "0.10"
+sha3 = "0.10"
+rand = "0.8"
+rand_core = "0.6"
+hex = "0.4"
+subtle = "2"
+rayon = "1"
+
+[profile.release]
+opt-level = 3

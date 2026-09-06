@@ -1,0 +1,17 @@
+[package]
+name = "zec-t-htlc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+zcash_script = { version = "0.5", features = ["std", "signature-validation"] }
+zcash_transparent = { version = "0.10", features = ["std", "transparent-inputs"] }
+zcash_primitives = "0.30"
+zcash_protocol = "0.10"
+zcash_address = "0.13"
+zcash_encoding = "0.5"
+secp256k1 = { version = "0.29", features = ["rand-std", "global-context"] }
+sha2 = "0.10"
+ripemd = "0.1"
+hex = "0.4"
+rand = "0.8"

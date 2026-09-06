@@ -1,0 +1,7 @@
+# Keep line endings exactly as committed: the app verifies contracts by the sha256 of the template files, and a
+# CRLF conversion on checkout would change every hash.
+* text=auto eol=lf
+*.png binary
+*.webm binary
+*.jpg binary
+*.exe binary

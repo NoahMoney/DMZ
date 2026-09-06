@@ -1,0 +1,50 @@
+vault installed: e2b1b12104691f32295ffceabe50c13dc7a6daf3bcf176b31d9e1de5f54dfa80 (height 5862, storage gas 14283)
+signer deto1qy2nxgts7wd added, tx e35227ff…
+signer deto1qyzj2ldw7cj added, tx 15b4e923…
+signer deto1qy3kdan2gr7 added, tx 45e706cd…
+bond 20000 from deto1qy2nxgts7wd…, tx 1003c5e8…
+bond 20000 from deto1qyzj2ldw7cj…, tx 0d4137b4…
+bond 20000 from deto1qy3kdan2gr7…, tx 4e49f796…
+limits set (maxdep 30000, winmax 60000, wdelay 3), tx 005206ef…
+sealed, tx 778d830e…
+user deto1qyx6datstrs… registered (index 0), tx f1b20512…
+sim foreign chain reset at height 100: ../research/crosschain/poc/sim-foreign.json
+VAULT=e2b1b12104691f32295ffceabe50c13dc7a6daf3bcf176b31d9e1de5f54dfa80
+vault e2b1b12104691f32295ffceabe50c13dc7a6daf3bcf176b31d9e1de5f54dfa80
+== attest index 0
+15:55:17 Attest [{j U 0} {addr S sim:0}] tx c30a4cb3…
+15:55:17 vault: users 1, supply 0 / cap 100000, withdrawals 0, halted 0
+15:56:02 Attest [{j U 0} {addr S sim:0}] tx 2ce3dabb…
+15:56:02 vault: users 1, supply 0 / cap 100000, withdrawals 0, halted 0
+== a 40,000 deposit: above maxdep, the k-th vote must be refused and nothing minted
+foreign deposit 01ea4de0… index 0 amount 40000 at foreign height 100
+foreign height 103
+15:57:06 Mint [{j U 0} {id S 01ea4de0c08aaba829096b6825319352a270eeb2e3e9d8a6b295b80de581c498} {amount U 40000}] tx fc986309…
+15:57:07 vault: users 1, supply 0 / cap 100000, withdrawals 0, halted 0
+15:57:08 Mint refused at estimate: DERO.GetGasEstimate: rpc error -32098: Discarded knowingly
+15:57:08 vault: users 1, supply 0 / cap 100000, withdrawals 0, halted 0
+k=2 n=3 sealed=1 halted=0 cap=100000 sup=0 users=1 withdrawals=0
+== a 25,000 deposit: minted
+foreign deposit bce5f633… index 0 amount 25000 at foreign height 103
+foreign height 106
+15:58:14 Mint [{j U 0} {id S bce5f633a1dbff4fc4975b9ad4f367198e5197c5487dd5108bd380e0523c9a9f} {amount U 25000}] tx 2fe3ab2e…
+15:58:14 vault: users 1, supply 0 / cap 100000, withdrawals 0, halted 0
+15:58:14 Mint refused at estimate: DERO.GetGasEstimate: rpc error -32098: Discarded knowingly
+15:59:04 Mint [{j U 0} {id S bce5f633a1dbff4fc4975b9ad4f367198e5197c5487dd5108bd380e0523c9a9f} {amount U 25000}] tx 2172685d…
+15:59:04 vault: users 1, supply 25000 / cap 100000, withdrawals 0, halted 0
+k=2 n=3 sealed=1 halted=0 cap=100000 sup=25000 users=1 withdrawals=0
+== waiting two blocks (fresh asset), then burn 4000
+burn 4000 → 4AxmrDestinationAddressStandIn: tx 7c38560ecb9fbfe633e283009d604dd40b9d30034a5043dc1a45fa63f9343fd0 height 5902 gas 352400; wrapped balance 25000 → 21000
+== immediate signer pass: must wait (finality and the 3-block delay)
+withdrawal 0 waits for DERO finality (burned at 5902, stable height 5899)
+16:02:17 vault: users 1, supply 21000 / cap 100000, withdrawals 1, halted 0
+stable height 5907 (burn at most 5907)
+16:04:50 Released refused at estimate: DERO.GetGasEstimate: rpc error -32098: Discarded knowingly
+16:04:50 vault: users 1, supply 21000 / cap 100000, withdrawals 1, halted 0
+16:04:51 Released refused at estimate: DERO.GetGasEstimate: rpc error -32098: Discarded knowingly
+16:04:51 vault: users 1, supply 21000 / cap 100000, withdrawals 1, halted 0
+k=2 n=3 sealed=1 halted=0 cap=100000 sup=21000 users=1 withdrawals=1
+user 0: raw 0da6f57058e0… deposit address sim:0
+withdrawal 0: 3900 → 4AxmrDestinationAddressStandIn status 0
+user wrapped balance: 21000
+VAULT_LIMITS_E2E_DONE

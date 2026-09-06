@@ -1,0 +1,4 @@
+probe installed c04c37835676b62ab4527aecc69e882a89725c51e87f165da6d552e779a801ef at height 5496 (storage gas 375)
+ring  2: tx 403d543f… height 5498 in 22s; contract saw DEROVALUE 12345, SIGNER valid=1 len=33; destination received 12345 (gas compute 310800 storage 154)
+ring 16: tx 948f70e3… height 5500 in 25s; contract saw DEROVALUE 12345, SIGNER valid=0 len=33; destination received 12345 (gas compute 310800 storage 154)
+ring 32: tx 0ba5e055… height 5502 in 21s; contract saw DEROVALUE 12345, SIGNER valid=0 len=33; destination received 12345 (gas compute 310800 storage 154)

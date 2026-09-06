@@ -1,0 +1,13 @@
+secret        = ee5f288edc4e0a8fd8b3cc4df80eaf4342933d6e747135583c24d77307c7e766
+H             = 9156797605b5272d9b2dc688e5d64d05311ce1768f7044850e75d9b2a9eb7bdb
+redeem script = 63a8209156797605b5272d9b2dc688e5d64d05311ce1768f7044850e75d9b2a9eb7bdb8876a91407a60d31b51e41efe6301c676a3179416aea28bb88ac6703c0c62db17576a914e3556bb30898a8b88fcef586864b9e408685eb0988ac68 (94 bytes)
+scriptPubKey  = a91446bac160b08d5c3529060ea67e2b5bc51168f1d387
+testnet P2SH  = t2CznzyM1SiyHb5CLc46GkAgoiMPnBLvuQ2
+claim with the right secret, before the lock time: Ok(true)
+claim with a wrong secret rejected: true
+claim with the maker's key rejected: true
+refund by the maker after the lock time: Ok(true)
+refund before the lock time rejected: true
+refund with a final (nSequence max) input rejected: true
+refund with the taker's key rejected: true
+DERO HEX(SHA256(HEXDECODE(secret))) == H: true

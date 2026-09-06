@@ -1,0 +1,6 @@
+probe installed 9fd17e1d07abeb42a7cf500cc77a06f407847caac1c9badb97ae7ca0b3731bf7 at height 5738 (storage gas 375)
+ring  2: tx c98cf448… height 5740 in 22s; size 1848 bytes; node-extracted signer "deto1qyre7td6x9r88y4cavdgpv6k7lvx6j39lfsx420hpvh3ydpcrtxrxqg8v8e3z"; contract saw DEROVALUE 12345, SIGNER valid=1 len=33; destination received 12345 (gas compute 310800 storage 154)
+ring  8: tx 8f2a6074… height 5742 in 23s; size 2720 bytes; node-extracted signer ""; contract saw DEROVALUE 12345, SIGNER valid=0 len=33; destination received 12345 (gas compute 310800 storage 154)
+ring 16: tx f4b3e785… height 5744 in 22s; size 3336 bytes; node-extracted signer ""; contract saw DEROVALUE 12345, SIGNER valid=0 len=33; destination received 12345 (gas compute 310800 storage 154)
+ring 32: tx ae89f896… height 5746 in 23s; size 4240 bytes; node-extracted signer ""; contract saw DEROVALUE 12345, SIGNER valid=0 len=33; destination received 12345 (gas compute 310800 storage 154)
+ring 64: tx c7b0bd90… height 5748 in 25s; size 5784 bytes; node-extracted signer ""; contract saw DEROVALUE 12345, SIGNER valid=0 len=33; destination received 12345 (gas compute 310800 storage 154)

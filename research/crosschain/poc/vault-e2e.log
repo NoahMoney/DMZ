@@ -1,0 +1,52 @@
+vault installed: a88778fc3fd6e4a06e56302a38c192d34cbdca57a348ecbb3c4c0696ac872bd5 (height 4616, storage gas 10057)
+signer deto1qy2nxgts7wd added, tx a5edce0bâ€¦
+signer deto1qyzj2ldw7cj added, tx 0dd56472â€¦
+signer deto1qy3kdan2gr7 added, tx d999578eâ€¦
+sealed, tx 5731554fâ€¦
+bond 20000 from deto1qy2nxgts7wdâ€¦, tx 65370057â€¦
+bond 20000 from deto1qyzj2ldw7cjâ€¦, tx 235ba026â€¦
+bond 20000 from deto1qy3kdan2gr7â€¦, tx c49aecc0â€¦
+user deto1qyx6datstrsâ€¦ registered (index 0), tx f368810fâ€¦
+sim foreign chain reset at height 100: ../research/crosschain/poc/sim-foreign.json
+VAULT=a88778fc3fd6e4a06e56302a38c192d34cbdca57a348ecbb3c4c0696ac872bd5
+== signers attest the user's deposit address (index 0)
+signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+vault  a88778fc3fd6e4a06e56302a38c192d34cbdca57a348ecbb3c4c0696ac872bd5
+09:46:44 Attest [{j U 0} {addr S sim:0}] tx 72d9b68aâ€¦
+09:46:44 vault: users 1, supply 0 / cap 1000000000, withdrawals 0, halted 0
+signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+vault  a88778fc3fd6e4a06e56302a38c192d34cbdca57a348ecbb3c4c0696ac872bd5
+09:47:06 Attest [{j U 0} {addr S sim:0}] tx 0b459971â€¦
+09:47:06 vault: users 1, supply 0 / cap 1000000000, withdrawals 0, halted 0
+k=2 n=3 sealed=1 halted=0 cap=1000000000 sup=0 users=1 withdrawals=0
+user 0: dero1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgnajyz8 deposit address sim:0
+user wrapped balance: 0
+2026/09/06 09:47:07 key bond_3!pó›5Å~¥åÁ¼°‚I–ŠÖØÒ›úCßð‘½ missing
+vault a88778fc3fd6e4a06e56302a38c192d34cbdca57a348ecbb3c4c0696ac872bd5
+== signers attest the user's deposit address (index 0)
+signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+vault  a88778fc3fd6e4a06e56302a38c192d34cbdca57a348ecbb3c4c0696ac872bd5
+09:48:06 vault: users 1, supply 0 / cap 1000000000, withdrawals 0, halted 0
+signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+vault  a88778fc3fd6e4a06e56302a38c192d34cbdca57a348ecbb3c4c0696ac872bd5
+09:48:07 vault: users 1, supply 0 / cap 1000000000, withdrawals 0, halted 0
+k=2 n=3 sealed=1 halted=0 cap=1000000000 sup=0 users=1 withdrawals=0
+user 0: dero1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgnajyz8 deposit address sim:0
+user wrapped balance: 0
+== user deposits 250000 foreign units; chain advances 3 blocks
+foreign deposit 63a7a983â€¦ index 0 amount 250000 at foreign height 100
+foreign height 103
+== signers vote Mint (2 of 3)
+signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+vault  a88778fc3fd6e4a06e56302a38c192d34cbdca57a348ecbb3c4c0696ac872bd5
+09:48:33 Mint [{id S 63a7a98380000d2c3a6d69d439845d6fe97a06e307ac3f4699c06a7992b23133} {to S dero1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgnajyz8} {amount U 250000}] tx 0c11e284â€¦
+09:48:33 vault: users 1, supply 0 / cap 1000000000, withdrawals 0, halted 0
+signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+vault  a88778fc3fd6e4a06e56302a38c192d34cbdca57a348ecbb3c4c0696ac872bd5
+09:48:53 Mint [{id S 63a7a98380000d2c3a6d69d439845d6fe97a06e307ac3f4699c06a7992b23133} {to S dero1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgnajyz8} {amount U 250000}] tx 03d85ef0â€¦
+09:48:53 vault: users 1, supply 250000 / cap 1000000000, withdrawals 0, halted 0
+k=2 n=3 sealed=1 halted=0 cap=1000000000 sup=250000 users=1 withdrawals=0
+user 0: dero1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgnajyz8 deposit address sim:0
+user wrapped balance: 250000
+== user burns 40000 to withdraw
+2026/09/06 09:49:00 transfer: rpc error -32098: could not obtain encrypted balance for self err [-32098] Account Unregistered

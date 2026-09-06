@@ -1,0 +1,45 @@
+vault installed: fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6 (height 5414, storage gas 13302)
+signer deto1qy2nxgts7wd added, tx f29f21ab…
+signer deto1qyzj2ldw7cj added, tx 069c3ddc…
+signer deto1qy3kdan2gr7 added, tx b55bf647…
+bond 20000 from deto1qy2nxgts7wd…, tx 232c74a2…
+bond 20000 from deto1qyzj2ldw7cj…, tx ed7a8b29…
+bond 20000 from deto1qy3kdan2gr7…, tx cee08a55…
+sealed, tx efcad301…
+user deto1qyx6datstrs… registered (index 0), tx 47c9099e…
+sim foreign chain reset at height 100: ../research/crosschain/poc/sim-foreign.json
+VAULT=fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+vault fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+== signers attest the user's deposit address (index 0)
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf)
+signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+13:51:49 Attest [{j U 0} {addr S sim:0}] tx d979a001…
+13:51:49 vault: users 1, supply 0 / cap 100000, withdrawals 0, halted 0
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf)
+signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+13:52:09 Attest [{j U 0} {addr S sim:0}] tx 381bf46b…
+13:52:09 vault: users 1, supply 0 / cap 100000, withdrawals 0, halted 0
+k=2 n=3 sealed=1 halted=0 cap=100000 sup=0 users=1 withdrawals=0
+user 0: raw 0da6f57058e0… deposit address sim:0
+user wrapped balance: 0
+== user deposits 25000 foreign units; chain advances 3 blocks
+foreign deposit e9f00609… index 0 amount 25000 at foreign height 100
+foreign height 103
+== signers vote Mint (2 of 3)
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf)
+signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+13:52:29 Mint [{j U 0} {id S e9f006099d8b5af3dbc2ac3c218efe7b8502f0a9118dfdef80d53ee85cc37472} {amount U 25000}] tx f769a6a2…
+13:52:29 vault: users 1, supply 0 / cap 100000, withdrawals 0, halted 0
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf)
+signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+13:52:49 Mint [{j U 0} {id S e9f006099d8b5af3dbc2ac3c218efe7b8502f0a9118dfdef80d53ee85cc37472} {amount U 25000}] tx d1c91b8c…
+13:52:49 vault: users 1, supply 25000 / cap 100000, withdrawals 0, halted 0
+k=2 n=3 sealed=1 halted=0 cap=100000 sup=25000 users=1 withdrawals=0
+user 0: raw 0da6f57058e0… deposit address sim:0
+user wrapped balance: 25000
+== user burns 40000 to withdraw
+2026/09/06 13:52:50 transfer: rpc error -32098: could not obtain encrypted balance for self err [-32098] Account Unregistered

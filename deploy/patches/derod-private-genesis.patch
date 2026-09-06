@@ -1,0 +1,23 @@
+diff --git a/cmd/derod/main.go b/cmd/derod/main.go
+index f818494..e279654 100644
+--- a/cmd/derod/main.go
++++ b/cmd/derod/main.go
+@@ -165,6 +165,18 @@ func main() {
+ 
+ 	globals.Initialize() // setup network and proxy
+ 
++	// Veil: private testnet bootstrap. A fresh testnet chain has only the stock genesis account registered, and
++	// DERO refuses miniblocks from unregistered miners, so a private chain can never start. Setting this variable
++	// to a serialized registration/premine transaction (tools/genesistx) makes it the testnet genesis.
++	if g := os.Getenv("DERO_PRIVATE_GENESIS_TX"); g != "" && !globals.IsMainnet() {
++		config.Testnet.Genesis_Tx = g
++		globals.Config.Genesis_Tx = g // globals.Initialize copied the network config; Generate_Genesis_Block reads the copy
++		gb := blockchain.Generate_Genesis_Block()
++		config.Testnet.Genesis_Block_Hash = gb.GetHash()
++		globals.Config.Genesis_Block_Hash = gb.GetHash()
++		fmt.Printf("private testnet genesis in use: block hash %s\n", config.Testnet.Genesis_Block_Hash)
++	}
++
+ 	logger.V(0).Info("", "MODE", globals.Config.Name)
+ 	logger.V(0).Info("", "Daemon data directory", globals.GetDataDirectory())
+ 

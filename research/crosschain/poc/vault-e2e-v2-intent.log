@@ -1,0 +1,95 @@
+vault fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+== signers attest the user's deposit address (index 0)
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf); this backend sim at 2 confirmations
+signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+state  vaultsigner-30003.json (0 intents)
+14:28:35 vault: users 1, supply 46000 / cap 100000, withdrawals 1, halted 0
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf); this backend sim at 2 confirmations
+signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+state  vaultsigner-30004.json (0 intents)
+14:28:35 vault: users 1, supply 46000 / cap 100000, withdrawals 1, halted 0
+k=2 n=3 sealed=1 halted=0 cap=100000 sup=46000 users=1 withdrawals=1
+user 0: raw 0da6f57058e0… deposit address sim:0
+withdrawal 0: 3900 → 4AxmrDestinationAddressStandIn status 1 ftx 1376f9c3ceda8ebf…
+user wrapped balance: 46000
+== user deposits 25000 foreign units; chain advances 3 blocks
+foreign deposit 65e12085… index 0 amount 25000 at foreign height 106
+foreign height 109
+== signers vote Mint (2 of 3)
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf); this backend sim at 2 confirmations
+signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+state  vaultsigner-30003.json (0 intents)
+14:28:57 Mint [{j U 0} {id S 65e120853e438bc9513a5b1f3297e7ae0691953977a4b41ab7ae3bb02aa7a4b7} {amount U 25000}] tx 3df7b60f…
+14:28:57 vault: users 1, supply 46000 / cap 100000, withdrawals 1, halted 0
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf); this backend sim at 2 confirmations
+signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+state  vaultsigner-30004.json (0 intents)
+14:29:18 Mint [{j U 0} {id S 65e120853e438bc9513a5b1f3297e7ae0691953977a4b41ab7ae3bb02aa7a4b7} {amount U 25000}] tx 7951e232…
+14:29:18 vault: users 1, supply 71000 / cap 100000, withdrawals 1, halted 0
+k=2 n=3 sealed=1 halted=0 cap=100000 sup=71000 users=1 withdrawals=1
+user 0: raw 0da6f57058e0… deposit address sim:0
+withdrawal 0: 3900 → 4AxmrDestinationAddressStandIn status 1 ftx 1376f9c3ceda8ebf…
+user wrapped balance: 71000
+== waiting two blocks: a freshly minted asset is unspendable for about two blocks (R-15)
+== user burns 4000 to withdraw
+burn 4000 → 4AxmrDestinationAddressStandIn: tx eaeb6cab382041c6c364618d3be99dc9b21afd97f99d0bfe1bf97f09a63db8d5 height 5569 gas 352400; wrapped balance 71000 → 67000
+== signers pay the withdrawal on the foreign chain and vote Released
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf); this backend sim at 2 confirmations
+signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+state  vaultsigner-30004.json (0 intents)
+14:30:43 Released [{j U 1} {ftx S 01a65e558b5be76258a0e277d365cc307ff45412c5a7303d646d1cbe15eb36bd}] tx 236d11ec…
+14:30:43 vault: users 1, supply 67000 / cap 100000, withdrawals 2, halted 0
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf); this backend sim at 2 confirmations
+signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+state  vaultsigner-30005.json (0 intents)
+14:31:04 Released [{j U 1} {ftx S 01a65e558b5be76258a0e277d365cc307ff45412c5a7303d646d1cbe15eb36bd}] tx e06f32cf…
+14:31:04 vault: users 1, supply 67000 / cap 100000, withdrawals 2, halted 0
+k=2 n=3 sealed=1 halted=0 cap=100000 sup=67000 users=1 withdrawals=2
+user 0: raw 0da6f57058e0… deposit address sim:0
+withdrawal 0: 3900 → 4AxmrDestinationAddressStandIn status 1 ftx 1376f9c3ceda8ebf…
+withdrawal 1: 3900 → 4AxmrDestinationAddressStandIn status 1 ftx 01a65e558b5be762…
+user wrapped balance: 67000
+== foreign chain file
+{
+  "height": 109,
+  "deposits": [
+    {
+      "txid": "e9f006099d8b5af3dbc2ac3c218efe7b8502f0a9118dfdef80d53ee85cc37472",
+      "index": 0,
+      "amount": 25000,
+      "height": 100
+    },
+    {
+      "txid": "51e5e93de0ab1dff98a92c12828e014c2eb4eb0f8a10032c0dc8c9b253f32646",
+      "index": 0,
+      "amount": 25000,
+      "height": 103
+    },
+    {
+      "txid": "65e120853e438bc9513a5b1f3297e7ae0691953977a4b41ab7ae3bb02aa7a4b7",
+      "index": 0,
+      "amount": 25000,
+      "height": 106
+    }
+  ],
+  "releases": [
+    {
+      "j": 0,
+      "dest": "4AxmrDestinationAddressStandIn",
+      "amount": 3900,
+      "ftx": "1376f9c3ceda8ebfa5bea90883ace42984f6c3bc1f30552bd5800b9bcf97c9bf"
+    },
+    {
+      "j": 1,
+      "dest": "4AxmrDestinationAddressStandIn",
+      "amount": 3900,
+      "ftx": "01a65e558b5be76258a0e277d365cc307ff45412c5a7303d646d1cbe15eb36bd"
+    }
+  ]
+}

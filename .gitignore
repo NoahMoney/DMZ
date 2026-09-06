@@ -1,0 +1,27 @@
+# third-party clones and built binaries (re-create with deploy/README.md)
+vendor/
+# simulator / wallet runtime data
+.sim/
+*.db
+*.log
+# node
+node_modules/
+# TELA host serving clones (runtime data)
+datashards/
+# secrets and local chain state (added 2026-09-06 after the tooling audit)
+.testnet/
+.mainnet/
+*.seed
+*.db.bak
+dist/
+**/target/
+research/crosschain/poc/sim-foreign.json
+
+# keep the measured evidence the research cites (logs are otherwise ignored)
+!research/**/*.log
+
+# upstream research clones (read-only references; re-clone by URL, see research/crosschain/SOURCES.md)
+research/farcaster-core/
+research/frost/
+research/mycelium/
+research/xmr-btc-swap/

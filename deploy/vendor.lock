@@ -1,0 +1,45 @@
+{
+  "_": "Pinned upstream commits for every vendored checkout and the exact local changes allowed on top. tools/verifyvendor checks it. Anything else in a vendored tree is a supply-chain finding.",
+  "repos": {
+    "vendor/derohe": {
+      "url": "https://github.com/deroproject/derohe",
+      "commit": "e9df1205b6603c62f0651d0e18e5e77a2584b15e",
+      "modified": { "cmd/derod/main.go": "deploy/patches/derod-private-genesis.patch" },
+      "deleted": ["vendor/github.com/tjfoc/gmsm/API????.md"],
+      "deleted_note": "a file whose name Windows cannot check out; not part of any build",
+      "untracked": ["veil/", "cmd/netwallet/", "cmd/genesistx/"],
+      "untracked_note": "veil/ is tests/run.sh's copy of contracts, reference and tests; cmd/* are tools/netwallet and tools/genesistx built inside the module (vendor mode)"
+    },
+    "vendor/derohe-civilware": {
+      "url": "https://github.com/civilware/derohe",
+      "commit": "433c45590f6792117ff81a2eb3e45513bb856ff5",
+      "modified": {},
+      "deleted": [],
+      "untracked": ["cmd/xswdwallet/"],
+      "untracked_note": "tools/xswdwallet built inside the fork (XSWD server)"
+    },
+    "vendor/tela": {
+      "url": "https://github.com/civilware/tela",
+      "commit": "aa892d2ff8d4deb9c519dd19c135e36ff9eac12b",
+      "modified": {},
+      "deleted": [],
+      "untracked": ["cmd/telainstall/"],
+      "untracked_note": "tools/telainstall built inside the module"
+    },
+    "vendor/engram": {
+      "url": "https://github.com/DEROFDN/Engram",
+      "commit": "12b6e61a592b9f69320e98e12f023cc0736f0dc6",
+      "modified": {},
+      "deleted": [],
+      "untracked": []
+    },
+    "vendor/documentation": {
+      "url": "https://github.com/deroproject/documentation",
+      "commit": "5f689feedd50481d552554da8decc01006dc027f",
+      "modified": {},
+      "deleted": [],
+      "untracked": []
+    }
+  },
+  "build": "every Go build inside a vendored module uses -mod=vendor; add -trimpath for release binaries; deploy/binaries.lock holds sha256 of vendor/bin/*.exe (verifyvendor -write-binaries)"
+}

@@ -1,0 +1,14 @@
+generators: 65536 in 2.765254473s
+secret  s = 567e07c35d9a3db81c1ea16c15a93723b5006850ab59edd48d283b456ecd5900
+H = sha256(s) = 4dea5fcbba8169ebf2df6bb21fa84d77d13f0d8acbcb7a81041e7f5052a3e136
+S = s*G       = 4bdbb6d4b2c14b0f96386526c2ab8b0851807aabb3da9dd68d1098ef74344a39
+multiplication gates: 37460
+prove: 14.847580083s
+proof bytes: 1601 (r1cs 1441 + commitment 32 + sigma 128)
+verify: 1.1523469s -> Ok(())
+wrong H rejected: true
+wrong S rejected: true
+tampered sigma rejected: true
+other secret vs this H rejected: true
+dero preimage check: true
+monero key from preimage: true

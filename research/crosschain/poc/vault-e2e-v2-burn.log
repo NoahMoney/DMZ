@@ -1,0 +1,73 @@
+vault fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+== signers attest the user's deposit address (index 0)
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf)
+signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+14:04:38 vault: users 1, supply 25000 / cap 100000, withdrawals 0, halted 0
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf)
+signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+14:04:38 vault: users 1, supply 25000 / cap 100000, withdrawals 0, halted 0
+k=2 n=3 sealed=1 halted=0 cap=100000 sup=25000 users=1 withdrawals=0
+user 0: raw 0da6f57058e0… deposit address sim:0
+user wrapped balance: 25000
+== user deposits 25000 foreign units; chain advances 3 blocks
+foreign deposit 51e5e93d… index 0 amount 25000 at foreign height 103
+foreign height 106
+== signers vote Mint (2 of 3)
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf)
+signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+14:05:02 Mint [{j U 0} {id S 51e5e93de0ab1dff98a92c12828e014c2eb4eb0f8a10032c0dc8c9b253f32646} {amount U 25000}] tx 3a8d0199…
+14:05:02 vault: users 1, supply 25000 / cap 100000, withdrawals 0, halted 0
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf)
+signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+14:05:26 Mint [{j U 0} {id S 51e5e93de0ab1dff98a92c12828e014c2eb4eb0f8a10032c0dc8c9b253f32646} {amount U 25000}] tx 7a1e431d…
+14:05:26 vault: users 1, supply 50000 / cap 100000, withdrawals 0, halted 0
+k=2 n=3 sealed=1 halted=0 cap=100000 sup=50000 users=1 withdrawals=0
+user 0: raw 0da6f57058e0… deposit address sim:0
+user wrapped balance: 50000
+== user burns 40000 to withdraw
+burn 4000 → 4AxmrDestinationAddressStandIn: tx cdc006600e1efd8d18126672fd16b15926cad3856c5a76aa70740c59ad80e21d height 5482 gas 352400; wrapped balance 50000 → 46000
+== signers pay the withdrawal on the foreign chain and vote Released
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf)
+signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+14:06:11 Released [{j U 0} {ftx S 1376f9c3ceda8ebfa5bea90883ace42984f6c3bc1f30552bd5800b9bcf97c9bf}] tx 41b8b7a6…
+14:06:11 vault: users 1, supply 46000 / cap 100000, withdrawals 1, halted 0
+network simulator; foreign parameters: monero 127.0.0.1:38082 (2 conf), zcash 127.0.0.1:18232 (2 conf), solana http://127.0.0.1:8899 (1 conf)
+signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+vault  fd078359ee786452358dd621f55c54fd859f736a1181e98abc7fb3316adc1aa6
+14:06:31 Released [{j U 0} {ftx S 1376f9c3ceda8ebfa5bea90883ace42984f6c3bc1f30552bd5800b9bcf97c9bf}] tx b5d8bc16…
+14:06:31 vault: users 1, supply 46000 / cap 100000, withdrawals 1, halted 0
+k=2 n=3 sealed=1 halted=0 cap=100000 sup=46000 users=1 withdrawals=1
+user 0: raw 0da6f57058e0… deposit address sim:0
+withdrawal 0: 3900 → 4AxmrDestinationAddressStandIn status 1 ftx 1376f9c3ceda8ebf…
+user wrapped balance: 46000
+== foreign chain file
+{
+  "height": 106,
+  "deposits": [
+    {
+      "txid": "e9f006099d8b5af3dbc2ac3c218efe7b8502f0a9118dfdef80d53ee85cc37472",
+      "index": 0,
+      "amount": 25000,
+      "height": 100
+    },
+    {
+      "txid": "51e5e93de0ab1dff98a92c12828e014c2eb4eb0f8a10032c0dc8c9b253f32646",
+      "index": 0,
+      "amount": 25000,
+      "height": 103
+    }
+  ],
+  "releases": [
+    {
+      "j": 0,
+      "dest": "4AxmrDestinationAddressStandIn",
+      "amount": 3900,
+      "ftx": "1376f9c3ceda8ebfa5bea90883ace42984f6c3bc1f30552bd5800b9bcf97c9bf"
+    }
+  ]
+}

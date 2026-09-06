@@ -1,0 +1,26 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+: "${REPO:?set REPO to the repository path as seen from this shell (WSL: /mnt/c/.../repo)}"
+Running breadth-first search Model-Checking with fp 61 and seed 3749762552475945019 with 8 workers on 16 cores with 3641MB heap and 64MB offheap memory [pid: 479] (Linux 6.18.33.2-microsoft-standard-WSL2 amd64, Ubuntu 21.0.12 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file $REPO/research/wrapper/formal/VeilWrap.tla
+Parsing file /tmp/Naturals.tla
+Parsing file /tmp/FiniteSets.tla
+Parsing file /tmp/Sequences.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module VeilWrap
+Starting... (2026-09-06 12:53:09)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-09-06 12:53:13.
+Progress(13) at 2026-09-06 12:53:16: 129,283 states generated (129,283 s/min), 31,567 distinct states found (31,567 ds/min), 13,801 states left on queue.
+Progress(18) at 2026-09-06 12:54:16: 1,099,647 states generated (970,364 s/min), 206,186 distinct states found (174,619 ds/min), 49,781 states left on queue.
+Progress(22) at 2026-09-06 12:55:16: 2,172,306 states generated (1,072,659 s/min), 370,025 distinct states found (163,839 ds/min), 35,600 states left on queue.
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 5.5E-8
+  based on the actual fingerprints:  val = 1.3E-8
+2745505 states generated, 443152 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 30.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 10 and the 95th percentile is 3).
+Finished in 03min 03s at (2026-09-06 12:56:07)
