@@ -31,6 +31,23 @@ whose done-criteria are stated. Where this file and the code disagree, the code 
     write the missing specification or tests, or improve another dependency; never wait.
 11. **Do not rebuild what works.** The gap matrix marks what exists; the backlog says what to change.
 
+## 0b. The published repository
+
+`https://github.com/NoahMoney/DMZ`, public, branch `main`. The published history starts from one clean root
+commit written on 2026-09-06: the earlier local commits carried machine-specific paths and are kept only in the
+local tag `local-history-before-publish`, which must never be pushed. Work continues on `main`, which tracks
+`origin/main`.
+
+Practical constraints learned while publishing:
+
+- Pushes larger than about two megabytes returned HTTP 408 on this connection. Push small commits; if a push
+  fails, split it (the screenshots went in their own commit).
+- `tools/publish.sh` records the whole mechanism (read the stored credential with `git credential fill`, check
+  the account through the API, create the repository, build a root commit with `commit-tree`, push). The token is
+  never printed and never written to a file.
+- The repository has no licence file yet, so it is "all rights reserved" by default; adding one is a wrap-up item
+  (§6). There is no `SECURITY.md` either, and the README asks for findings as issues.
+
 ## 1. Where things stand (end of loop 16)
 
 - Verified green at the last commit: the contract suite (`bash tests/run.sh`, ~450 s), `go test ./vaultsigner
