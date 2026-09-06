@@ -2433,3 +2433,93 @@ from the operator ("Hermes"). Both are folded in below; where they disagreed wit
   the right destination.
 - Then the Monero backend against recorded wallet-rpc fixtures (W3), which is the first time any of this touches
   a real chain's semantics.
+
+
+## Loop 19 — liveness by construction: nothing may need a human (2026-09-07, 01:50–03:10)
+
+The operator ruled that they will revoke their own access after deployment. That turns a whole class of design
+into a defect: **any state that needs a privileged party, a manual flag or an operator decision to leave is a
+permanent freeze of user funds.** The rule is now HANDOVER rule 0, and this cycle rebuilt everything that broke it.
+
+### COMPLETED
+
+- **The outsized-withdrawal breaker became a size-tiered delay.** It used to refuse to pay and halt the vault; an
+  operator resumed and every signer halted again, forever — I reproduced exactly that in loop 18's first live run.
+  Now `bigbps`/`bigdelay` are fixed at install and never changeable, `Burn` records `w_<j>_rel` (the height from
+  which the withdrawal may be released: `wdelay`, plus `bigdelay` when it is larger than `bigbps` of the supply),
+  and `Released` gates on that. A large withdrawal waits longer and then pays. Doing nothing releases.
+- **`maxdep` is deleted outright.** A deposit above a per-deposit maximum could never be minted at all, and with
+  no operator nobody could send it back — a silent permanent loss. The rolling window bounds the mint rate
+  instead and empties by itself; `tests/vault_limits_test.go` now asserts that a deposit the window turned away
+  mints untouched two buckets later.
+- **A halt is a condition, not a decision.** The daemon votes `Halt(1)` while the reserve is short of the supply
+  and `Halt(0)` once it is not, one vote per direction per 2000-block bucket. Every honest signer computes the
+  same thing from the same public state, so the quorum forms and dissolves with nobody to ask.
+- **The daemon lost every discretionary power over user funds**: `-allow-withdrawal`, the flag memory and
+  `suspiciousWithdrawal` are gone. It pays what the contract says is releasable and nothing else.
+- **`ClaimFees` is permissionless on every market** (`launch.bas`, `pool.bas`, `nft.bas`). It always pays the
+  treasury address recorded at install, so who receives it is unchanged, but the *claiming* no longer waits for
+  one key to be online. An empty pool is refused rather than burning a fee for nothing.
+- Over-cap deposits are reported as waiting for headroom, which is what they are: the daemon retries every pass,
+  so a later burn or the window sliding credits them with nobody intervening.
+
+### VERIFIED
+
+- Full suite green, 38 tests, 56 s. `go test ./vaultsigner ./simrpc ./treasurybot` green.
+- The limits test now proves both halves of the principle: a window-refused deposit mints later untouched, and
+  both an ordinary and a large withdrawal release once their recorded height passes (5 and 505 blocks).
+
+### DISCOVERED
+
+- Writing the rule down changed what counts as a bug. Three mechanisms that all looked reasonable in isolation —
+  a size breaker, a per-deposit maximum, and an operator override — were each a permanent freeze once you assume
+  nobody is there. None of them would have failed a test; they would have failed a user, years later.
+- The DVM's inability to let one contract pay another is what forces the treasury bot to exist, and it is now the
+  only remaining trusted step in the fee path. Everything around it has been made permissionless.
+
+### SECURITY
+
+- Removed: the halt deadlock, the permanent-stall paths through `maxdep` and the manual override, and the
+  single-key dependency of the fee claim.
+- The size defence is weaker on paper (a delay, not a refusal) and stronger in practice: a refusal that needs an
+  absent human to lift is not a defence, it is a loss. The delay is what honest signers actually use — time to
+  see the burn and vote a k-of-n `Veto` or `Halt`.
+
+### UX
+
+- A user's large withdrawal now completes on its own, late instead of never. The app should show the release
+  height so the wait is visible rather than mysterious (not yet done — added to the backlog).
+
+### PERFORMANCE / STORAGE
+
+- Contract 18,895 bytes, install gas 19,229 of 20,000. Removing `maxdep` paid for `bigbps`/`bigdelay`.
+
+### ECONOMICS
+
+- Permissionless `ClaimFees` means a Founders Pass holder who sees fees accruing can move them without asking
+  anyone, which is a real improvement to the credibility of the fee-share promise.
+
+### PRIVACY
+
+- Unchanged this cycle.
+
+### UNCONSIDERED
+
+1. `mindep` is still a permanent loss for a deposit below it: never mintable, never refundable without an
+   operator. It exists to stop a griefer forcing k signer transactions per dust payment. The honest resolution is
+   that the minimum must be published in the app *next to the deposit address*, so it is a rule the user saw
+   rather than a trap. Not yet in the UI.
+2. Signer replacement (`AddSigner2`) still needs a human to choose the new signer's address. That human is the
+   federation, not the operator, so it does not break rule 0 — but if the whole federation goes silent the vault
+   drifts to `na == k` and then stops. Nothing on chain can fix that, and the trust statement should say so.
+3. The TELA INDEX key is the last operator-shaped power in the system: whoever holds it can replace the app the
+   users load. Discarding it makes the app immutable (safe, unfixable); keeping it is a standing trust. The
+   deployment runbook must make that an explicit, recorded choice rather than an accident.
+4. A halt that is voted for a reason *other* than a reserve shortfall will now be auto-resumed by the daemons,
+   because they only know the shortfall rule. If a future signer halts for a reason the daemon cannot see, the
+   others will vote it back up. Any new halt reason must therefore be computable from public state too.
+
+### NEXT
+
+- Publish the minimum deposit and the release height in the app (unconsidered 1 and the UX note).
+- Then release-side verification (`VerifyRelease`), and the Monero backend against recorded fixtures.
