@@ -152,6 +152,29 @@ Pipeline specification §C1–C6), `research/wrapper/RUNBOOKS.md`, `contracts/RE
   `SetLimits` before `Seal`; a burn is paid only at or below DERO's stable height and after `wdelay`.
 - **Solana** is optional and last.
 
+### 5.1b State of the daemon (2026-09-07)
+
+`tools/vaultsigner` speaks v3 and runs the whole loop on the simulator: attest, mint against `(txid, vout)`, pay
+and release, veto a destination the chain cannot pay, and halt on a reserve shortfall or an outsized withdrawal.
+`bash tools/simvault/e2e.sh <scid>` walks all of it including the halt, an operator resume and the explicit
+`-allow-withdrawal` override. What is still missing is only the foreign side (§5.3 and §5.4).
+
+Rules the daemon now enforces, each of which came from an audit finding:
+
+- **Every vote is proved by reading back this signer's own vote key** (`<f>v_<scope>_<address>` holds the choice
+  it made). A counter can be moved by a co-signer in the same block; the vote key cannot.
+- **A deposit older than the address it was paid to is never credited.** An address derived from a future index
+  can be paid before anyone owns it, and crediting that would hand one user's coins to whoever registers the
+  index next. The anchor is the foreign height at which this signer first saw the address published, kept in the
+  state file. After a state loss the anchor is "now", which is conservative: other signers carry the vote.
+- **A deposit is re-read at vote time** (`Verify`) and never voted above the chain's finalized height.
+- **An outsized withdrawal halts the vault once, not forever.** The signer flags it, votes `Halt(1)` once, and
+  then leaves it alone: halting again after every resume would deadlock the vault, because the withdrawal is
+  still there. An operator either vetoes it with k votes or clears the flag with `-allow-withdrawal <j>`.
+- **A withdrawal already being paid is never vetoed** — the units would go back while the coins were gone.
+- The state file is bound to one vault (its intents name that vault's withdrawal indexes) and the lock file is
+  removed on every exit path, including a signal.
+
 ### 5.2 The backend contract every implementation must satisfy
 
 `tools/vaultsigner` `Backend` today: `Height()`, `Deposits()`, `Address(index)`, `Release(j, dest, amount)`

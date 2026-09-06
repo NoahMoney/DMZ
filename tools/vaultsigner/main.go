@@ -1,18 +1,19 @@
-// vaultsigner is one federation signer for contracts/vault.bas. It watches a foreign chain for deposits to the
-// attested per-user addresses, votes Mint after the confirmation policy, derives and attests deposit addresses
-// for new user indexes, pays pending withdrawals through the foreign backend and votes Released. Run one per
+// vaultsigner is one federation signer for contracts/vault.bas v3. It watches a foreign chain for deposits to the
+// attested per-index addresses, votes Mint after the confirmation and finality policy, derives and attests deposit
+// addresses for new indexes, pays pending withdrawals through the foreign backend and votes Released. Run one per
 // signer wallet; k of them must agree before the contract does anything.
 //
-//	go run ./vaultsigner -wallet 127.0.0.1:30003 -vault <scid> -backend sim -sim ../research/crosschain/poc/sim-foreign.json [-confs 2] [-once]
+//	go run ./vaultsigner -wallet 127.0.0.1:30003 -vault <scid> -backend sim -sim ../research/crosschain/poc/sim-foreign.json [-once]
 //
-// Backends: `sim` reads a JSON file that stands in for the foreign chain (height, deposits, releases). Real
-// backends (zcash, monero, solana) plug into the same calls: Deposits(), Address(index), Release(j, dest, amount),
-// Reserve(). Release MUST be idempotent for a given j (look the payment up before paying): the signer records an
-// intent before it pays and may call Release again after a crash.
+// Backends: `sim` reads a JSON file that stands in for the foreign chain. Real backends (zcash, monero, solana)
+// implement the same interface. Release MUST be idempotent for a given j (look the payment up before paying):
+// the signer records an intent before it pays and may call Release again after a crash.
 //
-// Exactly-once release: every withdrawal goes through a durable intent (paying → paid → voted) written with
-// fsync + rename before the next step; the state file is loaded strictly (a corrupt file stops the signer rather
-// than starting it with an empty memory).
+// Exactly-once release: every withdrawal goes through a durable intent (paying -> paid -> voted) written with
+// fsync + rename before the next step; the state file is loaded strictly and is bound to one vault.
+//
+// Every vote is proved by reading back the daemon's OWN vote key (<f>v_<scope>_<address> holds the choice that
+// signer made), so a co-signer voting in the same block can never be mistaken for our own vote landing.
 package main
 
 import (
@@ -24,7 +25,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	rpc "veil/tools/simrpc"
@@ -37,17 +41,18 @@ var (
 	backend   = flag.String("backend", "sim", "foreign backend: sim (zcash, monero, solana: planned)")
 	network   = flag.String("network", "simulator", "DERO network the vault lives on: simulator, testnet, mainnet (selects the foreign-chain parameters)")
 	simPath   = flag.String("sim", "../research/crosschain/poc/sim-foreign.json", "sim backend file")
-	statePath = flag.String("state", "", "local vote memory and release intents (default: vaultsigner-<signer address prefix>.json)")
+	statePath = flag.String("state", "", "local vote memory and release intents (default: vaultsigner-<vault prefix>-<signer suffix>.json)")
 	confs     = flag.Int64("confs", 0, "confirmations before a deposit is voted (0: the network table's value for the backend; sim: 2)")
 	interval  = flag.Duration("interval", 20*time.Second, "poll interval")
 	once      = flag.Bool("once", false, "one pass, then exit")
 	timeout   = flag.Duration("timeout", 180*time.Second, "per-tx timeout")
 	yes       = flag.Bool("yes", false, "required on mainnet: this signer pays real withdrawals on the foreign chain")
-	maxOutBps = flag.Uint64("max-withdrawal-bps", 2000, "a single withdrawal above this share of the foreign reserve (basis points) is not paid: the signer votes Halt(1) instead; 0 disables")
+	maxOutBps = flag.Uint64("max-withdrawal-bps", 2000, "a single withdrawal above this share of the foreign reserve (basis points) is not paid: the signer votes Halt(1) once and then leaves it to the operator; 0 disables")
+	allowW    = flag.String("allow-withdrawal", "", "comma-separated withdrawal indexes the operator has judged legitimate: pay them despite -max-withdrawal-bps")
 )
 
 // suspiciousWithdrawal says whether one withdrawal is too large a share of the reserve to pay without a human:
-// amount > reserve × bps / 10000. Exact integers; a zero reserve makes every withdrawal suspicious.
+// amount > reserve x bps / 10000. Exact integers; a zero reserve makes every withdrawal suspicious.
 func suspiciousWithdrawal(amount, reserve, bps uint64) bool {
 	if bps == 0 {
 		return false
@@ -55,13 +60,18 @@ func suspiciousWithdrawal(amount, reserve, bps uint64) bool {
 	return amount > (reserve/10000)*bps+((reserve%10000)*bps)/10000
 }
 
-// Deposit is a confirmed-or-not transfer to a user's deposit address on the foreign chain.
+// Deposit is one foreign output paid to an attested deposit address. TxID is 64 lowercase hex characters (the raw
+// 32-byte transaction id) and Vout is the output index within it: together they are the deposit's identity, and
+// the contract builds the same id from the raw bytes so a spelling can never create a second one.
 type Deposit struct {
-	TxID   string `json:"txid"`   // 64 hex
-	Index  uint64 `json:"index"`  // user deposit index (vault ua_ key)
+	TxID   string `json:"txid"`
+	Vout   uint64 `json:"vout"`
+	Index  uint64 `json:"index"`  // the vault index (ua_ key) the address belongs to
 	Amount uint64 `json:"amount"` // foreign base units
 	Height int64  `json:"height"` // foreign height it was included at
 }
+
+func (d Deposit) id() string { return d.TxID + ":" + strconv.FormatUint(d.Vout, 10) }
 
 type Release struct {
 	J      uint64 `json:"j"`
@@ -70,21 +80,34 @@ type Release struct {
 	FTx    string `json:"ftx"`
 }
 
-// Backend is what a foreign chain must provide to the signer.
+// Backend is what a foreign chain must provide to the signer. Every method must fail rather than guess.
 type Backend interface {
 	Height() (int64, error)
+	// Finalized is the highest foreign height this chain treats as irreversible under the network policy. A
+	// deposit above it is never voted, however many confirmations it has.
+	Finalized() (int64, error)
 	Deposits() ([]Deposit, error)
+	// Verify re-fetches one deposit at vote time and says whether it is still there with the same amount and
+	// index. A deposit that vanished in a reorganisation must never be voted.
+	Verify(d Deposit) (bool, error)
 	Address(index uint64) (string, error)
+	// ValidDest says whether a destination string is spendable on this chain. A withdrawal whose destination is
+	// not is vetoed rather than paid into nowhere.
+	ValidDest(dest string) bool
 	Release(j uint64, dest string, amount uint64) (string, error) // idempotent per j; returns the foreign txid
 	Reserve() (uint64, error)                                     // foreign units the federation holds
+	// Health fails when the node or wallet is unreachable, unsynced or missing its signing material. The daemon
+	// does nothing at all in that state rather than acting on a partial view.
+	Health() error
 }
 
 // --- sim backend: a JSON file edited by tools/simvault ---
 
 type simFile struct {
-	Height   int64     `json:"height"`
-	Deposits []Deposit `json:"deposits"`
-	Releases []Release `json:"releases"`
+	Height    int64     `json:"height"`
+	Finalized int64     `json:"finalized"` // 0 means "height minus the confirmation policy"
+	Deposits  []Deposit `json:"deposits"`
+	Releases  []Release `json:"releases"`
 }
 
 type simBackend struct{ path string }
@@ -102,14 +125,43 @@ func (s simBackend) save(f simFile) error {
 	return os.WriteFile(s.path, b, 0o644)
 }
 func (s simBackend) Height() (int64, error) { f, err := s.load(); return f.Height, err }
+func (s simBackend) Finalized() (int64, error) {
+	f, err := s.load()
+	if err != nil {
+		return 0, err
+	}
+	if f.Finalized > 0 {
+		return f.Finalized, nil
+	}
+	return f.Height - *confs, nil
+}
 func (s simBackend) Deposits() ([]Deposit, error) {
 	f, err := s.load()
 	return f.Deposits, err
+}
+func (s simBackend) Verify(d Deposit) (bool, error) {
+	f, err := s.load()
+	if err != nil {
+		return false, err
+	}
+	for _, x := range f.Deposits {
+		if x.TxID == d.TxID && x.Vout == d.Vout {
+			return x.Amount == d.Amount && x.Index == d.Index && x.Height == d.Height, nil
+		}
+	}
+	return false, nil
 }
 func (s simBackend) Address(index uint64) (string, error) {
 	// stands in for a subaddress (Monero) / diversified address (Orchard) derived from the shared viewing key:
 	// deterministic in the index, so every signer derives the same string
 	return "sim:" + strconv.FormatUint(index, 10), nil
+}
+func (s simBackend) ValidDest(dest string) bool {
+	return len(dest) >= 16 && !strings.ContainsAny(dest, " \t\n")
+}
+func (s simBackend) Health() error {
+	_, err := s.load()
+	return err
 }
 func (s simBackend) Release(j uint64, dest string, amount uint64) (string, error) {
 	f, err := s.load()
@@ -144,10 +196,10 @@ func (s simBackend) Reserve() (uint64, error) {
 	return in - out, nil
 }
 
-// --- durable local state: votes already cast and release intents ---
+// --- durable local state: what this signer has done, and what it knows about the foreign chain ---
 
 // Intent is one withdrawal's progress. paying: recorded before any foreign payment; paid: the foreign txid is
-// known; voted: the Released vote was submitted. A signer that restarts finishes every intent from its state.
+// known; voted: the Released vote was counted. A signer that restarts finishes every intent from its state.
 type Intent struct {
 	J      uint64 `json:"j"`
 	Dest   string `json:"dest"`
@@ -157,20 +209,28 @@ type Intent struct {
 }
 
 type memory struct {
-	Minted   map[string]bool    `json:"minted"`
-	Attested map[string]bool    `json:"attested"`
-	Intents  map[string]*Intent `json:"intents"`
-	Halted   map[string]bool    `json:"halted"` // halt votes cast, keyed by height bucket
-	path     string
+	Vault   string             `json:"vault"` // the state file belongs to exactly one vault
+	Intents map[string]*Intent `json:"intents"`
+	Halted  map[string]bool    `json:"halted"` // halt votes cast, keyed by halt epoch and height bucket
+	// Flagged are withdrawals this signer refused to pay because of their size. It halts once for each and then
+	// leaves it alone: halting again after every resume would deadlock the vault, since the withdrawal is still
+	// there. An operator either vetoes it with k votes or clears the flag with -allow-withdrawal.
+	Flagged map[string]bool `json:"flagged"`
+	// LiveAt is the foreign height at which this signer first saw index j's deposit address published. A deposit
+	// older than that is ignored: an address derived from a future index can be paid before anyone owns it, and
+	// crediting such a payment would hand one user's coins to whoever registers the index next.
+	LiveAt map[string]int64 `json:"liveAt"`
+	path   string
 }
 
-func newMemory(path string) *memory {
-	return &memory{Minted: map[string]bool{}, Attested: map[string]bool{}, Intents: map[string]*Intent{}, Halted: map[string]bool{}, path: path}
+func newMemory(path, vault string) *memory {
+	return &memory{Vault: vault, Intents: map[string]*Intent{}, Halted: map[string]bool{}, Flagged: map[string]bool{}, LiveAt: map[string]int64{}, path: path}
 }
 
-// loadMemory is strict: a missing file is a fresh signer, an unreadable one stops the signer.
-func loadMemory(path string) (*memory, error) {
-	m := newMemory(path)
+// loadMemory is strict: a missing file is a fresh signer, an unreadable one or one belonging to another vault
+// stops the signer rather than replaying its intents against the wrong withdrawal indexes.
+func loadMemory(path, vault string) (*memory, error) {
+	m := newMemory(path, vault)
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return m, nil
@@ -181,22 +241,25 @@ func loadMemory(path string) (*memory, error) {
 	if err := json.Unmarshal(b, m); err != nil {
 		return nil, fmt.Errorf("state %s is corrupt (%v): refusing to start with an empty memory", path, err)
 	}
-	if m.Minted == nil {
-		m.Minted = map[string]bool{}
+	if m.Vault != "" && m.Vault != vault {
+		return nil, fmt.Errorf("state %s belongs to vault %s, not %s: its intents name that vault's withdrawal indexes", path, m.Vault, vault)
 	}
-	if m.Attested == nil {
-		m.Attested = map[string]bool{}
-	}
+	m.Vault = vault
 	if m.Intents == nil {
 		m.Intents = map[string]*Intent{}
 	}
 	if m.Halted == nil {
 		m.Halted = map[string]bool{}
 	}
+	if m.LiveAt == nil {
+		m.LiveAt = map[string]int64{}
+	}
+	if m.Flagged == nil {
+		m.Flagged = map[string]bool{}
+	}
 	return m, nil
 }
 
-// save writes the whole state to a temp file, fsyncs it and renames it over the old one.
 func (m *memory) save() error {
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -277,6 +340,22 @@ func processWithdrawal(mem *memory, be Backend, j uint64, dest string, amount ui
 	return nil
 }
 
+// lockFile is removed on every exit path, including a fatal one and a signal, so an ordinary Ctrl-C or one bad
+// RPC does not take a signer offline until a human deletes a file.
+var lockFile string
+
+func release() {
+	if lockFile != "" {
+		os.Remove(lockFile)
+		lockFile = ""
+	}
+}
+
+func die(format string, a ...interface{}) {
+	release()
+	log.Fatalf(format, a...)
+}
+
 func main() {
 	flag.Parse()
 	if len(*vault) != 64 {
@@ -304,7 +383,7 @@ func main() {
 		if *confs == 0 || (*network == "mainnet" && *confs < p.Confirmations) {
 			*confs = p.Confirmations // the network table is the floor on mainnet, the default everywhere
 		}
-		log.Fatalf("backend %q (%s, rpc %s, %d confirmations) is not implemented yet: see docs/history/HISTORY.md (day log) wrapper backlog", *backend, p.Name, p.RPC, p.Confirmations)
+		log.Fatalf("backend %q (%s, rpc %s, %d confirmations) is not implemented yet: docs/HANDOVER.md section 5 is the build plan", *backend, p.Name, p.RPC, p.Confirmations)
 	default:
 		log.Fatalf("unknown backend %q", *backend)
 	}
@@ -315,36 +394,39 @@ func main() {
 	if testnet, name := c.Info(); (*network == "mainnet") == testnet {
 		log.Fatalf("-network %s but the daemon at %s reports %q (testnet=%v)", *network, *daemon, name, testnet)
 	}
+	if v := c.GetSC(*vault, false).U("v"); v != 3 {
+		log.Fatalf("vault %s is version %d; this signer speaks version 3", *vault, v)
+	}
 	me := rpc.Address(*wallet)
-	if *statePath == "" {
-		*statePath = "vaultsigner-" + me[len(me)-12:] + ".json" // one file per signer identity, not per port
+	// contract keys name a signer by ADDRESS_STRING, which is always the mainnet spelling even on testnet
+	dvmMe := rpc.DVMAddress(me)
+	if dvmMe == "" {
+		log.Fatalf("wallet %s reported an address this tool cannot parse: %s", *wallet, me)
 	}
-	// one daemon per state file: a second one would overwrite intents and, with a backend that does not look
-	// payments up by j, pay twice. The lock names the pid; remove it by hand only when no signer is running.
-	lock := *statePath + ".lock"
-	lf, err := os.OpenFile(lock, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if *statePath == "" { // one file per (vault, signer): intents name withdrawal indexes of one vault only
+		*statePath = "vaultsigner-" + (*vault)[:8] + "-" + me[len(me)-12:] + ".json"
+	}
+	// one daemon per state file: a second would overwrite intents and, with a backend that does not look
+	// payments up by j, pay twice. The lock names the pid and is removed on every exit path.
+	lf, err := os.OpenFile(*statePath+".lock", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		log.Fatalf("%s exists: another signer runs on this state (or crashed without removing it): %v", lock, err)
+		log.Fatalf("%s.lock exists: another signer runs on this state (or was killed with SIGKILL): %v", *statePath, err)
 	}
+	lockFile = *statePath + ".lock"
 	fmt.Fprintf(lf, "%d\n", os.Getpid())
 	lf.Close()
-	defer os.Remove(lock)
-	mem, err := loadMemory(*statePath)
+	defer release()
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() { <-sig; release(); os.Exit(130) }()
+
+	mem, err := loadMemory(*statePath, *vault)
 	if err != nil {
-		log.Fatal(err)
-	}
-	// Fail closed on the contract version. This daemon speaks vault v2: v3 changed the Mint signature (a raw
-	// txid and an output index instead of a spelled id), moved the sup decrement from Burn to Released, and
-	// scoped every operational vote by the halt epoch and a height bucket. Running it against v3 would vote
-	// nothing through, mis-read the reserve invariant and halt the vault. Port it (docs/HANDOVER.md section 5)
-	// before removing this check.
-	if v := c.GetSC(*vault, false).U("v"); v != 2 {
-		log.Fatalf("vault %s is version %d; this signer speaks version 2 only. Do not run it against a v3 vault: "+
-			"its Mint call, its reserve check and its vote-counter keys are all wrong for v3.", *vault, v)
+		die("%v", err)
 	}
 	fmt.Printf("signer %s\nvault  %s\nstate  %s (%d intents)\n", me, *vault, *statePath, len(mem.Intents))
 	for {
-		pass(c, be, me, mem)
+		pass(c, be, me, dvmMe, mem)
 		if *once {
 			return
 		}
@@ -352,8 +434,8 @@ func main() {
 	}
 }
 
-// send submits one contract call: estimated when the daemon can judge it, with a fixed fee for entrypoints gated on
-// BLOCK_HEIGHT() (the estimator runs contracts at height 0). Returns the txid and the height it was included at.
+// send submits one contract call: estimated when the daemon can judge it, with a fixed fee for entrypoints gated
+// on BLOCK_HEIGHT() (the estimator runs contracts at height 0). Returns the txid and the inclusion height.
 func send(c *rpc.Client, me, entry string, args []rpc.Arg, fixedFee uint64) (string, int64, bool) {
 	all := append([]rpc.Arg{rpc.S("entrypoint", entry)}, args...)
 	fee := fixedFee
@@ -374,20 +456,19 @@ func send(c *rpc.Client, me, entry string, args []rpc.Arg, fixedFee uint64) (str
 	return txid, height, true
 }
 
-// vote submits a vote and reports whether the contract counted it: inclusion is not execution, so the vote's own
-// counter key (mc_/dc_/rc_/hc_) must have grown. counter builds the key from the height the vote landed at.
-// A vote that was included but not counted is not remembered, and the next pass casts it again; the contract
-// refuses a signer's duplicate, so at worst a fee is spent.
-func vote(c *rpc.Client, me, entry string, args []rpc.Arg, fixedFee uint64, counter func(height int64) string) bool {
-	before := c.GetSC(*vault, false)
+// vote submits a vote and reports whether the CONTRACT recorded it as ours. Inclusion is not execution, and a
+// counter can also be moved by a co-signer in the same block, so the proof is this signer's own vote key
+// (<f>v_<scope>_<address>), whose value is the choice it made. scope is built from the inclusion height because
+// the contract scopes operational votes by the 2000-block bucket it executed in.
+func vote(c *rpc.Client, me, entry string, args []rpc.Arg, fixedFee uint64, voteKey func(height int64) string, choice string) bool {
 	_, height, ok := send(c, me, entry, args, fixedFee)
 	if !ok {
 		return false
 	}
-	key := counter(height)
-	after := c.GetSC(*vault, false)
-	if after.U0(key) <= before.U0(key) {
-		fmt.Printf("%s %s was included but not counted (%s unchanged): will vote again\n", time.Now().Format("15:04:05"), entry, key)
+	key := voteKey(height)
+	st := c.GetSC(*vault, false)
+	if !st.Has(key) || st.Str(key) != choice {
+		fmt.Printf("%s %s was included but the contract did not record our vote (%s): will vote again\n", time.Now().Format("15:04:05"), entry, key)
 		return false
 	}
 	return true
@@ -395,19 +476,25 @@ func vote(c *rpc.Client, me, entry string, args []rpc.Arg, fixedFee uint64, coun
 
 func sha256hex(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 
-func pass(c *rpc.Client, be Backend, me string, mem *memory) {
+// said keeps a per-process note of deposits already explained, so a permanent condition is reported once rather
+// than on every poll.
+var said = map[string]bool{}
+
+func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
+	if err := be.Health(); err != nil { // a partial view of the foreign chain is worse than no action at all
+		log.Printf("foreign backend unhealthy, doing nothing this pass: %v", err)
+		return
+	}
 	st := c.GetSC(*vault, false)
 	if st.U("sealed") == 0 {
 		fmt.Println("vault not sealed yet")
 		return
 	}
-	se := strconv.FormatUint(st.U("se"), 10)
-	he := strconv.FormatUint(st.U("he"), 10)
-	// a halt vote is keyed by slash epoch, halt epoch, target state and 2000-block bucket (vault.bas Halt)
-	haltKey := func(want uint64) func(int64) string {
-		return func(h int64) string {
-			return "hc_" + se + "_" + he + "_" + strconv.FormatUint(want, 10) + "_" + strconv.FormatInt(h/2000, 10)
-		}
+	se, he := strconv.FormatUint(st.U("se"), 10), strconv.FormatUint(st.U("he"), 10)
+	// every operational vote lives in scope <se>_<he>_<bucket>; the bucket comes from the height the vote landed at
+	scope := func(h int64) string { return se + "_" + he + "_" + strconv.FormatInt(h/2000, 10) }
+	voteKey := func(f, suffix string) func(int64) string {
+		return func(h int64) string { return f + "v_" + scope(h) + "_" + suffix + "_" + dvmMe }
 	}
 	// halt memory follows the halt epoch: after a resume (new he) a fresh shortfall must be voted again
 	haltOnce := func(reason string) {
@@ -416,43 +503,52 @@ func pass(c *rpc.Client, be Backend, me string, mem *memory) {
 			return
 		}
 		fmt.Printf("%s; voting Halt(1)\n", reason)
-		if vote(c, me, "Halt", []rpc.Arg{rpc.U("want", 1)}, 0, haltKey(1)) {
+		if vote(c, me, "Halt", []rpc.Arg{rpc.U("want", 1)}, 0, func(h int64) string { return "hv_" + scope(h) + "_" + dvmMe }, "1") {
 			mem.Halted[bucket] = true
 			if err := mem.save(); err != nil {
-				log.Fatal(err)
+				die("%v", err)
 			}
 		}
 	}
-	// 0. reserve check: the foreign chain must hold the wrapped supply plus every burn not yet paid (sup was
-	//    reduced at the burn, the reserve only at the payment); our own paid intents are already out of both
+	// 0. the reserve invariant, which v3 makes exact: a burn keeps its claim in sup until the payment is
+	//    recorded, so the foreign reserve must simply cover sup at every moment.
 	reserve, err := be.Reserve()
 	if err != nil {
 		log.Printf("reserve: %v", err)
 		return
 	}
-	pending := uint64(0)
-	for j := uint64(0); j < st.U("wn"); j++ {
-		js := strconv.FormatUint(j, 10)
-		if st.U("w_"+js+"_st") != 0 {
-			continue
-		}
-		if it := mem.Intents[js]; it != nil && it.State != "paying" {
-			continue
-		}
-		pending += st.U("w_" + js + "_v")
-	}
-	if sup := st.U("sup"); reserve < sup+pending {
-		haltOnce(fmt.Sprintf("RESERVE SHORTFALL: foreign reserve %d < wrapped supply %d + unpaid withdrawals %d", reserve, sup, pending))
+	if sup := st.U("sup"); reserve < sup {
+		haltOnce(fmt.Sprintf("RESERVE SHORTFALL: foreign reserve %d < wrapped supply %d", reserve, sup))
 		return
 	}
 	if st.U("halted") != 0 {
+		// a halted vault still needs the one thing that returns funds: vetoing withdrawals it will not pay
+		vetoPass(c, be, me, dvmMe, mem, st, scope)
 		fmt.Println("vault halted: no mints, no releases")
 		return
 	}
-	// 1. attest deposit addresses for new user indexes
+
+	fh, err := be.Height()
+	if err != nil {
+		log.Printf("foreign height: %v", err)
+		return
+	}
+	final, err := be.Finalized()
+	if err != nil {
+		log.Printf("foreign finality: %v", err)
+		return
+	}
+
+	// 1. attest deposit addresses for new indexes, and remember the foreign height each address went live at
 	for j := uint64(0); j < st.U("un"); j++ {
 		js := strconv.FormatUint(j, 10)
-		if st.Has("da_"+js) || mem.Attested[js] {
+		if st.Has("da_" + js) {
+			if _, seen := mem.LiveAt[js]; !seen { // first time we see this address published
+				mem.LiveAt[js] = fh
+				if err := mem.save(); err != nil {
+					die("%v", err)
+				}
+			}
 			continue
 		}
 		addr, err := be.Address(j)
@@ -461,79 +557,104 @@ func pass(c *rpc.Client, be Backend, me string, mem *memory) {
 			continue
 		}
 		ver := strconv.FormatUint(st.U0("dver_"+js), 10)
-		key := "dc_" + se + "_" + js + "_" + ver + "_" + sha256hex(addr)
-		if vote(c, me, "Attest", []rpc.Arg{rpc.U("j", j), rpc.S("addr", addr)}, 0, func(int64) string { return key }) {
-			mem.Attested[js] = true
-			if err := mem.save(); err != nil {
-				log.Fatal(err)
+		ah := sha256hex(addr)
+		if vote(c, me, "Attest", []rpc.Arg{rpc.U("j", j), rpc.S("addr", addr)}, 0, voteKey("d", js+"_"+ver), ah) {
+			if _, seen := mem.LiveAt[js]; !seen {
+				mem.LiveAt[js] = fh
+				if err := mem.save(); err != nil {
+					die("%v", err)
+				}
 			}
 		}
 	}
-	// 2. mint confirmed deposits
-	height, err := be.Height()
-	if err != nil {
-		log.Printf("foreign height: %v", err)
-		return
-	}
+
+	// 2. mint deposits that are confirmed, final, and no older than the address they were paid to
 	deps, err := be.Deposits()
 	if err != nil {
 		log.Printf("deposits: %v", err)
 		return
 	}
 	for _, d := range deps {
-		if len(d.TxID) < 64 || len(d.TxID) > 80 || d.Amount == 0 || height-d.Height < *confs {
+		if len(d.TxID) != 64 || d.Amount == 0 {
 			continue
 		}
-		if st.Has("md_"+d.TxID) || mem.Minted[d.TxID] {
+		id, js := d.id(), strconv.FormatUint(d.Index, 10)
+		if st.Has("mint_" + id) { // already minted or refunded, on chain: nothing to do, ever
 			continue
 		}
-		js := strconv.FormatUint(d.Index, 10)
+		if fh-d.Height < *confs || d.Height > final {
+			continue // not enough confirmations, or above what this chain calls final
+		}
 		if !st.Has("ua_" + js) {
-			fmt.Printf("deposit %s… to unknown index %d\n", d.TxID[:8], d.Index)
+			fmt.Printf("deposit %s to unknown index %d\n", id[:12], d.Index)
 			continue
 		}
-		// what the contract will refuse at quorum it refuses for every signer: say why instead of voting into it.
-		// The funds stay at the deposit address until the cap is raised (TRUST_STATEMENT: Cap); a deposit above
-		// maxdep is never minted and needs the operator runbook (refund from the federation's address).
+		if !st.Has("da_" + js) {
+			continue // the address is not attested yet; the deposit waits
+		}
+		live, seen := mem.LiveAt[js]
+		if !seen {
+			mem.LiveAt[js] = fh // conservative: only what arrives from now on counts for an index we just met
+			if err := mem.save(); err != nil {
+				die("%v", err)
+			}
+			live = fh
+		}
+		if d.Height < live {
+			if !said[id] {
+				said[id] = true
+				fmt.Printf("deposit %s predates index %d's address (foreign height %d < %d): not credited\n", id[:12], d.Index, d.Height, live)
+			}
+			continue
+		}
+		if amount := d.Amount; amount < st.U("mindep") {
+			fmt.Printf("deposit %s (%d) is below the minimum %d: never minted, operator refund needed\n", id[:12], amount, st.U("mindep"))
+			continue
+		}
 		if sup, cap := st.U("sup"), st.U("cap"); sup+d.Amount < sup || sup+d.Amount > cap {
-			fmt.Printf("deposit %s… (%d) waits: supply %d + %d exceeds the cap %d; k signers must SetCap first\n", d.TxID[:8], d.Amount, sup, d.Amount, cap)
+			fmt.Printf("deposit %s (%d) waits: supply %d + %d exceeds the cap %d; k signers must SetCap first\n", id[:12], d.Amount, sup, d.Amount, cap)
 			continue
 		}
 		if maxdep := st.U0("maxdep"); maxdep != 0 && d.Amount > maxdep {
-			fmt.Printf("deposit %s… (%d) is above the per-deposit limit %d: never minted, operator refund needed\n", d.TxID[:8], d.Amount, maxdep)
+			fmt.Printf("deposit %s (%d) is above the per-deposit limit %d: never minted, operator refund needed\n", id[:12], d.Amount, maxdep)
 			continue
 		}
-		// v2: the contract pays the address registered under the index; the vote names (j, id, amount) and is
-		// counted under mc_<se>_<id>_<sha256(j|amount)>
-		key := "mc_" + se + "_" + d.TxID + "_" + sha256hex(js+"|"+strconv.FormatUint(d.Amount, 10))
-		if vote(c, me, "Mint", []rpc.Arg{rpc.U("j", d.Index), rpc.S("id", d.TxID), rpc.U("amount", d.Amount)}, 0, func(int64) string { return key }) {
-			mem.Minted[d.TxID] = true
-			if err := mem.save(); err != nil {
-				log.Fatal(err)
-			}
+		// re-read the deposit from the chain at vote time: one that vanished in a reorganisation is never voted
+		if ok, err := be.Verify(d); err != nil || !ok {
+			fmt.Printf("deposit %s did not verify at vote time (%v): not voting\n", id[:12], err)
+			continue
+		}
+		th := sha256hex(js + "|" + strconv.FormatUint(d.Amount, 10))
+		vote(c, me, "Mint", []rpc.Arg{rpc.U("j", d.Index), rpc.H("txid", d.TxID), rpc.U("vout", d.Vout), rpc.U("amount", d.Amount)}, 0, voteKey("m", id), th)
+	}
+
+	// 3. withdrawals
+	vetoPass(c, be, me, dvmMe, mem, st, scope)
+	allowed := map[string]bool{}
+	for _, x := range strings.Split(*allowW, ",") {
+		if x = strings.TrimSpace(x); x != "" {
+			allowed[x] = true
 		}
 	}
-	// 3. withdrawals: pay on the foreign chain only once the burn is final on DERO (C6) and the vault's withdrawal
-	//    delay has passed (the delay is the honest signers' time to notice a bad burn and halt), then vote Released.
-	//    Released is gated on BLOCK_HEIGHT() and the estimator runs at height 0, so it goes out with a fixed fee.
 	wdelay := int64(st.U0("wdelay"))
-	tip := c.Height()
+	tip, stable := c.Height(), c.StableHeight()
 	voteReleased := func(j uint64, ftx string) bool {
-		key := "rc_" + se + "_" + strconv.FormatUint(j, 10) + "_" + ftx
-		return vote(c, me, "Released", []rpc.Arg{rpc.U("j", j), rpc.S("ftx", ftx)}, 3000, func(int64) string { return key })
+		// Released is gated on BLOCK_HEIGHT(), which the daemon's estimator runs at height 0, so it goes out
+		// with a fixed fee: a refused vote is mined and reverted, which is the price of the delay.
+		return vote(c, me, "Released", []rpc.Arg{rpc.U("j", j), rpc.S("ftx", ftx)}, 3000,
+			voteKey("r", strconv.FormatUint(j, 10)), ftx)
 	}
-	stable := c.StableHeight()
 	for j := uint64(0); j < st.U("wn"); j++ {
 		js := strconv.FormatUint(j, 10)
 		it := mem.Intents[js]
 		if it != nil && it.State == "voted" {
 			continue
 		}
-		if st.U("w_"+js+"_st") != 0 { // released by the quorum: close our intent if we had one, and never judge it again
+		if st.U("w_"+js+"_st") != 0 { // released or vetoed by the quorum: close our intent and never judge it again
 			if it != nil {
 				it.State = "voted"
 				if err := mem.save(); err != nil {
-					log.Fatal(err)
+					die("%v", err)
 				}
 			}
 			continue
@@ -550,7 +671,15 @@ func pass(c *rpc.Client, be Backend, me string, mem *memory) {
 		dest, amount := st.Str("w_"+js+"_to"), st.U("w_"+js+"_v")
 		// the size test is taken once, before this daemon has paid anything for it; a withdrawal already in an
 		// intent was judged when the reserve still held it
-		if it == nil && suspiciousWithdrawal(amount, reserve, *maxOutBps) {
+		if it == nil && !allowed[js] && suspiciousWithdrawal(amount, reserve, *maxOutBps) {
+			if mem.Flagged[js] {
+				fmt.Printf("withdrawal %d is still flagged as outsized (%d of reserve %d): leaving it to the operator, not halting again\n", j, amount, reserve)
+				continue
+			}
+			mem.Flagged[js] = true
+			if err := mem.save(); err != nil {
+				die("%v", err)
+			}
 			haltOnce(fmt.Sprintf("SUSPICIOUS WITHDRAWAL %d: %d is more than %d bps of the reserve %d; not paying", j, amount, *maxOutBps, reserve))
 			continue
 		}
@@ -559,5 +688,28 @@ func pass(c *rpc.Client, be Backend, me string, mem *memory) {
 		}
 	}
 	after := c.GetSC(*vault, false)
-	fmt.Printf("%s vault: users %d, supply %d / cap %d, withdrawals %d, halted %d\n", time.Now().Format("15:04:05"), after.U("un"), after.U("sup"), after.U("cap"), after.U("wn"), after.U("halted"))
+	fmt.Printf("%s vault: indexes %d, supply %d / cap %d, withdrawals %d, halted %d, reserve %d\n", time.Now().Format("15:04:05"),
+		after.U("un"), after.U("sup"), after.U("cap"), after.U("wn"), after.U("halted"), reserve)
+}
+
+// vetoPass votes to return withdrawals the foreign chain cannot accept. It NEVER vetoes one this signer has
+// already started paying: the units would go back to the burner while the coins were already sent, and the
+// reserve would be short by that amount for good.
+func vetoPass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory, st rpc.SCState, scope func(int64) string) {
+	for j := uint64(0); j < st.U("wn"); j++ {
+		js := strconv.FormatUint(j, 10)
+		if st.U("w_"+js+"_st") != 0 {
+			continue
+		}
+		if it := mem.Intents[js]; it != nil {
+			continue // we have already paid, or are paying: vetoing now would double-spend the reserve
+		}
+		dest := st.Str("w_" + js + "_to")
+		if be.ValidDest(dest) {
+			continue
+		}
+		fmt.Printf("withdrawal %d names a destination this chain cannot pay (%q): voting Veto\n", j, dest)
+		vote(c, me, "Veto", []rpc.Arg{rpc.U("j", j)}, 0,
+			func(h int64) string { return "gv_" + scope(h) + "_" + js + "_" + dvmMe }, "1")
+	}
 }

@@ -222,6 +222,11 @@ the same check at install time — not verified here.
 - Address text layout (`rpc/address.go:121-160`): bech32 payload = version byte `1` + 33-byte compressed key +
   optional integrated-address arguments; HRP `dero`/`deto` (`deroi`/`detoi` with arguments). `ADDRESS_STRING` in the
   DVM always renders `dero…` without arguments, which is the canonical form the app uses for keys and comparisons.
+  **This bites any off-chain tool that looks up a contract key named after an address**: on testnet and on the
+  simulator a wallet reports the same account as `deto1…`, so the key it computes does not exist. `vault.bas`
+  names each signer's vote key that way, and the signer daemon read nothing until it converted first. Go tools use
+  `simrpc.DVMAddress(addr)` (`tools/simrpc/address.go`, the same bech32 as the app's `canonAddress`); the vectors in
+  `address_test.go` are taken from a live vault's vote keys (2026-09-07).
 
 ### 5.2 Balance decryption cost — a token-design constraint (measured 2026-09-05)
 DERO balances are ElGamal ciphertexts; a wallet decrypts one by **search** (`walletapi/balance_decoder.go`,

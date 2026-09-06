@@ -2348,3 +2348,88 @@ from the operator ("Hermes"). Both are folded in below; where they disagreed wit
 - Also queued from the external audit: wallet-RPC authentication in `simrpc` (F5), treasurybot finality gating
   and the unconditional PayBatch sweep (F7), `netcfg` accepting an unknown key as a network (F12), and three
   stale documentation contradictions (F13).
+
+
+## Loop 18 — the signer daemon speaks v3, and the whole wrapper runs end to end (2026-09-07, 00:30–01:50)
+
+### COMPLETED
+
+- **`tools/vaultsigner` ported to vault v3 (backlog W1).** New `Mint(j, txid, vout, amount)` call, the exact
+  reserve check (`reserve >= sup`, no pending-burn arithmetic now that a burn keeps its claim until release),
+  the new operational vote scopes (slash epoch, halt epoch, 2000-block bucket), veto handling, and the version
+  guard flipped from "refuse v3" to "require v3".
+- **Every vote is now proved by reading back this signer's own vote key.** v3 stores each signer's choice at
+  `<f>v_<scope>_<address>`, so the daemon asks "did the contract record *my* vote for *this* choice" instead of
+  watching a counter a co-signer can also move. This closes an audit finding where a co-signer voting in the same
+  block made a reverted vote look successful and it was never re-sent.
+- **`simrpc.DVMAddress`** (`tools/simrpc/address.go`, with tests): the DVM's `ADDRESS_STRING` always renders the
+  **mainnet** `dero1…` spelling, even on testnet and the simulator where the wallet reports `deto1…`. Any tool
+  looking up a key named after an address must convert first. This cost a whole end-to-end run to find: the
+  daemon voted correctly and then reported "the contract did not record our vote" because it was reading a key
+  that could not exist. The vectors in the test are taken from a live vault's vote keys.
+- **The halt deadlock is closed** (audit finding, reproduced for real in this cycle's first end-to-end run). A
+  withdrawal above `-max-withdrawal-bps` used to make every signer vote `Halt(1)` on every pass: an operator
+  resumes, the withdrawal is still there, every signer halts again, forever. Now a signer flags the withdrawal,
+  halts once, and then leaves it to a human — who either vetoes it with k votes or clears the flag with
+  `-allow-withdrawal <j>`. Verified live: halt fired, operator resumed, override let both signers pay and record
+  the release.
+- **A deposit older than the address it was paid to is never credited.** An address derived from a future index
+  can be paid before anyone owns it; crediting that would hand one user's coins to whoever registers the index
+  next. The anchor is the foreign height at which this signer first saw the address published.
+- Backend interface gained `Finalized()`, `Verify(deposit)`, `ValidDest(dest)` and `Health()`: nothing is voted
+  above the chain's finalized height, every deposit is re-read at vote time, a destination the chain cannot pay
+  is vetoed rather than paid into nowhere, and an unhealthy backend makes the daemon do nothing at all.
+- State is bound to one vault (its intents name that vault's withdrawal indexes) and the lock file is removed on
+  every exit path including a signal, so a Ctrl-C no longer takes a signer offline until a human deletes a file.
+- `tools/simvault` gained `-halt 0|1` (an operator resume is a real operation and now has a tool) and the v3
+  install/deposit format. `tools/simvault/e2e.sh` walks the whole story including the breaker and the override.
+- Contract: the vote key is named by `ADDRESS_STRING(s)` so a daemon can read its own vote back. 18,145 bytes.
+
+### VERIFIED
+
+- Full contract suite green, 417 s. `go test ./vaultsigner ./simrpc ./treasurybot` green.
+- Live on the simulator: attest → mint (supply 50,000) → burn 40,000 → breaker halts the vault → operator resume
+  → `-allow-withdrawal 0` → both signers pay abroad and vote Released → supply 10,100, reserve 60,100. The
+  accounting closes exactly: 10,000 unburned + 100 fee in the pool, and reserve − supply = 50,000 of headroom.
+
+### SECURITY
+
+- Closed: the co-signer vote-attribution race, the halt deadlock, crediting a deposit that predates its address,
+  voting above finality, paying a destination the chain rejects, replaying one vault's intents against another,
+  and a lock file that outlived its process.
+- Open and unchanged: the foreign side does not exist, so none of this touches a real coin yet.
+
+### PERFORMANCE / STORAGE
+
+- No app change this cycle. Contract 17,920 → 18,145 bytes (the address-named vote key), still well inside the
+  install budget.
+
+### PRIVACY
+
+- Unchanged. Worth noting for later: the vote key now contains each signer's address in clear, which was already
+  true of `isg_`/`bond_` — the signer set is public by design, so this adds nothing new.
+
+### UNCONSIDERED
+
+1. The sim backend's `Reserve()` counts deposits that were never minted (the stale one from an earlier run kept
+   the reserve at 100,000 while supply was 50,000). A real backend must count *spendable* balance, not the sum of
+   observed deposits, or the shortfall detector will be blind to exactly the loss it exists to catch.
+2. `-allow-withdrawal` is a per-signer local override. If only some signers set it, the withdrawal gets fewer
+   than k payments and sits half-done: one signer has paid abroad while the quorum never forms. The operator
+   runbook must say "all k signers or none", and the daemon should probably refuse to pay when it can see that
+   fewer than k signers have flagged it clear. Not yet implemented.
+3. The deposit-ordering anchor is per signer and set at "first observation". Two signers that start at different
+   times have different anchors, so a deposit near the boundary can be votable by one and not the other. It fails
+   safe (no quorum, funds stay put) but it will look like a stall, and the operator has no tool to inspect it.
+4. Nothing yet stops a signer from voting `Released` with an `ftx` it invented rather than one it paid: the
+   contract only checks that k signers agree on the same string. On a real chain the other signers must verify
+   the txid pays the right destination and amount before agreeing. That verification is not in the interface yet
+   and belongs in `Verify`-shaped form for releases.
+
+### NEXT
+
+- W2 is largely done inside W1; the remaining gap is release-side verification (unconsidered item 4): a
+  `VerifyRelease(j, ftx, dest, amount)` on the Backend so a signer only agrees to an `ftx` it has checked pays
+  the right destination.
+- Then the Monero backend against recorded wallet-rpc fixtures (W3), which is the first time any of this touches
+  a real chain's semantics.

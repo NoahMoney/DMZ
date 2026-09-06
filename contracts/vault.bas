@@ -3,13 +3,15 @@
 // Keys, rules, trust model and deployment rules: contracts/README.md (vault).
 
 // One k-of-n vote. 1 = quorum reached (caller performs the effect once), 0 = counted, 2 = refuse. A signer may
-// move a vote; the old choice loses one. <f>d_<kb> closes a scope so no decision executes twice.
+// move a vote; the old choice loses one. <f>d_<kb> closes a scope so no decision executes twice. The vote key
+// holds the choice and is named by the signer's ADDRESS_STRING, so a signer daemon can read back exactly what it
+// voted rather than inferring it from a counter a co-signer may also have moved.
 Function votek(f String, kb String, ch String, s String) Uint64
 10 DIM vk, ck, dk, ok as String
 11 DIM c as Uint64
 20 LET dk = f + "d_" + kb
 21 IF EXISTS(dk) != 0 THEN GOTO 900
-22 LET vk = f + "v_" + kb + "_" + s
+22 LET vk = f + "v_" + kb + "_" + ADDRESS_STRING(s)
 23 LET ck = f + "c_" + kb + "_" + ch
 30 IF EXISTS(vk) == 0 THEN GOTO 40
 31 IF LOAD(vk) == ch THEN GOTO 900

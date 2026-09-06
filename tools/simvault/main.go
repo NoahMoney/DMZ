@@ -42,6 +42,10 @@ var (
 	maxdep   = flag.Uint64("maxdep", 0, "SetLimits before Seal: largest single deposit minted (0 = no limit)")
 	winmax   = flag.Uint64("winmax", 0, "SetLimits before Seal: most minted over two consecutive 2000-block buckets (0 = no limit)")
 	wdelay   = flag.Uint64("wdelay", 0, "SetLimits before Seal: blocks after a burn before a Released vote counts")
+	mindep   = flag.Uint64("mindep", 1, "smallest foreign deposit that may ever be minted")
+	capratio = flag.Uint64("capratio", 3, "foreign base units of cap each DERO atomic unit of bond supports")
+	vout     = flag.Uint64("vout", 0, "output index of the simulated deposit within its transaction")
+	halt     = flag.String("halt", "", "operator: two signer wallets vote Halt(want), 1 to stop the vault or 0 to resume it")
 	fund     = flag.String("fund", "", "send this many DERO units from the funder wallet to owner, user and signers")
 )
 
@@ -82,6 +86,19 @@ func main() {
 	flag.Parse()
 	c := &rpc.Client{Daemon: *daemon, Timeout: 180 * time.Second}
 	switch {
+	case *halt != "":
+		// operator tool: k signer wallets vote Halt(want). A halt is how the federation stops everything; a
+		// resume is how it starts again once a human has judged what tripped it.
+		if len(*vault) != 64 {
+			log.Fatal("-vault required")
+		}
+		want, _ := strconv.ParseUint(*halt, 10, 64)
+		for _, w := range signers[:2] {
+			a := rpc.Address(w)
+			txid, _, _ := c.Send(w, a, "", *vault, nil, []rpc.Arg{rpc.S("entrypoint", "Halt"), rpc.U("want", want)})
+			fmt.Printf("Halt(%d) from %s…, tx %s…\n", want, a[:16], txid[:8])
+		}
+		fmt.Printf("halted = %d\n", c.GetSC(*vault, false).U("halted"))
 	case *fund != "":
 		// plain DERO transfers from the treasury wallet to every wallet the demo uses
 		amt, _ := strconv.ParseUint(*fund, 10, 64)
@@ -104,7 +121,7 @@ func main() {
 		var raw [32]byte
 		rand.Read(raw[:])
 		f := loadSim()
-		d, _ := json.Marshal(map[string]interface{}{"txid": hex.EncodeToString(raw[:]), "index": idx, "amount": amt, "height": f.Height})
+		d, _ := json.Marshal(map[string]interface{}{"txid": hex.EncodeToString(raw[:]), "vout": *vout, "index": idx, "amount": amt, "height": f.Height})
 		f.Deposits = append(f.Deposits, d)
 		saveSim(f)
 		fmt.Printf("foreign deposit %s… index %d amount %d at foreign height %d\n", hex.EncodeToString(raw[:])[:8], idx, amt, f.Height)
@@ -162,7 +179,7 @@ func doInstall(c *rpc.Client) {
 	rpc.Must(err)
 	own := rpc.Address(owner)
 	tre := rpc.Address(treasury)
-	scid, gas, h := c.Send(owner, own, string(code), "", nil, []rpc.Arg{rpc.U("k", 2), rpc.S("treasury", tre), rpc.U("cap", *cap), rpc.U("minbond", *minbond), rpc.U("minburn", *minburn), rpc.U("wfee", *wfee)})
+	scid, gas, h := c.Send(owner, own, string(code), "", nil, []rpc.Arg{rpc.U("k", 2), rpc.S("treasury", tre), rpc.U("cap", *cap), rpc.U("minbond", *minbond), rpc.U("minburn", *minburn), rpc.U("wfee", *wfee), rpc.U("mindep", *mindep), rpc.U("regfee", 0), rpc.U("capratio", *capratio)})
 	fmt.Printf("vault installed: %s (height %d, storage gas %d)\n", scid, h, gas.GasStorage)
 	for _, w := range signers {
 		a := rpc.Address(w)

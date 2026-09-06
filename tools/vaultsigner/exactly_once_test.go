@@ -18,8 +18,12 @@ type countingBackend struct {
 }
 
 func (b *countingBackend) Height() (int64, error)         { return 0, nil }
+func (b *countingBackend) Finalized() (int64, error)      { return 0, nil }
 func (b *countingBackend) Deposits() ([]Deposit, error)   { return nil, nil }
+func (b *countingBackend) Verify(Deposit) (bool, error)   { return true, nil }
 func (b *countingBackend) Address(uint64) (string, error) { return "", nil }
+func (b *countingBackend) ValidDest(dest string) bool     { return dest != "" }
+func (b *countingBackend) Health() error                  { return nil }
 func (b *countingBackend) Reserve() (uint64, error)       { return 1 << 40, nil }
 func (b *countingBackend) Release(j uint64, dest string, amount uint64) (string, error) {
 	if b.fails > 0 {
@@ -56,7 +60,7 @@ func TestExactlyOnceUnderCrashes(t *testing.T) {
 		}
 		be.fails = rng.Intn(2)
 		for attempt := 0; attempt < 20; attempt++ {
-			mem, err := loadMemory(path) // every attempt restarts from disk, like a new process
+			mem, err := loadMemory(path, "vaultA") // every attempt restarts from disk, like a new process
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -86,7 +90,7 @@ func TestExactlyOnceUnderCrashes(t *testing.T) {
 		}
 	}
 	// the state survived every rename: reload and count
-	mem, err := loadMemory(path)
+	mem, err := loadMemory(path, "vaultA")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,10 +132,10 @@ func TestCorruptStateRefusesToStart(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadMemory(path); err == nil {
+	if _, err := loadMemory(path, "vaultA"); err == nil {
 		t.Fatal("corrupt state accepted")
 	}
-	if m, err := loadMemory(filepath.Join(t.TempDir(), "missing.json")); err != nil || len(m.Intents) != 0 {
+	if m, err := loadMemory(filepath.Join(t.TempDir(), "missing.json"), "vaultA"); err != nil || len(m.Intents) != 0 {
 		t.Fatalf("a missing file must be a fresh signer: %v", err)
 	}
 }
@@ -139,7 +143,7 @@ func TestCorruptStateRefusesToStart(t *testing.T) {
 // TestIntentMismatchStops: an intent recorded for (dest, amount) must never be paid to a different tuple.
 func TestIntentMismatchStops(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
-	mem := newMemory(path)
+	mem := newMemory(path, "vaultA")
 	be := &countingBackend{paid: map[uint64]int{}, ftx: map[uint64]string{}}
 	mem.Intents["7"] = &Intent{J: 7, Dest: "a", Amount: 5, State: "paying"}
 	if err := mem.save(); err != nil {
@@ -148,5 +152,23 @@ func TestIntentMismatchStops(t *testing.T) {
 	err := processWithdrawal(mem, be, 7, "b", 5, func(uint64, string) bool { return true }, nil)
 	if err == nil || be.paid[7] != 0 {
 		t.Fatalf("mismatched intent paid: err %v paid %d", err, be.paid[7])
+	}
+}
+
+// TestStateIsBoundToOneVault: intents name withdrawal indexes, which mean different things in different vaults.
+// A state file from vault A must never be replayed against vault B.
+func TestStateIsBoundToOneVault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	mem := newMemory(path, "vaultA")
+	mem.Intents["3"] = &Intent{J: 3, Dest: "somewhere", Amount: 100, State: "paid", FTx: "ftx"}
+	if err := mem.save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadMemory(path, "vaultB"); err == nil {
+		t.Fatal("a state file from another vault was accepted")
+	}
+	m, err := loadMemory(path, "vaultA")
+	if err != nil || m.Intents["3"] == nil || m.Intents["3"].FTx != "ftx" {
+		t.Fatalf("the vault's own state did not reload: %v", err)
 	}
 }

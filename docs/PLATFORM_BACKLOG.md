@@ -165,7 +165,7 @@ ahead · **P3** research and later. `[contract]` needs a new template hash and a
 The contract side is v3 and tested; the foreign side does not exist. Nothing here may reach mainnet before all of
 W1–W5 are done and a testnet pilot has run. Full build instructions: `docs/HANDOVER.md` section 5.
 
-- **W1 Port `tools/vaultsigner` to v3** `[daemon]` **— next.** The daemon speaks v2 and now refuses to start
+- **W1 Port `tools/vaultsigner` to v3** `[daemon]` — **done 2026-09-07** (loop 18): new Mint call, exact reserve check, self-proving votes, deposit-ordering rule, veto path, halt-once breaker, vault-bound state, signal-safe lock. Verified by `tools/simvault/e2e.sh`. Original scope: The daemon speaks v2 and now refuses to start
   against a v3 vault. Needs: the new `Mint(j, txid, vout, amount)` call; the simplified reserve check
   (`reserve >= sup`, no pending-burn arithmetic); the new counter-key shapes (operational scopes carry `he` and a
   2000-block bucket); handling for `Veto` and `Refunded`; and the rule that a signer never votes `Veto` once its
