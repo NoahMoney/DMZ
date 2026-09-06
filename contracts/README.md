@@ -190,18 +190,121 @@ counter-chain address travels with it); `Accept(id, hash, lockRef)` is the taker
 escrow is locked under `hash`; `Cancel(id)` withdraws an open offer. The maker then locks the DERO leg in `swap.bas`
 for the taker with an expiry shorter than the taker's counter-chain lock. Tested in `tests/board_test.go`.
 
-## vault.bas — k-of-n federation wrapper
+## vault.bas — k-of-n bonded federation wrapper (v3)
 
-Mints its own asset one-for-one against foreign-chain deposits the signers have seen and burns it to withdraw.
-`InitializePrivate(k, treasury, cap, minbond, minburn, wfee)`; owner `AddSigner(addr)` ×n, every signer `Bond()`s at
-least `minbond`, then `Seal()` (no owner power afterwards; `cap ≤ 3 × Σ bonds`); users `Register()` for a deposit
-index and signers `Attest(j, addr)` the derived deposit address with k votes; `Mint(j, id, amount)` needs k identical
-(j, id, amount) votes in the current slash epoch, respects `cap`, and pays the address registered under `j`;
-`Burn(dest)` (≥ `minburn`) records a withdrawal net of `wfee` and lowers `sup`; `Released(j, ftx)`, `Halt(want)`,
-`SetCap(cap)`, `Slash(target)` are k-of-n votes; a slash opens a new epoch that voids the removed signer's votes.
-`SetLimits(maxdep, winmax, wdelay)` (owner, before `Seal` only) bounds a single deposit, the mints over the current and
-previous 2000-block buckets (a sliding window), and the blocks between a burn and its release. Tests: `tests/vault_limits_test.go`, `tests/vault_fuzz_test.go`.
-Tests: `tests/vault_test.go`. Review: `research/wrapper/README.md (security review)`. Daemon: `tools/vaultsigner`; driver: `tools/simvault`.
+Mints its own asset one for one against foreign-chain deposits the signers have seen, and burns it to withdraw.
+The signers can steal or freeze what they hold abroad; this contract makes the DERO side honest and auditable.
+Trust model: `research/wrapper/README.md`. Daemon: `tools/vaultsigner` (v2 only, see the version guard). Driver:
+`tools/simvault`. Tests: `vault_test.go`, `vault_v3_test.go`, `vault_limits_test.go`, `vault_fuzz_test.go`,
+`vault_haltslash_test.go`, `vault_smoke_test.go`.
+
+**The invariant everything serves:** `foreign reserve >= sup`, at every moment, checkable by anyone from the
+published `viewkey`. `sup` counts every unit that is a claim on the reserve, including units held by the contract
+between a burn and its release, and the fee units in `feepool`. A burn does **not** reduce `sup`; `Released` does.
+
+### Setup and governance
+
+`InitializePrivate(k, treasury, cap, minbond, minburn, wfee, mindep, regfee, capratio)` — `2 ≤ k ≤ 20`,
+`wfee < minburn`, `mindep ≠ 0`, `capratio ≠ 0`. Then owner `AddSigner(addr)` × n, each signer `Bond()`s at least
+`minbond`, optional `SetLimits(maxdep, winmax, wdelay)`, then `Seal()`. After `Seal` the owner has no power at all.
+
+- **`n > k` is enforced at `Seal`.** A k-of-k set can never slash anyone (`Slash` needs k votes from signers other
+  than the target), so one compromised key would sit in the set for good and one lost key would freeze the vault.
+- **`n ≥ 2k` is a deployment rule, not a check.** Only with k honest signers left over can a colluding quorum be
+  slashed. 3-of-5 and 4-of-7 satisfy it; 2-of-3 does not, and is allowed because it is a reasonable small-vault
+  choice — but in a 2-of-3 vault a colluding pair keeps its bonds. Say so in the runbook of any vault you deploy.
+- **`cap ≤ capratio × bondtot`**, checked at `Seal`, `SetCap` and every `Mint`, and re-established downward by
+  `Slash`. `cap` is in foreign base units and `bondtot` in DERO atomic units, so `capratio` is the operator's
+  written-down price assumption (how many foreign base units of cap one DERO atomic unit of bond supports), not a
+  live price: there is no oracle. Choose it conservatively and record the assumption. The check is implemented as
+  `cap / capratio > bondtot`, which is permissive by at most `capratio − 1` base units.
+- Only an **active** signer's bond counts in `bondtot`. A candidate for `AddSigner2` bonds first; their bond is
+  held but not at stake, and `Unbond()` returns it if they are never voted in. A signer, past or present, can
+  never unbond.
+- `AddSigner2(addr)` (k votes) replaces a slashed or lost signer; `Tighten(maxdep, winmax, wdelay)` (k votes)
+  moves the limits in the safe direction only, with floors so a quorum cannot brick the vault; `SetViewKey(key)`
+  (k votes) publishes the viewing key.
+
+### The vote helper
+
+Every k-of-n decision goes through one internal function, so the counting rule has exactly one implementation:
+
+```
+<f>c_<kb>_<ch>   how many signers chose <ch> in scope <kb>
+<f>v_<kb>_<s>    the choice signer s made in that scope (a signer may move it; the old choice loses one)
+<f>d_<kb>        the decision executed; the scope is closed and no further vote is counted
+```
+
+| f | family | scope `kb` | choice `ch` |
+|---|---|---|---|
+| `d` | Attest | `<se>_<he>_<bucket>_<j>_<ver>` | sha256 hex of the address |
+| `m` | Mint | `<se>_<he>_<bucket>_<id>` | sha256 hex of `"<j>\|<amount>"` |
+| `r` | Released | `<se>_<he>_<bucket>_<j>` | the foreign txid |
+| `g` | Veto | `<se>_<he>_<bucket>_<j>` | `1` |
+| `x` | Refunded | `<se>_<he>_<bucket>_<id>` | the foreign refund txid |
+| `h` | Halt | `<se>_<he>_<bucket>` | the target state |
+| `c` | SetCap | `<se>_<ce>` | the cap |
+| `s` | Slash | `<se>` | the target, raw |
+| `a` | AddSigner2 | `<se>` | the new signer, raw |
+| `t` | Tighten | `<se>_<te>` | `"<maxdep>\|<winmax>\|<wdelay>"` |
+| `k` | SetViewKey | `<se>_<ve>` | sha256 hex of the key |
+
+`se` slash epoch, `he` halt epoch, `ce` cap epoch, `te` limits epoch, `ve` view-key epoch, `bucket` =
+`BLOCK_HEIGHT() / 2000`. **Operational votes expire**: they carry the halt epoch and a height bucket, so k−1
+signers cannot bank votes and hold a one-vote trigger for a later day, and a halt voids everything in flight.
+Governance votes carry the epoch they change, which bumps on execution.
+
+### Deposits
+
+`Register()` costs exactly `regfee` (to the treasury) and allocates a **fresh** index every time, so nothing on
+chain links two deposits of one user. An address may hold only one index the signers have not attested yet, which
+bounds the attestation work one account can force on the federation.
+
+`Attest(j, addr)` — k votes publish index `j`'s foreign address, bump `dver_<j>` and record `dh_<j>`, the height
+at which the address became live. **A signer must ignore any foreign deposit older than that**: an address derived
+from a future index can be paid before anyone owns it.
+
+`Mint(j, txid, vout, amount)` — `txid` is exactly **32 raw bytes**; the contract builds the id itself as
+`HEX(txid) + ":" + vout`, so one deposit output has exactly one id however a caller spells it, and `mint_<id>`
+makes it mintable once, ever. Votes count per `(j, amount)` tuple, so one wrong vote can neither block nor
+redirect a deposit, and a signer can move their vote until the quorum executes. The k-th vote checks `mindep`,
+`cap`, the bond ratio, `maxdep` and the sliding window (`mw_<bucket>`, this bucket plus the previous one) before
+crediting `sup` and paying the index owner.
+
+`Refunded(txid, vout, ftx)` — k votes record a deposit the federation could not credit and sent back abroad. The
+id is then closed: a deposit is minted **or** refunded, never both, and never later flipped when the cap rises.
+
+### Withdrawals
+
+`Burn(dest)` — at least `minburn`, destination 16–200 characters; the units stay in the contract, `wfee` is the
+fee and the rest is the net amount. `sup` is unchanged here.
+
+`Released(j, ftx)` — k votes on one foreign txid. Refused before `wdelay` blocks have passed since the burn (the
+honest signers' window to notice a bad burn and halt) and refused if that `ftx` already settled another
+withdrawal (`fu_<ftx>`). On execution `sup` drops by the net amount and `feepool` gains the fee.
+
+`Veto(j)` — k votes return the units and the fee to whoever burned them, so a user is never left with neither the
+units nor the coins (a destination the foreign chain rejects, a burn the federation will not honour). Allowed
+while halted, which is when it is needed most. Released and vetoed are mutually exclusive and final.
+
+`ClaimFees()` — the treasury takes the fee units; they were counted in `sup` throughout, and the treasury
+withdraws the coins behind them by burning like any other holder.
+
+### Storage keys
+
+```
+kind v k n na se ce he te ve sealed halted owner treasury cap capratio sup un wn bondtot
+minbond minburn wfee mindep regfee feepool maxdep winmax wdelay viewkey
+signers   sg_<i>   isg_<raw> 1 active 0 removed   bond_<raw>
+users     ua_<j>   uc_<raw>   ul_<raw>_<i>   da_<j>   dver_<j>   dh_<j>
+deposits  mint_<id> 1 minted 2 refunded   mj_<id>   mh_<id>   ma_<id>   rf_<id>
+withdraw  w_<j>_to _v _f _by _h _st (0 pending 1 released 2 vetoed) _ftx   fu_<ftx>
+window    mw_<height/2000>
+votes     <f>c_<kb>_<ch>   <f>v_<kb>_<s>   <f>d_<kb>
+```
+
+Every attacker-controlled string in a key is either last or fixed-length, and every variable-length field is
+preceded by a numeric or fixed-length one, so no two logical tuples can produce the same key.
 
 ## Rules every contract here follows (each one paid for by a bug)
 

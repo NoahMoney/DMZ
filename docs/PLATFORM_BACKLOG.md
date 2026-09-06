@@ -160,6 +160,51 @@ ahead · **P3** research and later. `[contract]` needs a new template hash and a
 - **B3.5 Public proof pages, QR asset pages, saved searches, transaction bookmarks, offline metadata bundles,
   portable NFT bundles, deterministic receipts.**
 
+## W — the XMR/ZEC wrapper (added loop 17, after two audits)
+
+The contract side is v3 and tested; the foreign side does not exist. Nothing here may reach mainnet before all of
+W1–W5 are done and a testnet pilot has run. Full build instructions: `docs/HANDOVER.md` section 5.
+
+- **W1 Port `tools/vaultsigner` to v3** `[daemon]` **— next.** The daemon speaks v2 and now refuses to start
+  against a v3 vault. Needs: the new `Mint(j, txid, vout, amount)` call; the simplified reserve check
+  (`reserve >= sup`, no pending-burn arithmetic); the new counter-key shapes (operational scopes carry `he` and a
+  2000-block bucket); handling for `Veto` and `Refunded`; and the rule that a signer never votes `Veto` once its
+  own intent reached `paying`. Done: `go test ./vaultsigner` green and the simulator end-to-end script passes.
+- **W2 Backend contract** `[daemon]` — add `Finalized()`, `Verify(deposit)` and `Health()` to the `Backend`
+  interface and refuse to vote above the finalized height, re-reading the deposit at vote time. Refuse to credit
+  any deposit older than `dh_<j>` (an address for a future index can be paid before anyone owns it).
+- **W3 Monero backend** `[tools/foreign/monero]` — stagenet wallet-rpc multisig; per-index subaddresses;
+  deterministic transaction construction so every signer builds the same unsigned transaction; idempotency by tx
+  note `dmz:j=<j>`; integration test behind a build tag plus recorded fixtures for the parsing.
+- **W4 Zcash backend** `[tools/foreign/zcash]` — Orchard-only unified address, a scanning sidecar holding only
+  the full viewing key, FROST signing extended from `research/crosschain/poc/frost-zec`, golden vectors that the
+  Go and Rust sides must agree on.
+- **W5 Adversarial / soak / replay harness** `[tests]` — a deterministic replay of a recorded operation sequence
+  against the vault plus a long soak, so a change is proved not to alter behaviour. The operator has a
+  chain-agnostic harness of this shape in another repository; check it before writing a new one.
+- **W6 `Compensate(dest, amount)`** `[contract]` — slashed bonds currently go to the treasury, so victims are
+  never made whole (external audit F4). A k-vote payout from a `slashpool` is the smallest honest fix.
+- **W7 Wallet-RPC authentication** `[tools/simrpc]` (external audit F5) — the client sends no credentials;
+  `netwallet` already accepts `-rpc-login`. Add it to the client and require it on mainnet.
+- **W8 Treasurybot finality and sweep cost** `[tools/treasurybot]` (external audit F7) — gate claims and deposits
+  on the stable height so a reorg cannot strand a recorded claim, and stop sweeping `PayBatch` over every holder
+  batch when little is pending.
+- **W9 `netcfg` unknown-key handling** (external audit F12) — a typo'd network name silently becomes an empty
+  network; fail closed instead.
+- **W10 Documentation contradictions** (external audit F13) — `docs/ARCHITECTURE.md` still describes the app
+  reading contracts with `variables:true`; `DECISIONS.md` says images default on while the app ships them off.
+- **W11 `capratio` is a frozen price assumption** — if the foreign asset appreciates against DERO the bond bound
+  weakens in real terms and nothing on chain notices. Decide whether a periodic k-of-n review is enough, and say
+  so in the trust statement.
+
+## B3.6 — signer coordination over DERO transaction payloads
+
+Monero multisig rounds and FROST nonce exchange need an authenticated channel between signers. The current design
+hand-waves "a small relay or a shared directory", which is a new service, a new port and a new trust assumption.
+The operator's Spore work (private P2P messaging riding DERO transaction payloads) suggests carrying those rounds
+inside DERO transactions instead: no new service, the coordination is auditable, and it fails closed with the
+chain. Research what a round trip costs in fees and latency, and whether payload size bounds the protocol.
+
 ## Measured baseline (2026-09-06)
 
 | | raw | gzip |

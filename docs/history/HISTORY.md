@@ -2232,3 +2232,119 @@ UNCONSIDERED, NEXT. Numbers are measured or absent.
 
 ### NEXT
 - B1.1 ranking v2 with the "why trending" line; then B1.6 metric legend and B1.10 launch wizard.
+
+
+## Loop 17 — vault v3: one vote helper, canonical deposit ids, safety valves, and two audits folded in (2026-09-06, 19:45–21:15)
+
+Two independent audits arrived during this cycle: an eight-lens adversarial workflow I ran over the wrapper
+(contract, votes, accounting, deposits, withdrawals, daemon, governance, foreign chains) and an external report
+from the operator ("Hermes"). Both are folded in below; where they disagreed with the code, I checked the code.
+
+### COMPLETED
+
+- **`contracts/vault.bas` v3**, 17,920 bytes, install storage gas well under the 20,000 cap. Rewritten around one
+  internal `votek(f, kb, ch, s)` helper that every k-of-n family now shares, so the counting rule has exactly one
+  implementation instead of seven copies. It allows a signer to **move** a vote (the old choice loses one) and
+  closes a scope on execution (`<f>d_<kb>`), so no decision can execute twice.
+- **Canonical deposit ids.** `Mint(j, txid, vout, amount)` takes the txid as exactly 32 raw bytes and builds
+  `HEX(txid) + ":" + vout` itself. Two spellings of one deposit are now impossible, and (txid, vout) means a
+  batched transaction can credit several users.
+- **The reserve invariant is now exact.** `Burn` no longer reduces `sup`; `Released` does. So `foreign reserve >=
+  sup` holds at every moment with no off-chain bookkeeping — the daemon no longer has to add pending burns back.
+- **New safety valves:** `Veto(j)` (k votes return a withdrawal that cannot be paid, so a user is never left with
+  neither units nor coins), `Refunded(txid, vout, ftx)` (a deposit that could not be credited is closed for good:
+  minted or refunded, never both), `ClaimFees()`, `Tighten` (limits move the safe way only, with floors),
+  `AddSigner2` (replace a slashed or lost signer), `Unbond` (a candidate never voted in gets their bond back),
+  `SetViewKey` (the key that makes the reserve auditable lives on chain).
+- **Six audit fixes in the contract:** the txid ambiguity above; `cap ≤ capratio × bondtot` replacing a
+  dimensionally meaningless `3 ×` (cap is in foreign base units, bondtot in DERO atomic units — `capratio` is now
+  the operator's written-down price assumption, and there is still no oracle); `Tighten` floors so a colluding
+  quorum cannot brick the vault with `maxdep 1` and a three-week exit delay; operational vote scopes now carry the
+  halt epoch and a 2000-block bucket so k−1 signers cannot bank votes and hold a one-vote trigger; `Register`
+  hands out one unattested index per address, bounding the attestation work one account can force; `Slash` walks
+  the cap down with the bond instead of silently blocking every later mint.
+- **External audit F3 fixed:** `Seal` now requires `n > k`. A k-of-k set can never slash anyone, so one
+  compromised key would sit in it for good and one lost key would freeze the vault. `n ≥ 2k` (what makes a
+  colluding quorum slashable) stays a deployment rule, because enforcing it would forbid 2-of-3.
+- **External audit F6 fixed:** the README claimed "trades are private by default". False — an ordinary swap is
+  ring 2 and the node reveals the signer. Replaced with a precise paragraph, and the same overclaim in the gap
+  matrix is struck through with a correction.
+- **The signer daemon fails closed against v3** (it speaks v2 only: wrong Mint signature, wrong reserve
+  arithmetic, wrong counter keys). It refuses to start rather than voting nothing through and halting a vault.
+- Tests: `vault_v3_test.go` (safety valves, k-of-k refusal), rewritten `vault_test.go`, `vault_limits_test.go`,
+  `vault_fuzz_test.go` (600 random steps now including vetoes, conservation checked against the v3 accounting),
+  `vault_smoke_test.go` (a fast parse/gas/round-trip check), shared scaffolding in `vault_env_test.go`.
+  `contracts/README.md` now carries the full v3 rule set, the vote-family table and the key map.
+
+### DISCOVERED / RESEARCH
+
+- The DVM charges storage gas on the **source bytes including comments**, so prose in a contract competes with
+  code for the 20,000-unit install budget. The vault hit the ceiling twice this cycle; the fix was to move the
+  key map and rationale into `contracts/README.md` and keep one or two lines per function. Worth knowing before
+  any contract grows again: the budget is ~19,600 bytes of source.
+- `HEX()` of an already-hex string silently produces a different id. That is exactly how the two-spellings bug
+  reappeared after I "fixed" it — the guard has to be on the input length (32 raw bytes), not on the output.
+- The operator shared an analysis of their other repositories. Three fit real gaps: FROST-ZEC / bulletproof-XMR /
+  zec-t-htlc prototypes are the missing foreign-custody legs (partly already in `research/crosschain/poc/`); a
+  chain-agnostic adversarial/soak/replay harness is what the vault needs next; and **Spore's private P2P messaging
+  over DERO transaction payloads answers a question the pipeline spec left open** — the signers need an
+  authenticated channel to exchange Monero multisig rounds and FROST nonces, and doing it through DERO
+  transactions removes a whole service, keeps it auditable and fails closed. Recorded as B3.6.
+
+### SECURITY
+
+- Closed this cycle: two-spellings double mint; vote banking across halts; a quorum bricking the limits; the
+  cap surviving a bond reduction; unbounded registration work; a non-signer inflating the stake bound; a k-of-k
+  set that can never slash; a decision executing twice via vote-change.
+- Still open and now documented: the whole foreign side (no Monero/Zcash backend exists), exactly-once payment
+  across signers on a chain that cannot dedupe by withdrawal id, wallet-RPC authentication for the signer, and
+  the fact that a colluding quorum in a 2-of-3 vault keeps its bonds.
+
+### CORRECTNESS
+
+- All vault tests green against the real DVM (43 s for the vault group). Full suite running.
+- The conservation fuzz now asserts the v3 identity `sup == Σ minted − Σ released` and
+  `feepool == Σ released fees` after every one of 600 random steps, with vetoes in the mix.
+
+### PERFORMANCE / STORAGE
+
+- Contract 19,510 → 17,920 bytes with more functionality, purely by moving prose out.
+- No app changes this cycle, so the TELA bundle is unchanged (238,714 B raw, ~72 KB gzipped).
+
+### PRIVACY
+
+- `Register` now issues a fresh index per deposit, so two deposits by one user share no on-chain address. The
+  README no longer overstates what ring 2 hides.
+
+### ECONOMICS
+
+- `capratio` makes the bond-to-cap relationship an explicit, recorded assumption instead of an accidental
+  comparison of two different units.
+- Slashed bonds still go to the treasury rather than to victims (external audit F4). Documented, not fixed; a
+  `Compensate(dest, amount)` k-vote payout is specified in the backlog.
+
+### UNCONSIDERED
+
+1. `Veto` has no interlock with a payment already broadcast abroad. k signers could veto a withdrawal the
+   federation has in fact paid, returning the units **and** the coins. The daemon must never vote Veto once its
+   own intent has reached `paying`, and the contract cannot see that. This needs a rule in the daemon and a line
+   in the runbook — it is the mirror image of the double-pay risk.
+2. The 2000-block vote bucket means a decision straddling a bucket boundary loses its votes and needs a fresh
+   round. Harmless for liveness (the daemon re-votes when the counter does not move) but it will look like a
+   stall in logs, and a federation polling slower than ~10 hours would never complete anything.
+3. `capratio` is a price assumption frozen at install. If the foreign asset appreciates 10× against DERO, the
+   bond bound silently becomes 10× weaker in real terms, and nothing on chain notices. Only `Tighten` and
+   `SetCap` can respond, both k-of-n and both manual.
+4. Every operational vote now carries `he`, so **a halt-and-resume cycle voids every in-flight deposit vote**.
+   That is the safe direction, but a federation that halts often will strand deposits repeatedly and the daemon
+   must re-cast from scratch each time.
+
+### TODO / NEXT
+
+- **Next cycle:** port `tools/vaultsigner` to v3 (the version guard currently refuses to run): new Mint call, the
+  simplified reserve check (`reserve >= sup`), the new counter-key shapes, `Veto`/`Refunded` handling, and the
+  `Finalized`/`Verify`/`Health` backend methods the audit demands before any real chain.
+- Then: the Monero and Zcash backends against recorded RPC fixtures, and the adversarial/soak/replay harness.
+- Also queued from the external audit: wallet-RPC authentication in `simrpc` (F5), treasurybot finality gating
+  and the unconditional PayBatch sweep (F7), `netcfg` accepting an unknown key as a network (F12), and three
+  stale documentation contradictions (F13).

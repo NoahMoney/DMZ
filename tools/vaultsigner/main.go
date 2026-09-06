@@ -333,6 +333,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Fail closed on the contract version. This daemon speaks vault v2: v3 changed the Mint signature (a raw
+	// txid and an output index instead of a spelled id), moved the sup decrement from Burn to Released, and
+	// scoped every operational vote by the halt epoch and a height bucket. Running it against v3 would vote
+	// nothing through, mis-read the reserve invariant and halt the vault. Port it (docs/HANDOVER.md section 5)
+	// before removing this check.
+	if v := c.GetSC(*vault, false).U("v"); v != 2 {
+		log.Fatalf("vault %s is version %d; this signer speaks version 2 only. Do not run it against a v3 vault: "+
+			"its Mint call, its reserve check and its vote-counter keys are all wrong for v3.", *vault, v)
+	}
 	fmt.Printf("signer %s\nvault  %s\nstate  %s (%d intents)\n", me, *vault, *statePath, len(mem.Intents))
 	for {
 		pass(c, be, me, mem)

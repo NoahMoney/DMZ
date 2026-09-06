@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/deroproject/derohe/cryptography/crypto"
@@ -9,128 +8,131 @@ import (
 	"github.com/deroproject/derohe/veil/tests/harness"
 )
 
-// vault.bas v2: 3-of-5 signers, one user, one treasury. Every rule the adversarial review asked for has a case.
+// vault.bas v3: 3-of-5 signers, one treasury. Every rule the adversarial reviews asked for has a case here.
 func TestVaultFederation(t *testing.T) {
 	c := harness.New()
 	owner, treasury, user, stranger := c.NewAccount(), c.NewAccount(), c.NewAccount(), c.NewAccount()
-	sg := []*rpc.Address{c.NewAccount(), c.NewAccount(), c.NewAccount(), c.NewAccount(), c.NewAccount()}
+	cfg := vaultCfg{k: 3, cap: 1000, minbond: 1000, minburn: 100, wfee: 10, mindep: 5, regfee: 100, signers: 5}
 	code := readContract(t, "vault.bas")
-	// k=3, cap 1000 (within 3 x bonds once every signer bonds 1000), minbond 1000, minburn 100, wfee 10
-	scid, res := c.Install(code, nil, rpc.Arguments{harness.U("k", 3), harness.S("treasury", treasury.String()), harness.U("cap", 1000), harness.U("minbond", 1000), harness.U("minburn", 100), harness.U("wfee", 10)}, owner, harness.MaxStorageGas)
-	if !res.OK() {
-		t.Fatalf("install: %v", res.Err)
-	}
-	t.Logf("vault.bas: %d bytes, install storage gas %d", len(code), res.GasStorage)
-	mint := func(who *rpc.Address, j uint64, id string, amount uint64) harness.Result {
-		return c.Call(scid, "Mint", rpc.Arguments{harness.U("j", j), harness.S("id", id), harness.U("amount", amount)}, nil, who)
-	}
-	dep := strings.Repeat("ab", 32)
 
-	// k < 2 is refused at install
-	if _, r := c.Install(code, nil, rpc.Arguments{harness.U("k", 1), harness.S("treasury", treasury.String()), harness.U("cap", 1000), harness.U("minbond", 1), harness.U("minburn", 100), harness.U("wfee", 10)}, owner, harness.MaxStorageGas); r.OK() {
-		t.Fatal("k=1 vault installed")
-	}
-	for _, s := range sg {
-		if r := c.Call(scid, "AddSigner", rpc.Arguments{harness.S("addr", s.String())}, nil, owner); !r.OK() {
-			t.Fatalf("add signer: %v", r.Err)
+	// install rejects an unsafe configuration
+	bad := func(args rpc.Arguments) {
+		t.Helper()
+		if _, r := c.Install(code, nil, args, owner, harness.MaxStorageGas); r.OK() {
+			t.Fatalf("install accepted %v", args)
 		}
 	}
-	// seal refused until every signer holds minbond; a stranger cannot bond
-	if r := c.Call(scid, "Seal", nil, nil, owner); r.OK() {
-		t.Fatal("sealed without bonds")
+	base := func(k, minburn, wfee, mindep uint64) rpc.Arguments {
+		return rpc.Arguments{harness.U("k", k), harness.S("treasury", treasury.String()), harness.U("cap", 1000),
+			harness.U("minbond", 1000), harness.U("minburn", minburn), harness.U("wfee", wfee), harness.U("mindep", mindep), harness.U("regfee", 0), harness.U("capratio", 3)}
 	}
-	if r := c.Call(scid, "Bond", nil, map[crypto.Hash]uint64{zero: 1000}, stranger); r.OK() {
-		t.Fatal("stranger bonded")
-	}
-	for i, s := range sg {
-		if i == 4 {
-			c.Call(scid, "Bond", nil, map[crypto.Hash]uint64{zero: 999}, s) // one short
-			if r := c.Call(scid, "Seal", nil, nil, owner); r.OK() {
-				t.Fatal("sealed with a signer below minbond")
-			}
-			c.Call(scid, "Bond", nil, map[crypto.Hash]uint64{zero: 1}, s)
-			continue
-		}
-		if r := c.Call(scid, "Bond", nil, map[crypto.Hash]uint64{zero: 1000}, s); !r.OK() {
-			t.Fatalf("bond: %v", r.Err)
-		}
-	}
-	if c.U(scid, "bondtot") != 5000 {
-		t.Fatalf("bondtot %d", c.U(scid, "bondtot"))
+	bad(base(1, 100, 10, 5))  // quorum below 2
+	bad(base(3, 100, 100, 5)) // a fee that eats the whole minimum burn
+	bad(base(3, 100, 10, 0))  // no minimum deposit
+
+	scid, sg := installVault(t, c, owner, treasury, cfg)
+	t.Logf("vault.bas: %d bytes", len(code))
+	// a stranger may post a bond (that is how a future signer becomes a candidate) but it is not at stake, so it
+	// cannot be used to inflate the bond total the cap is bounded by
+	before := c.U(scid, "bondtot")
+	if r := c.Call(scid, "Bond", nil, map[crypto.Hash]uint64{zero: 5000}, stranger); !r.OK() || c.U(scid, "bondtot") != before {
+		t.Fatalf("a non-signer's bond counted at stake: %d", c.U(scid, "bondtot"))
 	}
 	if r := c.Call(scid, "Seal", nil, nil, owner); !r.OK() || c.U(scid, "na") != 5 || c.U(scid, "sealed") != 1 {
 		t.Fatalf("seal: %v", r.Err)
 	}
-	if r := c.Call(scid, "Register", nil, nil, user); !r.OK() || c.U(scid, "ui_"+string(user.Compressed())) != 0 {
-		t.Fatalf("register: %v", r.Err)
+
+	// register: the fee is exact and goes to the treasury; every call is a NEW index, so two deposits of one user
+	// are not linked on chain by a shared address
+	if r := c.Call(scid, "Register", nil, nil, user); r.OK() {
+		t.Fatal("registered without the fee")
+	}
+	r := c.Call(scid, "Register", nil, map[crypto.Hash]uint64{zero: 100}, user)
+	if !r.OK() || r.Sent(zero, treasury) != 100 || c.U(scid, "un") != 1 || c.U(scid, "uc_"+string(user.Compressed())) != 1 {
+		t.Fatalf("register: %v sent %d", r.Err, r.Sent(zero, treasury))
+	}
+	// an address may hold only one index the signers have not attested yet, so nobody can force unbounded
+	// attestation work on the federation by registering in a loop
+	if r := c.Call(scid, "Register", nil, map[crypto.Hash]uint64{zero: 100}, user); r.OK() {
+		t.Fatal("a second index was handed out while the first was still unattested")
 	}
 
-	// attest: votes keyed by address hash; k of 5 agree; re-attestation bumps the version
-	for i := 0; i < 2; i++ {
-		c.Call(scid, "Attest", rpc.Arguments{harness.U("j", 0), harness.S("addr", "zs1x")}, nil, sg[i])
+	// attest: votes are keyed by the address hash; a signer may correct their vote before the quorum
+	att := func(who *rpc.Address, j uint64, addr string) harness.Result {
+		return c.Call(scid, "Attest", rpc.Arguments{harness.U("j", j), harness.S("addr", addr)}, nil, who)
 	}
-	c.Call(scid, "Attest", rpc.Arguments{harness.U("j", 0), harness.S("addr", "zs1WRONG")}, nil, sg[2])
+	att(sg[0], 0, "4Axmr-user-zero")
+	att(sg[1], 0, "4Axmr-WRONG")
+	if r := att(sg[1], 0, "4Axmr-user-zero"); !r.OK() {
+		t.Fatalf("a signer could not move their vote: %v", r.Err)
+	}
 	if c.Exists(scid, "da_0") {
-		t.Fatal("attested without k agreeing votes")
+		t.Fatal("attested below the quorum")
 	}
-	if r := c.Call(scid, "Attest", rpc.Arguments{harness.U("j", 0), harness.S("addr", "zs1x")}, nil, sg[3]); !r.OK() || c.S(scid, "da_0") != "zs1x" || c.U(scid, "dver_0") != 1 {
+	if r := att(sg[2], 0, "4Axmr-user-zero"); !r.OK() || c.S(scid, "da_0") != "4Axmr-user-zero" || c.U(scid, "dver_0") != 1 {
 		t.Fatalf("attest: %v", r.Err)
 	}
-	for i := 0; i < 3; i++ {
-		c.Call(scid, "Attest", rpc.Arguments{harness.U("j", 0), harness.S("addr", "zs1corrected")}, nil, sg[i])
+	// the executed scope is closed: a further vote opens the NEXT version's scope instead of re-running this one
+	if r := att(sg[3], 0, "4Axmr-user-zero"); !r.OK() || c.U(scid, "dver_0") != 1 {
+		t.Fatalf("a vote after the decision should start the next version, not repeat it: %v ver %d", r.Err, c.U(scid, "dver_0"))
 	}
-	if c.S(scid, "da_0") != "zs1corrected" || c.U(scid, "dver_0") != 2 {
+	for i := 0; i < 3; i++ {
+		att(sg[i], 0, "4Axmr-corrected")
+	}
+	if c.S(scid, "da_0") != "4Axmr-corrected" || c.U(scid, "dver_0") != 2 {
 		t.Fatal("re-attestation failed")
 	}
+	// with index 0 attested the user may take a second one, and it is a different index with its own address
+	if r := c.Call(scid, "Register", nil, map[crypto.Hash]uint64{zero: 100}, user); !r.OK() || c.U(scid, "un") != 2 || c.U(scid, "ul_"+string(user.Compressed())+"_1") != 1 {
+		t.Fatalf("second index: %v", r.Err)
+	}
 
-	// mint: a rogue first vote cannot pin the deposit; the honest tuple reaches k and mints; replay refused
-	if r := mint(sg[4], 0, dep, 1); !r.OK() { // rogue: wrong amount
-		t.Fatalf("rogue vote: %v", r.Err)
+	// mint: a rogue tuple cannot pin the deposit; the honest tuple reaches k; the id is canonical
+	mint := func(who *rpc.Address, j uint64, n int, vout, amount uint64) harness.Result {
+		return c.Call(scid, "Mint", mintArgs(j, n, vout, amount), nil, who)
 	}
-	if r := mint(sg[0], 0, dep, 100); !r.OK() {
-		t.Fatalf("honest vote 1: %v", r.Err)
+	if r := mint(sg[0], 0, 1, 0, 4); r.OK() {
+		t.Fatal("a deposit below the minimum was voted")
 	}
-	if r := mint(sg[0], 0, dep, 100); r.OK() {
-		t.Fatal("double vote accepted")
+	if r := mint(stranger, 0, 1, 0, 100); r.OK() {
+		t.Fatal("a stranger voted")
 	}
-	if r := mint(stranger, 0, dep, 100); r.OK() {
-		t.Fatal("stranger vote accepted")
+	if r := mint(sg[0], 5, 1, 0, 100); r.OK() {
+		t.Fatal("an unknown index was accepted")
 	}
-	if r := mint(sg[1], 5, dep, 100); r.OK() {
-		t.Fatal("unknown index accepted")
+	mint(sg[4], 0, 1, 0, 1) // rogue amount
+	mint(sg[0], 0, 1, 0, 100)
+	if r := mint(sg[0], 0, 1, 0, 100); r.OK() {
+		t.Fatal("the same signer voted for the same tuple twice")
 	}
-	mint(sg[1], 0, dep, 100)
-	if c.Exists(scid, "md_"+dep) {
-		t.Fatal("minted below k")
+	mint(sg[1], 0, 1, 0, 100)
+	if c.Exists(scid, "mint_"+depID(1, 0)) {
+		t.Fatal("minted below the quorum")
 	}
-	r := mint(sg[2], 0, dep, 100)
-	if !r.OK() || r.Sent(scid, user) != 100 || c.U(scid, "md_"+dep) != 1 || c.U(scid, "sup") != 100 || c.U(scid, "mj_"+dep) != 0 {
-		t.Fatalf("k-th honest vote should mint: %v sent %d", r.Err, r.Sent(scid, user))
+	r = mint(sg[2], 0, 1, 0, 100)
+	if !r.OK() || r.Sent(scid, user) != 100 || c.U(scid, "mint_"+depID(1, 0)) != 1 || c.U(scid, "sup") != 100 {
+		t.Fatalf("the k-th vote should mint: %v sent %d", r.Err, r.Sent(scid, user))
 	}
-	if r := mint(sg[3], 0, dep, 100); r.OK() {
-		t.Fatal("vote after mint accepted")
+	if r := mint(sg[3], 0, 1, 0, 100); r.OK() {
+		t.Fatal("a vote after the mint was accepted")
 	}
-	// id with a vout suffix is accepted; a short id is not
-	dep2 := strings.Repeat("cd", 32) + ":1"
+	// a second output of the same transaction is a different deposit
 	for i := 0; i < 3; i++ {
-		mint(sg[i], 0, dep2, 50)
+		mint(sg[i], 1, 1, 1, 50)
 	}
-	if c.U(scid, "sup") != 150 {
-		t.Fatalf("sup after second deposit: %d", c.U(scid, "sup"))
-	}
-	if r := mint(sg[0], 0, "abcd", 1); r.OK() {
-		t.Fatal("short id accepted")
+	if c.U(scid, "sup") != 150 || c.U(scid, "mj_"+depID(1, 1)) != 1 {
+		t.Fatalf("vout 1 of the same txid should be its own deposit: sup %d", c.U(scid, "sup"))
 	}
 
-	// cap: mint above cap refused at the k-th vote; SetCap needs k votes and the bond ratio; values can be revoted
-	big := strings.Repeat("11", 32)
-	mint(sg[0], 0, big, 900)
-	mint(sg[1], 0, big, 900)
-	if r := mint(sg[2], 0, big, 900); r.OK() {
-		t.Fatal("mint over cap accepted")
+	// cap: a mint over the cap is refused at the k-th vote; SetCap needs k and respects the bond ratio
+	for i := 0; i < 2; i++ {
+		mint(sg[i], 0, 2, 0, 900)
+	}
+	if r := mint(sg[2], 0, 2, 0, 900); r.OK() {
+		t.Fatal("a mint over the cap was accepted")
 	}
 	if r := c.Call(scid, "SetCap", rpc.Arguments{harness.U("cap", 20000)}, nil, sg[0]); r.OK() {
-		t.Fatal("cap above 3x bonds accepted")
+		t.Fatal("a cap above three times the bonds was accepted")
 	}
 	for i := 0; i < 3; i++ {
 		c.Call(scid, "SetCap", rpc.Arguments{harness.U("cap", 2000)}, nil, sg[i])
@@ -138,59 +140,75 @@ func TestVaultFederation(t *testing.T) {
 	if c.U(scid, "cap") != 2000 || c.U(scid, "ce") != 1 {
 		t.Fatalf("cap %d ce %d", c.U(scid, "cap"), c.U(scid, "ce"))
 	}
-	for i := 0; i < 3; i++ {
-		c.Call(scid, "SetCap", rpc.Arguments{harness.U("cap", 1000)}, nil, sg[i])
-	}
-	if c.U(scid, "cap") != 1000 {
-		t.Fatal("cap could not return to a previously used value")
-	}
-	for i := 0; i < 3; i++ {
-		c.Call(scid, "SetCap", rpc.Arguments{harness.U("cap", 2000)}, nil, sg[i])
-	}
-	if r := mint(sg[2], 0, big, 900); !r.OK() || c.U(scid, "sup") != 1050 {
-		t.Fatalf("mint after cap raise: %v sup=%d", r.Err, c.U(scid, "sup"))
+	// the refused mint can now complete: the tuple votes were kept and the third signer finishes it
+	if r := mint(sg[2], 0, 2, 0, 900); !r.OK() || c.U(scid, "sup") != 1050 {
+		t.Fatalf("mint after the cap rise: %v sup %d", r.Err, c.U(scid, "sup"))
 	}
 
-	// burn: minimum, fee, sup accounting, DERO refused
-	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4A...")}, map[crypto.Hash]uint64{scid: 50}, user); r.OK() {
-		t.Fatal("burn below minimum accepted")
+	// burn: the claim stays in sup until the release is recorded, so reserve >= sup holds throughout
+	burn := func(v uint64, dest string) harness.Result {
+		return c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", dest)}, map[crypto.Hash]uint64{scid: v}, user)
 	}
-	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4A...")}, map[crypto.Hash]uint64{scid: 200, zero: 1}, user); r.OK() {
-		t.Fatal("burn with DERO accepted")
+	if r := burn(50, "4AxmrDestinationAddr"); r.OK() {
+		t.Fatal("a burn below the minimum was accepted")
 	}
-	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4A...")}, map[crypto.Hash]uint64{scid: 200}, user); !r.OK() || c.U(scid, "w_0_v") != 190 || c.U(scid, "sup") != 850 || c.U(scid, "feepool") != 10 || c.U(scid, "w_0_st") != 0 {
-		t.Fatalf("burn: %v w_0_v=%d sup=%d fee=%d", r.Err, c.U(scid, "w_0_v"), c.U(scid, "sup"), c.U(scid, "feepool"))
+	if r := burn(200, "short"); r.OK() {
+		t.Fatal("a destination too short to be any foreign address was accepted")
 	}
-	// released: the ftx is part of the agreement
-	c.Call(scid, "Released", rpc.Arguments{harness.U("j", 0), harness.S("ftx", "aaaa")}, nil, sg[0])
-	c.Call(scid, "Released", rpc.Arguments{harness.U("j", 0), harness.S("ftx", "bbbb")}, nil, sg[1])
-	c.Call(scid, "Released", rpc.Arguments{harness.U("j", 0), harness.S("ftx", "aaaa")}, nil, sg[2])
+	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrDestinationAddr")}, map[crypto.Hash]uint64{scid: 200, zero: 1}, user); r.OK() {
+		t.Fatal("a burn carrying DERO was accepted")
+	}
+	if r := burn(200, "4AxmrDestinationAddr"); !r.OK() || c.U(scid, "w_0_v") != 190 || c.U(scid, "w_0_f") != 10 || c.U(scid, "sup") != 1050 {
+		t.Fatalf("burn: %v v %d sup %d", r.Err, c.U(scid, "w_0_v"), c.U(scid, "sup"))
+	}
+
+	// released: k votes on one foreign txid; the claim then leaves sup and the fee becomes the treasury's
+	rel := func(who *rpc.Address, j uint64, ftx string) harness.Result {
+		return c.Call(scid, "Released", rpc.Arguments{harness.U("j", j), harness.S("ftx", ftx)}, nil, who)
+	}
+	rel(sg[0], 0, "ftx-aaaa")
+	rel(sg[1], 0, "ftx-bbbb")
+	rel(sg[2], 0, "ftx-aaaa")
 	if c.U(scid, "w_0_st") != 0 {
-		t.Fatal("released without k votes on one ftx")
+		t.Fatal("released without k votes on one txid")
 	}
-	if r := c.Call(scid, "Released", rpc.Arguments{harness.U("j", 0), harness.S("ftx", "aaaa")}, nil, sg[3]); !r.OK() || c.U(scid, "w_0_st") != 1 || c.S(scid, "w_0_ftx") != "aaaa" {
+	if r := rel(sg[3], 0, "ftx-aaaa"); !r.OK() || c.U(scid, "w_0_st") != 1 || c.S(scid, "w_0_ftx") != "ftx-aaaa" {
 		t.Fatalf("release: %v", r.Err)
 	}
-
-	// halt: votes name the target; k needed; mint and burn refuse while halted; un-halt needs k
-	if r := c.Call(scid, "Halt", rpc.Arguments{harness.U("want", 0)}, nil, sg[0]); r.OK() {
-		t.Fatal("vote for the current state accepted")
+	if c.U(scid, "sup") != 860 || c.U(scid, "feepool") != 10 {
+		t.Fatalf("release accounting: sup %d feepool %d", c.U(scid, "sup"), c.U(scid, "feepool"))
 	}
-	c.Call(scid, "Halt", rpc.Arguments{harness.U("want", 1)}, nil, sg[0])
-	c.Call(scid, "Halt", rpc.Arguments{harness.U("want", 1)}, nil, sg[1])
+	// one foreign payment settles one withdrawal only
+	burn(200, "4AxmrDestinationAddr")
+	if r := rel(sg[0], 1, "ftx-aaaa"); r.OK() {
+		t.Fatal("a foreign txid was reused for a second withdrawal")
+	}
+	for i := 0; i < 3; i++ {
+		rel(sg[i], 1, "ftx-cccc")
+	}
+	if c.U(scid, "w_1_st") != 1 || c.U(scid, "sup") != 670 || c.U(scid, "feepool") != 20 {
+		t.Fatalf("second release: st %d sup %d fee %d", c.U(scid, "w_1_st"), c.U(scid, "sup"), c.U(scid, "feepool"))
+	}
+
+	// halt: votes name the target state; mint and burn stop; a resume needs k again
+	if r := c.Call(scid, "Halt", rpc.Arguments{harness.U("want", 0)}, nil, sg[0]); r.OK() {
+		t.Fatal("a vote for the current state was accepted")
+	}
+	for i := 0; i < 2; i++ {
+		c.Call(scid, "Halt", rpc.Arguments{harness.U("want", 1)}, nil, sg[i])
+	}
 	if c.U(scid, "halted") != 0 {
-		t.Fatal("halted below k")
+		t.Fatal("halted below the quorum")
 	}
 	c.Call(scid, "Halt", rpc.Arguments{harness.U("want", 1)}, nil, sg[2])
 	if c.U(scid, "halted") != 1 || c.U(scid, "he") != 1 {
 		t.Fatal("halt failed")
 	}
-	dep3 := strings.Repeat("ef", 32)
-	if r := mint(sg[0], 0, dep3, 1); r.OK() {
-		t.Fatal("mint while halted")
+	if r := mint(sg[0], 0, 3, 0, 10); r.OK() {
+		t.Fatal("minted while halted")
 	}
-	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "x")}, map[crypto.Hash]uint64{scid: 100}, user); r.OK() {
-		t.Fatal("burn while halted")
+	if r := burn(100, "4AxmrDestinationAddr"); r.OK() {
+		t.Fatal("burned while halted")
 	}
 	for i := 0; i < 3; i++ {
 		c.Call(scid, "Halt", rpc.Arguments{harness.U("want", 0)}, nil, sg[i])
@@ -199,12 +217,12 @@ func TestVaultFederation(t *testing.T) {
 		t.Fatal("resume failed")
 	}
 
-	// slash: self-slash refused; k votes remove sg[4], void every pending vote (new epoch), send the bond
+	// slash: self-slash refused; k votes remove a signer, void every pending vote and pay the bond to the treasury
 	if r := c.Call(scid, "Slash", rpc.Arguments{harness.S("target", sg[0].String())}, nil, sg[0]); r.OK() {
 		t.Fatal("self slash accepted")
 	}
-	mint(sg[4], 0, dep3, 7) // a pending vote from the signer about to be removed
-	mint(sg[0], 0, dep3, 7)
+	mint(sg[4], 0, 3, 0, 7)
+	mint(sg[0], 0, 3, 0, 7)
 	for i := 0; i < 2; i++ {
 		c.Call(scid, "Slash", rpc.Arguments{harness.S("target", sg[4].String())}, nil, sg[i])
 	}
@@ -215,41 +233,35 @@ func TestVaultFederation(t *testing.T) {
 	if !r.OK() || r.Sent(zero, treasury) != 1000 || c.U(scid, "na") != 4 || c.U(scid, "se") != 1 || c.U(scid, "bondtot") != 4000 {
 		t.Fatalf("slash: %v sent %d na %d se %d", r.Err, r.Sent(zero, treasury), c.U(scid, "na"), c.U(scid, "se"))
 	}
-	if r := mint(sg[4], 0, dep3, 7); r.OK() {
-		t.Fatal("slashed signer voted")
+	if r := mint(sg[4], 0, 3, 0, 7); r.OK() {
+		t.Fatal("a slashed signer voted")
 	}
-	// the two pre-slash votes are void: sg[1] and sg[2] alone must not complete the mint
-	mint(sg[1], 0, dep3, 7)
-	mint(sg[2], 0, dep3, 7)
-	if c.Exists(scid, "md_"+dep3) {
-		t.Fatal("stale votes from before the slash counted")
+	mint(sg[1], 0, 3, 0, 7)
+	mint(sg[2], 0, 3, 0, 7)
+	if c.Exists(scid, "mint_"+depID(3, 0)) {
+		t.Fatal("votes from before the slash still counted")
 	}
-	if r := mint(sg[0], 0, dep3, 7); !r.OK() || c.U(scid, "md_"+dep3) != 1 {
+	if r := mint(sg[0], 0, 3, 0, 7); !r.OK() || c.U(scid, "mint_"+depID(3, 0)) != 1 {
 		t.Fatalf("mint in the new epoch: %v", r.Err)
 	}
-	// quorum floor: with na=4 and k=3 one more slash is allowed, a second is not
+	// the quorum floor: with na=4 and k=3 one more slash is allowed, a second is not
 	for i := 0; i < 3; i++ {
 		c.Call(scid, "Slash", rpc.Arguments{harness.S("target", sg[3].String())}, nil, sg[i])
 	}
 	if c.U(scid, "na") != 3 {
-		t.Fatal("second slash should pass (na 4 to 3)")
+		t.Fatal("the second slash should have passed")
 	}
 	for i := 0; i < 2; i++ {
 		if r := c.Call(scid, "Slash", rpc.Arguments{harness.S("target", sg[2].String())}, nil, sg[i]); r.OK() {
-			t.Fatal("slash vote below the quorum floor accepted")
+			t.Fatal("a slash vote below the quorum floor was accepted")
 		}
 	}
-	if c.U(scid, "na") != 3 {
-		t.Fatalf("na %d: the quorum floor was breached", c.U(scid, "na"))
+	// the contract holds the three remaining signers' bonds plus the stranger's candidate bond, which they can
+	// take back at any time because they never became a signer
+	if c.U(scid, "na") != 3 || c.U(scid, "bondtot") != 3000 || c.SCBalance(scid, zero) != 8000 {
+		t.Fatalf("na %d bondtot %d balance %d", c.U(scid, "na"), c.U(scid, "bondtot"), c.SCBalance(scid, zero))
 	}
-	// the cap bound follows bonds down: 3 x 3000 = 9000 covers cap 2000; a raise to 9001 is refused
-	for i := 0; i < 3; i++ {
-		c.Call(scid, "SetCap", rpc.Arguments{harness.U("cap", 9001)}, nil, sg[i])
-	}
-	if c.U(scid, "cap") != 2000 {
-		t.Fatal("cap above the bond ratio accepted")
-	}
-	if c.SCBalance(scid, zero) != 3000 {
-		t.Fatalf("remaining bonds: %d", c.SCBalance(scid, zero))
+	if r := c.Call(scid, "Unbond", nil, nil, stranger); !r.OK() || r.Sent(zero, stranger) != 5000 || c.SCBalance(scid, zero) != 3000 {
+		t.Fatalf("candidate unbond: %v", r.Err)
 	}
 }

@@ -36,7 +36,8 @@ func TestInitializeNotCallable(t *testing.T) {
 			}
 			return h
 		}()), harness.S("treasury", treasury.String()), harness.U("fee", 50), harness.U("pfee", 5000)}, "treasury"},
-		{"vault.bas", "InitializePrivate", rpc.Arguments{harness.U("k", 2), harness.S("treasury", treasury.String()), harness.U("cap", 1000), harness.U("minbond", 1000), harness.U("minburn", 100), harness.U("wfee", 10)}, "owner"},
+		{"vault.bas", "InitializePrivate", rpc.Arguments{harness.U("k", 2), harness.S("treasury", treasury.String()), harness.U("cap", 1000),
+			harness.U("minbond", 1000), harness.U("minburn", 100), harness.U("wfee", 10), harness.U("mindep", 1), harness.U("regfee", 0), harness.U("capratio", 3)}, "owner"},
 		{"nft.bas", "InitializePrivate", rpc.Arguments{harness.S("name", "Badge"), harness.S("descr", ""), harness.S("icon", ""), harness.S("file", ""), harness.S("tags", ""), harness.S("collection", "c"),
 			harness.S("token", "tokentokentokentokentokentokento"), harness.U("minhold", 1), harness.U("holdblocks", 1), harness.U("maxsupply", 10), harness.U("price", 0), harness.S("treasury", treasury.String()), harness.U("fee", 50)}, "creator"},
 	}

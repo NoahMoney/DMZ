@@ -4,8 +4,14 @@ DMZ (dURL `dmz.tela`) is a mobile-first web app whose files live on the DERO blo
 server is the user's own DERO node. It lets anyone launch a token on a bonding curve that graduates into a
 permanently locked AMM, swap any DERO asset against DERO, earn holder NFTs, share protocol fees through a
 Founders Pass, and (research stage) trade wrapped XMR/ZEC through a bonded k-of-n federation. Balances stay
-encrypted, trades are private by default, and every number the app shows is either read from contract state or
-labelled as what it cannot know.
+encrypted and every number the app shows is either read from contract state or labelled as what it cannot know.
+
+**On privacy, precisely:** DERO keeps balances and ordinary transfers encrypted, and DMZ never publishes a trade
+unless you ask it to. But a contract call that pays you back must be sent at ring size 2, and at ring size 2 the
+node reveals the signer, so **an ordinary swap identifies the trader to anyone reading the chain**. Private mode
+(ring 16, the `…To` entrypoints) hides the payer among sixteen accounts and pays a named address instead; it gives
+payer deniability, not a private amount or destination. DMZ is not a private exchange, and
+[research/RING_PRIVACY.md](research/RING_PRIVACY.md) measures exactly what each mode does and does not hide.
 
 > **Status (2026-09-06):** experimental, unaudited, simulator- and private-testnet-tested. Nothing has touched
 > mainnet. The internal code name was *Veil*; the product name is now **DMZ** — user-visible strings say DMZ,
