@@ -220,18 +220,19 @@ Function sellto(s String, min_out Uint64, publish Uint64) Uint64
 End Function
 
 // Treasury withdraws accrued protocol fees.
+// Anyone may trigger the payout; it always goes to the treasury recorded at install (see launch.bas).
 Function ClaimFees() Uint64
 10 DIM fd, fa as Uint64
-11 DIM s as String
-20 LET s = SIGNER()
-30 IF s != LOAD("treasury") THEN GOTO 900
+11 DIM t as String
+20 LET t = LOAD("treasury")
 40 LET fd = LOAD("fd")
 50 LET fa = LOAD("fa")
+55 IF fd == 0 && fa == 0 THEN GOTO 900
 60 STORE("fd", 0)
 70 STORE("fa", 0)
 75 STORE("fc", LOAD("fc") + fd)
-80 SEND_DERO_TO_ADDRESS(s, fd)
-90 SEND_ASSET_TO_ADDRESS(s, fa, LOAD("asset"))
+80 SEND_DERO_TO_ADDRESS(t, fd)
+90 SEND_ASSET_TO_ADDRESS(t, fa, LOAD("asset"))
 100 RETURN 0
 900 RETURN 1
 End Function

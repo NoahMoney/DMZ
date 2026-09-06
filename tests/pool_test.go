@@ -266,12 +266,26 @@ func TestPoolSmoke(t *testing.T) {
 	if e.model.TC != 1 || e.model.PC != 3 {
 		t.Fatalf("tc=%d pc=%d", e.model.TC, e.model.PC)
 	}
-	// ClaimFees: bob cannot, treasury can
-	if r := e.c.Call(e.pool, "ClaimFees", nil, nil, e.bob); r.OK() {
-		t.Fatal("non-treasury claimed fees")
-	}
+	// ClaimFees is permissionless: anyone may trigger it, and it always pays the treasury recorded at install.
+	// A fee path only one key can move stops the moment that key does, and this protocol has no operator.
 	fd, fa := e.model.FD, e.model.FA
-	r := e.c.Call(e.pool, "ClaimFees", nil, nil, e.treasury)
+	r := e.c.Call(e.pool, "ClaimFees", nil, nil, e.bob)
+	if !r.OK() || r.Sent(zero, e.treasury) != fd || r.Sent(zero, e.bob) != 0 {
+		t.Fatalf("a stranger could not trigger the payout to the treasury: %v (treasury got %d, caller got %d)", r.Err, r.Sent(zero, e.treasury), r.Sent(zero, e.bob))
+	}
+	e.model.ClaimFees()
+	fd, fa = e.model.FD, e.model.FA
+	if fd != 0 || fa != 0 {
+		t.Fatalf("model not drained: fd %d fa %d", fd, fa)
+	}
+	// and with nothing to claim the call is refused rather than burning a fee for nothing
+	if r := e.c.Call(e.pool, "ClaimFees", nil, nil, e.bob); r.OK() {
+		t.Fatal("an empty fee pool was claimed")
+	}
+	e.buy(t, e.alice, 3*100000, 0, 0, 0, 0)
+	e.sell(t, e.alice, 0, 3*100000, 0, 0, 0)
+	fd, fa = e.model.FD, e.model.FA
+	r = e.c.Call(e.pool, "ClaimFees", nil, nil, e.treasury)
 	e.note("ClaimFees", r)
 	if !r.OK() {
 		t.Fatalf("claim: %v", r.Err)

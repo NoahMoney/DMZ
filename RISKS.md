@@ -94,6 +94,12 @@ Residual: an operator can stop the bot; holders would see deposits stall. Market
 operator at all. Operational note: the bot must run from the wallet that the markets name as treasury (simulator:
 wallet 2, RPC :30002), and it forwards only the DERO leg of the fees (asset-side fees stay with the treasury).
 
+**Improved 2026-09-07:** `ClaimFees` on every market is now permissionless — anyone may trigger it, and it
+always pays the treasury address recorded at install. So the *claiming* half of the fee path no longer depends on
+any key being online: a pass holder who sees fees accruing can move them themselves. What still depends on the
+treasury is the second half, depositing the promised share into the pass, because a DERO contract cannot pay
+another contract. That remains the trusted step, and it is the one to design out next.
+
 ## R-14 Federation custody of wrapped assets (2026-09-06)
 wXMR / wZEC / wSOL are backed by coins held under keys that are not the DERO contract. k colluding signers can steal
 or freeze the reserve; fewer than k can only stall. The DERO side bounds the damage (`cap`, once-only ids, bonds,

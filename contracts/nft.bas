@@ -109,14 +109,15 @@ Function ClaimCreator() Uint64
 900 RETURN 1
 End Function
 
+// Anyone may trigger the payout; it always goes to the treasury recorded at install (see launch.bas).
 Function ClaimFees() Uint64
-10 DIM s as String
+10 DIM t as String
 11 DIM x as Uint64
-20 LET s = SIGNER()
-21 IF s != LOAD("treasury") THEN GOTO 900
+20 LET t = LOAD("treasury")
 30 LET x = LOAD("fd")
-31 STORE("fd", 0)
-32 SEND_DERO_TO_ADDRESS(s, x)
+31 IF x == 0 THEN GOTO 900
+32 STORE("fd", 0)
+33 SEND_DERO_TO_ADDRESS(t, x)
 40 RETURN 0
 900 RETURN 1
 End Function
