@@ -47,18 +47,7 @@ var (
 	once      = flag.Bool("once", false, "one pass, then exit")
 	timeout   = flag.Duration("timeout", 180*time.Second, "per-tx timeout")
 	yes       = flag.Bool("yes", false, "required on mainnet: this signer pays real withdrawals on the foreign chain")
-	maxOutBps = flag.Uint64("max-withdrawal-bps", 2000, "a single withdrawal above this share of the foreign reserve (basis points) is not paid: the signer votes Halt(1) once and then leaves it to the operator; 0 disables")
-	allowW    = flag.String("allow-withdrawal", "", "comma-separated withdrawal indexes the operator has judged legitimate: pay them despite -max-withdrawal-bps")
 )
-
-// suspiciousWithdrawal says whether one withdrawal is too large a share of the reserve to pay without a human:
-// amount > reserve x bps / 10000. Exact integers; a zero reserve makes every withdrawal suspicious.
-func suspiciousWithdrawal(amount, reserve, bps uint64) bool {
-	if bps == 0 {
-		return false
-	}
-	return amount > (reserve/10000)*bps+((reserve%10000)*bps)/10000
-}
 
 // Deposit is one foreign output paid to an attested deposit address. TxID is 64 lowercase hex characters (the raw
 // 32-byte transaction id) and Vout is the output index within it: together they are the deposit's identity, and
@@ -212,10 +201,6 @@ type memory struct {
 	Vault   string             `json:"vault"` // the state file belongs to exactly one vault
 	Intents map[string]*Intent `json:"intents"`
 	Halted  map[string]bool    `json:"halted"` // halt votes cast, keyed by halt epoch and height bucket
-	// Flagged are withdrawals this signer refused to pay because of their size. It halts once for each and then
-	// leaves it alone: halting again after every resume would deadlock the vault, since the withdrawal is still
-	// there. An operator either vetoes it with k votes or clears the flag with -allow-withdrawal.
-	Flagged map[string]bool `json:"flagged"`
 	// LiveAt is the foreign height at which this signer first saw index j's deposit address published. A deposit
 	// older than that is ignored: an address derived from a future index can be paid before anyone owns it, and
 	// crediting such a payment would hand one user's coins to whoever registers the index next.
@@ -224,7 +209,7 @@ type memory struct {
 }
 
 func newMemory(path, vault string) *memory {
-	return &memory{Vault: vault, Intents: map[string]*Intent{}, Halted: map[string]bool{}, Flagged: map[string]bool{}, LiveAt: map[string]int64{}, path: path}
+	return &memory{Vault: vault, Intents: map[string]*Intent{}, Halted: map[string]bool{}, LiveAt: map[string]int64{}, path: path}
 }
 
 // loadMemory is strict: a missing file is a fresh signer, an unreadable one or one belonging to another vault
@@ -253,9 +238,6 @@ func loadMemory(path, vault string) (*memory, error) {
 	}
 	if m.LiveAt == nil {
 		m.LiveAt = map[string]int64{}
-	}
-	if m.Flagged == nil {
-		m.Flagged = map[string]bool{}
 	}
 	return m, nil
 }
@@ -496,14 +478,17 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 	voteKey := func(f, suffix string) func(int64) string {
 		return func(h int64) string { return f + "v_" + scope(h) + "_" + suffix + "_" + dvmMe }
 	}
-	// halt memory follows the halt epoch: after a resume (new he) a fresh shortfall must be voted again
-	haltOnce := func(reason string) {
-		bucket := "he" + he + "_" + strconv.FormatInt(c.Height()/2000, 10)
+	// A halt is a CONDITION, not a decision somebody takes: this signer votes to halt while the reserve is
+	// short of the supply and votes to resume once it is not. Every honest signer computes the same thing from
+	// the same public state, so the quorum forms and dissolves on its own with nobody to ask. One vote per
+	// direction per 2000-block bucket keeps a boundary case from oscillating at the cost of fees.
+	haltVote := func(want uint64, reason string) {
+		bucket := "he" + he + "_" + strconv.FormatUint(want, 10) + "_" + strconv.FormatInt(c.Height()/2000, 10)
 		if mem.Halted[bucket] {
 			return
 		}
-		fmt.Printf("%s; voting Halt(1)\n", reason)
-		if vote(c, me, "Halt", []rpc.Arg{rpc.U("want", 1)}, 0, func(h int64) string { return "hv_" + scope(h) + "_" + dvmMe }, "1") {
+		fmt.Printf("%s; voting Halt(%d)\n", reason, want)
+		if vote(c, me, "Halt", []rpc.Arg{rpc.U("want", want)}, 0, func(h int64) string { return "hv_" + scope(h) + "_" + dvmMe }, strconv.FormatUint(want, 10)) {
 			mem.Halted[bucket] = true
 			if err := mem.save(); err != nil {
 				die("%v", err)
@@ -517,14 +502,19 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 		log.Printf("reserve: %v", err)
 		return
 	}
-	if sup := st.U("sup"); reserve < sup {
-		haltOnce(fmt.Sprintf("RESERVE SHORTFALL: foreign reserve %d < wrapped supply %d", reserve, sup))
+	sup := st.U("sup")
+	if reserve < sup {
+		if st.U("halted") == 0 {
+			haltVote(1, fmt.Sprintf("RESERVE SHORTFALL: foreign reserve %d < wrapped supply %d", reserve, sup))
+		}
+		vetoPass(c, be, me, dvmMe, mem, st, scope) // returning funds is the one thing a halted vault must still do
 		return
 	}
 	if st.U("halted") != 0 {
-		// a halted vault still needs the one thing that returns funds: vetoing withdrawals it will not pay
+		// the shortfall that halted this vault has cleared: resume, so no human is needed to restart it
+		haltVote(0, fmt.Sprintf("reserve %d now covers the supply %d again", reserve, sup))
 		vetoPass(c, be, me, dvmMe, mem, st, scope)
-		fmt.Println("vault halted: no mints, no releases")
+		fmt.Println("vault halted: no mints, no releases until the resume votes reach the quorum")
 		return
 	}
 
@@ -611,12 +601,13 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 			fmt.Printf("deposit %s (%d) is below the minimum %d: never minted, operator refund needed\n", id[:12], amount, st.U("mindep"))
 			continue
 		}
+		// over the cap or over the window is a WAIT, not a refusal: the daemon retries every pass, so headroom
+		// from a later burn or the window sliding credits the deposit with nobody having to intervene
 		if sup, cap := st.U("sup"), st.U("cap"); sup+d.Amount < sup || sup+d.Amount > cap {
-			fmt.Printf("deposit %s (%d) waits: supply %d + %d exceeds the cap %d; k signers must SetCap first\n", id[:12], d.Amount, sup, d.Amount, cap)
-			continue
-		}
-		if maxdep := st.U0("maxdep"); maxdep != 0 && d.Amount > maxdep {
-			fmt.Printf("deposit %s (%d) is above the per-deposit limit %d: never minted, operator refund needed\n", id[:12], d.Amount, maxdep)
+			if !said[id+"-cap"] {
+				said[id+"-cap"] = true
+				fmt.Printf("deposit %s (%d) waits for headroom: supply %d + %d exceeds the cap %d\n", id[:12], d.Amount, sup, d.Amount, cap)
+			}
 			continue
 		}
 		// re-read the deposit from the chain at vote time: one that vanished in a reorganisation is never voted
@@ -630,13 +621,6 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 
 	// 3. withdrawals
 	vetoPass(c, be, me, dvmMe, mem, st, scope)
-	allowed := map[string]bool{}
-	for _, x := range strings.Split(*allowW, ",") {
-		if x = strings.TrimSpace(x); x != "" {
-			allowed[x] = true
-		}
-	}
-	wdelay := int64(st.U0("wdelay"))
 	tip, stable := c.Height(), c.StableHeight()
 	voteReleased := func(j uint64, ftx string) bool {
 		// Released is gated on BLOCK_HEIGHT(), which the daemon's estimator runs at height 0, so it goes out
@@ -664,25 +648,14 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 			fmt.Printf("withdrawal %d waits for DERO finality (burned at %d, stable height %d)\n", j, h, stable)
 			continue
 		}
-		if tip < h+wdelay {
-			fmt.Printf("withdrawal %d waits for the withdrawal delay (burned at %d, delay %d, tip %d)\n", j, h, wdelay, tip)
+		// The contract decides when a withdrawal may be paid, and it decided at burn time: w_<j>_rel already
+		// carries the extra delay a large withdrawal earns. The daemon has no say and no override, because a
+		// vault with no operator must never depend on one. Stopping a withdrawal takes a k-of-n Veto or Halt.
+		if rel := int64(st.U("w_" + js + "_rel")); tip < rel {
+			fmt.Printf("withdrawal %d is not releasable yet (tip %d, releasable at %d)\n", j, tip, rel)
 			continue
 		}
 		dest, amount := st.Str("w_"+js+"_to"), st.U("w_"+js+"_v")
-		// the size test is taken once, before this daemon has paid anything for it; a withdrawal already in an
-		// intent was judged when the reserve still held it
-		if it == nil && !allowed[js] && suspiciousWithdrawal(amount, reserve, *maxOutBps) {
-			if mem.Flagged[js] {
-				fmt.Printf("withdrawal %d is still flagged as outsized (%d of reserve %d): leaving it to the operator, not halting again\n", j, amount, reserve)
-				continue
-			}
-			mem.Flagged[js] = true
-			if err := mem.save(); err != nil {
-				die("%v", err)
-			}
-			haltOnce(fmt.Sprintf("SUSPICIOUS WITHDRAWAL %d: %d is more than %d bps of the reserve %d; not paying", j, amount, *maxOutBps, reserve))
-			continue
-		}
 		if err := processWithdrawal(mem, be, j, dest, amount, voteReleased, nil); err != nil {
 			log.Printf("withdrawal %d: %v", j, err)
 		}

@@ -15,7 +15,7 @@ func TestHaltVoteDoesNotSurviveSlash(t *testing.T) {
 	A, B, C := c.NewAccount(), c.NewAccount(), c.NewAccount()
 	code := readContract(t, "vault.bas")
 	scid, res := c.Install(code, nil, rpc.Arguments{harness.U("k", 2), harness.S("treasury", treasury.String()), harness.U("cap", 1000),
-		harness.U("minbond", 1000), harness.U("minburn", 100), harness.U("wfee", 10), harness.U("mindep", 1), harness.U("regfee", 0), harness.U("capratio", 3)}, owner, harness.MaxStorageGas)
+		harness.U("minbond", 1000), harness.U("minburn", 100), harness.U("wfee", 10), harness.U("mindep", 1), harness.U("regfee", 0), harness.U("capratio", 3), harness.U("bigbps", 2000), harness.U("bigdelay", 0)}, owner, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}

@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/deroproject/derohe/cryptography/crypto"
@@ -8,31 +9,30 @@ import (
 	"github.com/deroproject/derohe/veil/tests/harness"
 )
 
-// Limits a colluding quorum cannot lift at runtime. The owner sets them before Seal: a per-deposit maximum, a
-// rolling per-2000-block mint window, and a withdrawal delay before any Released vote counts. After Seal only
-// Tighten (k votes, safe direction only) can move them.
+// The outflow limits, and the property that matters more than any of them: every limit either empties by itself
+// or expires into a payment. Nothing here needs a human to unblock it, because a deployed vault has no operator.
 func TestVaultLimits(t *testing.T) {
 	c := harness.New()
 	owner, treasury, user, stranger := c.NewAccount(), c.NewAccount(), c.NewAccount(), c.NewAccount()
-	cfg := vaultCfg{k: 2, cap: 100000, minbond: 40000, minburn: 100, wfee: 10, mindep: 1, regfee: 0, signers: 3}
-	limitsBefore := func(scid crypto.Hash, who *rpc.Address, maxdep, winmax, wdelay uint64) harness.Result {
-		return c.Call(scid, "SetLimits", rpc.Arguments{harness.U("maxdep", maxdep), harness.U("winmax", winmax), harness.U("wdelay", wdelay)}, nil, who)
+	limits := func(scid crypto.Hash, who *rpc.Address, winmax, wdelay uint64) harness.Result {
+		return c.Call(scid, "SetLimits", rpc.Arguments{harness.U("winmax", winmax), harness.U("wdelay", wdelay)}, nil, who)
 	}
 	// the limits must be set before the signers are added, so install by hand rather than through the helper
 	code := readContract(t, "vault.bas")
-	scid, res := c.Install(code, nil, rpc.Arguments{harness.U("k", cfg.k), harness.S("treasury", treasury.String()),
-		harness.U("cap", cfg.cap), harness.U("minbond", cfg.minbond), harness.U("minburn", cfg.minburn),
-		harness.U("wfee", cfg.wfee), harness.U("mindep", cfg.mindep), harness.U("regfee", cfg.regfee), harness.U("capratio", 3)}, owner, harness.MaxStorageGas)
+	scid, res := c.Install(code, nil, rpc.Arguments{harness.U("k", 2), harness.S("treasury", treasury.String()),
+		harness.U("cap", 100000), harness.U("minbond", 40000), harness.U("minburn", 100), harness.U("wfee", 10),
+		harness.U("mindep", 1), harness.U("regfee", 0), harness.U("capratio", 3),
+		harness.U("bigbps", 2000), harness.U("bigdelay", 500)}, owner, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}
-	if limitsBefore(scid, stranger, 1, 1, 1).OK() {
+	if limits(scid, stranger, 1, 1).OK() {
 		t.Fatal("a stranger set the limits")
 	}
-	if limitsBefore(scid, owner, 1, 1, 200000).OK() {
+	if limits(scid, owner, 1, 200000).OK() {
 		t.Fatal("an absurd withdrawal delay was accepted")
 	}
-	if r := limitsBefore(scid, owner, 500, 1200, 5); !r.OK() {
+	if r := limits(scid, owner, 1200, 5); !r.OK() {
 		t.Fatalf("set limits: %v", r.Err)
 	}
 	sg := make([]*rpc.Address, 3)
@@ -48,10 +48,10 @@ func TestVaultLimits(t *testing.T) {
 	if r := c.Call(scid, "Seal", nil, nil, owner); !r.OK() {
 		t.Fatalf("seal: %v", r.Err)
 	}
-	if limitsBefore(scid, owner, 9, 9, 9).OK() {
+	if limits(scid, owner, 9, 9).OK() {
 		t.Fatal("limits changed after Seal")
 	}
-	if c.U(scid, "maxdep") != 500 || c.U(scid, "winmax") != 1200 || c.U(scid, "wdelay") != 5 {
+	if c.U(scid, "winmax") != 1200 || c.U(scid, "wdelay") != 5 {
 		t.Fatal("limits not stored")
 	}
 	if r := c.Call(scid, "Register", nil, nil, user); !r.OK() {
@@ -66,11 +66,9 @@ func TestVaultLimits(t *testing.T) {
 		}
 		return c.Exists(scid, "mint_"+depID(n, 0))
 	}
-	if mint(1, 600) {
-		t.Fatal("a deposit above the per-deposit maximum was minted")
-	}
+	// the rolling window is the only mint limit: 1200 units over this 2000-block bucket and the previous one
 	if !mint(2, 500) || !mint(3, 500) {
-		t.Fatal("deposits within the limits were refused")
+		t.Fatal("deposits within the window were refused")
 	}
 	if mint(4, 300) {
 		t.Fatal("the window (1200 per 2000 blocks) was exceeded: 500 + 500 + 300")
@@ -81,51 +79,73 @@ func TestVaultLimits(t *testing.T) {
 	if c.U(scid, "sup") != 1200 {
 		t.Fatalf("sup %d", c.U(scid, "sup"))
 	}
-	// the window slides: this bucket plus the previous one. 2000 blocks later the previous bucket still holds
-	// 1200, so nothing fits; 4000 blocks later it is clear
+	// a deposit the window turned away is not lost: the window empties by itself and the same deposit mints later,
+	// with nobody having to intervene. 2000 blocks on, the previous bucket still holds 1200; 4000 on it is clear.
 	for i := 0; i < 2000; i++ {
 		c.NextBlock()
 	}
-	if mint(6, 300) {
+	if mint(4, 300) {
 		t.Fatal("the window did not slide: a bucket boundary alone opened a new window")
 	}
 	for i := 0; i < 2000; i++ {
 		c.NextBlock()
 	}
-	if !mint(7, 300) {
-		t.Fatal("the window refused a deposit two buckets later")
+	if !mint(4, 300) {
+		t.Fatal("the deposit the window turned away never became mintable: that would be a permanent loss")
 	}
-	// withdrawal delay: the release vote does not count before wdelay blocks have passed since the burn
-	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrDestinationAddr")}, map[crypto.Hash]uint64{scid: 200}, user); !r.OK() {
-		t.Fatalf("burn: %v", r.Err)
+	if c.U(scid, "sup") != 1500 {
+		t.Fatalf("sup after the window cleared: %d", c.U(scid, "sup"))
 	}
-	rel := func(who *rpc.Address) harness.Result {
-		return c.Call(scid, "Released", rpc.Arguments{harness.U("j", 0), harness.S("ftx", "ftx-paid-abroad")}, nil, who)
+
+	// withdrawal delay: an ordinary withdrawal waits wdelay blocks, and a LARGE one (over bigbps of the supply)
+	// waits wdelay + bigdelay. Both then pay: a size limit that refused instead of delaying would need somebody
+	// with the authority to release it, and after Seal nobody has any authority at all.
+	burn := func(v uint64) uint64 {
+		j := c.U(scid, "wn")
+		if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrDestinationAddr")}, map[crypto.Hash]uint64{scid: v}, user); !r.OK() {
+			t.Fatalf("burn %d: %v", v, r.Err)
+		}
+		return j
 	}
-	if rel(sg[0]).OK() {
+	small := burn(200) // 200 of 1500 is under 20 %
+	if got, want := c.U(scid, "w_"+strconv.FormatUint(small, 10)+"_rel"), uint64(c.Height)+5; got != want {
+		t.Fatalf("small withdrawal releasable at %d, want %d (wdelay only)", got, want)
+	}
+	big := burn(400) // 400 is over 20 % of the supply
+	if got, want := c.U(scid, "w_"+strconv.FormatUint(big, 10)+"_rel"), uint64(c.Height)+505; got != want {
+		t.Fatalf("large withdrawal releasable at %d, want %d (wdelay + bigdelay)", got, want)
+	}
+	rel := func(j uint64, who *rpc.Address, ftx string) harness.Result {
+		return c.Call(scid, "Released", rpc.Arguments{harness.U("j", j), harness.S("ftx", ftx)}, nil, who)
+	}
+	if rel(small, sg[0], "ftx-small").OK() {
 		t.Fatal("a release vote counted before the withdrawal delay")
 	}
 	for i := 0; i < 5; i++ {
 		c.NextBlock()
 	}
-	if r := rel(sg[0]); !r.OK() {
-		t.Fatalf("release vote after the delay refused: %v", r.Err)
+	for i := 0; i < 2; i++ {
+		if r := rel(small, sg[i], "ftx-small"); !r.OK() {
+			t.Fatalf("release after the delay refused: %v", r.Err)
+		}
 	}
-	if r := rel(sg[1]); !r.OK() || c.U(scid, "w_0_st") != 1 {
-		t.Fatalf("release not completed: %v st %d", r.Err, c.U(scid, "w_0_st"))
+	if c.U(scid, "w_"+strconv.FormatUint(small, 10)+"_st") != 1 {
+		t.Fatal("the small withdrawal did not release")
 	}
-	if c.U(scid, "sup") != 1310 || c.U(scid, "feepool") != 10 {
-		t.Fatalf("release accounting: sup %d feepool %d", c.U(scid, "sup"), c.U(scid, "feepool"))
+	// the large one is still waiting, and nothing but time is needed
+	if rel(big, sg[0], "ftx-big").OK() {
+		t.Fatal("the large withdrawal released before its longer delay")
 	}
-	// a veto is not blocked by the withdrawal delay: funds a federation cannot pay go back at once
-	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrDestinationAddr")}, map[crypto.Hash]uint64{scid: 200}, user); !r.OK() {
-		t.Fatalf("second burn: %v", r.Err)
+	for i := 0; i < 505; i++ {
+		c.NextBlock()
 	}
 	for i := 0; i < 2; i++ {
-		c.Call(scid, "Veto", rpc.Arguments{harness.U("j", 1)}, nil, sg[i])
+		if r := rel(big, sg[i], "ftx-big"); !r.OK() {
+			t.Fatalf("large release after its delay refused: %v", r.Err)
+		}
 	}
-	if c.U(scid, "w_1_st") != 2 {
-		t.Fatal("a veto was blocked by the withdrawal delay")
+	if c.U(scid, "w_"+strconv.FormatUint(big, 10)+"_st") != 1 {
+		t.Fatal("the large withdrawal never released: a delay that never expires is a permanent freeze")
 	}
-	t.Logf("limits held: maxdep 500, window 1200/2000 blocks, delay 5; sup %d", c.U(scid, "sup"))
+	t.Logf("window 1200/2000 blocks (self-clearing), delay 5 and 505 blocks; sup %d", c.U(scid, "sup"))
 }

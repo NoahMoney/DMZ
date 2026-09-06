@@ -1,6 +1,10 @@
 // DMZ vault v3: k-of-n bonded federation wrapping a foreign asset (XMR, ZEC) one for one. Every state change
 // needs k signer votes checked by SIGNER(), real only at ring size 2. Invariant: foreign reserve >= sup, always.
 // Keys, rules, trust model and deployment rules: contracts/README.md (vault).
+// LIVENESS BY CONSTRUCTION: no privileged party exists after Seal and none is ever needed. Every limit either
+// empties by itself (the rolling mint window) or expires into a payment (the withdrawal delay, longer for a large
+// withdrawal). Stopping a withdrawal takes a k-of-n Veto or Halt, which signer daemons cast from observable state;
+// doing nothing pays the user. There is no per-deposit maximum and no manual override anywhere in this contract.
 
 // One k-of-n vote. 1 = quorum reached (caller performs the effect once), 0 = counted, 2 = refuse. A signer may
 // move a vote; the old choice loses one. <f>d_<kb> closes a scope so no decision executes twice. The vote key
@@ -38,7 +42,7 @@ Function issigner(s String) Uint64
 900 RETURN 0
 End Function
 
-Function InitializePrivate(k Uint64, treasury String, cap Uint64, minbond Uint64, minburn Uint64, wfee Uint64, mindep Uint64, regfee Uint64, capratio Uint64) Uint64
+Function InitializePrivate(k Uint64, treasury String, cap Uint64, minbond Uint64, minburn Uint64, wfee Uint64, mindep Uint64, regfee Uint64, capratio Uint64, bigbps Uint64, bigdelay Uint64) Uint64
 5 IF EXISTS("initd") != 0 THEN GOTO 900
 10 DIM s, t as String
 20 LET s = SIGNER()
@@ -47,6 +51,7 @@ Function InitializePrivate(k Uint64, treasury String, cap Uint64, minbond Uint64
 23 LET t = ADDRESS_RAW(treasury)
 24 IF IS_ADDRESS_VALID(t) == 0 THEN GOTO 900
 25 IF minbond == 0 || minburn == 0 || wfee >= minburn || mindep == 0 || capratio == 0 THEN GOTO 900
+26 IF bigbps > 10000 || bigdelay > 20000 THEN GOTO 900
 30 STORE("kind", "vault")
 31 STORE("v", 3)
 32 STORE("k", k)
@@ -73,24 +78,25 @@ Function InitializePrivate(k Uint64, treasury String, cap Uint64, minbond Uint64
 53 STORE("mindep", mindep)
 54 STORE("regfee", regfee)
 55 STORE("feepool", 0)
-56 STORE("maxdep", 0)
-57 STORE("winmax", 0)
-58 STORE("wdelay", 0)
-59 STORE("viewkey", "")
+56 STORE("bigbps", bigbps)
+57 STORE("bigdelay", bigdelay)
+58 STORE("winmax", 0)
+59 STORE("wdelay", 0)
+60 STORE("viewkey", "")
 99 STORE("initd", 1)
 100 RETURN 0
 900 RETURN 1
 End Function
 
 // Owner sets the outflow limits before sealing; 0 disables one. Afterwards only Tighten can change them.
-Function SetLimits(maxdep Uint64, winmax Uint64, wdelay Uint64) Uint64
+// There is deliberately no per-deposit maximum: one that a deposit exceeded could never be minted at all, and
+// nobody is guaranteed to exist who could send it back. The rolling window bounds the rate and empties by itself.
+Function SetLimits(winmax Uint64, wdelay Uint64) Uint64
 10 DIM s as String
 20 LET s = SIGNER()
 21 IF IS_ADDRESS_VALID(s) == 0 || s != LOAD("owner") || LOAD("sealed") != 0 THEN GOTO 900
 22 IF wdelay > 20000 THEN GOTO 900
-23 IF maxdep != 0 && maxdep < LOAD("mindep") THEN GOTO 900
-24 IF winmax != 0 && winmax < maxdep THEN GOTO 900
-30 STORE("maxdep", maxdep)
+23 IF winmax != 0 && winmax < LOAD("mindep") THEN GOTO 900
 31 STORE("winmax", winmax)
 32 STORE("wdelay", wdelay)
 100 RETURN 0
@@ -98,23 +104,20 @@ Function SetLimits(maxdep Uint64, winmax Uint64, wdelay Uint64) Uint64
 End Function
 
 // k votes tighten limits after sealing, safe direction only. The floors stop a quorum bricking the vault.
-Function Tighten(maxdep Uint64, winmax Uint64, wdelay Uint64) Uint64
+Function Tighten(winmax Uint64, wdelay Uint64) Uint64
 10 DIM s, kb, ch as String
 11 DIM r, cur as Uint64
 20 LET s = SIGNER()
 21 IF issigner(s) == 0 || DEROVALUE() != 0 || LOAD("sealed") == 0 THEN GOTO 900
 22 IF wdelay > 20000 || wdelay < LOAD("wdelay") THEN GOTO 900
-23 IF maxdep == 0 || maxdep < LOAD("mindep") || winmax == 0 || winmax < maxdep THEN GOTO 900
-24 LET cur = LOAD("maxdep")
-25 IF cur != 0 && maxdep > cur THEN GOTO 900
+23 IF winmax == 0 || winmax < LOAD("mindep") THEN GOTO 900
 26 LET cur = LOAD("winmax")
 27 IF cur != 0 && winmax > cur THEN GOTO 900
 30 LET kb = "" + LOAD("se") + "_" + LOAD("te")
-31 LET ch = "" + maxdep + "|" + winmax + "|" + wdelay
+31 LET ch = "" + winmax + "|" + wdelay
 32 LET r = votek("t", kb, ch, s)
 33 IF r == 2 THEN GOTO 900
 34 IF r == 0 THEN GOTO 100
-40 STORE("maxdep", maxdep)
 41 STORE("winmax", winmax)
 42 STORE("wdelay", wdelay)
 43 STORE("te", LOAD("te") + 1)
@@ -308,7 +311,6 @@ Function Mint(j Uint64, txid String, vout Uint64, amount Uint64) Uint64
 40 LET sup = LOAD("sup")
 41 IF sup + amount < sup || sup + amount > LOAD("cap") THEN GOTO 900
 42 IF LOAD("cap") / LOAD("capratio") > LOAD("bondtot") THEN GOTO 900
-43 IF LOAD("maxdep") != 0 && amount > LOAD("maxdep") THEN GOTO 900
 50 LET wb = "" + (BLOCK_HEIGHT() / 2000)
 51 LET wm = 0
 52 IF EXISTS("mw_" + wb) == 0 THEN GOTO 54
@@ -354,7 +356,7 @@ End Function
 // reserve >= sup holds at every moment with no off-chain bookkeeping.
 Function Burn(dest String) Uint64
 10 DIM s as String
-11 DIM v, j, f as Uint64
+11 DIM v, j, f, d, big as Uint64
 20 LET s = SIGNER()
 21 IF IS_ADDRESS_VALID(s) == 0 THEN GOTO 900
 22 IF LOAD("halted") != 0 || LOAD("sealed") == 0 THEN GOTO 900
@@ -363,14 +365,20 @@ Function Burn(dest String) Uint64
 25 IF STRLEN(dest) < 16 || STRLEN(dest) > 200 THEN GOTO 900
 26 IF v > LOAD("sup") THEN GOTO 900
 27 LET f = LOAD("wfee")
-30 LET j = LOAD("wn")
-31 STORE("w_" + j + "_to", dest)
-32 STORE("w_" + j + "_v", v - f)
-33 STORE("w_" + j + "_f", f)
-34 STORE("w_" + j + "_by", s)
-35 STORE("w_" + j + "_h", BLOCK_HEIGHT())
-36 STORE("w_" + j + "_st", 0)
-37 STORE("wn", j + 1)
+28 LET d = LOAD("wdelay")
+29 IF LOAD("bigbps") == 0 THEN GOTO 40
+30 LET big = (LOAD("sup") / 10000) * LOAD("bigbps") + ((LOAD("sup") % 10000) * LOAD("bigbps")) / 10000
+31 IF v <= big THEN GOTO 40
+32 LET d = d + LOAD("bigdelay")
+40 LET j = LOAD("wn")
+41 STORE("w_" + j + "_to", dest)
+42 STORE("w_" + j + "_v", v - f)
+43 STORE("w_" + j + "_f", f)
+44 STORE("w_" + j + "_by", s)
+45 STORE("w_" + j + "_h", BLOCK_HEIGHT())
+46 STORE("w_" + j + "_st", 0)
+47 STORE("w_" + j + "_rel", BLOCK_HEIGHT() + d)
+48 STORE("wn", j + 1)
 100 RETURN 0
 900 RETURN 1
 End Function
@@ -384,7 +392,7 @@ Function Released(j Uint64, ftx String) Uint64
 21 IF issigner(s) == 0 || DEROVALUE() != 0 || LOAD("halted") != 0 THEN GOTO 900
 22 IF EXISTS("w_" + j + "_st") == 0 THEN GOTO 900
 23 IF LOAD("w_" + j + "_st") != 0 THEN GOTO 900
-24 IF BLOCK_HEIGHT() < LOAD("w_" + j + "_h") + LOAD("wdelay") THEN GOTO 900
+24 IF BLOCK_HEIGHT() < LOAD("w_" + j + "_rel") THEN GOTO 900
 25 IF STRLEN(ftx) == 0 || STRLEN(ftx) > 128 THEN GOTO 900
 26 IF EXISTS("fu_" + ftx) != 0 THEN GOTO 900
 30 LET kb = "" + LOAD("se") + "_" + LOAD("he") + "_" + (BLOCK_HEIGHT() / 2000) + "_" + j

@@ -24,7 +24,7 @@ func TestVaultFederation(t *testing.T) {
 	}
 	base := func(k, minburn, wfee, mindep uint64) rpc.Arguments {
 		return rpc.Arguments{harness.U("k", k), harness.S("treasury", treasury.String()), harness.U("cap", 1000),
-			harness.U("minbond", 1000), harness.U("minburn", minburn), harness.U("wfee", wfee), harness.U("mindep", mindep), harness.U("regfee", 0), harness.U("capratio", 3)}
+			harness.U("minbond", 1000), harness.U("minburn", minburn), harness.U("wfee", wfee), harness.U("mindep", mindep), harness.U("regfee", 0), harness.U("capratio", 3), harness.U("bigbps", 2000), harness.U("bigdelay", 0)}
 	}
 	bad(base(1, 100, 10, 5))  // quorum below 2
 	bad(base(3, 100, 100, 5)) // a fee that eats the whole minimum burn

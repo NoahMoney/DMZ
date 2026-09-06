@@ -6,6 +6,16 @@ whose done-criteria are stated. Where this file and the code disagree, the code 
 
 ## 0. Standing rules (operator rulings, do not relitigate)
 
+0. **Nothing may need a human.** The operator intends to revoke their own access after deployment: the contract
+   owner keeps no power after `Seal`, and the TELA INDEX key may be discarded. So **any state that requires a
+   privileged party, a manual flag or an operator decision to leave is a permanent freeze of user funds**, and is
+   a defect however well it is documented. Every limit must either empty by itself or expire into a payment;
+   every judgement must be a k-of-n vote that daemons cast and clear from public state. Doing nothing must
+   release funds; taking action must be what stops them, never the reverse. This rule caused the loop-19 redesign
+   (a size breaker that refused withdrawals became a size-tiered delay, and the per-deposit maximum was deleted
+   outright because a deposit above it could never be minted and nobody could refund it). Check every new
+   mechanism against it before writing the code.
+
 1. **Nothing touches mainnet.** Simulator → private testnet → mainnet, and mainnet only by the operator with the
    go/no-go gates in `deploy/README.md` (Mainnet). Every fund-moving tool refuses mainnet without `-yes`.
 2. **Never store private keys in the browser; never proxy transactions through a server.** The wallet signs over

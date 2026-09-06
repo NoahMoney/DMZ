@@ -23,7 +23,7 @@ func installVault(t *testing.T, c *harness.Chain, owner, treasury *rpc.Address, 
 	code := readContract(t, "vault.bas")
 	scid, res := c.Install(code, nil, rpc.Arguments{harness.U("k", cfg.k), harness.S("treasury", treasury.String()),
 		harness.U("cap", cfg.cap), harness.U("minbond", cfg.minbond), harness.U("minburn", cfg.minburn),
-		harness.U("wfee", cfg.wfee), harness.U("mindep", cfg.mindep), harness.U("regfee", cfg.regfee), harness.U("capratio", 3)}, owner, harness.MaxStorageGas)
+		harness.U("wfee", cfg.wfee), harness.U("mindep", cfg.mindep), harness.U("regfee", cfg.regfee), harness.U("capratio", 3), harness.U("bigbps", 2000), harness.U("bigdelay", 0)}, owner, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}

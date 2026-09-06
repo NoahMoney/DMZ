@@ -1,6 +1,6 @@
 // simvault drives an end-to-end wrap/unwrap on the DERO simulator with a simulated foreign chain:
 //
-//	go run ./simvault -install [-maxdep N -winmax N -wdelay N]   # install vault.bas (2-of-3), add signers, bond, optional SetLimits, seal, register the user
+//	go run ./simvault -install [-winmax N -wdelay N]   # install vault.bas (2-of-3), add signers, bond, optional SetLimits, seal, register the user
 //	go run ./simvault -vault <scid> -deposit 0:50000    # the user (index 0) "sends" 50000 foreign units (the default cap is 100000); a fake txid is recorded
 //	go run ./simvault -vault <scid> -advance 3    # the foreign chain moves 3 blocks
 //	go run ./vaultsigner -wallet 127.0.0.1:30003 -vault <scid> -once   (and again with 30004)
@@ -39,7 +39,8 @@ var (
 	minbond  = flag.Uint64("minbond", 20000, "minimum bond per signer (DERO atomic units)")
 	minburn  = flag.Uint64("minburn", 1000, "minimum withdrawal in foreign base units")
 	wfee     = flag.Uint64("wfee", 100, "withdrawal fee kept by the federation, in foreign base units")
-	maxdep   = flag.Uint64("maxdep", 0, "SetLimits before Seal: largest single deposit minted (0 = no limit)")
+	bigbps   = flag.Uint64("bigbps", 2000, "a withdrawal above this share of the supply (bps) waits bigdelay extra blocks")
+	bigdelay = flag.Uint64("bigdelay", 500, "extra blocks a large withdrawal waits before it may be released")
 	winmax   = flag.Uint64("winmax", 0, "SetLimits before Seal: most minted over two consecutive 2000-block buckets (0 = no limit)")
 	wdelay   = flag.Uint64("wdelay", 0, "SetLimits before Seal: blocks after a burn before a Released vote counts")
 	mindep   = flag.Uint64("mindep", 1, "smallest foreign deposit that may ever be minted")
@@ -179,7 +180,7 @@ func doInstall(c *rpc.Client) {
 	rpc.Must(err)
 	own := rpc.Address(owner)
 	tre := rpc.Address(treasury)
-	scid, gas, h := c.Send(owner, own, string(code), "", nil, []rpc.Arg{rpc.U("k", 2), rpc.S("treasury", tre), rpc.U("cap", *cap), rpc.U("minbond", *minbond), rpc.U("minburn", *minburn), rpc.U("wfee", *wfee), rpc.U("mindep", *mindep), rpc.U("regfee", 0), rpc.U("capratio", *capratio)})
+	scid, gas, h := c.Send(owner, own, string(code), "", nil, []rpc.Arg{rpc.U("k", 2), rpc.S("treasury", tre), rpc.U("cap", *cap), rpc.U("minbond", *minbond), rpc.U("minburn", *minburn), rpc.U("wfee", *wfee), rpc.U("mindep", *mindep), rpc.U("regfee", 0), rpc.U("capratio", *capratio), rpc.U("bigbps", *bigbps), rpc.U("bigdelay", *bigdelay)})
 	fmt.Printf("vault installed: %s (height %d, storage gas %d)\n", scid, h, gas.GasStorage)
 	for _, w := range signers {
 		a := rpc.Address(w)
@@ -191,9 +192,9 @@ func doInstall(c *rpc.Client) {
 		txid, _, _ := c.Send(w, a, "", scid, []rpc.Transfer{{Destination: c.RandomAddress(), Burn: *minbond}}, []rpc.Arg{rpc.S("entrypoint", "Bond")})
 		fmt.Printf("bond %d from %s…, tx %s…\n", *minbond, a[:16], txid[:8])
 	}
-	if *maxdep != 0 || *winmax != 0 || *wdelay != 0 { // limits are owner-set once, before Seal, never again
-		txid, _, _ := c.Send(owner, own, "", scid, nil, []rpc.Arg{rpc.S("entrypoint", "SetLimits"), rpc.U("maxdep", *maxdep), rpc.U("winmax", *winmax), rpc.U("wdelay", *wdelay)})
-		fmt.Printf("limits set (maxdep %d, winmax %d, wdelay %d), tx %s…\n", *maxdep, *winmax, *wdelay, txid[:8])
+	if *winmax != 0 || *wdelay != 0 { // limits are owner-set once, before Seal, never again
+		txid, _, _ := c.Send(owner, own, "", scid, nil, []rpc.Arg{rpc.S("entrypoint", "SetLimits"), rpc.U("winmax", *winmax), rpc.U("wdelay", *wdelay)})
+		fmt.Printf("limits set (winmax %d, wdelay %d), tx %s…\n", *winmax, *wdelay, txid[:8])
 	}
 	txid, _, _ := c.Send(owner, own, "", scid, nil, []rpc.Arg{rpc.S("entrypoint", "Seal")})
 	fmt.Printf("sealed, tx %s…\n", txid[:8])

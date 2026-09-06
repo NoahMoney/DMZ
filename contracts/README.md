@@ -198,6 +198,15 @@ Trust model: `research/wrapper/README.md`. Daemon: `tools/vaultsigner` (v2 only,
 `tools/simvault`. Tests: `vault_test.go`, `vault_v3_test.go`, `vault_limits_test.go`, `vault_fuzz_test.go`,
 `vault_haltslash_test.go`, `vault_smoke_test.go`.
 
+**Liveness by construction — the property that outranks every other rule here.** A deployed vault has no
+operator: the deployer keeps no power after `Seal`, and the app may be published from a key that is then thrown
+away. So no state may exist that needs a human to leave it. Every limit either empties by itself (the rolling mint
+window slides; a deposit it turned away mints later untouched) or expires into a payment (the withdrawal delay,
+which is longer for a large withdrawal but always finite). There is deliberately **no per-deposit maximum**,
+because a deposit above one could never be minted at all and nobody is guaranteed to exist who could send it back.
+Stopping a withdrawal takes a k-of-n `Veto` or `Halt` that signer daemons cast from public state and clear the
+same way; doing nothing pays the user. There is no manual override anywhere in the contract or the daemon.
+
 **The invariant everything serves:** `foreign reserve >= sup`, at every moment, checkable by anyone from the
 published `viewkey`. `sup` counts every unit that is a claim on the reserve, including units held by the contract
 between a burn and its release, and the fee units in `feepool`. A burn does **not** reduce `sup`; `Released` does.
@@ -213,6 +222,9 @@ between a burn and its release, and the fee units in `feepool`. A burn does **no
 - **`n ≥ 2k` is a deployment rule, not a check.** Only with k honest signers left over can a colluding quorum be
   slashed. 3-of-5 and 4-of-7 satisfy it; 2-of-3 does not, and is allowed because it is a reasonable small-vault
   choice — but in a 2-of-3 vault a colluding pair keeps its bonds. Say so in the runbook of any vault you deploy.
+- **`bigbps` / `bigdelay`** (fixed at install, never changeable): a withdrawal larger than `bigbps` basis points
+  of the supply waits `wdelay + bigdelay` blocks instead of `wdelay`, recorded as `w_<j>_rel` at burn time. This is
+  the whole of the outsized-withdrawal defence: extra time for honest signers to notice and vote, never a refusal.
 - **`cap ≤ capratio × bondtot`**, checked at `Seal`, `SetCap` and every `Mint`, and re-established downward by
   `Slash`. `cap` is in foreign base units and `bondtot` in DERO atomic units, so `capratio` is the operator's
   written-down price assumption (how many foreign base units of cap one DERO atomic unit of bond supports), not a
@@ -277,10 +289,10 @@ id is then closed: a deposit is minted **or** refunded, never both, and never la
 ### Withdrawals
 
 `Burn(dest)` — at least `minburn`, destination 16–200 characters; the units stay in the contract, `wfee` is the
-fee and the rest is the net amount. `sup` is unchanged here.
+fee and the rest is the net amount. `sup` is unchanged here. The burn records `w_<j>_rel`, the height from which
+it may be released: `wdelay` blocks, plus `bigdelay` when it is larger than `bigbps` of the supply.
 
-`Released(j, ftx)` — k votes on one foreign txid. Refused before `wdelay` blocks have passed since the burn (the
-honest signers' window to notice a bad burn and halt) and refused if that `ftx` already settled another
+`Released(j, ftx)` — k votes on one foreign txid. Refused before `w_<j>_rel` (the honest signers' window to notice a bad burn and halt) and refused if that `ftx` already settled another
 withdrawal (`fu_<ftx>`). On execution `sup` drops by the net amount and `feepool` gains the fee.
 
 `Veto(j)` — k votes return the units and the fee to whoever burned them, so a user is never left with neither the

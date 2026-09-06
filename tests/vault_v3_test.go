@@ -101,28 +101,25 @@ func TestVaultSafetyValves(t *testing.T) {
 	}
 
 	// Tighten: only the safe direction, and only with k votes
-	tighten := func(who *rpc.Address, maxdep, winmax, wdelay uint64) harness.Result {
-		return c.Call(scid, "Tighten", rpc.Arguments{harness.U("maxdep", maxdep), harness.U("winmax", winmax), harness.U("wdelay", wdelay)}, nil, who)
+	tighten := func(who *rpc.Address, winmax, wdelay uint64) harness.Result {
+		return c.Call(scid, "Tighten", rpc.Arguments{harness.U("winmax", winmax), harness.U("wdelay", wdelay)}, nil, who)
 	}
-	if r := tighten(user, 100, 100, 10); r.OK() {
+	if r := tighten(user, 100, 10); r.OK() {
 		t.Fatal("a stranger tightened the limits")
 	}
 	for i := 0; i < 2; i++ {
-		tighten(sg[i], 800, 4000, 6)
+		tighten(sg[i], 4000, 6)
 	}
-	if c.U(scid, "maxdep") != 800 || c.U(scid, "winmax") != 4000 || c.U(scid, "wdelay") != 6 || c.U(scid, "te") != 1 {
-		t.Fatalf("tighten: maxdep %d winmax %d wdelay %d", c.U(scid, "maxdep"), c.U(scid, "winmax"), c.U(scid, "wdelay"))
+	if c.U(scid, "winmax") != 4000 || c.U(scid, "wdelay") != 6 || c.U(scid, "te") != 1 {
+		t.Fatalf("tighten: winmax %d wdelay %d", c.U(scid, "winmax"), c.U(scid, "wdelay"))
 	}
-	if r := tighten(sg[0], 900, 4000, 6); r.OK() {
-		t.Fatal("a looser per-deposit maximum was accepted")
-	}
-	if r := tighten(sg[0], 800, 5000, 6); r.OK() {
+	if r := tighten(sg[0], 5000, 6); r.OK() {
 		t.Fatal("a wider window was accepted")
 	}
-	if r := tighten(sg[0], 800, 4000, 5); r.OK() {
+	if r := tighten(sg[0], 4000, 5); r.OK() {
 		t.Fatal("a shorter withdrawal delay was accepted")
 	}
-	if r := tighten(sg[0], 0, 4000, 6); r.OK() {
+	if r := tighten(sg[0], 0, 6); r.OK() {
 		t.Fatal("disabling a set limit was accepted")
 	}
 
@@ -179,7 +176,7 @@ func TestVaultRefusesQuorumOfEveryone(t *testing.T) {
 	owner, treasury := c.NewAccount(), c.NewAccount()
 	code := readContract(t, "vault.bas")
 	scid, res := c.Install(code, nil, rpc.Arguments{harness.U("k", 3), harness.S("treasury", treasury.String()), harness.U("cap", 1000),
-		harness.U("minbond", 1000), harness.U("minburn", 100), harness.U("wfee", 10), harness.U("mindep", 1), harness.U("regfee", 0), harness.U("capratio", 3)}, owner, harness.MaxStorageGas)
+		harness.U("minbond", 1000), harness.U("minburn", 100), harness.U("wfee", 10), harness.U("mindep", 1), harness.U("regfee", 0), harness.U("capratio", 3), harness.U("bigbps", 2000), harness.U("bigdelay", 0)}, owner, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}

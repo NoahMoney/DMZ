@@ -114,18 +114,6 @@ func TestWithdrawalFinality(t *testing.T) {
 	}
 }
 
-// TestSuspiciousWithdrawal: one withdrawal above the configured share of the reserve is not paid.
-func TestSuspiciousWithdrawal(t *testing.T) {
-	for _, c := range []struct {
-		amount, reserve, bps uint64
-		want                 bool
-	}{{2000, 10000, 2000, false}, {2001, 10000, 2000, true}, {1, 0, 2000, true}, {9999, 10000, 0, false}, {3, 12, 2500, false}, {4, 12, 2500, true}} {
-		if got := suspiciousWithdrawal(c.amount, c.reserve, c.bps); got != c.want {
-			t.Fatalf("amount %d reserve %d bps %d: %v want %v", c.amount, c.reserve, c.bps, got, c.want)
-		}
-	}
-}
-
 // TestCorruptStateRefusesToStart: a signer must not start with an empty memory when its state file is unreadable.
 func TestCorruptStateRefusesToStart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
