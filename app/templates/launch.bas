@@ -227,18 +227,20 @@ Function sellto(s String, min_out Uint64, publish Uint64) Uint64
 900 RETURN 1
 End Function
 
+// Anyone may trigger the payout; it always goes to the treasury recorded at install. Permissionless because a
+// fee path that only one key can move stops the moment that key does, and the protocol has no operator to rely on.
 Function ClaimFees() Uint64
 10 DIM fd, fa as Uint64
-11 DIM s as String
-20 LET s = SIGNER()
-21 IF s != LOAD("treasury") THEN GOTO 900
-30 LET fd = LOAD("fd")
-31 LET fa = LOAD("fa")
+11 DIM t as String
+20 LET t = LOAD("treasury")
+21 LET fd = LOAD("fd")
+22 LET fa = LOAD("fa")
+23 IF fd == 0 && fa == 0 THEN GOTO 900
 32 STORE("fd", 0)
 33 STORE("fa", 0)
 34 STORE("fc", LOAD("fc") + fd)
-35 SEND_DERO_TO_ADDRESS(s, fd)
-36 SEND_ASSET_TO_ADDRESS(s, fa, SCID())
+35 SEND_DERO_TO_ADDRESS(t, fd)
+36 SEND_ASSET_TO_ADDRESS(t, fa, SCID())
 40 RETURN 0
 900 RETURN 1
 End Function

@@ -47,6 +47,7 @@ var (
 	capratio = flag.Uint64("capratio", 3, "foreign base units of cap each DERO atomic unit of bond supports")
 	vout     = flag.Uint64("vout", 0, "output index of the simulated deposit within its transaction")
 	halt     = flag.String("halt", "", "operator: two signer wallets vote Halt(want), 1 to stop the vault or 0 to resume it")
+	setcap   = flag.Uint64("setcap", 0, "k signer wallets vote SetCap to this value (the contract bounds it by capratio x bondtot)")
 	fund     = flag.String("fund", "", "send this many DERO units from the funder wallet to owner, user and signers")
 )
 
@@ -100,6 +101,18 @@ func main() {
 			fmt.Printf("Halt(%d) from %s…, tx %s…\n", want, a[:16], txid[:8])
 		}
 		fmt.Printf("halted = %d\n", c.GetSC(*vault, false).U("halted"))
+	case *setcap > 0:
+		// k signers raise the mint cap. The contract still refuses anything above capratio x bondtot, so this
+		// cannot lift the bound that ties what may be minted to what is actually at stake.
+		if len(*vault) != 64 {
+			log.Fatal("-vault required")
+		}
+		for _, w := range signers[:2] {
+			a := rpc.Address(w)
+			txid, _, _ := c.Send(w, a, "", *vault, nil, []rpc.Arg{rpc.S("entrypoint", "SetCap"), rpc.U("cap", *setcap)})
+			fmt.Printf("SetCap(%d) from %s, tx %s\n", *setcap, a[:16], txid[:8])
+		}
+		fmt.Printf("cap = %d\n", c.GetSC(*vault, false).U("cap"))
 	case *fund != "":
 		// plain DERO transfers from the treasury wallet to every wallet the demo uses
 		amt, _ := strconv.ParseUint(*fund, 10, 64)

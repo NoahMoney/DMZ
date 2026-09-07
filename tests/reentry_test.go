@@ -35,7 +35,7 @@ func TestInitializeNotCallable(t *testing.T) {
 				h[i] = 0xab
 			}
 			return h
-		}()), harness.S("treasury", treasury.String()), harness.U("fee", 50), harness.U("pfee", 5000)}, "treasury"},
+		}()), harness.H("quote", zeroHash), harness.S("treasury", treasury.String()), harness.U("fee", 50), harness.U("pfee", 5000)}, "treasury"},
 		{"vault.bas", "InitializePrivate", rpc.Arguments{harness.U("k", 2), harness.S("treasury", treasury.String()), harness.U("cap", 1000),
 			harness.U("minbond", 1000), harness.U("minburn", 100), harness.U("wfee", 10), harness.U("mindep", 1), harness.U("regfee", 0), harness.U("capratio", 3), harness.U("bigbps", 2000), harness.U("bigdelay", 0)}, "owner"},
 		{"nft.bas", "InitializePrivate", rpc.Arguments{harness.S("name", "Badge"), harness.S("descr", ""), harness.S("icon", ""), harness.S("file", ""), harness.S("tags", ""), harness.S("collection", "c"),

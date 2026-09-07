@@ -1,25 +1,28 @@
-// Veil pool v1 - constant-product AMM for one DERO/asset pair. Immutable: no UpdateCode.
+// Veil pool v2 - constant-product AMM for one quote/asset pair. Immutable: no UpdateCode.
+// The quote side is an SCID fixed at install: the zero hash (DERO) or a wrapped asset (wXMR, wZEC).
+// ASSETVALUE(zero hash) is DEROVALUE() and SEND_ASSET_TO_ADDRESS(a,n,zero hash) is SEND_DERO_TO_ADDRESS(a,n),
+// so one asset-shaped path serves both and no line branches on the quote.
 // All arithmetic is uint64. Every product of two possibly-large numbers goes through muldiv (128-bit).
 // Every other arithmetic line carries its bound. Rounding: outputs floor, fees ceil, LP mint floor.
-// Invariant: the contract holds exactly rd + fd DERO and ra + fa asset; every credit is guarded against wrapping
+// Invariant: the contract holds exactly rd + fd quote and ra + fa asset; every credit is guarded against wrapping
 // that total (the node credits the FULL incoming value with plain wrapping arithmetic before the code runs, so the
 // guard always uses the amounts received, never the amounts used).
 // Every entrypoint requires ringsize 2: SIGNER() must resolve because output is sent to the signer.
-// Storage keys: kind v asset treasury fee pfee rd ra lp fd fa tc pc lh lt   t_<n> (published trades)   p_<n> (price points)
-// Trade record t_<n> = side|address|in|out|height|timestamp   (side 1 = bought asset with DERO, 2 = sold asset for DERO)
+// Storage keys: kind v asset qt treasury fee pfee rd ra lp fd fa tc pc lh lt   t_<n> (published trades)  p_<n>
+// Trade record t_<n> = side|address|in|out|height|timestamp   (side 1 = bought asset with quote, 2 = sold for quote)
 // Price point  p_<n> = height|timestamp|rd|ra  = closing reserves of the previous active block, written on the first reserve change of a new block
 
-Function InitializePrivate(asset String, treasury String, fee Uint64, pfee Uint64) Uint64
+Function InitializePrivate(asset String, quote String, treasury String, fee Uint64, pfee Uint64) Uint64
 5 IF EXISTS("initd") != 0 THEN GOTO 900
 10 DIM t as String
-20 IF STRLEN(asset) != 32 THEN GOTO 900
-30 IF asset == DERO() THEN GOTO 900
+20 IF STRLEN(asset) != 32 || STRLEN(quote) != 32 THEN GOTO 900
+30 IF asset == DERO() || asset == quote THEN GOTO 900
 40 IF fee > 100 THEN GOTO 900
 50 IF pfee > 10000 THEN GOTO 900
 60 LET t = ADDRESS_RAW(treasury)
 70 IF IS_ADDRESS_VALID(t) == 0 THEN GOTO 900
 80 STORE("kind", "pool")
-81 STORE("v", 1)
+81 STORE("v", 2)
 82 STORE("asset", asset)
 83 STORE("treasury", t)
 84 STORE("fee", fee)
@@ -34,20 +37,23 @@ Function InitializePrivate(asset String, treasury String, fee Uint64, pfee Uint6
 93 STORE("lh", 0)
 94 STORE("lt", 0)
 95 STORE("fc", 0)
+96 STORE("qt", quote)
 99 STORE("initd", 1)
 100 RETURN 0
 900 RETURN 1
 End Function
 
-// Deposit DERO and asset in the current ratio. Excess on one side is refunded. Mints LP (this SCID) to the signer.
-// First deposit: LP minted = DERO deposited, 1000 units stay locked forever (MIN_LIQ), first deposit must be >= 1 DERO.
+// Deposit quote and asset in the current ratio. Excess on one side is refunded. Mints LP (this SCID) to the signer.
+// First deposit: LP minted = quote deposited, 1000 units stay locked forever (MIN_LIQ), first deposit >= 100000 units.
 Function AddLiquidity(min_lp Uint64) Uint64
 10 DIM d, a, rd, ra, lp, l, ld, la, need as Uint64
-11 DIM s, asset as String
+11 DIM s, asset, q as String
 20 LET s = SIGNER()
 30 IF IS_ADDRESS_VALID(s) == 0 THEN GOTO 900
 40 LET asset = LOAD("asset")
-50 LET d = DEROVALUE()
+41 LET q = LOAD("qt")
+42 IF q != DERO() && DEROVALUE() != 0 THEN GOTO 900
+50 LET d = ASSETVALUE(q)
 60 LET a = ASSETVALUE(asset)
 70 IF d == 0 || a == 0 THEN GOTO 900
 80 IF ASSETVALUE(SCID()) != 0 THEN GOTO 900
@@ -72,7 +78,7 @@ Function AddLiquidity(min_lp Uint64) Uint64
 340 LET need = muldivup(l, rd, lp)
 350 IF need > d THEN GOTO 900
 360 IF d == need THEN GOTO 380
-370 SEND_DERO_TO_ADDRESS(s, d - need)
+370 SEND_ASSET_TO_ADDRESS(s, d - need, q)
 380 LET d = need
 390 GOTO 500
 400 LET l = ld
@@ -94,13 +100,15 @@ End Function
 // Burn LP (send this SCID) and receive the proportional share of both reserves, rounded down.
 Function RemoveLiquidity(min_dero Uint64, min_asset Uint64) Uint64
 10 DIM l, rd, ra, lp, dout, aout as Uint64
-11 DIM s, asset as String
+11 DIM s, asset, q as String
 20 LET s = SIGNER()
 30 IF IS_ADDRESS_VALID(s) == 0 THEN GOTO 900
 40 LET asset = LOAD("asset")
+41 LET q = LOAD("qt")
 50 LET l = ASSETVALUE(SCID())
 60 IF l == 0 THEN GOTO 900
-70 IF DEROVALUE() != 0 || ASSETVALUE(asset) != 0 THEN GOTO 900
+70 IF ASSETVALUE(q) != 0 || ASSETVALUE(asset) != 0 THEN GOTO 900
+71 IF q != DERO() && DEROVALUE() != 0 THEN GOTO 900
 80 LET rd = LOAD("rd")
 90 LET ra = LOAD("ra")
 100 LET lp = LOAD("lp")
@@ -112,13 +120,13 @@ Function RemoveLiquidity(min_dero Uint64, min_asset Uint64) Uint64
 160 STORE("rd", rd - dout)
 170 STORE("ra", ra - aout)
 180 STORE("lp", lp - l)
-190 SEND_DERO_TO_ADDRESS(s, dout)
+190 SEND_ASSET_TO_ADDRESS(s, dout, q)
 200 SEND_ASSET_TO_ADDRESS(s, aout, asset)
 210 RETURN 0
 900 RETURN 1
 End Function
 
-// Send DERO, receive asset. fee = ceil(d * fee / 10000); protocol share pf = floor(fee * pfee / 10000) accrues to fd; the rest stays in reserves.
+// Send quote, receive asset. fee = ceil(d * fee / 10000); protocol share pf = floor(fee * pfee / 10000) accrues to fd; the rest stays in reserves.
 Function SwapDeroForAsset(min_out Uint64, publish Uint64) Uint64
 10 DIM s as String
 20 LET s = SIGNER()
@@ -139,11 +147,13 @@ End Function
 
 Function buyto(s String, min_out Uint64, publish Uint64) Uint64
 10 DIM d, fee, pf, deff, rd, ra, out as Uint64
-11 DIM asset as String
+11 DIM asset, q as String
 40 LET asset = LOAD("asset")
-50 LET d = DEROVALUE()
+41 LET q = LOAD("qt")
+50 LET d = ASSETVALUE(q)
 60 IF d == 0 THEN GOTO 900
 70 IF ASSETVALUE(asset) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 900
+71 IF q != DERO() && DEROVALUE() != 0 THEN GOTO 900
 80 LET rd = LOAD("rd")
 90 LET ra = LOAD("ra")
 100 IF rd == 0 || ra == 0 THEN GOTO 900
@@ -163,7 +173,7 @@ Function buyto(s String, min_out Uint64, publish Uint64) Uint64
 900 RETURN 1
 End Function
 
-// Send asset, receive DERO. Fee taken in asset units with the same rule.
+// Send asset, receive quote. Fee taken in asset units with the same rule.
 Function SwapAssetForDero(min_out Uint64, publish Uint64) Uint64
 10 DIM s as String
 20 LET s = SIGNER()
@@ -183,8 +193,13 @@ Function SwapAssetForDeroTo(dest String, min_out Uint64, publish Uint64) Uint64
 End Function
 
 Function refundto(s String) Uint64
-10 IF DEROVALUE() == 0 THEN GOTO 20
-11 SEND_DERO_TO_ADDRESS(s, DEROVALUE())
+5 DIM q as String
+6 LET q = LOAD("qt")
+7 IF DEROVALUE() == 0 THEN GOTO 10
+8 SEND_DERO_TO_ADDRESS(s, DEROVALUE())
+10 IF q == DERO() THEN GOTO 20
+11 IF ASSETVALUE(q) == 0 THEN GOTO 20
+12 SEND_ASSET_TO_ADDRESS(s, ASSETVALUE(q), q)
 20 IF ASSETVALUE(LOAD("asset")) == 0 THEN GOTO 30
 21 SEND_ASSET_TO_ADDRESS(s, ASSETVALUE(LOAD("asset")), LOAD("asset"))
 30 IF ASSETVALUE(SCID()) == 0 THEN GOTO 40
@@ -195,11 +210,13 @@ End Function
 
 Function sellto(s String, min_out Uint64, publish Uint64) Uint64
 10 DIM a, fee, pf, aeff, rd, ra, out as Uint64
-11 DIM asset as String
+11 DIM asset, q as String
 40 LET asset = LOAD("asset")
+41 LET q = LOAD("qt")
 50 LET a = ASSETVALUE(asset)
 60 IF a == 0 THEN GOTO 900
-70 IF DEROVALUE() != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 900
+70 IF ASSETVALUE(q) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 900
+71 IF q != DERO() && DEROVALUE() != 0 THEN GOTO 900
 80 LET rd = LOAD("rd")
 90 LET ra = LOAD("ra")
 100 IF rd == 0 || ra == 0 THEN GOTO 900
@@ -213,25 +230,27 @@ Function sellto(s String, min_out Uint64, publish Uint64) Uint64
 180 STORE("ra", ra + a - pf)
 190 STORE("rd", rd - out)
 200 STORE("fa", LOAD("fa") + pf)
-210 SEND_DERO_TO_ADDRESS(s, out)
+210 SEND_ASSET_TO_ADDRESS(s, out, q)
 220 post(2, a, out, publish, s)
 230 RETURN 0
 900 RETURN 1
 End Function
 
 // Treasury withdraws accrued protocol fees.
+// Anyone may trigger the payout; it always goes to the treasury recorded at install (see launch.bas).
 Function ClaimFees() Uint64
 10 DIM fd, fa as Uint64
-11 DIM s as String
-20 LET s = SIGNER()
-30 IF s != LOAD("treasury") THEN GOTO 900
+11 DIM t, q as String
+20 LET t = LOAD("treasury")
+30 LET q = LOAD("qt")
 40 LET fd = LOAD("fd")
 50 LET fa = LOAD("fa")
+55 IF fd == 0 && fa == 0 THEN GOTO 900
 60 STORE("fd", 0)
 70 STORE("fa", 0)
 75 STORE("fc", LOAD("fc") + fd)
-80 SEND_DERO_TO_ADDRESS(s, fd)
-90 SEND_ASSET_TO_ADDRESS(s, fa, LOAD("asset"))
+80 SEND_ASSET_TO_ADDRESS(t, fd, q)
+90 SEND_ASSET_TO_ADDRESS(t, fa, LOAD("asset"))
 100 RETURN 0
 900 RETURN 1
 End Function

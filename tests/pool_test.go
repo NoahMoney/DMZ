@@ -14,6 +14,11 @@ import (
 	"github.com/deroproject/derohe/veil/tests/harness"
 )
 
+// The quote side of a pool is an SCID fixed at install. The zero hash is DERO, and the DVM makes that exact:
+// ASSETVALUE(zero) is DEROVALUE() and SEND_ASSET_TO_ADDRESS(a,n,zero) is SEND_DERO_TO_ADDRESS(a,n), so a
+// zero-quoted pool behaves byte for byte as every test here was written against.
+var zeroHash crypto.Hash // the zero SCID: in the DVM this quote IS DERO
+
 const assetCode = `Function InitializePrivate() Uint64
 10 RETURN 0
 End Function
@@ -62,7 +67,7 @@ func newPoolEnv(t *testing.T, fee, pfee uint64) *poolEnv {
 	}
 	code := readContract(t, "pool.bas")
 	e.pool, res = e.c.Install(code, nil, rpc.Arguments{
-		harness.H("asset", e.asset), harness.S("treasury", e.treasury.String()), harness.U("fee", fee), harness.U("pfee", pfee),
+		harness.H("asset", e.asset), harness.H("quote", zeroHash), harness.S("treasury", e.treasury.String()), harness.U("fee", fee), harness.U("pfee", pfee),
 	}, e.alice, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("pool install: %v", res.Err)
@@ -228,10 +233,10 @@ func TestPoolInstallValidation(t *testing.T) {
 	}
 	code := readContract(t, "pool.bas")
 	bad := []rpc.Arguments{
-		{harness.H("asset", e.asset), harness.S("treasury", e.treasury.String()), harness.U("fee", 101), harness.U("pfee", 5000)},
-		{harness.H("asset", e.asset), harness.S("treasury", e.treasury.String()), harness.U("fee", 50), harness.U("pfee", 10001)},
-		{harness.H("asset", e.asset), harness.S("treasury", "dero1notanaddress"), harness.U("fee", 50), harness.U("pfee", 5000)},
-		{harness.H("asset", zero), harness.S("treasury", e.treasury.String()), harness.U("fee", 50), harness.U("pfee", 5000)},
+		{harness.H("asset", e.asset), harness.H("quote", zeroHash), harness.S("treasury", e.treasury.String()), harness.U("fee", 101), harness.U("pfee", 5000)},
+		{harness.H("asset", e.asset), harness.H("quote", zeroHash), harness.S("treasury", e.treasury.String()), harness.U("fee", 50), harness.U("pfee", 10001)},
+		{harness.H("asset", e.asset), harness.H("quote", zeroHash), harness.S("treasury", "dero1notanaddress"), harness.U("fee", 50), harness.U("pfee", 5000)},
+		{harness.H("asset", zero), harness.H("quote", zeroHash), harness.S("treasury", e.treasury.String()), harness.U("fee", 50), harness.U("pfee", 5000)},
 		{harness.S("asset", "abcd"), harness.S("treasury", e.treasury.String()), harness.U("fee", 50), harness.U("pfee", 5000)},
 	}
 	for i, args := range bad {

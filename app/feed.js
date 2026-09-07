@@ -5,7 +5,7 @@
 (function () {
   const V = window.Veil, B = BigInt, S = V.stats, clean = (s, n) => V.ui.clean(s, n);
   const NUMKEYS = ["rd", "ra", "lp", "fd", "fa", "tc", "pc", "lh", "lt", "sold", "real", "cs", "Lq", "G", "vd0", "tacc", "rpool", "locked", "stot", "sacc", "gh", "S", "dec", "fee", "pfee", "tax", "tmode", "phase", "minted", "maxsupply", "price", "minhold", "holdblocks", "cacc"];
-  const STRKEYS = ["nameHdr", "descrHdr", "iconURLHdr", "tagsHdr", "ticker", "creator", "treasury", "asset", "kind", "token", "fileURL", "collection"];
+  const STRKEYS = ["nameHdr", "descrHdr", "iconURLHdr", "tagsHdr", "ticker", "creator", "treasury", "asset", "qt", "kind", "token", "fileURL", "collection"];
   const PROBE = ["rd", "ra", "tc", "pc", "lp", "phase", "stot", "tacc", "fd", "fa", "lh", "lt", "real", "sold", "locked", "sacc", "rpool", "minted"];
   const CHUNK = 250, MAXP = 4000, MAXT = 2000; // in-memory history caps per market (older history stays on chain)
   const CACHE_P = 1500, CACHE_T = 600, SAVE_EVERY = 30000; // localStorage copy: smaller and written at most every 30 s
@@ -34,7 +34,7 @@
     // The vault whose wrapped asset this market trades, or null when the market is a native DERO one.
     vaultOf(s) {
       if (!s) return null;
-      for (const v of this.vaults()) if (s.asset === v.scid || s.scid === v.scid) return v;
+      for (const v of this.vaults()) if (s.asset === v.scid || s.scid === v.scid || s.quote === v.scid) return v;
       return null;
     },
 
@@ -125,6 +125,9 @@
           tacc: num("tacc"), rpool: num("rpool"), locked: num("locked"), stot: num("stot"), sacc: num("sacc"), gh: num("gh"), creator: this.rawToAddr(hex("creator")), asset: scid });
       } else if (kind === "pool") {
         s.asset = hex("asset"); s.dec = 5n; s.name = "Asset " + s.asset.slice(0, 6); s.ticker = s.asset.slice(0, 4).toUpperCase();
+        // The quote side. v1 pools have no qt key at all and are DERO-quoted; the zero hash means DERO too.
+        const qt = hex("qt");
+        s.quote = qt && !/^0+$/.test(qt) ? qt : null;
       } else if (kind === "nft") {
         Object.assign(s, { name: str("nameHdr", 64) || "?", descr: str("descrHdr", 240), icon: str("iconURLHdr", 200), file: str("fileURL", 200), tags: str("tagsHdr", 100), collection: str("collection", 64),
           token: hex("token"), minhold: num("minhold"), holdblocks: num("holdblocks"), maxsupply: num("maxsupply"), price: num("price"), minted: num("minted"), cacc: num("cacc"), fd: num("fd"), fee: num("fee"), creator: this.rawToAddr(hex("creator")) });
@@ -160,11 +163,26 @@
     },
     decorate() {
       for (const s of this.assets.values()) if (s.kind === "pool") { const l = this.assets.get(s.asset); s.assetVerified = !!(l && l.kind === "launch"); if (s.assetVerified) { s.name = l.name + " pool"; s.ticker = l.ticker; s.dec = l.dec; s.icon = l.icon; } else { s.icon = ""; } }
+      // A wrapped asset is not a launch, so nothing else names it. Take its ticker and decimals from the
+      // deployment record, or its market shows a contract id where a symbol belongs.
+      for (const s of this.assets.values()) {
+        if (s.kind !== "pool") continue;
+        const bv = this.vaults().find((x) => x.scid === s.asset);
+        if (bv) { s.ticker = V.ui.clean(bv.sym || bv.name || "wrapped", 10); s.name = V.ui.clean(bv.name || "wrapped asset", 40); s.dec = B(Number.isInteger(bv.dec) ? bv.dec : 5); s.wrappedBase = true; }
+      }
+      // Name the quote so a market can be read as a pair. A wrapped quote is named by its vault record; anything
+      // else is shown by its contract id rather than guessed at.
+      for (const s of this.assets.values()) {
+        const v = s.quote ? this.vaults().find((x) => x.scid === s.quote) : null;
+        s.quoteSym = !s.quote ? "DERO" : v ? V.ui.clean(v.sym || v.name || "wrapped", 10) : s.quote.slice(0, 6);
+        s.quoteDec = !s.quote ? 5 : v && Number.isInteger(v.dec) ? v.dec : 5;
+        s.pair = (s.ticker || "?") + " / " + s.quoteSym;
+      }
       // impersonation: markets whose tickers read alike (look-alikes folded) are all marked, so the copy never looks safer than the original
       const groups = new Map();
       for (const s of this.assets.values()) { if (s.kind === "nft" || (s.kind === "pool" && s.assetVerified)) continue; const k = V.ui.tickerKey(s.ticker); s.lookalike = V.ui.hasHomoglyph(s.ticker); (groups.get(k) || groups.set(k, []).get(k)).push(s); }
       for (const g of groups.values()) for (const s of g) s.dupTicker = g.length > 1;
-      for (const s of this.assets.values()) if (s.kind === "pool" && s.assetVerified) { const l = this.assets.get(s.asset); s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; } // a launch and its own pool share a ticker by design
+      for (const s of this.assets.values()) if (s.kind === "pool" && s.assetVerified) { const l = this.assets.get(s.asset); if (!l) continue; s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; } // a launch and its own pool share a ticker by design
       for (const s of this.assets.values()) S.enrich(s, this.height);
       for (const n of this.nfts.values()) { const t = this.assets.get(n.token); n.tokenTicker = t ? t.ticker : V.shortAddr(n.token); n.tokenDec = t ? t.dec : 5n; }
     },
