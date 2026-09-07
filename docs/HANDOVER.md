@@ -126,7 +126,14 @@ Pitfalls that cost hours before (all sourced in `DECISIONS.md` and `RISKS.md`):
 
 ## 4. The platform programme: what to build next, in order
 
-Follow `docs/PLATFORM_BACKLOG.md`. Notes that are not in the backlog:
+**The visual identity is its own programme: [`docs/DESIGN_DIRECTIVE.md`](DESIGN_DIRECTIVE.md)** (operator brief,
+2026-09-07). It is design-led — render, critique, implement, re-render — and it is bounded by the things the brief
+does not know about: the 18 432-byte TELA DOC cap per file, a CSP that forbids external fonts and stylesheets, no
+build step, and a UI test that is the regression gate. Read its §1 before touching a stylesheet. It changes
+tokens and primitives, never business logic, and every functional assertion in `tools/uitest/ui.mjs` must survive
+it.
+
+Follow `docs/PLATFORM_BACKLOG.md` for everything else. Notes that are not in the backlog:
 
 - **B1.1 Ranking v2** (`app/stats.js`): keep everything derived from `p_<n>` and `t_<n>`; add per-block notional
   from `|Δrd|` with a floor (0.05 DERO), publisher weight `log1p(notional)`, decay `exp(−age/τ)` per window, age
