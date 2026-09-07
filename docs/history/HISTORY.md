@@ -2622,3 +2622,63 @@ honest payment.
   called for unchanged assets, `AddSigner2`'s ceiling counting signers ever added, the pre-seal bond lock, and
   `k = 20` being accepted at install when it can never be sealed.
 - Chart quality: zoom, pan and selectable timeframes on the token chart.
+
+## Loop 21 — the rest of the ways it could stop, and one lie in a comment (2026-09-07)
+
+Loop 20 fixed the freeze that would have hit every vault on its first withdrawal. This cycle worked the same
+class of defect down the audit list until the list was empty of them: five more places where the system could
+stop, or eat money, with nobody able to intervene.
+
+### FIXED
+
+- **One mistyped signer address locked every honest signer's bond for ever.** A typo in a 66-character bech32
+  string makes `Seal` permanently unreachable — nobody holds that key, so it can never bond — and `Unbond`
+  refused anyone with an `isg_` key regardless of whether the vault was ever sealed, `Slash` needs a sealed
+  vault, and there is no `RemoveSigner`. The contract cannot correct a typo, but it must not eat the bonds of
+  people who did nothing wrong: `Unbond` is now open to anyone before `Seal` and closed to every signer after it,
+  with `bondtot` unwound and clamped so it cannot underflow.
+- **Signer replacement ran out.** `AddSigner2` compared `n`, the monotonic slot index that `Slash` never
+  decrements, so every rotation consumed one of the twenty permanently. A long-lived vault would eventually be
+  unable to seat anyone, drift down to `na == k` as keys were lost, and stop. The ceiling is now on the active
+  set, where it belongs.
+- **`k = 20` was legal at install and could never be sealed.** `AddSigner` stops at twenty signers and `Seal`
+  needs `k + 1`, so the vault was born dead with twenty bonds inside it. `k` is capped at 19.
+- **A stale lock retired a signer permanently.** The lock meant "locked" by existing, and the comment claiming it
+  was "removed on every exit path, including a fatal one" was simply false: `simrpc` leaves through `log.Fatal`
+  on any RPC trouble, which skips deferred calls, and SIGKILL skips the signal handler. One transient failure
+  took a signer offline until a human deleted a file, and there is no human. The claim is now held by a heartbeat
+  and a lock untouched for 30 minutes is taken over — worst case a duplicate vote, which the contract refuses,
+  instead of a vault quietly running one signer short for ever.
+- **The daemon told the truth about dust.** A deposit below `mindep` printed "operator refund needed". There is
+  no operator, and on a ring-signature or shielded chain the federation cannot see who paid, so there is no
+  address to return it to either. It now says that, and the app publishes the minimum beside the deposit address
+  before the wallet is even connected.
+
+### VERIFIED
+
+- Contract suite green (56 s). Three new tests — `TestBondsEscapeAnUnsealableVault`,
+  `TestSignerReplacementDoesNotRunOut`, `TestInstallRefusesAnUnsealableQuorum` — were run against the previous
+  contract first and all three fail on it. A regression test that has never seen the bug is a guess.
+- Two new daemon tests cover the lock: a fresh lock is respected, a stale one is taken over, and the heartbeat
+  keeps a slow but healthy signer from being displaced.
+- Install storage gas **19 400 of 20 000**, re-measured on the simulator rather than estimated, and recorded in
+  `contracts/README.md` where the figure lives.
+
+### UNCONSIDERED
+
+1. Every one of these was a *pre-deployment* mistake with a *post-deployment* cost: a typo, a parameter the
+   contract called legal, a ceiling on the wrong counter. The install path deserves the same adversarial reading
+   the runtime path has now had twice, because after `Seal` none of it can be corrected.
+2. The lock takeover trades a permanent stall for a possible duplicate vote. That is right for votes, which the
+   contract deduplicates — but it assumes every future backend keeps `Release` idempotent per withdrawal. That
+   requirement is now load-bearing in two places and should be a test every backend must pass, not a comment.
+3. `mindep` remains a genuine unrecoverable loss and no code change can fix it: the chains carry no return
+   address. The only honest treatments are disclosure, which is shipped, and choosing the value low enough that
+   the loss is small — which is a deployment decision nobody has written down yet.
+
+### NEXT
+
+- The Monero backend against recorded wallet-rpc fixtures, with `VerifyRelease` reading a real transaction.
+- An adversarial pass over the install path itself: everything that must be right before `Seal`.
+- The remaining app findings: the localStorage cache re-verification, and `stats.enrich` being called for assets
+  whose probe signature did not change.

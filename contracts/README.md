@@ -13,7 +13,7 @@ a few hundred units, measured where given):
 | `pool.bas` | 13 262 | ~13 520 | 409 000 |
 | `launch.bas` | 16 416 | ~16 680 | ~1 200 000 |
 | `founders.bas` | 12 637 | ~12 900 | — |
-| `vault.bas` | 18 895 | 19 229 of 20 000 (measured) | — |
+| `vault.bas` | 19 059 | 19 400 of 20 000 (measured) | — |
 | `nft.bas` | 4 184 | ~4 760 | — |
 | `swap.bas` | 3 599 | — | — |
 | `factory.bas` | 2 852 | ~3 100 | — |
@@ -227,7 +227,7 @@ refused while halted (found and fixed 2026-09-07).
 ### Setup and governance
 
 `InitializePrivate(k, treasury, cap, minbond, minburn, wfee, mindep, regfee, capratio, bigbps, bigdelay)` —
-`2 ≤ k ≤ 20`, `0 < cap < 2⁶³`, `minbond ≠ 0`, `minburn ≠ 0`, `wfee < minburn`, `mindep ≠ 0`,
+`2 ≤ k ≤ 19`, `0 < cap < 2⁶³`, `minbond ≠ 0`, `minburn ≠ 0`, `wfee < minburn`, `mindep ≠ 0`,
 `capratio ≠ 0`, `bigbps ≤ 10000`, `bigdelay ≤ 20000`. Then owner `AddSigner(addr)` × n, each signer
 `Bond()`s at least `minbond`, optional `SetLimits(winmax, wdelay)`, then `Seal()`. After `Seal` the owner has no
 power at all.
@@ -246,8 +246,19 @@ power at all.
   live price: there is no oracle. Choose it conservatively and record the assumption. The check is implemented as
   `cap / capratio > bondtot`, which is permissive by at most `capratio − 1` base units.
 - Only an **active** signer's bond counts in `bondtot`. A candidate for `AddSigner2` bonds first; their bond is
-  held but not at stake, and `Unbond()` returns it if they are never voted in. A signer, past or present, can
-  never unbond.
+  held but not at stake.
+- **`Unbond()` before `Seal` is open to anyone**, and after `Seal` it refuses every signer, past or present.
+  The pre-seal opening exists because one mistyped signer address makes `Seal` permanently unreachable — nobody
+  holds that key, so it can never bond — and without an escape every honest signer who had already bonded was
+  locked out for good. The contract cannot correct a typo; it must not eat the bonds of the people who did
+  nothing wrong. `bondtot` unwinds with the bond, clamped so it can never underflow.
+- **`k ≤ 19` because `n ≤ 20`.** `AddSigner` and `AddSigner2` refuse a 21st signer, and `Seal` requires
+  `n ≥ k + 1`, so a `k = 20` vault could never be sealed and every bond in it would be stuck. A parameter the
+  contract calls legal must be one the contract can seal.
+- **The signer ceiling is on the ACTIVE set**, not on slots ever used: `AddSigner2` compares `na`, not `n`.
+  `n` is a monotonic index that `Slash` never decrements, so comparing it made every replacement consume one of
+  the twenty for good — a vault that had rotated enough keys could no longer replace any, drifted to `na == k`
+  as keys were lost, and then stopped with nobody able to intervene.
 - `AddSigner2(addr)` (k votes) replaces a slashed or lost signer; `Tighten(winmax, wdelay)` (k votes)
   moves the limits in the safe direction only, with floors so a quorum cannot brick the vault; `SetViewKey(key)`
   (k votes) publishes the viewing key.

@@ -250,3 +250,117 @@ func TestVaultDepositIdIsCanonical(t *testing.T) {
 		}
 	}
 }
+
+// A vault with no operator must never eat the money of people who did nothing wrong. The owner adds one signer
+// address with a typo — nobody controls that key, so it can never bond, so Seal can never succeed. Before this
+// was fixed, every honest signer who had already bonded was locked out for good: Unbond refused them because
+// isg_ existed, Slash refuses an unsealed vault, and there is no RemoveSigner.
+func TestBondsEscapeAnUnsealableVault(t *testing.T) {
+	c := harness.New()
+	owner, treasury := c.NewAccount(), c.NewAccount()
+	code := readContract(t, "vault.bas")
+	scid, res := c.Install(code, nil, rpc.Arguments{harness.U("k", 2), harness.S("treasury", treasury.String()),
+		harness.U("cap", 9000), harness.U("minbond", 1000), harness.U("minburn", 100), harness.U("wfee", 10),
+		harness.U("mindep", 5), harness.U("regfee", 0), harness.U("capratio", 3),
+		harness.U("bigbps", 2000), harness.U("bigdelay", 0)}, owner, harness.MaxStorageGas)
+	if !res.OK() {
+		t.Fatalf("install: %v", res.Err)
+	}
+	good := []*rpc.Address{c.NewAccount(), c.NewAccount()}
+	typo := c.NewAccount() // stands in for an address nobody holds the key to
+	for _, a := range append(append([]*rpc.Address{}, good...), typo) {
+		if r := c.Call(scid, "AddSigner", rpc.Arguments{harness.S("addr", a.String())}, nil, owner); !r.OK() {
+			t.Fatalf("add signer: %v", r.Err)
+		}
+	}
+	for _, a := range good {
+		if r := c.Call(scid, "Bond", nil, map[crypto.Hash]uint64{zero: 3000}, a); !r.OK() {
+			t.Fatalf("bond: %v", r.Err)
+		}
+	}
+	if c.U(scid, "bondtot") != 6000 {
+		t.Fatalf("bondtot %d, want 6000", c.U(scid, "bondtot"))
+	}
+	if c.Call(scid, "Seal", nil, nil, owner).OK() {
+		t.Fatal("a vault with an unbonded signer sealed")
+	}
+	// the money comes back, and bondtot unwinds with it
+	for _, a := range good {
+		r := c.Call(scid, "Unbond", nil, nil, a)
+		if !r.OK() {
+			t.Fatalf("unbond before Seal refused: %v", r.Err)
+		}
+		if got := r.Sent(zero, a); got != 3000 {
+			t.Fatalf("unbond returned %d, want 3000", got)
+		}
+	}
+	if c.U(scid, "bondtot") != 0 {
+		t.Fatalf("bondtot %d after both bonds came back, want 0", c.U(scid, "bondtot"))
+	}
+	// and a sealed vault still refuses: a signer's bond is what makes a slash mean anything
+	scid2, sg := installVault(t, c, owner, treasury, vaultCfg{k: 2, cap: 9000, minbond: 1000, minburn: 100, wfee: 10, mindep: 5, regfee: 0, signers: 3})
+	if r := c.Call(scid2, "Seal", nil, nil, owner); !r.OK() {
+		t.Fatalf("seal: %v", r.Err)
+	}
+	if c.Call(scid2, "Unbond", nil, nil, sg[0]).OK() {
+		t.Fatal("a signer unbonded from a sealed vault")
+	}
+}
+
+// AddSigner2's ceiling counts the ACTIVE set, not every signer ever added. Counting the cumulative index meant a
+// vault that had replaced twenty signers over its life could never replace another, drifted to na == k as keys
+// were lost, and then stopped for good with nobody able to intervene.
+func TestSignerReplacementDoesNotRunOut(t *testing.T) {
+	c := harness.New()
+	owner, treasury := c.NewAccount(), c.NewAccount()
+	cfg := vaultCfg{k: 2, cap: 9000, minbond: 1000, minburn: 100, wfee: 10, mindep: 5, regfee: 0, signers: 4}
+	scid, sg := installVault(t, c, owner, treasury, cfg)
+	if r := c.Call(scid, "Seal", nil, nil, owner); !r.OK() {
+		t.Fatalf("seal: %v", r.Err)
+	}
+	// slash and replace far more times than there are signer slots: n climbs past 20, na never does
+	victim := sg[3]
+	for round := 0; round < 20; round++ {
+		for i := 0; i < 2; i++ {
+			c.Call(scid, "Slash", rpc.Arguments{harness.S("target", victim.String())}, nil, sg[i])
+		}
+		if c.U(scid, "isg_"+string(victim.PublicKey.EncodeCompressed())) != 0 {
+			t.Fatalf("round %d: the target was not removed", round)
+		}
+		next := c.NewAccount()
+		if r := c.Call(scid, "Bond", nil, map[crypto.Hash]uint64{zero: 3000}, next); !r.OK() {
+			t.Fatalf("round %d bond: %v", round, r.Err)
+		}
+		for i := 0; i < 2; i++ {
+			c.Call(scid, "AddSigner2", rpc.Arguments{harness.S("addr", next.String())}, nil, sg[i])
+		}
+		if c.U(scid, "na") != 4 {
+			t.Fatalf("round %d: active signers %d, want 4 — replacement stopped working after n passed the ceiling", round, c.U(scid, "na"))
+		}
+		victim = next
+	}
+	if c.U(scid, "n") <= 20 {
+		t.Fatalf("n %d: the test did not push the cumulative index past the ceiling it used to be compared against", c.U(scid, "n"))
+	}
+}
+
+// A k the contract calls legal must be a k the contract can seal. k = 20 needed 21 signers and AddSigner stops
+// at 20, so the vault could never be sealed and every bond in it was locked.
+func TestInstallRefusesAnUnsealableQuorum(t *testing.T) {
+	c := harness.New()
+	owner, treasury := c.NewAccount(), c.NewAccount()
+	code := readContract(t, "vault.bas")
+	install := func(k uint64) bool {
+		_, res := c.Install(code, nil, rpc.Arguments{harness.U("k", k), harness.S("treasury", treasury.String()),
+			harness.U("cap", 9000), harness.U("minbond", 1000), harness.U("minburn", 100), harness.U("wfee", 10),
+			harness.U("mindep", 5), harness.U("regfee", 0), harness.U("capratio", 3),
+			harness.U("bigbps", 2000), harness.U("bigdelay", 0)}, owner, harness.MaxStorageGas)
+		return res.OK()
+	}
+	if install(20) {
+		t.Fatal("k = 20 installed: it needs 21 signers and the contract accepts at most 20")
+	}
+	if !install(19) {
+		t.Fatal("k = 19 refused: 20 signers can seal it")
+	}
+}

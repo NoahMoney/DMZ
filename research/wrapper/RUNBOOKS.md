@@ -185,10 +185,14 @@ signer. Every signer must hold at least `minbond` before `Seal`. Bonds are the f
 colluding quorum can take the foreign reserve, but the cap keeps the reserve at most `capratio` times what the
 bonds are worth in DERO.
 
-`Unbond()` returns the bond of a candidate who bonded and was never voted in. A signer, past or present, can
-never unbond: `Unbond` refuses anyone with an `isg_` key, and `Slash` zeroes that key rather than deleting it. An
-active signer's bond leaves the contract only through `Slash`, and it goes to the treasury, not back to the
-signer. Do not bond funds you may need.
+`Unbond()` returns a bond. **Before `Seal` anyone may call it**, including a signer the owner has already added:
+if one signer address is mistyped, `Seal` can never succeed — nobody holds that key, so it can never bond — and
+without this the honest signers who had already bonded would be locked out for good. Check `bondtot` and every
+`bond_` before sealing, and if the set is wrong, unbond and install again.
+
+**After `Seal` no signer, past or present, can unbond**: `Unbond` refuses anyone with an `isg_` key, and `Slash`
+zeroes that key rather than deleting it. An active signer's bond leaves the contract only through `Slash`, and it
+goes to the treasury, not back to the signer. Do not bond funds you may need.
 
 ### Slash
 
@@ -209,9 +213,13 @@ mints wait until burns bring `sup` under it — the same behaviour as a `SetCap`
 executes. A key that was ever a signer never returns: `isg_` is checked, not deleted. Executing the vote bumps
 the slash epoch `se`, so every pending vote is voided; expect the daemons to re-cast on their next pass.
 
-Note the hard ceiling. `n` counts signer slots ever used and is never decremented by `Slash`, and both
-`AddSigner` and `AddSigner2` refuse at `n >= 20`. Twenty is the lifetime budget of signer keys for one vault,
-the initial set included; plan rotations against it.
+Note the ceiling, and which number it is on. `AddSigner2` refuses at `na >= 20` — the **active** set — so
+replacement never runs out however many rotations a vault lives through. It used to compare `n`, the monotonic
+slot index that `Slash` never decrements, which made every replacement consume one of the twenty permanently: a
+long-lived vault would eventually be unable to seat anyone, drift down to `na == k` as keys were lost, and then
+stop for good. `AddSigner` still refuses at `n >= 20`, which is only reachable before `Seal`, where `n` and
+`na` are equal by construction. Because `Seal` needs `n >= k + 1`, the largest quorum a vault can have is
+`k = 19`, and the contract refuses anything larger at install.
 
 
 ---

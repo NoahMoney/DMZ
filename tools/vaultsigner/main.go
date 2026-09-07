@@ -398,8 +398,63 @@ func processWithdrawal(mem *memory, be Backend, j uint64, dest string, amount ui
 	return nil
 }
 
-// lockFile is removed on every exit path, including a fatal one and a signal, so an ordinary Ctrl-C or one bad
-// RPC does not take a signer offline until a human deletes a file.
+// lockStale is how long a lock may go untouched before another daemon takes it over. It must be comfortably
+// longer than one pass, which waits for its own transactions to be included, so a slow but healthy signer is
+// never displaced by an impatient one.
+const lockStale = 30 * time.Minute
+
+// takeLock claims the state file for this process. A lock file that exists but has not been touched within
+// lockStale belonged to a process that died without cleaning up, and is taken over: refusing to start would
+// leave the vault a signer short with nobody able to delete the file.
+func takeLock(path string) error {
+	lf, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		st, serr := os.Stat(path)
+		if serr != nil {
+			return fmt.Errorf("%s: %v", path, err)
+		}
+		if age := time.Since(st.ModTime()); age < lockStale {
+			return fmt.Errorf("%s was touched %s ago: another signer is running on this state (wait %s, or stop it)",
+				path, age.Round(time.Second), (lockStale - age).Round(time.Second))
+		}
+		// stale: whoever held it is gone. Truncate rather than remove-then-create, so two daemons racing here
+		// both end up writing the same file instead of one deleting the other's fresh lock.
+		lf, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+		if err != nil {
+			return fmt.Errorf("%s is stale but cannot be taken over: %v", path, err)
+		}
+		log.Printf("%s was last touched more than %s ago; taking it over", path, lockStale)
+	}
+	fmt.Fprintf(lf, "%d\n", os.Getpid())
+	lf.Close()
+	lockFile = path
+	return nil
+}
+
+// heartbeat keeps this daemon's claim fresh. Closing the returned channel stops it.
+func heartbeat() chan struct{} {
+	stop := make(chan struct{})
+	go func() {
+		t := time.NewTicker(lockStale / 6)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				if lockFile != "" {
+					now := time.Now()
+					_ = os.Chtimes(lockFile, now, now)
+				}
+			}
+		}
+	}()
+	return stop
+}
+
+// lockFile is removed on a clean exit and on a signal — but nothing can guarantee that, which is exactly why
+// the claim above is held by a heartbeat rather than by this file's existence. The old comment here promised
+// removal "on every exit path, including a fatal one", which was not true of log.Fatal or of SIGKILL.
 var lockFile string
 
 func release() {
@@ -464,16 +519,19 @@ func main() {
 	if *statePath == "" { // one file per (vault, signer): intents name withdrawal indexes of one vault only
 		*statePath = "vaultsigner-" + (*vault)[:8] + "-" + me[len(me)-12:] + ".json"
 	}
-	// one daemon per state file: a second would overwrite intents and, with a backend that does not look
-	// payments up by j, pay twice. The lock names the pid and is removed on every exit path.
-	lf, err := os.OpenFile(*statePath+".lock", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		log.Fatalf("%s.lock exists: another signer runs on this state (or was killed with SIGKILL): %v", *statePath, err)
+	// One daemon per state file: a second would overwrite intents and, with a backend that does not look payments
+	// up by j, pay twice. The lock is held by a heartbeat rather than by its own existence, because its existence
+	// cannot be trusted: simrpc exits through log.Fatal on any RPC trouble, which skips every deferred call, and
+	// SIGKILL and a power cut skip the signal handler too. A lock whose presence alone locks therefore takes the
+	// signer offline until a human deletes a file — and there is no human. A lock older than lockStale is taken
+	// over instead, so the worst case is a duplicate vote, which the contract refuses, rather than a silent
+	// signer, which is a vault drifting towards a quorum it can no longer reach.
+	if err := takeLock(*statePath + ".lock"); err != nil {
+		log.Fatalf("%v", err)
 	}
-	lockFile = *statePath + ".lock"
-	fmt.Fprintf(lf, "%d\n", os.Getpid())
-	lf.Close()
 	defer release()
+	stop := heartbeat()
+	defer close(stop)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() { <-sig; release(); os.Exit(130) }()
@@ -690,7 +748,11 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 			continue
 		}
 		if amount := d.Amount; amount < st.U("mindep") {
-			fmt.Printf("deposit %s (%d) is below the minimum %d: never minted, operator refund needed\n", id[:12], amount, st.U("mindep"))
+			// Not "operator refund needed": there is no operator, and on a ring-signature or shielded chain the
+			// federation cannot see who paid, so there is no address to return it to either. This is a real,
+			// permanent loss with no mechanism behind it — which is why the minimum is published in the app
+			// beside the deposit address, before the wallet is even connected. Say what is true here too.
+			fmt.Printf("deposit %s (%d) is below the minimum %d: it can never be minted, and the chain carries no return address, so it cannot be sent back\n", id[:12], amount, st.U("mindep"))
 			continue
 		}
 		// over the cap or over the window is a WAIT, not a refusal: the daemon retries every pass, so headroom

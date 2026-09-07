@@ -43,7 +43,7 @@ Function InitializePrivate(k Uint64, treasury String, cap Uint64, minbond Uint64
 10 DIM s, t as String
 20 LET s = SIGNER()
 21 IF IS_ADDRESS_VALID(s) == 0 THEN GOTO 900
-22 IF k < 2 || k > 20 || cap == 0 || cap > 9223372036854775807 THEN GOTO 900
+22 IF k < 2 || k > 19 || cap == 0 || cap > 9223372036854775807 THEN GOTO 900
 23 LET t = ADDRESS_RAW(treasury)
 24 IF IS_ADDRESS_VALID(t) == 0 THEN GOTO 900
 25 IF minbond == 0 || minburn == 0 || wfee >= minburn || mindep == 0 || capratio == 0 THEN GOTO 900
@@ -169,7 +169,7 @@ Function AddSigner2(addr String) Uint64
 24 IF EXISTS("bond_" + t) == 0 THEN GOTO 900
 25 IF LOAD("bond_" + t) < LOAD("minbond") THEN GOTO 900
 26 LET n = LOAD("n")
-27 IF n >= 20 THEN GOTO 900
+27 IF LOAD("na") >= 20 THEN GOTO 900
 30 LET kb = "" + LOAD("se")
 31 LET r = votek("a", kb, t, s)
 32 IF r == 2 THEN GOTO 900
@@ -204,15 +204,21 @@ Function Bond() Uint64
 900 RETURN 1
 End Function
 
-// A candidate who was never voted in takes their bond back. A signer, past or present, never can.
+// Take a bond back: before Seal anyone may, so one wrong signer address cannot lock everyone else's money in a
+// vault that can never seal; after Seal no signer, past or present, ever can.
 Function Unbond() Uint64
 10 DIM s as String
 11 DIM b as Uint64
 20 LET s = SIGNER()
-21 IF IS_ADDRESS_VALID(s) == 0 || EXISTS("isg_" + s) != 0 THEN GOTO 900
-22 IF EXISTS("bond_" + s) == 0 THEN GOTO 900
-23 LET b = LOAD("bond_" + s)
-24 IF b == 0 THEN GOTO 900
+21 IF IS_ADDRESS_VALID(s) == 0 THEN GOTO 900
+22 IF LOAD("sealed") != 0 && EXISTS("isg_" + s) != 0 THEN GOTO 900
+23 IF EXISTS("bond_" + s) == 0 THEN GOTO 900
+24 LET b = LOAD("bond_" + s)
+25 IF b == 0 THEN GOTO 900
+26 IF EXISTS("isg_" + s) == 0 THEN GOTO 30
+27 IF LOAD("bondtot") >= b THEN GOTO 29
+28 STORE("bondtot", b)
+29 STORE("bondtot", LOAD("bondtot") - b)
 30 STORE("bond_" + s, 0)
 31 SEND_DERO_TO_ADDRESS(s, b)
 100 RETURN 0

@@ -2,8 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	rpc "veil/tools/simrpc"
 )
@@ -121,5 +125,70 @@ func TestPayingDoesNotLookLikeTheft(t *testing.T) {
 	owed := owedUnits(st.U("sup"), inflightUnits(st))
 	if be.reserve < owed {
 		t.Fatalf("a correct federation reads as short: reserve %d < owed %d", be.reserve, owed)
+	}
+}
+
+// TestStaleLockDoesNotRetireASigner. The lock used to mean "locked" by existing at all, and it is not removed on
+// every exit path however the comment read: simrpc leaves through log.Fatal on any RPC trouble, which skips
+// deferred calls, and SIGKILL and a power cut skip the signal handler. One transient failure therefore retired a
+// signer until a human deleted a file — and after deployment there is no human, so the vault would simply run one
+// signer short, for ever, drifting towards a quorum it can no longer reach.
+func TestStaleLockDoesNotRetireASigner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json.lock")
+
+	if err := takeLock(path); err != nil {
+		t.Fatalf("first claim refused: %v", err)
+	}
+	held := lockFile
+	lockFile = "" // pretend this process is a different one
+
+	// a lock touched just now belongs to a live daemon and must be respected
+	if err := takeLock(path); err == nil {
+		t.Fatal("a fresh lock was taken over: two daemons on one state file can pay a withdrawal twice")
+	}
+
+	// the same lock, left behind by a process that died without cleaning up
+	old := time.Now().Add(-lockStale - time.Minute)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := takeLock(path); err != nil {
+		t.Fatalf("a stale lock kept the signer offline: %v", err)
+	}
+	if lockFile != held {
+		t.Fatalf("lockFile %q after taking over %q", lockFile, held)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || strings.TrimSpace(string(b)) != strconv.Itoa(os.Getpid()) {
+		t.Fatalf("lock does not name the new owner: %q (%v)", b, err)
+	}
+	release()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("release left the lock behind")
+	}
+}
+
+// The heartbeat is what makes the takeover safe: a healthy daemon whose pass runs long keeps its own claim fresh,
+// so it is never displaced by an impatient peer.
+func TestHeartbeatKeepsTheClaimFresh(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json.lock")
+	if err := takeLock(path); err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	old := time.Now().Add(-lockStale - time.Minute)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := os.Chtimes(lockFile, now, now); err != nil { // what the heartbeat goroutine does on each tick
+		t.Fatal(err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(st.ModTime()) > time.Minute {
+		t.Fatal("the heartbeat did not refresh the lock")
 	}
 }
