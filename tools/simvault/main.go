@@ -139,7 +139,10 @@ func main() {
 		amt, _ := strconv.ParseUint(parts[0], 10, 64)
 		me := rpc.Address(user)
 		before := rpc.Balance(user, *vault)
-		txid, gas, h := c.Send(user, me, "", *vault, []rpc.Transfer{{SCID: *vault, Destination: c.RandomAddress(), Burn: amt}}, []rpc.Arg{rpc.S("entrypoint", "Burn"), rpc.S("dest", parts[1])})
+		// No destination on an asset burn, exactly as the app builds it. A random DERO account is not registered
+		// in a fresh SCID's balance tree, so naming one makes the wallet refuse with "Account Unregistered" —
+		// the driver has to send the transaction the users actually send, or it tests a different system.
+		txid, gas, h := c.Send(user, me, "", *vault, []rpc.Transfer{{SCID: *vault, Burn: amt}}, []rpc.Arg{rpc.S("entrypoint", "Burn"), rpc.S("dest", parts[1]), rpc.S("refund", me)})
 		fmt.Printf("burn %d → %s: tx %s height %d gas %d; wrapped balance %d → %d\n", amt, parts[1], txid, h, gas.GasCompute, before, rpc.Balance(user, *vault))
 	case *status:
 		if len(*vault) != 64 {

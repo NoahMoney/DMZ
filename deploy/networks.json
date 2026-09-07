@@ -1,5 +1,5 @@
 {
-  "_doc": "Source of truth for per-network deployment. tools/simdeploy writes the block it deployed; tools/genconfig turns a block into app/config.js or a dist/\u003cnetwork\u003e/ bundle. Empty scids mean 'not deployed on this network yet'.",
+  "_doc": "Source of truth for per-network deployment. tools/simdeploy writes the block it deployed; tools/genconfig turns a block into app/config.js or a dist/<network>/ bundle. Empty scids mean 'not deployed on this network yet'.",
   "mainnet": {
     "daemon": "127.0.0.1:10102",
     "factory": "",
@@ -24,7 +24,7 @@
     "factory": "921e1beb406d7ae9fc3b66b2a828c14e2849157eb05af757983c2664f062f59a",
     "social": "c91b0c18b0611f294fc1ed0e0bea79daa9572e2e944938c10d1b841b9bdc5aa6",
     "founders": "aee674633edab4c12fe5007765629f06852d1e379847da5553de6a1a4928dde2",
-    "vault": "a88778fc3fd6e4a06e56302a38c192d34cbdca57a348ecbb3c4c0696ac872bd5",
+    "vault": "d69c933fa6bd98c083c2298a2ac364125b23ac88c6839e7d3b8b7d2cd123c689",
     "feeBps": 50,
     "pfeeBps": 5000,
     "launchPfeeBps": 5000,
@@ -67,6 +67,13 @@
     "tela": {
       "index": "ece546025848fd8f02849c1723d5578d5169e50948aa55c9a1c010b0863b65cb",
       "durl": "veil.tela"
+    },
+    "vaultAsset": {
+      "name": "Simulated coin",
+      "sym": "SIM",
+      "chain": "the vault simulator",
+      "dec": 5,
+      "conf": 2
     }
   },
   "testnet": {

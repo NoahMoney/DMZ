@@ -54,7 +54,7 @@
       button("Disconnect", "wide mt", () => { app.saveSettings({ autoConnect: false }); W.disconnect(); closeSheet(); })) : app.connectWallet;
   };
   W.on("connect", async () => { app.saveSettings({ autoConnect: true }); app.walletUI(); app.connectNode(); try { await W.subscribe("new_topoheight"); } catch (e) {} D.loadSocial(W.canon).catch(() => {}); app.loadHoldings(); router.dispatch(); });
-  D.onChange(() => { if (W.connected) app.walletUI(); });
+  D.onChange(() => { if (W.connected) app.walletUI(); }, true); // keep: not owned by any screen
   W.on("disconnect", () => { app.holdings = null; app.walletUI(); app.connectNode(); D.follows = new Set(); router.dispatch(); });
   W.on("event", (ev) => { if (ev.event === "new_topoheight" || (ev.result && ev.result.event === "new_topoheight")) app.scheduleRefresh(1500); });
   // a transfer the wallet answered after the app stopped waiting: say what happened, the wallet history has the rest
@@ -97,7 +97,7 @@
     if (!opts.code && !isScid(opts.scid)) { toast("Refusing: bad contract id", "err"); return null; }
     if (opts.asset && !isScid(opts.asset.scid)) { toast("Refusing: bad asset id", "err"); return null; }
     const ring = opts.ring === 16 ? 16 : 2; // 16 only for entrypoints that pay a named address (SIGNER() is blank above 2)
-    if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
+    if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid) || (D.cfg.vault && opts.scid === D.cfg.vault))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
     const transfers = [];
     if (opts.dero && opts.dero > Z) {
       let dst; try { dst = await V.node.randomAddress(); } catch (e) { toast("No node answers for a burn destination: " + short(e.message), "err", 6000); return null; }
