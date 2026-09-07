@@ -364,3 +364,54 @@ func TestInstallRefusesAnUnsealableQuorum(t *testing.T) {
 		t.Fatal("k = 19 refused: 20 signers can seal it")
 	}
 }
+
+// A bond can arrive before the owner adds that signer — an ordinary race between two independent parties, not
+// an attack. AddSigner must credit it, because Slash later subtracts the whole bond_ from bondtot: crediting it
+// nowhere and subtracting it anyway wraps bondtot through zero to near 2^64, which lifts the cap bound entirely
+// and lets the vault mint far past what its signers have at stake.
+func TestBondBeforeAddSignerIsCounted(t *testing.T) {
+	c := harness.New()
+	owner, treasury := c.NewAccount(), c.NewAccount()
+	code := readContract(t, "vault.bas")
+	scid, res := c.Install(code, nil, rpc.Arguments{harness.U("k", 2), harness.S("treasury", treasury.String()),
+		harness.U("cap", 9000), harness.U("minbond", 1000), harness.U("minburn", 100), harness.U("wfee", 10),
+		harness.U("mindep", 5), harness.U("regfee", 0), harness.U("capratio", 3),
+		harness.U("bigbps", 2000), harness.U("bigdelay", 0)}, owner, harness.MaxStorageGas)
+	if !res.OK() {
+		t.Fatalf("install: %v", res.Err)
+	}
+	sg := []*rpc.Address{c.NewAccount(), c.NewAccount(), c.NewAccount(), c.NewAccount()}
+	// the first signer bonds BEFORE the owner adds them; the rest in the usual order
+	if r := c.Call(scid, "Bond", nil, map[crypto.Hash]uint64{zero: 3000}, sg[0]); !r.OK() {
+		t.Fatalf("early bond: %v", r.Err)
+	}
+	if c.U(scid, "bondtot") != 0 {
+		t.Fatalf("bondtot %d: a non-signer's bond is held, not at stake", c.U(scid, "bondtot"))
+	}
+	for _, a := range sg {
+		if r := c.Call(scid, "AddSigner", rpc.Arguments{harness.S("addr", a.String())}, nil, owner); !r.OK() {
+			t.Fatalf("add signer: %v", r.Err)
+		}
+	}
+	for _, a := range sg[1:] {
+		if r := c.Call(scid, "Bond", nil, map[crypto.Hash]uint64{zero: 3000}, a); !r.OK() {
+			t.Fatalf("bond: %v", r.Err)
+		}
+	}
+	if got := c.U(scid, "bondtot"); got != 12000 {
+		t.Fatalf("bondtot %d, want 12000: the bond paid before AddSigner was never credited", got)
+	}
+	if r := c.Call(scid, "Seal", nil, nil, owner); !r.OK() {
+		t.Fatalf("seal: %v", r.Err)
+	}
+	// and the slash arithmetic stays sane, rather than wrapping through zero
+	for i := 1; i < 3; i++ {
+		c.Call(scid, "Slash", rpc.Arguments{harness.S("target", sg[0].String())}, nil, sg[i])
+	}
+	if got := c.U(scid, "bondtot"); got != 9000 {
+		t.Fatalf("bondtot %d after slashing a 3000 bond from 12000, want 9000", got)
+	}
+	if c.U(scid, "cap") > c.U(scid, "bondtot")*3 {
+		t.Fatalf("cap %d exceeds capratio x bondtot %d: the cap bound was lifted", c.U(scid, "cap"), c.U(scid, "bondtot")*3)
+	}
+}
