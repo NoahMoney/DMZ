@@ -4,10 +4,13 @@
   const V = window.Veil, U = V.ui, A = V.amm, D = V.data, S = V.stats, L = V.live, H = V.home, { h, render, avatar, pill, changePill, sparkline, router, button } = U;
   const FILTERS = [["trending", "Trending"], ["new", "New"], ["gainers", "Gainers"], ["losers", "Losers"], ["grad", "Graduating"], ["done", "Graduated"], ["pools", "Pools"], ["watch", "Watchlist"]];
   const SORTS = [["hot", "Hot"], ["vol", "Volume 24h"], ["chg", "Change 24h"], ["liq", "Liquidity"], ["mcap", "FDV"], ["age", "Newest"]];
-  let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.settings.compact);
+    // watchlist snapshot for the current draw: S.watch.all() re-parses localStorage on every call, and row()
+  // needs it once per row
+  let watching = new Set();
+let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.settings.compact);
 
   function select(list) {
-    const watch = S.watch.all();
+    const watch = (watching = S.watch.all());
     let out = list.filter((s) => {
       if (q && !(s.name.toLowerCase().includes(q) || s.ticker.toLowerCase().includes(q) || s.scid.startsWith(q))) return false;
       switch (filter) {
@@ -35,18 +38,29 @@
   function row(s, i) {
     let r = rows.get(s.scid);
     if (!r) {
-      const parts = { rank: h("span", { class: "rank" }), name: h("b", { class: "ellipsis" }, s.ticker, s.dupTicker || s.lookalike ? " \u26a0" : ""), sub: h("div", { class: "sub tiny ellipsis num msub" }), nm: h("div", { class: "sub tiny ellipsis mcol", style: "text-align:left" }), badges: h("div", { class: "badges" }), star: h("span", { class: "starbox" }), spark: h("div", { class: "sp" }), price: h("div", { class: "num price" }), chg: h("div"), vol: h("div", { class: "mcol" }), liq: h("div", { class: "mcol" }), mcap: h("div", { class: "mcol" }) };
+      const parts = { rank: h("span", { class: "rank" }), name: h("b", { class: "ellipsis" }), sub: h("div", { class: "sub tiny ellipsis num msub" }), nm: h("div", { class: "sub tiny ellipsis mcol", style: "text-align:left" }), badges: h("div", { class: "badges" }), star: h("span", { class: "starbox" }), spark: h("div", { class: "sp" }), price: h("div", { class: "num price" }), chg: h("div"), vol: h("div", { class: "mcol" }), liq: h("div", { class: "mcol" }), mcap: h("div", { class: "mcol" }) };
       const el = h("button", { class: "mrow", type: "button", onclick: () => router.go("token", s.scid) },
         parts.rank, avatar(s, "sm"), h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, parts.name, parts.badges, parts.star), parts.sub, parts.nm), parts.vol, parts.liq, parts.mcap, parts.spark, h("div", { class: "right" }, parts.price, parts.chg));
       r = { el, parts }; rows.set(s.scid, r);
     }
     const p = r.parts;
     p.rank.textContent = i + 1; p.rank.className = "rank" + (i < 3 ? " r" + (i + 1) : "");
+    // written on every pass: rows are reused across renders, so a warning set once at first render would
+    // freeze there, and a ticker that only later collides with another would never gain one
+    p.name.textContent = s.ticker + (s.dupTicker || s.lookalike ? " \u26a0" : "");
+    p.name.title = s.dupTicker ? "Another listed market uses a ticker that reads the same. Check the contract id before trading." : s.lookalike ? "This ticker contains characters that look like others (Cyrillic or Greek letters)." : "";
     p.sub.textContent = s.name + " · V " + S.fmtDeroShort(s.m.vol24) + " · L " + S.fmtDeroShort(s.m.liq) + (s.m.mcap ? " · FDV " + S.fmtDeroShort(s.m.mcap) : "");
     p.nm.textContent = s.name; p.vol.textContent = S.fmtDeroShort(s.m.vol24); p.liq.textContent = S.fmtDeroShort(s.m.liq); p.mcap.textContent = s.m.mcap ? S.fmtDeroShort(s.m.mcap) : "—";
-    render(p.badges, H.badges(s).filter(Boolean).slice(0, 1));
-    render(p.star, H.star(s));
-    render(p.spark, sparkline(s.points.filter((x) => x.ts >= S.now() - 86400), s.dec, (s.m.c24h || 0) >= 0));
+    // The three expensive children are rebuilt only when their content can actually have changed. draw() runs
+    // on every block and on every keystroke in the search box, and the sparkline alone filtered the whole
+    // point history and built a fresh SVG with a gradient and two long paths, per row, every time.
+    const key = s.sig + "|" + ((s.m.c24h || 0) >= 0) + "|" + (watching.has(s.scid) ? 1 : 0) + "|" + Math.floor(S.now() / 600);
+    if (r.key !== key) { // sig covers contract state; the 10 min bucket re-cuts the sliding 24h window
+      r.key = key;
+      render(p.badges, H.badges(s).filter(Boolean).slice(0, 1));
+      render(p.star, H.star(s));
+      render(p.spark, sparkline(s.points.filter((x) => x.ts >= S.now() - 86400), s.dec, (s.m.c24h || 0) >= 0));
+    }
     L.num(p.price, s.price, S.fmtPriceSub);
     render(p.chg, changePill(s.m.c24h));
     return r.el;

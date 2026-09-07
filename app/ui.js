@@ -17,12 +17,20 @@
   const clear = (el) => { while (el.firstChild) el.removeChild(el.firstChild); return el; };
   const render = (el, ...nodes) => { clear(el).append(...nodes.flat(Infinity).filter(Boolean)); return el; };
   // sanitiser for anything that came from a contract: no control / bidi-override / zero-width characters, bounded length
-  const clean = (s, max = 64) => String(s || "").replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩﻿]/g, "").slice(0, max);
+  // Every invisible formatting character is stripped, not only the ones that are easy to type: a bidi
+  // override can reverse a displayed address and a word joiner can hide a second word inside a name. The
+  // class is written in escape form on purpose, because a raw U+2028 inside a regex literal will not parse.
+  const clean = (s, max = 64) => String(s || "").replace(/[\u0000-\u001f\u007f-\u009f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2028\u2029\u2060-\u2064\u2066-\u2069\ufeff\ufff9-\ufffb]/g, "").slice(0, max);
   // impersonation guard: NFKC, upper-case, common look-alikes folded (Cyrillic and Greek capitals, 0 to O, 1 to I),
-  // then [A-Z0-9] only. Two tickers with one skeleton read the same to a person.
-  const CONF_FROM = "\u0410\u0412\u0415\u041a\u041c\u041d\u041e\u0420\u0421\u0422\u0425\u0423\u0391\u0392\u0395\u0396\u0397\u0399\u039a\u039c\u039d\u039f\u03a1\u03a4\u03a5\u03a7" + "01";
-  const CONF_TO = "ABEKMHOPCTXY" + "ABEZHIKMNOPTYX" + "OI";
+  // then [A-Z0-9] only. Two tickers with one skeleton read the same to a person. The two strings are paired by
+  // index, so anything appended to one must be appended to the other.
+  const CONF_FROM = "\u0410\u0412\u0415\u041a\u041c\u041d\u041e\u0420\u0421\u0422\u0425\u0423\u0391\u0392\u0395\u0396\u0397\u0399\u039a\u039c\u039d\u039f\u03a1\u03a4\u03a5\u03a7" + "01" + "\u0405\u0406\u0408\u051a\u051c\u04ae";
+  const CONF_TO = "ABEKMHOPCTXY" + "ABEZHIKMNOPTYX" + "OI" + "SIJQWY";
   const tickerKey = (t) => { let o = ""; for (const ch of String(t || "").normalize("NFKC").toUpperCase()) { const i = CONF_FROM.indexOf(ch); o += i >= 0 ? CONF_TO[i] : ch; } return o.replace(/[^A-Z0-9]/g, ""); };
+  // A look-alike ticker is one that really contains a non-ASCII character standing in for an ASCII one. Deriving
+  // this from "the fold changed something" warned about every honest ticker containing a 0 or a 1, because
+  // tickerKey folds those to O and I deliberately so that S0L and SOL group together.
+  const hasHomoglyph = (t) => { for (const ch of String(t || "").normalize("NFKC").toUpperCase()) { if (ch > "\u007f" && CONF_FROM.indexOf(ch) >= 0) return true; } return false; };
   const safeUrl = (u) => (typeof u === "string" && /^https:\/\/[^\s"'<>\\]{3,300}$/i.test(u) ? u : "");
 
   // ---- icons (inline SVG paths, 24-unit grid) ----
@@ -111,10 +119,11 @@
   }
   // ---- router ----
   const router = {
-    handlers: {}, current: null,
+    handlers: {}, current: null, gen: 0,
     on(name, fn) { this.handlers[name] = fn; },
     go(name, param) { location.hash = param ? `#${name}/${param}` : `#${name}`; },
     dispatch() {
+      this.gen++; // every navigation starts a generation; listeners from older ones are dropped on the next tick
       const [name, ...rest] = location.hash.replace(/^#/, "").split("/"); const n = name || "home"; const param = rest.join("/");
       this.current = { name: n, param };
       $$(".tab").forEach((t) => t.classList.toggle("on", t.dataset.tab === n || (n === "token" && t.dataset.tab === "home")));
@@ -125,5 +134,5 @@
   };
   window.addEventListener("hashchange", () => router.dispatch());
 
-  V.ui = { $, $$, h, clear, render, clean, safeUrl, icon, toast, openSheet, closeSheet, skeleton, timeAgo, avatar, pill, changePill, toggle, kv, segmented, button, verified, warnings, tickerKey, sectionHead, emptyState, rise, details, sparkline, router };
+  V.ui = { $, $$, h, clear, render, clean, safeUrl, icon, toast, openSheet, closeSheet, skeleton, timeAgo, avatar, pill, changePill, toggle, kv, segmented, button, verified, warnings, tickerKey, hasHomoglyph, sectionHead, emptyState, rise, details, sparkline, router };
 })();

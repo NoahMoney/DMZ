@@ -16,8 +16,11 @@
   const data = {
     cfg: window.VEIL_CONFIG, registry: null, assets: new Map(), nfts: new Map(), profiles: new Map(), follows: new Set(), followers: new Map(), following: new Map(),
     heights: new Map(), hashes: {}, verified: new Map(), lastRefresh: 0, refreshing: null, listeners: [], height: 0,
-    onChange(fn) { this.listeners.push(fn); },
-    changed() { this.listeners.forEach((f) => { try { f(); } catch (e) { console.error(e); } }); },
+    // Screen handlers subscribe on every dispatch, so a plain push leaks one closure per visit and redraws the
+    // screen once per past visit on every block. Tag each subscription with the navigation that created it and
+    // drop the stale ones; keep:true marks the few that must outlive navigation.
+    onChange(fn, keep) { this.listeners.push({ fn, gen: keep ? -1 : (V.ui.router.gen | 0) }); },
+    changed() { const g = V.ui.router.gen | 0; this.listeners = this.listeners.filter((e) => e.gen === -1 || e.gen === g); for (const e of this.listeners.slice()) { try { e.fn(); } catch (err) { console.error(err); } } },
     rawToAddr(rawHex) { try { return V.rawToAddress(rawHex); } catch (e) { return null; } },
 
     async registry_() {
@@ -144,7 +147,7 @@
       for (const s of this.assets.values()) if (s.kind === "pool") { const l = this.assets.get(s.asset); s.assetVerified = !!(l && l.kind === "launch"); if (s.assetVerified) { s.name = l.name + " pool"; s.ticker = l.ticker; s.dec = l.dec; s.icon = l.icon; } else { s.icon = ""; } }
       // impersonation: markets whose tickers read alike (look-alikes folded) are all marked, so the copy never looks safer than the original
       const groups = new Map();
-      for (const s of this.assets.values()) { if (s.kind === "nft" || (s.kind === "pool" && s.assetVerified)) continue; const k = V.ui.tickerKey(s.ticker); s.lookalike = k !== String(s.ticker).toUpperCase().replace(/[^A-Z0-9]/g, ""); (groups.get(k) || groups.set(k, []).get(k)).push(s); }
+      for (const s of this.assets.values()) { if (s.kind === "nft" || (s.kind === "pool" && s.assetVerified)) continue; const k = V.ui.tickerKey(s.ticker); s.lookalike = V.ui.hasHomoglyph(s.ticker); (groups.get(k) || groups.set(k, []).get(k)).push(s); }
       for (const g of groups.values()) for (const s of g) s.dupTicker = g.length > 1;
       for (const s of this.assets.values()) if (s.kind === "pool" && s.assetVerified) { const l = this.assets.get(s.asset); s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; } // a launch and its own pool share a ticker by design
       for (const s of this.assets.values()) S.enrich(s, this.height);

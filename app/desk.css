@@ -41,23 +41,29 @@
   .sheet::before{display:none}
   @keyframes pop{from{opacity:0;transform:translate(-50%,-48%) scale(.97)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
   .toasts{left:auto;right:24px;transform:none;width:360px}
-  .sticky-actions{position:static;transform:none;width:auto;max-width:none;padding:0;background:none;margin:0 0 14px;pointer-events:auto}
-  .home-grid{display:grid;grid-template-columns:minmax(0,1fr) 410px;gap:30px;align-items:start}
-  .home-side{position:sticky;top:74px;max-height:calc(100vh - 88px);overflow:auto;padding-right:4px;scrollbar-width:thin}
-  .tk-grid{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:30px;align-items:start}
-  .tk-side{position:sticky;top:74px;max-height:calc(100vh - 88px);overflow:auto;scrollbar-width:thin}
   .grid4{grid-template-columns:repeat(8,1fr)}
-  .mcols-head{display:grid;grid-template-columns:26px 36px minmax(0,1fr) 110px 110px 110px 90px 130px;gap:8px;padding:10px 12px 6px;font-size:11px;color:var(--fg3);text-transform:uppercase;letter-spacing:.08em;font-weight:700;position:sticky;top:66px;z-index:2;background:linear-gradient(var(--bg) 80%,transparent)}
+  .mcols-head{display:grid;grid-template-columns:26px 36px minmax(88px,1fr) repeat(3,minmax(70px,110px)) 90px minmax(84px,130px);gap:8px;padding:10px 12px 6px;font-size:11px;color:var(--fg3);text-transform:uppercase;letter-spacing:.08em;font-weight:700;position:sticky;top:66px;z-index:2;background:linear-gradient(var(--bg) 80%,transparent)}
   .mcols-head span,.mcols-head button{text-align:right;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;padding:0}.mcols-head span:nth-child(3),.mcols-head button:first-of-type{text-align:left}
   .mcols-head button.on,.mcols-head button:hover{color:var(--fg)}
-  .mlist.compact .mrow{grid-template-columns:26px 30px minmax(0,1fr) 110px 110px 110px 90px 130px}
-  .mrow{grid-template-columns:26px 36px minmax(0,1fr) 110px 110px 110px 90px 130px;padding:12px}
+  .mlist.compact .mrow{grid-template-columns:26px 30px minmax(88px,1fr) repeat(3,minmax(70px,110px)) 90px minmax(84px,130px)}
+  .mrow{grid-template-columns:26px 36px minmax(88px,1fr) repeat(3,minmax(70px,110px)) 90px minmax(84px,130px);padding:12px}
   .mrow .mcol{display:block;text-align:right;font-variant-numeric:tabular-nums;font-size:13.5px;color:var(--fg2)}
   .mrow .msub{display:none}
   .mrow .sp{width:90px}
   .mrow .starbox{margin-left:6px}
   .stats3 .stat .v{font-size:18px}
   .pulse-row .big{font-size:46px}
-  .nft-grid{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:28px;align-items:start}
+}
+/* Two-column pages need a main column wide enough to be worth having. At 960 the fixed 380-430px rails left it
+   176-260px wide — narrower than the phone layout. They switch on at 1180 instead, and the rails give ground
+   first. .sticky-actions moves with them: it is flattened only because it sits inside a sticky rail, so wherever
+   the page is single-column the Buy/Sell bar must stay pinned. */
+@media (min-width:1180px){
+  .sticky-actions{position:static;transform:none;width:auto;max-width:none;padding:0;background:none;margin:0 0 14px;pointer-events:auto}
+  .home-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,410px);gap:30px;align-items:start}
+  .home-side{position:sticky;top:74px;max-height:calc(100vh - 88px);overflow:auto;padding-right:4px;scrollbar-width:thin}
+  .tk-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(330px,430px);gap:30px;align-items:start}
+  .tk-side{position:sticky;top:74px;max-height:calc(100vh - 88px);overflow:auto;scrollbar-width:thin}
+  .nft-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,380px);gap:28px;align-items:start}
 }
 @media (min-width:1400px){.carousel{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}}

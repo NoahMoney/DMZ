@@ -86,13 +86,13 @@ button.card{text-align:left;width:100%}
 .mrow .price{font-weight:800;font-size:14px}
 .mrow .badges{flex-wrap:nowrap;overflow:hidden;flex:0 1 auto}.mrow .badges .pill{padding:2px 6px;font-size:10px}
 .mrow .starbox{margin-left:auto;flex:none}.mrow .star svg{width:15px;height:15px}
-.mrow .row.tight{min-width:0;overflow:hidden}.mrow .row.tight>b{flex:none;white-space:nowrap}
+.mrow .row.tight{min-width:0;overflow:hidden}.mrow .row.tight>b{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mlist.compact{gap:3px}.mlist.compact .mrow{padding:6px 10px;border-radius:12px}.mlist.compact .sp{display:none}.mlist.compact .avatar{width:26px;height:26px;border-radius:8px;font-size:9px}.mlist.compact .mrow .price{font-size:13px}
 .skel{background:linear-gradient(90deg,var(--s2) 25%,var(--s3) 50%,var(--s2) 75%);background-size:200% 100%;animation:sk 1.2s infinite;border-radius:12px;min-height:14px}
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
 .skel-card{height:78px;border-radius:var(--r3)}
 /* sheet + toasts */
-.sheet{position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:100%;max-width:430px;max-height:92vh;overflow-y:auto;background:linear-gradient(180deg,rgba(255,255,255,.05),transparent 30%),var(--solid1);border-radius:28px 28px 0 0;border:1px solid var(--hair2);border-bottom:0;padding:10px 18px calc(24px + env(safe-area-inset-bottom));z-index:20;box-shadow:var(--sh);animation:up .24s cubic-bezier(.2,.7,.2,1)}
+.sheet{position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:100%;max-width:430px;max-height:92vh;max-height:92dvh;overflow-y:auto;background:linear-gradient(180deg,rgba(255,255,255,.05),transparent 30%),var(--solid1);border-radius:28px 28px 0 0;border:1px solid var(--hair2);border-bottom:0;padding:10px 18px calc(24px + env(safe-area-inset-bottom));z-index:20;box-shadow:var(--sh);animation:up .24s cubic-bezier(.2,.7,.2,1)}
 .sheet::before{content:"";display:block;width:40px;height:4px;border-radius:2px;background:var(--s4);margin:2px auto 16px}
 @keyframes up{from{transform:translate(-50%,40px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
 .backdrop{position:fixed;inset:0;background:rgba(3,4,8,.62);z-index:19;backdrop-filter:blur(3px)}

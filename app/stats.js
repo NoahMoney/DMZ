@@ -6,12 +6,14 @@
   const price = (p, dec) => A.price(p, dec);
   const now = () => Math.floor(Date.now() / 1000);
 
-  // last recorded price at or before ts; falls back to the first point when the token is younger than the window
+  // last recorded price at or before ts; falls back to the first point when the token is younger than the window.
+  // Points are appended in ascending ts, so this is a binary search rather than a prefix scan: enrich() asks for
+  // five windows per market on every block, and the 7d window used to walk almost the whole history each time.
   function priceAt(s, ts) {
-    let r = null;
-    for (const p of s.points) { if (p.ts <= ts) r = p; else break; }
-    if (!r && s.points.length) r = s.points[0];
-    return r ? price(r, s.dec) : null;
+    const pts = s.points; if (!pts.length) return null;
+    let lo = 0, hi = pts.length - 1, r = -1;
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (pts[mid].ts <= ts) { r = mid; lo = mid + 1; } else hi = mid - 1; }
+    return price(pts[r < 0 ? 0 : r], s.dec);
   }
   function change(s, secs) {
     const p1 = price(s, s.dec), p0 = priceAt(s, now() - secs);
@@ -27,9 +29,13 @@
   }
   // net reserve flow per active block inside the window: covers unpublished trades too (netted per block)
   function flow(s, secs) {
+    // walked backwards and stopped at the window edge: the sums are order-independent, and the old forward scan
+    // read the whole history to reach a window that is usually the last few points of it
     const from = now() - secs, pts = s.points; let vol = 0n, up = 0, down = 0, blocks = 0;
-    for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i]; if (b.ts < from || b.rd === a.rd) continue;
+    for (let i = pts.length - 1; i >= 1; i--) {
+      const a = pts[i - 1], b = pts[i];
+      if (b.ts < from) break;
+      if (b.rd === a.rd) continue;
       if (lpMove(s, a, b)) continue;
       const d = b.rd > a.rd ? b.rd - a.rd : a.rd - b.rd; vol += d; blocks++; if (b.rd > a.rd) up++; else down++;
     }
@@ -38,7 +44,7 @@
   function published(s, secs) {
     const from = now() - secs; let buys = 0, sells = 0, bv = 0n, sv = 0n, last = 0;
     const who = new Set();
-    for (const t of s.trades) { if (t.ts < from) continue; who.add(t.addr); if (t.side === 1) { buys++; bv += t.in; } else { sells++; sv += t.out; } if (t.ts > last) last = t.ts; }
+    for (let i = s.trades.length - 1; i >= 0; i--) { const t = s.trades[i]; if (t.ts < from) break; who.add(t.addr); if (t.side === 1) { buys++; bv += t.in; } else { sells++; sv += t.out; } if (t.ts > last) last = t.ts; }
     return { buys, sells, who: who.size, buyVol: Number(bv) / 1e5, sellVol: Number(sv) / 1e5, last };
   }
   function enrich(s, height) {

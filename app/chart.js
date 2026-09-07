@@ -103,7 +103,7 @@
   // generic area series for the portfolio: [{ts, v}] in DERO — same frame and axis column as the trading chart
   function series(root, pts, opt = {}) {
     const H = (opt.height || 160) * 2, nP = 3;
-    const el = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "cx" }); const wrap = h("div", { class: "chart", style: `height:${opt.height || 160}px` }, el);
+    const el = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "cx" }); const wrap = h("div", { class: "chart" }, el); // height comes from the viewBox aspect; a fixed px height overflowed it
     if (pts.length < 2) { el.append(txt(W / 2, H / 2, opt.empty || "Not enough history yet", { "text-anchor": "middle", "font-size": 24 })); return wrap; }
     const x0 = pts[0].ts, x1 = pts[pts.length - 1].ts, ys = pts.map((p) => p.v); let y0 = Math.min(...ys), y1 = Math.max(...ys); if (y1 === y0) { y0 *= .99; y1 *= 1.01; }
     const plotW = W - padR - padL, R = padL + plotW, plotH = H - padB - top;

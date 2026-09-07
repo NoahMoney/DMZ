@@ -7,7 +7,7 @@
 .outline{background:var(--s2);border:1px solid var(--hair);border-radius:var(--r2);padding:13px 16px}
 .outline .l{font-size:12px;color:var(--fg3)}.outline .v{font-size:24px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 .kv{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px dashed var(--hair);font-size:13.5px}
-.kv:last-child{border:0}.kv b{font-variant-numeric:tabular-nums;font-weight:600;text-align:right}
+.kv:last-child{border:0}.kv b{font-variant-numeric:tabular-nums;font-weight:600;text-align:right;min-width:0;overflow-wrap:anywhere}
 .toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0}
 .sw{width:46px;height:27px;border-radius:14px;background:var(--s4);position:relative;transition:background .15s;flex:none}
 .sw::after{content:"";position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;background:#fff;transition:transform .18s cubic-bezier(.2,.7,.2,1);box-shadow:0 1px 3px rgba(0,0,0,.4)}
@@ -73,3 +73,7 @@ details.more[open] summary .svgi{transform:rotate(180deg)}
 
 .verified.warn{background:var(--warn2);color:var(--warn);border-color:rgba(255,181,71,.35)}
 .svgi.warn{color:var(--warn)}
+
+/* four stats fit two-up on a phone and four-up once there is room; .stats3 stays a flex row */
+.stats4{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media (min-width:720px){.stats4{grid-template-columns:repeat(4,minmax(0,1fr))}}

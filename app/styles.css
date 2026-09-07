@@ -61,6 +61,9 @@ h1{font-size:30px;line-height:1.1}h2{font-size:18px;letter-spacing:-.02em}h3{fon
 .logo{width:26px;height:26px;border-radius:9px;background:conic-gradient(from 200deg,var(--acc),var(--acc3),var(--up),var(--down),var(--acc));box-shadow:0 0 24px color-mix(in oklab,var(--mood) 60%,transparent),inset 0 0 0 1px rgba(255,255,255,.25)}
 .top-right{display:flex;align-items:center;gap:8px}
 .gsearch{display:none}
+/* the header group must be able to shrink, or the wallet button is clipped on a 390px phone */
+.top-right{min-width:0}
+#walletBtn{white-space:nowrap}
 #net{max-width:150px;overflow:hidden;text-overflow:ellipsis}
 /* mobile tab bar */
 .tabs{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;display:grid;grid-template-columns:repeat(6,1fr);padding:8px 4px calc(10px + env(safe-area-inset-bottom));background:rgba(9,10,16,.8);backdrop-filter:blur(24px) saturate(1.4);-webkit-backdrop-filter:blur(24px) saturate(1.4);border-top:1px solid var(--hair);z-index:6}

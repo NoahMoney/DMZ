@@ -64,6 +64,42 @@ try {
   const nftId = await page.evaluate(() => { const n = [...window.Veil.data.nfts.keys()]; return n.length ? n[0] : null; });
   if (nftId) { await page.evaluate((s) => { location.hash = "#nft/" + s; }, nftId); await sleep(1500); await shot("02b-nft"); const nt = await text(); if (!/Public accounting/.test(nt)) fail("nft page missing accounting card: " + nt.slice(0, 160)); step("nft page: " + nt.slice(0, 80)); }
   await page.evaluate(() => { location.hash = "#settings"; }); await sleep(600); await shot("03-settings");
+  // the wrapped-asset screen: it must publish the two numbers a user cannot discover any other way — the minimum
+  // deposit and the height a withdrawal becomes payable — or it is a trap rather than a screen
+  {
+    await page.evaluate(() => { location.hash = "#wrap"; }); await sleep(1500); await shot("03b-wrap");
+    const wt = await text();
+    const configured = await page.evaluate(() => !!(window.Veil.data.cfg.vault));
+    if (configured) {
+      if (!/Minimum deposit/.test(wt)) fail("wrap screen does not publish the minimum deposit: " + wt.slice(0, 200));
+      if (!/What you are trusting/.test(wt)) fail("wrap screen has no trust panel: " + wt.slice(0, 200));
+      if (/\bSAFE\b/.test(wt)) fail("wrap screen shows a SAFE badge; the trust panel must be factual");
+    } else if (!/No vault on this network/.test(wt)) {
+      fail("wrap screen with no configured vault should say so: " + wt.slice(0, 200));
+    }
+    step("wrap: " + wt.replace(/\s+/g, " ").slice(0, 110));
+  }
+  // Screen handlers subscribe to D.onChange on every dispatch. Navigating must not accumulate them, or every
+  // block redraws the screen once per past visit.
+  {
+    for (const t of ["home", "markets", "home", "nfts", "home"]) { await page.evaluate((x) => { location.hash = "#" + x; }, t); await sleep(250); }
+    // stale subscriptions are dropped on the next data tick, which is what changed() is; force one rather
+    // than waiting ~18s for a block
+    const n = await page.evaluate(() => { window.Veil.data.changed(); return window.Veil.data.listeners.length; });
+    step("onChange listeners after five navigations: " + n);
+    if (n > 4) fail("D.onChange listeners are leaking: " + n + " after five navigations");
+  }
+  // a redraw of the busiest screen must stay cheap: this is the number to watch when the list grows
+  {
+    await page.evaluate(() => { location.hash = "#markets"; }); await sleep(1200);
+    const ms = await page.evaluate(() => {
+      const D = window.Veil.data, S = window.Veil.stats, t0 = performance.now();
+      for (let i = 0; i < 10; i++) { for (const x of D.list()) S.enrich(x, D.height); D.changed(); }
+      return Math.round((performance.now() - t0) / 10 * 100) / 100;
+    });
+    step("markets: enrich+redraw of " + (await page.evaluate(() => window.Veil.data.list().length)) + " markets: " + ms + " ms");
+    if (ms > 120) fail("a markets redraw costs " + ms + " ms; it must stay well under one block");
+  }
   // token page + trade sheet of the busiest market (read-only)
   const top = await page.evaluate(() => { const t = window.Veil.data.trending(1); return t.length ? t[0].scid : null; });
   if (top) {
@@ -102,6 +138,25 @@ try {
     const side = await d.evaluate(() => { const t = document.querySelector(".tabs"); return getComputedStyle(t).flexDirection === "column" && t.getBoundingClientRect().left < 300 && t.getBoundingClientRect().height > 500; });
     step("desktop 1280px: sidebar shell " + (side ? "on" : "MISSING"));
     if (!side) fail("desktop layout not applied at 1280px");
+    // 1024 is inside the band where the fixed side rails used to leave the main column narrower than a phone
+    {
+      const n = await browser.newPage({ viewport: { width: 1024, height: 860 }, bypassCSP: true });
+      await n.goto(url, { waitUntil: "load" }); await n.locator("#introOk").click({ timeout: 8000 }).catch(() => {});
+      await n.waitForFunction(() => window.Veil && window.Veil.data.lastRefresh > 0, null, { timeout: 60000 });
+      const t1024 = await n.evaluate(() => { const t = window.Veil.data.trending(1); return t.length ? t[0].scid : null; });
+      if (t1024) {
+        await n.evaluate((s2) => { location.hash = "#token/" + s2; }, t1024); await sleep(1800);
+        await n.screenshot({ path: `${out}/desk1024-token.png` });
+        const w = await n.evaluate(() => { const m = document.querySelector(".tk-main"); return m ? Math.round(m.getBoundingClientRect().width) : -1; });
+        step("1024px token main column: " + w + "px");
+        if (w >= 0 && w < 480) fail("main column is " + w + "px at 1024: the side rail is starving it");
+      }
+      // nothing may stick out sideways at this width
+      const over = await n.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      step("1024px horizontal overflow: " + over + "px");
+      if (over > 1) fail("page overflows horizontally by " + over + "px at 1024");
+      await n.close();
+    }
     const bad2 = derr.filter((e) => !/favicon|net::ERR_/.test(e));
     if (bad2.length) fail("desktop console errors:\n" + bad2.join("\n"));
     await d.close();
