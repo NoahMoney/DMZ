@@ -50,11 +50,22 @@ sup=$(sv -status | sed -n 's/.*sup=\([0-9]*\).*/\1/p' | head -1)
 echo "-- supply $sup"
 
 echo "== the user burns $BURN to withdraw"
+wn0=$(sv -status | sed -n 's/.*withdrawals=\([0-9]*\).*/\1/p' | head -1)
 sv -burn "$BURN:4AxmrDestinationAddressForTheSimulatedChain00000000000000000000"
+# Assert the burn actually landed. The simulator wallet intermittently refuses to build a transaction, and
+# without this check the script waits out its whole release loop and then blames the signers for a burn that
+# never happened — which is how a stuck run reads as a signer bug.
+wn1=$(sv -status | sed -n 's/.*withdrawals=\([0-9]*\).*/\1/p' | head -1)
+[ "$wn1" = "$((wn0 + 1))" ] || fail "the burn recorded no withdrawal (wn $wn0 -> $wn1); retry"
 nohalt "immediately after the burn"
 
 echo "== signers wait for DERO finality, pay abroad, verify the payment, then vote Released"
-want=$((sup - BURN))
+# Released subtracts w_<j>_v, which is the burn MINUS the withdrawal fee — the fee stays in sup and becomes the
+# treasury's. Ask the contract what it recorded rather than recomputing it here: a run that waits for the wrong
+# number reports a working federation as a stuck one, which is exactly the misreading this script exists to end.
+net=$(sv -status | sed -n "s/^withdrawal $wn0: \([0-9]*\) .*/\1/p" | head -1)
+[ -n "$net" ] || fail "could not read the recorded amount of withdrawal $wn0"
+want=$((sup - net))
 for i in $(seq 1 25); do
   sig $A vs-a.json; sig $B vs-b.json
   nohalt "while paying withdrawal 0"
