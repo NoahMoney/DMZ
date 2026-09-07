@@ -61,7 +61,7 @@ func TestVaultSmoke(t *testing.T) {
 		t.Fatalf("mint: sup %d mint_ %d sent %d", c.U(scid, "sup"), c.U(scid, "mint_"+id), last.Sent(scid, user))
 	}
 	// burn keeps the claim in sup until the release is recorded
-	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrDestinationAddress")}, map[crypto.Hash]uint64{scid: 200}, user); !r.OK() {
+	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrDestinationAddress"), harness.S("refund", user.String())}, map[crypto.Hash]uint64{scid: 200}, user); !r.OK() {
 		t.Fatalf("burn: %v", r.Err)
 	}
 	if c.U(scid, "sup") != 500 || c.U(scid, "w_0_v") != 190 || c.U(scid, "w_0_f") != 10 {

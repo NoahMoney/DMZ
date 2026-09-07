@@ -35,7 +35,7 @@ func TestVaultSafetyValves(t *testing.T) {
 	}
 
 	// Veto: a withdrawal the federation cannot pay goes back to whoever burned it, units and fee together
-	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "an-address-the-chain-rejects")}, map[crypto.Hash]uint64{scid: 500}, user); !r.OK() {
+	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "an-address-the-chain-rejects"), harness.S("refund", user.String())}, map[crypto.Hash]uint64{scid: 500}, user); !r.OK() {
 		t.Fatalf("burn: %v", r.Err)
 	}
 	if r := c.Call(scid, "Veto", rpc.Arguments{harness.U("j", 0)}, nil, user); r.OK() {
@@ -57,7 +57,7 @@ func TestVaultSafetyValves(t *testing.T) {
 		t.Fatal("a vetoed withdrawal was vetoed again")
 	}
 	// and a released withdrawal can never be vetoed
-	c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrGoodDestination")}, map[crypto.Hash]uint64{scid: 300}, user)
+	c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrGoodDestination"), harness.S("refund", user.String())}, map[crypto.Hash]uint64{scid: 300}, user)
 	for i := 0; i < 2; i++ {
 		c.Call(scid, "Released", rpc.Arguments{harness.U("j", 1), harness.S("ftx", "ftx-paid")}, nil, sg[i])
 	}

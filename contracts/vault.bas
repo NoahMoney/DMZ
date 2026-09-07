@@ -1,15 +1,11 @@
 // DMZ vault v3: k-of-n bonded federation wrapping a foreign asset (XMR, ZEC) one for one. Every state change
 // needs k signer votes checked by SIGNER(), real only at ring size 2. Invariant: foreign reserve >= sup, always.
 // Keys, rules, trust model and deployment rules: contracts/README.md (vault).
-// LIVENESS BY CONSTRUCTION: no privileged party exists after Seal and none is ever needed. Every limit either
-// empties by itself (the rolling mint window) or expires into a payment (the withdrawal delay, longer for a large
-// withdrawal). Stopping a withdrawal takes a k-of-n Veto or Halt, which signer daemons cast from observable state;
-// doing nothing pays the user. There is no per-deposit maximum and no manual override anywhere in this contract.
+// LIVENESS BY CONSTRUCTION: after Seal no privileged party exists or is needed. Every limit empties by itself or
+// expires into a payment; doing nothing pays the user. No per-deposit maximum, no override. See README (vault).
 
-// One k-of-n vote. 1 = quorum reached (caller performs the effect once), 0 = counted, 2 = refuse. A signer may
-// move a vote; the old choice loses one. <f>d_<kb> closes a scope so no decision executes twice. The vote key
-// holds the choice and is named by the signer's ADDRESS_STRING, so a signer daemon can read back exactly what it
-// voted rather than inferring it from a counter a co-signer may also have moved.
+// One k-of-n vote. 1 = quorum reached (caller acts once), 0 = counted, 2 = refuse. A signer may move a vote.
+// <f>d_<kb> closes a scope; <f>v_<kb>_<ADDRESS_STRING> holds the choice, so a daemon reads back its own vote.
 Function votek(f String, kb String, ch String, s String) Uint64
 10 DIM vk, ck, dk, ok as String
 11 DIM c as Uint64
@@ -89,8 +85,7 @@ Function InitializePrivate(k Uint64, treasury String, cap Uint64, minbond Uint64
 End Function
 
 // Owner sets the outflow limits before sealing; 0 disables one. Afterwards only Tighten can change them.
-// There is deliberately no per-deposit maximum: one that a deposit exceeded could never be minted at all, and
-// nobody is guaranteed to exist who could send it back. The rolling window bounds the rate and empties by itself.
+// No per-deposit maximum: a deposit above one could never mint, and nobody exists to send it back.
 Function SetLimits(winmax Uint64, wdelay Uint64) Uint64
 10 DIM s as String
 20 LET s = SIGNER()
@@ -156,6 +151,8 @@ Function AddSigner(addr String) Uint64
 30 STORE("sg_" + n, r)
 31 STORE("isg_" + r, 1)
 32 STORE("n", n + 1)
+33 IF EXISTS("bond_" + r) == 0 THEN GOTO 100
+34 STORE("bondtot", LOAD("bondtot") + LOAD("bond_" + r))
 100 RETURN 0
 900 RETURN 1
 End Function
@@ -293,6 +290,8 @@ End Function
 
 // Mint against foreign output (txid, vout). txid is exactly 32 raw bytes and the id is built HERE, so one
 // deposit has exactly one id. Votes count per (j, amount) tuple, so one wrong vote cannot block or redirect it.
+// Line 59 blocks a FULL window, never a large deposit: the deposit need not fit what is left, or one above
+// winmax could never mint. Overshoot is one deposit; cap bounds it.
 Function Mint(j Uint64, txid String, vout Uint64, amount Uint64) Uint64
 10 DIM s, id, kb, wb, pb as String
 11 DIM r, sup, wm, pm as Uint64
@@ -320,7 +319,7 @@ Function Mint(j Uint64, txid String, vout Uint64, amount Uint64) Uint64
 56 LET pb = "" + (BLOCK_HEIGHT() / 2000 - 1)
 57 IF EXISTS("mw_" + pb) == 0 THEN GOTO 59
 58 LET pm = LOAD("mw_" + pb)
-59 IF LOAD("winmax") != 0 && wm + pm + amount > LOAD("winmax") THEN GOTO 900
+59 IF LOAD("winmax") != 0 && wm + pm >= LOAD("winmax") THEN GOTO 900
 60 STORE("mw_" + wb, wm + amount)
 61 STORE("sup", sup + amount)
 62 STORE("mint_" + id, 1)
@@ -352,12 +351,13 @@ Function Refunded(txid String, vout Uint64, ftx String) Uint64
 900 RETURN 1
 End Function
 
-// Burn to withdraw. sup is NOT reduced here: the claim lives until the foreign payment is recorded, so
-// reserve >= sup holds at every moment with no off-chain bookkeeping.
-Function Burn(dest String) Uint64
+// Burn to withdraw. sup is NOT reduced here: the claim lives until the foreign payment is recorded.
+// refund is where a Veto returns the units, named rather than taken from SIGNER(): above ring 2 SIGNER() is
+// blank, and a revert there cannot address its refund. Naming it also lets a burn stay private.
+Function Burn(dest String, refund String) Uint64
 10 DIM s as String
 11 DIM v, j, f, d, big as Uint64
-20 LET s = SIGNER()
+20 LET s = ADDRESS_RAW(refund)
 21 IF IS_ADDRESS_VALID(s) == 0 THEN GOTO 900
 22 IF LOAD("halted") != 0 || LOAD("sealed") == 0 THEN GOTO 900
 23 LET v = ASSETVALUE(SCID())

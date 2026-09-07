@@ -66,35 +66,46 @@ func TestVaultLimits(t *testing.T) {
 		}
 		return c.Exists(scid, "mint_"+depID(n, 0))
 	}
-	// the rolling window is the only mint limit: 1200 units over this 2000-block bucket and the previous one
+	// The rolling window is the only mint limit: 1200 units over this 2000-block bucket and the previous one. It
+	// refuses to START a mint once the window is full; it does not require the deposit to fit in what is left.
+	// The difference is the whole point: a deposit larger than winmax could otherwise never be minted in any
+	// bucket, ever, which is a permanent loss with no operator to send the coins back.
 	if !mint(2, 500) || !mint(3, 500) {
 		t.Fatal("deposits within the window were refused")
 	}
-	if mint(4, 300) {
-		t.Fatal("the window (1200 per 2000 blocks) was exceeded: 500 + 500 + 300")
+	if !mint(4, 300) {
+		t.Fatal("a deposit was refused although the window was not yet full: the window may overshoot by one")
 	}
-	if !mint(5, 200) {
-		t.Fatal("a deposit that fits the window remainder was refused")
+	if c.U(scid, "sup") != 1300 {
+		t.Fatalf("sup %d, want 1300: 500 + 500 + 300, the last one overshooting the 1200 window", c.U(scid, "sup"))
 	}
-	if c.U(scid, "sup") != 1200 {
-		t.Fatalf("sup %d", c.U(scid, "sup"))
+	if mint(5, 200) {
+		t.Fatal("the window was full at 1300 of 1200 and still admitted another mint")
 	}
-	// a deposit the window turned away is not lost: the window empties by itself and the same deposit mints later,
-	// with nobody having to intervene. 2000 blocks on, the previous bucket still holds 1200; 4000 on it is clear.
+	// A deposit the window turned away is not lost: the window empties by itself and the same deposit mints
+	// later, with nobody intervening. 2000 blocks on, the previous bucket still holds 1300; 4000 on it is clear.
 	for i := 0; i < 2000; i++ {
 		c.NextBlock()
 	}
-	if mint(4, 300) {
+	if mint(5, 200) {
 		t.Fatal("the window did not slide: a bucket boundary alone opened a new window")
 	}
 	for i := 0; i < 2000; i++ {
 		c.NextBlock()
 	}
-	if !mint(4, 300) {
+	if !mint(5, 200) {
 		t.Fatal("the deposit the window turned away never became mintable: that would be a permanent loss")
 	}
-	if c.U(scid, "sup") != 1500 {
-		t.Fatalf("sup after the window cleared: %d", c.U(scid, "sup"))
+	// And the case that motivated the rule: a single deposit larger than the whole window still mints. Under the
+	// old check (wm + pm + amount > winmax) this was refused in every bucket for ever.
+	for i := 0; i < 4000; i++ {
+		c.NextBlock()
+	}
+	if !mint(6, 1400) {
+		t.Fatal("a deposit larger than winmax was refused: that is the per-deposit maximum returning by another door")
+	}
+	if c.U(scid, "sup") != 2900 {
+		t.Fatalf("sup after the window cleared: %d, want 2900", c.U(scid, "sup"))
 	}
 
 	// withdrawal delay: an ordinary withdrawal waits wdelay blocks, and a LARGE one (over bigbps of the supply)
@@ -102,16 +113,16 @@ func TestVaultLimits(t *testing.T) {
 	// with the authority to release it, and after Seal nobody has any authority at all.
 	burn := func(v uint64) uint64 {
 		j := c.U(scid, "wn")
-		if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrDestinationAddr")}, map[crypto.Hash]uint64{scid: v}, user); !r.OK() {
+		if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrDestinationAddr"), harness.S("refund", user.String())}, map[crypto.Hash]uint64{scid: v}, user); !r.OK() {
 			t.Fatalf("burn %d: %v", v, r.Err)
 		}
 		return j
 	}
-	small := burn(200) // 200 of 1500 is under 20 %
+	small := burn(200) // 200 of the 2900 supply is well under 20 %
 	if got, want := c.U(scid, "w_"+strconv.FormatUint(small, 10)+"_rel"), uint64(c.Height)+5; got != want {
 		t.Fatalf("small withdrawal releasable at %d, want %d (wdelay only)", got, want)
 	}
-	big := burn(400) // 400 is over 20 % of the supply
+	big := burn(700) // 700 is over 20 % of the 2900 supply (580)
 	if got, want := c.U(scid, "w_"+strconv.FormatUint(big, 10)+"_rel"), uint64(c.Height)+505; got != want {
 		t.Fatalf("large withdrawal releasable at %d, want %d (wdelay + bigdelay)", got, want)
 	}

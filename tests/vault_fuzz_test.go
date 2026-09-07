@@ -131,7 +131,7 @@ func TestVaultConservation(t *testing.T) {
 			if rng.Intn(6) == 0 {
 				v = uint64(rng.Intn(minburn)) // below the minimum: must be refused and refunded
 			}
-			r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrDest"+strings.Repeat("x", 10))}, map[crypto.Hash]uint64{scid: v}, users[j])
+			r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrDest"+strings.Repeat("x", 10)), harness.S("refund", users[j].String())}, map[crypto.Hash]uint64{scid: v}, users[j])
 			if r.OK() {
 				bal[j] -= v
 				ws = append(ws, &wd{net: v - wfee, fee: wfee, owner: j})

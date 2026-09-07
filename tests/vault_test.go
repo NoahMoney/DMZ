@@ -147,7 +147,7 @@ func TestVaultFederation(t *testing.T) {
 
 	// burn: the claim stays in sup until the release is recorded, so reserve >= sup holds throughout
 	burn := func(v uint64, dest string) harness.Result {
-		return c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", dest)}, map[crypto.Hash]uint64{scid: v}, user)
+		return c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", dest), harness.S("refund", user.String())}, map[crypto.Hash]uint64{scid: v}, user)
 	}
 	if r := burn(50, "4AxmrDestinationAddr"); r.OK() {
 		t.Fatal("a burn below the minimum was accepted")
@@ -155,7 +155,7 @@ func TestVaultFederation(t *testing.T) {
 	if r := burn(200, "short"); r.OK() {
 		t.Fatal("a destination too short to be any foreign address was accepted")
 	}
-	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrDestinationAddr")}, map[crypto.Hash]uint64{scid: 200, zero: 1}, user); r.OK() {
+	if r := c.Call(scid, "Burn", rpc.Arguments{harness.S("dest", "4AxmrDestinationAddr"), harness.S("refund", user.String())}, map[crypto.Hash]uint64{scid: 200, zero: 1}, user); r.OK() {
 		t.Fatal("a burn carrying DERO was accepted")
 	}
 	if r := burn(200, "4AxmrDestinationAddr"); !r.OK() || c.U(scid, "w_0_v") != 190 || c.U(scid, "w_0_f") != 10 || c.U(scid, "sup") != 1050 {
