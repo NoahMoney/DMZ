@@ -14,7 +14,9 @@ import (
 type countingBackend struct {
 	paid  map[uint64]int
 	ftx   map[uint64]string
-	fails int // Release errors to inject before succeeding
+	rec   map[uint64]Release // what the foreign chain would show for each j
+	fails int                // Release errors to inject before succeeding
+	blind bool               // when set, VerifyRelease sees nothing: the daemon must refuse to vote
 }
 
 func (b *countingBackend) Height() (int64, error)         { return 0, nil }
@@ -35,7 +37,18 @@ func (b *countingBackend) Release(j uint64, dest string, amount uint64) (string,
 	}
 	b.paid[j]++
 	b.ftx[j] = "ftx-" + strconv.FormatUint(j, 10)
+	if b.rec == nil {
+		b.rec = map[uint64]Release{}
+	}
+	b.rec[j] = Release{J: j, Dest: dest, Amount: amount, FTx: b.ftx[j]}
 	return b.ftx[j], nil
+}
+func (b *countingBackend) VerifyRelease(j uint64, ftx, dest string, amount uint64) (bool, error) {
+	if b.blind {
+		return false, nil
+	}
+	r, ok := b.rec[j]
+	return ok && r.FTx == ftx && r.Dest == dest && r.Amount == amount, nil
 }
 
 // TestExactlyOnceUnderCrashes kills the withdrawal path at random stages (after each durable step, and while the
@@ -158,5 +171,53 @@ func TestStateIsBoundToOneVault(t *testing.T) {
 	m, err := loadMemory(path, "vaultA")
 	if err != nil || m.Intents["3"] == nil || m.Intents["3"].FTx != "ftx" {
 		t.Fatalf("the vault's own state did not reload: %v", err)
+	}
+}
+
+// TestNoVoteWithoutVerification: a signer must never certify a foreign payment it cannot see. Release returning a
+// txid is a claim; the vote is a statement of fact, and only VerifyRelease turns one into the other.
+func TestNoVoteWithoutVerification(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	be := &countingBackend{paid: map[uint64]int{}, ftx: map[uint64]string{}, blind: true}
+	voted := 0
+	vote := func(uint64, string) bool { voted++; return true }
+
+	mem, err := loadMemory(path, "vaultA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := processWithdrawal(mem, be, 7, "dest-7", 1000, vote, nil); err == nil {
+		t.Fatal("expected a refusal to vote for a payment the chain does not show")
+	}
+	if voted != 0 {
+		t.Fatalf("voted %d times for an unverified payment", voted)
+	}
+	if got := mem.Intents["7"].State; got != "paid" {
+		t.Fatalf("intent state %q: the payment happened, so it must stay recorded and be retried", got)
+	}
+
+	// the same withdrawal, now visible on the foreign chain: it votes, and it does not pay twice
+	be.blind = false
+	if err := processWithdrawal(mem, be, 7, "dest-7", 1000, vote, nil); err != nil {
+		t.Fatal(err)
+	}
+	if voted != 1 || be.paid[7] != 1 {
+		t.Fatalf("votes %d, payments %d; want 1 and 1", voted, be.paid[7])
+	}
+
+	// a payment recorded for this j that pays somewhere else is not this withdrawal
+	mem2, err := loadMemory(filepath.Join(t.TempDir(), "s2.json"), "vaultA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := processWithdrawal(mem2, be, 8, "dest-8", 1000, vote, nil); err != nil {
+		t.Fatal(err)
+	}
+	r := be.rec[8]
+	r.Dest = "attacker"
+	be.rec[8] = r
+	mem2.Intents["8"].State = "paid" // as if the process died before the vote was recorded
+	if err := processWithdrawal(mem2, be, 8, "dest-8", 1000, vote, nil); err == nil {
+		t.Fatal("expected a refusal: the recorded payment went to another destination")
 	}
 }

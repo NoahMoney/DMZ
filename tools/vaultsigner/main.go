@@ -43,10 +43,13 @@ var (
 	simPath   = flag.String("sim", "../research/crosschain/poc/sim-foreign.json", "sim backend file")
 	statePath = flag.String("state", "", "local vote memory and release intents (default: vaultsigner-<vault prefix>-<signer suffix>.json)")
 	confs     = flag.Int64("confs", 0, "confirmations before a deposit is voted (0: the network table's value for the backend; sim: 2)")
-	interval  = flag.Duration("interval", 20*time.Second, "poll interval")
-	once      = flag.Bool("once", false, "one pass, then exit")
-	timeout   = flag.Duration("timeout", 180*time.Second, "per-tx timeout")
-	yes       = flag.Bool("yes", false, "required on mainnet: this signer pays real withdrawals on the foreign chain")
+	// A recorded payment that stays invisible must eventually be re-attempted rather than waited on forever:
+	// there is no operator to notice a stuck withdrawal. Release is idempotent per j, so re-asking is cheap.
+	verifyTries = flag.Int("verify-tries", 20, "passes a recorded foreign payment may stay unverifiable before the backend is asked to pay that withdrawal again")
+	interval    = flag.Duration("interval", 20*time.Second, "poll interval")
+	once        = flag.Bool("once", false, "one pass, then exit")
+	timeout     = flag.Duration("timeout", 180*time.Second, "per-tx timeout")
+	yes         = flag.Bool("yes", false, "required on mainnet: this signer pays real withdrawals on the foreign chain")
 )
 
 // Deposit is one foreign output paid to an attested deposit address. TxID is 64 lowercase hex characters (the raw
@@ -84,7 +87,11 @@ type Backend interface {
 	// not is vetoed rather than paid into nowhere.
 	ValidDest(dest string) bool
 	Release(j uint64, dest string, amount uint64) (string, error) // idempotent per j; returns the foreign txid
-	Reserve() (uint64, error)                                     // foreign units the federation holds
+	// VerifyRelease re-reads the foreign chain and says whether ftx really pays amount to dest for withdrawal j.
+	// Release returns a string; this is what turns that string into a fact. A signer votes Released only for an
+	// ftx it has verified itself, so a coordinator or a peer cannot make it certify a payment nobody made.
+	VerifyRelease(j uint64, ftx string, dest string, amount uint64) (bool, error)
+	Reserve() (uint64, error) // foreign units the federation holds
 	// Health fails when the node or wallet is unreachable, unsynced or missing its signing material. The daemon
 	// does nothing at all in that state rather than acting on a partial view.
 	Health() error
@@ -167,6 +174,20 @@ func (s simBackend) Release(j uint64, dest string, amount uint64) (string, error
 	f.Releases = append(f.Releases, Release{J: j, Dest: dest, Amount: amount, FTx: ftx})
 	return ftx, s.save(f)
 }
+func (s simBackend) VerifyRelease(j uint64, ftx string, dest string, amount uint64) (bool, error) {
+	f, err := s.load()
+	if err != nil {
+		return false, err
+	}
+	for _, r := range f.Releases {
+		if r.J == j {
+			// every field must match: a payment recorded for this j that went somewhere else, or paid a
+			// different amount, is not the payment this withdrawal asked for
+			return r.FTx == ftx && r.Dest == dest && r.Amount == amount, nil
+		}
+	}
+	return false, nil // no payment on the foreign chain for this withdrawal at all
+}
 func (s simBackend) Reserve() (uint64, error) {
 	f, err := s.load()
 	if err != nil {
@@ -195,6 +216,8 @@ type Intent struct {
 	Amount uint64 `json:"amount"`
 	FTx    string `json:"ftx,omitempty"`
 	State  string `json:"state"`
+	// consecutive passes in which the recorded payment could not be verified on the foreign chain
+	Tries int `json:"tries,omitempty"`
 }
 
 type memory struct {
@@ -270,6 +293,31 @@ func (m *memory) save() error {
 // height. A burn above it can still be reorganised out, and a foreign payment made for it would be a loss.
 func withdrawalFinal(h, stable int64) bool { return h > 0 && h <= stable }
 
+// inflightUnits totals the withdrawals the contract has recorded and not yet closed: burned, so their claim is
+// still counted in `sup`, but possibly already paid abroad, so their coins may already have left the reserve.
+// This is the exact width of the window in which an entirely correct federation looks short of its own supply.
+// Every signer computes it from the same contract state at the same block, so every signer agrees.
+// owedUnits is the reserve the federation must still be able to show: every claim except the ones whose coins
+// have legitimately left, or are leaving, to pay a burn the contract has not yet closed. A reserve below this is
+// a real shortfall and worth halting for; a reserve merely below `sup` is what an honest withdrawal looks like.
+func owedUnits(sup, inflight uint64) uint64 {
+	if sup <= inflight {
+		return 0
+	}
+	return sup - inflight
+}
+
+func inflightUnits(st rpc.SCState) uint64 {
+	var total uint64
+	for j := uint64(0); j < st.U("wn"); j++ {
+		js := strconv.FormatUint(j, 10)
+		if st.U("w_"+js+"_st") == 0 {
+			total += st.U("w_" + js + "_v")
+		}
+	}
+	return total
+}
+
 // processWithdrawal drives one withdrawal j through its intent. It is the only place that pays on the foreign
 // chain. crash, when non-nil, is a test hook: returning true at a stage abandons the call as a process death
 // would, after the durable step that preceded it.
@@ -310,6 +358,34 @@ func processWithdrawal(mem *memory, be Backend, j uint64, dest string, amount ui
 		}
 	}
 	if it.State == "paid" {
+		// Verify before every vote, not once after paying. A signer that crashed between paying and voting
+		// re-checks on restart, and a signer whose backend coordinates with peers never certifies a txid on a
+		// peer's word. A payment that is not visible yet fails closed: no vote this pass, retried on the next.
+		ok, err := be.VerifyRelease(j, it.FTx, it.Dest, it.Amount)
+		if err != nil || !ok {
+			// Not voting is right, but never voting is a freeze, and there is no operator to unfreeze it. A
+			// payment that stays invisible is eventually treated as one that did not happen: the intent goes
+			// back to "paying" and the backend is asked again. That is safe exactly because Release must be
+			// idempotent per j — a correct backend finds its earlier payment and returns the same txid, so this
+			// costs one lookup; a backend that cannot look up its own payments was never fit to hold a reserve.
+			it.Tries++
+			if it.Tries < *verifyTries {
+				if e := mem.save(); e != nil {
+					return e
+				}
+				if err != nil {
+					return fmt.Errorf("withdrawal %d: cannot verify the payment %s (attempt %d of %d): %w", j, it.FTx, it.Tries, *verifyTries, err)
+				}
+				return fmt.Errorf("withdrawal %d: the foreign chain does not show %s paying %d to %s (attempt %d of %d); not voting Released", j, it.FTx, it.Amount, it.Dest, it.Tries, *verifyTries)
+			}
+			stale := it.FTx
+			it.FTx, it.State, it.Tries = "", "paying", 0
+			if e := mem.save(); e != nil {
+				return e
+			}
+			return fmt.Errorf("withdrawal %d: %s was never visible on the foreign chain after %d attempts; re-asking the backend to pay it (it must find any earlier payment for %d and return the same txid)", j, stale, *verifyTries, j)
+		}
+		it.Tries = 0
 		if !voteReleased(j, it.FTx) {
 			return nil // the quorum may already be complete, or the vote is refused for now: keep the intent
 		}
@@ -495,24 +571,40 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 			}
 		}
 	}
-	// 0. the reserve invariant, which v3 makes exact: a burn keeps its claim in sup until the payment is
-	//    recorded, so the foreign reserve must simply cover sup at every moment.
+	// 0. the reserve invariant. A claim leaves the foreign reserve when the federation pays it, and leaves `sup`
+	//    when the Released quorum records that payment. Those are necessarily different moments — the payment is
+	//    the very thing the vote is about — so between them the reserve is legitimately short of `sup` by exactly
+	//    the withdrawals in flight. The invariant an honest signer can check at one block is therefore
+	//
+	//        reserve >= sup - inflight,   inflight = every burned withdrawal the contract has not closed
+	//
+	//    Comparing the reserve to `sup` alone is not a stricter version of this: it halts on every ordinary
+	//    withdrawal, and because vault.bas Released refuses while halted, `sup` can then never fall and the halt
+	//    can never clear. That freezes the vault on its first withdrawal with no operator to lift it. It is not
+	//    hypothetical: tools/simvault/e2e.sh saw halted=1 straight after the payment and recorded it as a size
+	//    breaker firing, which is how it went unnoticed for two cycles.
+	//
+	//    inflight is a pure function of contract state at one block, deliberately. Narrowing it — by the release
+	//    height, or by what this signer believes it has paid — would make two honest signers at slightly
+	//    different tips compute different answers, and one of them would halt the other's honest payment.
 	reserve, err := be.Reserve()
 	if err != nil {
 		log.Printf("reserve: %v", err)
 		return
 	}
 	sup := st.U("sup")
-	if reserve < sup {
+	inflight := inflightUnits(st)
+	owed := owedUnits(sup, inflight)
+	if reserve < owed {
 		if st.U("halted") == 0 {
-			haltVote(1, fmt.Sprintf("RESERVE SHORTFALL: foreign reserve %d < wrapped supply %d", reserve, sup))
+			haltVote(1, fmt.Sprintf("RESERVE SHORTFALL: foreign reserve %d < supply %d less %d in flight", reserve, sup, inflight))
 		}
 		vetoPass(c, be, me, dvmMe, mem, st, scope) // returning funds is the one thing a halted vault must still do
 		return
 	}
 	if st.U("halted") != 0 {
 		// the shortfall that halted this vault has cleared: resume, so no human is needed to restart it
-		haltVote(0, fmt.Sprintf("reserve %d now covers the supply %d again", reserve, sup))
+		haltVote(0, fmt.Sprintf("reserve %d now covers the %d that is owed", reserve, owed))
 		vetoPass(c, be, me, dvmMe, mem, st, scope)
 		fmt.Println("vault halted: no mints, no releases until the resume votes reach the quorum")
 		return
@@ -656,13 +748,34 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 			continue
 		}
 		dest, amount := st.Str("w_"+js+"_to"), st.U("w_"+js+"_v")
+		// vetoPass has already voted to return this one. Opening an intent on it would be the worst of both: the
+		// payment cannot succeed, and vetoPass skips any withdrawal that has an intent, so the veto quorum could
+		// never form in a later bucket and the burner would end with neither units nor coins. An intent that is
+		// already open is always finished, never abandoned, because the coins may already have been sent.
+		if it == nil && !be.ValidDest(dest) {
+			continue
+		}
+		// st is the snapshot from the top of the pass, and a pass spans many blocks because every vote waits for
+		// inclusion. A co-signer's Veto or Released — or our own veto, cast moments ago — may have reached the
+		// quorum since. Re-read this withdrawal's status immediately before paying anything abroad.
+		if c.GetSC(*vault, false).U("w_"+js+"_st") != 0 {
+			if it != nil { // settled by the quorum while this pass ran: close our intent, as the branch above does
+				it.State = "voted"
+				if err := mem.save(); err != nil {
+					die("%v", err)
+				}
+			}
+			continue
+		}
 		if err := processWithdrawal(mem, be, j, dest, amount, voteReleased, nil); err != nil {
 			log.Printf("withdrawal %d: %v", j, err)
 		}
 	}
 	after := c.GetSC(*vault, false)
-	fmt.Printf("%s vault: indexes %d, supply %d / cap %d, withdrawals %d, halted %d, reserve %d\n", time.Now().Format("15:04:05"),
-		after.U("un"), after.U("sup"), after.U("cap"), after.U("wn"), after.U("halted"), reserve)
+	// print the in-flight total next to the reserve: without it a correct vault looks short of its own supply
+	// during every ordinary withdrawal, which is precisely the misreading that hid the halt deadlock
+	fmt.Printf("%s vault: indexes %d, supply %d / cap %d, withdrawals %d, halted %d, reserve %d (in flight %d)\n", time.Now().Format("15:04:05"),
+		after.U("un"), after.U("sup"), after.U("cap"), after.U("wn"), after.U("halted"), reserve, inflightUnits(after))
 }
 
 // vetoPass votes to return withdrawals the foreign chain cannot accept. It NEVER vetoes one this signer has
