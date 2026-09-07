@@ -1,4 +1,4 @@
-# RISKS.md — Veil
+# RISKS.md — DMZ
 
 Dated register. "Mitigation" states what the code does; "Residual" what remains for the operator.
 
@@ -8,9 +8,14 @@ every addition is guarded; every line is annotated with its bound; 10k-case fuzz
 (Phase 1). Residual: a helper mis-transcription would be caught only by the fuzz — keep it in CI.
 
 ## R-2 Refund on failure depends on ringsize 2
-A failed call refunds burned value only when the signer is extractable (DECISIONS §2.3-2.4). Mitigation: the app
-hard-codes ringsize 2 for every contract call and shows the privacy note. Residual: users hand-crafting TXs at
-higher ringsize lose deposits on any revert.
+A failed call refunds burned value only when the signer is extractable (DECISIONS §2.3-2.4). Mitigation: every call
+that is paid by `SIGNER()` is sent at ringsize 2 (`app/app.js:99`) and the app shows the privacy note; the ring-16
+private-mode calls go to the `…To` entrypoints, which never read `SIGNER()` and which commit and refund instead of
+reverting (`contracts/launch.bas:83-91,166-174`; `tests/ringswap_test.go`), so nothing is lost above ring 2 on the
+app's own paths. The app rejects a private trade whose receive address is invalid (`app/app.js:186`) and one that
+would overshoot the curve into a refund (`app/app.js:187`). Residual: a hand-crafted call to a `SIGNER()` entrypoint
+above ring 2, or to a `…To` entrypoint with an unparseable `dest`, which fails the address guard at
+`contracts/launch.bas:86,169` and reverts, loses the deposit.
 
 ## R-3 No cross-contract verification
 The factory cannot check a registered pool (DECISIONS §8.2). Mitigation: registrations cost a fee; the app verifies
@@ -41,7 +46,8 @@ XSWD exists only in `civilware/derohe`. Users on the official CLI wallet have no
 What this is: a set of immutable contracts on a public, privacy-preserving blockchain, plus an app whose files are
 also on that chain. There is no server, no account system, no custody: users hold their own keys and interact
 through their own wallet. The operator's only on-chain powers are the factory's treasury pointer and registration
-fee, and the right to claim accrued protocol fees.
+fee; protocol fees accrue to the treasury address recorded at each market's install, and anyone may trigger
+`ClaimFees` to move them there (R-13), so the operator takes the revenue without controlling the claim.
 
 What that implies:
 - **Fees are revenue.** A 0.5 % cut of every trade flowing to an address the operator controls is a business, whether
@@ -103,10 +109,22 @@ another contract. That remains the trusted step, and it is the one to design out
 ## R-14 Federation custody of wrapped assets (2026-09-06)
 wXMR / wZEC / wSOL are backed by coins held under keys that are not the DERO contract. k colluding signers can steal
 or freeze the reserve; fewer than k can only stall. The DERO side bounds the damage (`cap`, once-only ids, bonds,
-slash, halt; see research/wrapper/README.md (security review)) and the viewing keys make the reserve auditable, but the trust is real and is
-the same class as Wormhole / Ronin / THORChain losses. Mitigations: threshold custody, a low starting cap tied to
-bonds, disclosure in the app, and the atomic-swap exit hatch. Residual: quorum loss freezes withdrawals until signer
-rotation exists (open item).
+slash, halt; see research/wrapper/README.md (security review)) and `SetViewKey` (k votes) publishes the foreign
+viewing key, which is what lets anyone count the reserve, but the trust is real and is the same class as
+Wormhole / Ronin / THORChain losses. Mitigations: threshold custody, a low starting cap tied to bonds, disclosure in
+the app, and the atomic-swap exit hatch. Rotation is no longer the open item it was: `AddSigner2` (k votes) replaces
+a slashed or lost signer, the candidate must already hold `minbond`, a key that was ever a signer never returns, and
+a vault has at most 20 signer slots for its whole life. Residual: rotation itself needs a quorum, so losing k signers
+is the case nothing recovers from — the reserve is unreachable and the bonds are not a payout to holders.
+
+**Improved 2026-09-07:** `tools/vaultsigner` speaks vault v3 and refuses any other version. It verifies every
+foreign payment on the foreign chain before voting `Released` (`Backend.VerifyRelease`), and its shortfall test is
+`reserve >= sup - inflight`, where `inflight` is every burned withdrawal the contract has not closed. Comparing the
+reserve to `sup` alone is not a stricter reading of the same invariant: it halted the vault on its first ordinary
+withdrawal and could never clear, because `Released` is refused while halted. That bug was found and fixed on
+2026-09-07. A halt is a self-clearing condition, not an operator decision: each signer votes `Halt(1)` while the
+reserve is short of what is owed and `Halt(0)` once it is not, so no human lifts it and there is no override
+anywhere.
 
 ## R-15 A freshly received asset cannot be spent immediately (2026-09-06)
 On the simulator, a wallet that had just been minted 250,000 units of the vault asset could not spend them for
@@ -125,7 +143,9 @@ DOC. A real install is never affected: the wallet forces the first byte of every
 fee (code length + 512, measured overhead is a few hundred units; `-reuse` resumes a partial TELA install); the harness
 never generates such an id. Report upstream with the graviton line.
 
-Addendum (16:50): the current `contracts/vault.bas` (14,010 bytes, with `SetLimits`) is itself such a content: `DERO.GetGasEstimate`
-fails on every install attempt (`dvm.Wrapped_tree` gets id `3a 0a 1f df …`). `tools/simrpc` now fees such installs by
-size (code length + 512); the same rule sits in `telainstall` and in the app. A real install on mainnet whose txid starts
+Addendum (2026-09-06 16:50, historical): the then-current `contracts/vault.bas` (14,010 bytes) was itself such a
+content — `DERO.GetGasEstimate` failed on every install attempt (`dvm.Wrapped_tree` got id `3a 0a 1f df …`). The id
+is a hash of the content, so the file as it stands today (18,895 bytes) is very unlikely to hit it again; the
+mitigation is kept because any future revision can. `tools/simrpc` fees such installs by size (code length + 512);
+the same rule sits in `telainstall` and in the app (`app/app.js:121`). A real install on mainnet whose txid starts
 with 0x3a remains unverified.

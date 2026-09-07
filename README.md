@@ -50,7 +50,8 @@ payer deniability, not a private amount or destination. DMZ is not a private exc
 | **NFTs** | Holder NFTs: lock ≥ N tokens for M blocks, mint one edition (one per address for the life of the contract). The Founders Pass: 500 editions whose registered holders receive 50 % of protocol fees, pushed to their wallets by a treasury bot, with a built-in fixed-price marketplace. |
 | **Social** | Opt-in trade publishing (the market contract writes the record, nobody can fake it), profiles and a follow graph on a tiny contract, a feed with All / Following / Watchlist. |
 | **Portfolio** | Holdings, average cost, realised and unrealised P&L and an equity curve, computed on the device from local records and the address's own published trades. Nothing leaves the browser. |
-| **Wrapper (research)** | `contracts/vault.bas` v2: a bonded k-of-n federation mints wrapped units against foreign deposits and pays burns, with per-deposit and windowed limits, a withdrawal delay, halt and slash votes keyed by epochs, and a signer daemon that proves every vote by the contract's own counters. Foreign backends (Monero, Zcash, Solana) are not implemented; only the simulated backend runs. |
+| **Wrapper (research)** | `contracts/vault.bas` v3: a bonded k-of-n federation mints wrapped units against foreign deposits and pays burns, with a minimum deposit, a rolling mint window that empties by itself, a withdrawal delay that is longer for a large withdrawal and always expires into a payment, a k-of-n veto, halt and slash votes keyed by epochs, and a signer daemon that proves every vote by the contract's own record and needs no operator. There is no per-deposit maximum, by design: a deposit above one could never be minted and nobody exists to send it back. Foreign backends (Monero, Zcash, Solana) are not implemented; only the simulated backend runs. |
+| **Wrap** | The wrapped-asset screen (`app/wrap.js`, reached from Portfolio when the build has a vault): register a deposit index and read the foreign address the signers attested to it, the published minimum deposit, the cap, headroom and signer bond, burn-to-withdraw with the payable height and the extra wait a large withdrawal earns, your withdrawals' state (waiting, payable, paid, returned), and a panel naming what k of n signers can do. Simulated backend only. |
 
 ## 2. How it is built
 
@@ -70,8 +71,8 @@ payer deniability, not a private amount or destination. DMZ is not a private exc
   `founders.bas` (fee-sharing pass + marketplace), `swap.bas` (HTLC escrow), `board.bas` (order board),
   `vault.bas` (federation wrapper). All arithmetic is `uint64`; overflow paths are tested. Every formula has a Go
   model in `reference/` checked against `math/big`, and `tests/` drives derohe's own DVM executor.
-- **App** (`app/`): 19 plain-JS files, 4 CSS files, one HTML file, **no framework, no bundler, no external
-  dependency**. 238 KB raw, ~72 KB gzipped. Served from a TELA INDEX (28 DOCs on chain) or from any static host.
+- **App** (`app/`): 20 plain-JS files, 4 CSS files, one HTML file, **no framework, no bundler, no external
+  dependency**. 260 KB raw, ~79 KB gzipped. Served from a TELA INDEX (29 DOCs on chain) or from any static host.
   Strict CSP (`default-src 'none'; script-src 'self'`), loopback or `wss://` nodes only, a remote node needs a
   per-session confirmation.
 - **Tools** (`tools/`, Go): simulator drivers (`simdeploy`, `simlaunch`, `simsmoke`, `simtraffic`, `simnft`,
@@ -105,9 +106,10 @@ What DERO gives, what DMZ adds, and what neither can do. Longer form: [DECISIONS
 - **Contracts are immutable** (no `UpdateCode`), `Initialize` is guarded, and every state-changing path is
   fuzzed against a model. The wrapper's trust is stated once and never called trustless: k of n signers can steal
   the reserve; bonds deter a minority, not a colluding quorum (n ≥ 2k is needed for honest signers to slash).
-- **Off-chain daemons prove their actions by counters**, never by transaction inclusion: the signer remembers a
-  vote only when the contract's count key grew; the treasury bot records a claim only when `fc` grew and closes
-  a deposit only when `dep` grew.
+- **Off-chain daemons prove their actions in contract state**, never by transaction inclusion: the signer
+  remembers a vote only when the contract recorded it under that signer's own vote key (a counter can be moved
+  by a co-signer in the same block, a vote key cannot); the treasury bot records a claim only when `fc` grew and
+  closes a deposit only when `dep` grew.
 
 ## 4. Repository layout
 
@@ -183,7 +185,7 @@ go run ./treasurybot -wallet 127.0.0.1:30002 -once   # claim fees → deposit th
 | Vendor tree | `cd tools && go run ./verifyvendor` | "vendor tree matches deploy/vendor.lock" |
 | UI, read-only | `PW_DIR=<dir with playwright> node tools/uitest/ui.mjs http://127.0.0.1:8082/index.html out/` | `UI TEST OK`; asserts CSP blocks inline script, every tab renders, desktop shell at 1280 px |
 | UI, wallet flow | `… ui.mjs … --wallet --dest=<address>` | launch + register (probe: our scid landed), published buy, private buy at ring 16 with no record written, stake, pass mint + register |
-| Wrapper end to end | `bash tools/simvault/e2e.sh <vault scid> [deposit]` after `simvault -install` | two signers mint with the counter proof, over-cap deposit reported, burn, finality wait, two delayed `Released` votes |
+| Wrapper end to end | `bash tools/simvault/e2e.sh <vault scid> [deposit] [burn]` after `simvault -install` | two signers attest the address, mint against the proof of their own votes, then burn, wait out the release height the burn recorded, pay abroad, verify that payment and vote `Released` until `sup` falls; the run fails if the vault halts at any point |
 
 `tools/uitest/run.sh` runs both UI passes against the local simulator. Every loop record in
 `docs/history/HISTORY.md` names the commands it ran and their timings.
@@ -212,9 +214,12 @@ Research and a working simulator prototype, not a product. Read in this order:
 pooled liquidity, and what can), [research/wrapper/README.md](research/wrapper/README.md) (Trust statement)
 (every trusted party, in the order they can hurt you), [research/wrapper/README.md](research/wrapper/README.md) (what the
 contract enforces, attacks considered, what it cannot protect against), `contracts/README.md` §vault,
-`tools/vaultsigner` (the signer daemon: durable release intents, counter-proven votes, reserve-shortfall and
-outsized-withdrawal halts), and [research/wrapper/RUNBOOKS](research/wrapper/RUNBOOKS.md ). Foreign-chain backends
-are stubs; the network table (confirmations, RPC ports) is in the daemon.
+`tools/vaultsigner` (the signer daemon: durable release intents, votes proved by the contract's own record of
+them, every foreign payment verified on the foreign chain before it votes `Released`, and a reserve-shortfall
+halt it votes on — and back off — by itself, against `reserve >= sup − inflight`, the supply less every burned
+withdrawal the contract has not closed), and [research/wrapper/RUNBOOKS.md](research/wrapper/RUNBOOKS.md). The
+daemon speaks v3 and refuses any other version; there is no operator flag and no override anywhere in it.
+Foreign-chain backends are stubs; the network table (confirmations, RPC ports) is in the daemon.
 
 ## 9. Economics
 

@@ -36,6 +36,33 @@ ahead · **P3** research and later. `[contract]` needs a new template hash and a
 - **B0.9 Dust-trade ranking** `[app]` — any non-zero swap activates a block and a block is worth 4 hot points, so a
   dust swap per block buys the top of Trending for network fees. Done: see B1.1 (ranking v2).
 
+- **B0.10 The daemon halted every vault on its first withdrawal** `[daemon]` — it compared the foreign reserve
+  to `sup`, but a claim leaves the reserve when the federation pays and leaves `sup` only when `Released` records
+  the payment. `Released` is refused while halted, so the halt could never clear: every deposit and every burned
+  unit frozen for good, with no operator to lift it. Done: the check is `reserve >= sup - inflight`, computed from
+  contract state at one block so every honest signer agrees; four tests fail on the old rule; proven live on the
+  simulator with `halted=0` throughout. **Loop 20.**
+- **B0.11 A deposit above `winmax` could never mint** `[contract]` — the window asked each deposit to fit what was
+  left, so anything larger than the whole window was refused in every bucket for ever: `maxdep` by another door,
+  and a permanent loss. Done: the window blocks a full window, never a large deposit; overshoot is one deposit and
+  `cap` bounds it (`tests/vault_limits_test.go`). **Loop 20.**
+- **B0.12 `Burn` destroyed the withdrawal of anyone above ring 2** `[contract+app]` — it read `SIGNER()`, blank
+  above ring size 2, so the call reverted, and a revert above ring 2 cannot address its refund. Done: `Burn` takes
+  a named `refund` address, which also lets a burn stay private. **Loop 20.**
+- **B0.13 `AddSigner` did not credit a standing bond** `[contract]` — a bond paid before the owner added that
+  signer never entered `bondtot`, and a later `Slash` subtracted it anyway, wrapping `bondtot` to near 2^64 and
+  removing the cap bound. Done: `AddSigner` credits an existing `bond_` once. **Loop 20.**
+- **B0.14 The daemon paid destinations it had just vetoed** `[daemon]` — the withdrawal loop used a snapshot taken
+  before `vetoPass` voted. Done: unpayable destinations without an intent are skipped, and the status is re-read
+  immediately before any foreign payment. **Loop 20.**
+- **B0.15 Screen subscriptions leaked** `[app]` — `D.onChange` was push-only and every screen subscribed on every
+  visit, so each block redrew the current screen once per past visit. Done: subscriptions are scoped to the
+  navigation that created them; the UI test fails above four listeners. **Loop 20.**
+- **B0.16 Impersonation warnings were wrong in both directions** `[app]` — the look-alike pill fired on every
+  ticker containing a 0 or a 1 and missed six Cyrillic homoglyphs, and a contract opened by deep link had no
+  warning at all. Done: `hasHomoglyph` tests for a real non-ASCII confusable; the deep-link route computes both
+  flags. **Loop 20.**
+
 ## P1 — what a user expects from any competitor
 
 ### Discovery (DexScreener standard, without the pay-to-trend)

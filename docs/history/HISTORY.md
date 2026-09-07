@@ -2523,3 +2523,102 @@ permanent freeze of user funds.** The rule is now HANDOVER rule 0, and this cycl
 
 - Publish the minimum deposit and the release height in the app (unconsidered 1 and the UX note).
 - Then release-side verification (`VerifyRelease`), and the Monero backend against recorded fixtures.
+
+## Loop 20 — the freeze that survived the liveness rewrite (2026-09-07)
+
+Loop 19 wrote down the rule that no state may need a human to leave it, and removed three mechanisms that broke
+it. This cycle put six independent adversarial readers on the result and found that **the freeze was still
+there**, in the daemon rather than the contract, and would have hit every vault on its first withdrawal.
+
+### THE BUG
+
+A claim leaves the foreign reserve when the federation pays it, and leaves `sup` when the `Released` quorum
+records that payment. Those are necessarily different moments — the payment is the thing the vote is about. The
+daemon halted on `reserve < sup`, which is true for the whole interval between them. So:
+
+1. a signer pays abroad, the reserve drops, and the next pass reads a shortfall;
+2. it votes `Halt(1)` and returns before reaching the `Released` vote;
+3. `vault.bas Released` refuses while halted, so `sup` can never fall;
+4. the resume test is the same comparison, so it can never become true;
+5. mints and burns are refused too, so the reserve can never rise.
+
+Every deposit and every burned unit frozen, permanently, with nobody who could lift it. `tools/simvault/e2e.sh`
+had been *watching for this halt and reporting it as a size breaker working as designed* — a mechanism that no
+longer exists. That is how it survived two cycles of review: the test asserted the bug.
+
+The check is now `reserve >= sup - inflight`, where inflight is every burned withdrawal the contract has not
+closed. It is computed from contract state at one block and nothing else, deliberately: narrowing it by release
+height or by local belief would let two honest signers at different tips disagree, and one would halt the other's
+honest payment.
+
+### ALSO FIXED
+
+- **A deposit larger than `winmax` could never be minted, in any bucket, ever** — `maxdep` returning through
+  another door, found while correcting the runbooks rather than by the audit. The window now refuses to *start* a
+  mint once it is full, instead of asking each deposit to fit what is left. Overshoot is one deposit; `cap` bounds
+  it.
+- **`Burn` destroyed the whole withdrawal of anyone who did not pin ring size 2.** It read `SIGNER()`, which is
+  blank above ring 2, so the call reverted — and a revert above ring 2 cannot address its refund. It now takes a
+  named `refund` address, which also lets a burn stay private.
+- **`AddSigner` never credited a bond paid before it**, so a later `Slash` subtracted a bond that was never added
+  and wrapped `bondtot` to near 2^64 — lifting the cap bound entirely. An ordinary race between two parties, not
+  an attack.
+- **The daemon paid destinations `vetoPass` had just declared unpayable**, from a snapshot taken before its own
+  veto vote. It now skips them and re-reads the withdrawal's status immediately before paying.
+- **A signer only votes `Released` for a payment it has verified itself** (`Backend.VerifyRelease`). A recorded
+  payment that stays invisible for `-verify-tries` passes returns the intent to `paying` and the backend is asked
+  again, because never voting is a freeze and `Release` is idempotent per withdrawal.
+- **The app leaked a `D.onChange` subscription per screen visit**, so every block redrew the current screen once
+  per past visit. Eleven listeners after five navigations; now two, asserted in the UI test.
+- **The desktop market table overflowed its column between 960 and ~1300px** and was silently clipped; the
+  two-column pages left their main column 176–260px wide, narrower than the phone layout.
+- **A look-alike ticker warning fired on every ticker containing a 0 or a 1** (the fold maps those to O and I on
+  purpose) and missed six real Cyrillic homoglyphs. A contract opened by deep link had no impersonation warning
+  at all — the one route a scam link actually arrives by.
+
+### SHIPPED
+
+- `app/wrap.js`: the wrapped-asset screen. Publishes the minimum deposit *before* the wallet is connected,
+  because it is a property of the vault and not of the visitor, and a deposit below it is an unrecoverable loss.
+  Shows each withdrawal's release height counting down, the reserve against the claims, and a trust panel that
+  names what k signers can do. No SAFE badge, and the UI test fails if one appears.
+- `netcfg` gained a `vaultAsset` record (name, symbol, chain, decimals, confirmations) so the app renders base
+  units as a number a person recognises without ever guessing the decimals.
+- `simdeploy` no longer renders its own copy of `config.js`; it records the deployment and then renders from that
+  record, the same way `genconfig` does. The second copy had been silently dropping the vault from the config
+  every time it ran.
+
+### VERIFIED
+
+- Contract suite green (56 s). Install storage gas **19,112 of 20,000** — headroom went up despite two entrypoint
+  changes, by moving rationale into `contracts/README.md`.
+- `go test ./vaultsigner ./simrpc ./treasurybot` green, including four new tests that fail on the old halt rule.
+- Live on the simulator: deposit → attest → mint → burn → pay abroad → verify → `Released`, supply 50 000 →
+  45 100, reserve 100 000 → 95 100, `halted=0` throughout. The large withdrawal correctly waited for its
+  size-tiered height.
+- UI test extended and green: wrap screen renders and publishes the minimum; listeners stay at 2; a markets
+  redraw of 19 markets costs 1.01 ms; the 1024px token column is 700px (was ~260px); zero horizontal overflow.
+
+### UNCONSIDERED
+
+1. The e2e script asserted the bug for two cycles. Any test that watches for a failure and calls it a feature is
+   worse than no test. Every remaining "expected failure" assertion in this repository should be re-read against
+   the current design, not the design it was written for.
+2. `VerifyRelease` is only as good as the backend implementing it. The sim backend checks its own JSON file,
+   which proves the plumbing and nothing about Monero. The Monero and Zcash backends must verify against a node
+   they do not control, and that is where the real work is.
+3. The daemon re-reads a withdrawal's status before paying, which narrows the veto race to two RPC round-trips
+   but does not close it. Closing it needs a contract-side claim, and the gas budget does not have room.
+4. `hasHomoglyph` only knows the confusables in one table. A real answer is the Unicode confusables data, which
+   is far too large to ship in a TELA DOC — so the honest position is that the warning is a hint, not a check,
+   and the app should say so where it shows it.
+5. Six adversarial readers found 50 real defects in a codebase that had already passed two audits. The rate says
+   the next six would find more, and that "audited" is a description of effort, not of state.
+
+### NEXT
+
+- The Monero backend against recorded wallet-rpc fixtures, with `VerifyRelease` reading a real transaction.
+- The remaining audit findings not yet applied: the localStorage cache re-verification, `stats.enrich` being
+  called for unchanged assets, `AddSigner2`'s ceiling counting signers ever added, the pre-seal bond lock, and
+  `k = 20` being accepted at install when it can never be sealed.
+- Chart quality: zoom, pan and selectable timeframes on the token chart.

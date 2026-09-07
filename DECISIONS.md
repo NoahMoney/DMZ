@@ -1,4 +1,4 @@
-# DECISIONS.md — Veil (fomo-style social DEX on DERO / TELA)
+# DECISIONS.md — DMZ (fomo-style social DEX on DERO / TELA; formerly Veil, a name that now survives only in code identifiers)
 
 Every non-obvious choice, dated, with the primary source that justified it.
 Source references use the clones under `vendor/` (git-ignored; re-create with `deploy/README.md (Simulator)`):
@@ -91,7 +91,7 @@ The contract's code lives in its own data tree under the string key `"C"` (`dvm.
 `UPDATE_SC_CODE` simply stores to it, `dvm_functions.go:317`). **A contract that executes `STORE("C", …)` replaces
 its own code** — `launch.bas` did exactly that with its curve-supply variable and bricked itself; the key is now `cs`
 and `tests/parse_test.go` forbids the pattern. Raw 32-byte keys are the contract's asset balances and raw 33-byte keys
-are account balances of its own asset (`simulator.go:181-243`, `rpc_dero_getsc.go:96`); all Veil keys are short ASCII
+are account balances of its own asset (`simulator.go:181-243`, `rpc_dero_getsc.go:96`); all DMZ keys are short ASCII
 strings or longer than 33 bytes, so they cannot collide.
 
 ### 1.3 Limits per call
@@ -103,8 +103,9 @@ strings or longer than 33 bytes, so they cannot collide.
   ~20 kB of new values**, and the fee paid is what `DERO.GetGasEstimate.gasstorage` reports.
 - Max TX size `300 KiB` (`config.go:54`) is not the binding limit for code: the install TX's `sc_rpc` (which
   carries `SC_CODE`) is charged against the same 20000-unit storage budget (`sc.go:252-258`), so **code bytes +
-  Initialize stores must stay below 20000** (this is where TELA's 19.2 KB DOC limit comes from). Measured:
-  `pool.bas` 11384 bytes → storage gas 11641 at install.
+  Initialize stores must stay below 20000** (this is where TELA's 19.2 KB DOC limit comes from). Measured
+  2026-09-05, when `pool.bas` was 11384 bytes: storage gas 11641 at install, i.e. bytes + 257. Every contract has grown
+  since (`pool.bas` is 13262 bytes today); the current byte counts and install gas per contract live in `contracts/README.md`.
 
 ---
 
@@ -237,7 +238,7 @@ decode **blocks every other wallet request and even new XSWD connections**. Meas
 did not decode within 10 minutes with the default table and wedged the test wallet.
 Consequences: (a) the launch form defaults to 1 000 000 tokens × 3 decimals = 10⁹ units and warns above 10¹¹ units;
 (b) `app/xswd.js` keeps one request in flight and the portfolio only queries balances of listed launches;
-(c) RISKS R-10. This is a property of DERO, not of Veil; supplies in the 10¹⁴ range (pump.fun-style) are unusable here.
+(c) RISKS R-10. This is a property of DERO, not of DMZ; supplies in the 10¹⁴ range (pump.fun-style) are unusable here.
 
 ## 6. TELA — `vendor/tela`
 
@@ -257,7 +258,7 @@ Consequences: (a) the launch form defaults to 1 000 000 tokens × 3 decimals = 1
 - Install/update via `tela-cli` (`install-doc`, `install-index`, `update-index`, `file-shard`) or the Go API
   (`NewInstallArgs`, `NewUpdateArgs`). Endpoint defaults: simulator `127.0.0.1:20000`, testnet `40402`, mainnet `10102`.
 - Gnomon exists (https://github.com/civilware/Gnomon, active) with an HTTP API on `127.0.0.1:8082`; TELA-CLI embeds it.
-  **Not required** by Veil (feature-flagged read cache only).
+  **Not required** by DMZ (feature-flagged read cache only).
 
 ## 7. Simulator — `vendor/derohe/cmd/simulator`
 
@@ -309,7 +310,7 @@ Consequences: (a) the launch form defaults to 1 000 000 tokens × 3 decimals = 1
 | File | Role |
 |---|---|
 | `contracts/pool.bas` | LP-owned constant-product pool, one per (asset ↔ DERO). Installed by any user, registered on the factory. |
-| `contracts/factory.bas` | Registry + social directory: pools, launches, NFT collections, profiles, follows, protocol treasury address. Owned by the operator; **only the treasury pointer and registration fee are mutable**, and only by the owner. |
+| `contracts/factory.bas` | Registry + social directory: pools, launches, NFT collections, profiles, follows, protocol treasury address. Owned by the operator; **only the treasury pointer, the registration fee and the ownership itself are mutable**, and only by the owner (`SetTreasury`, `SetRegFee`, and a two-step `TransferOwnership`/`ClaimOwnership`). The factory owner is a trusted party: the app copies the treasury pointer from here. |
 | `contracts/launch.bas` | Per-token memecoin contract: fixed supply minted at install, bonding-curve sale, **built-in AMM after graduation** (contract-owned, permanently locked liquidity), 50 bps fee, optional creator tax with three modes (creator / buyback-and-lock / holder staking rewards), staking vault. |
 | `contracts/nft.bas` | ART-NFA-header NFT collection whose editions are **earned by holding**: lock ≥ `min_hold` of a chosen token for ≥ `hold_blocks` blocks, then mint one edition. Optional DERO mint price to creator. |
 | `contracts/social.bas` | Profiles + follow graph (kept separate from the factory so the factory stays tiny and auditable). |
@@ -318,6 +319,11 @@ Why the launcher graduates into a *built-in* AMM (decision D-1, 2026-09-05): §2
 nor fund another contract, and a TX-driven "someone seeds the pool" hand-off is a custodial step. Keeping the curve and
 the AMM in one contract makes graduation atomic and the LP position un-ruggable (no LP token exists to withdraw).
 `pool.bas` remains for arbitrary existing DERO assets and for people who want LP-owned liquidity.
+
+Four contracts were added by later decisions and belong to the same set: `contracts/swap.bas` (atomic-swap escrow,
+§10.12), `contracts/founders.bas` (Founders Pass, §10.11), `contracts/vault.bas` (federation wrapper, §10.13) and
+`contracts/board.bas` (the swap order board). None of them defines `UpdateCode` either, so the immutability claim in
+the heading holds across all nine.
 
 ### 10.2 Fixed-point / overflow discipline (D-2)
 - All maths in atomic units. Every product `a*b` with both operands possibly ≥ 2^32 goes through `mulhi/muldiv`
@@ -333,7 +339,10 @@ the AMM in one contract makes graduation atomic and the LP position un-ruggable 
 ### 10.3 Fee model (D-3, operator instruction 2026-09-05: "0.5% fee on every trade")
 - `fee_bps = 50` on every swap, curve buy and curve sell. Immutable per contract, validated `≤ 100` at install.
 - `pool.bas`: `pfee_bps` = share of the fee to the protocol treasury, default **5000** (half): 25 bps to LPs (stays in
-  reserves, grows `k`), 25 bps accrued in `fd`/`fa` and claimable by the treasury address via `ClaimFees()`.
+  reserves, grows `k`), 25 bps accrued in `fd`/`fa` and paid to the treasury address recorded at install by
+  `ClaimFees()`, which anyone may call at any ring size — a fee path only one key can move stops the moment that key
+  does, and after install there is no operator to restart it (`pool.bas`, `launch.bas` and `nft.bas` read no `SIGNER()`
+  here). The vault's own `ClaimFees` is the exception and is treasury-gated (`vault.bas:433-434`).
 - `launch.bas`: whole 50 bps to the treasury (no external LPs to reward). Post-graduation, `pfee_bps` is the same
   parameter; the non-protocol share stays in the locked reserves (price support).
 - Treasury address is stored per contract at install (copied by the app from the factory); the app refuses to show a
@@ -437,11 +446,11 @@ their wallets, and is tradeable. Two DERO facts shape it:
   per session like every listing; the transaction gate accepts it explicitly.
 
 ### 10.12 Cross-chain assets (D-11, 2026-09-06)
-Operator questions: XMR / ZEC / SOL on Veil without a centralised oracle; Haven-style storage of XMR inside DERO.
+Operator questions: XMR / ZEC / SOL on DMZ without a centralised oracle; Haven-style storage of XMR inside DERO.
 - The DVM has `sha256` / `sha3256` / `keccak256` (25 000 gas each), `HEX`/`HEXDECODE`, `BLOCK_HEIGHT`, and no signature
   verification or foreign-chain reads. Consequences: hash-time-locked escrows are possible; bridges, wrapped assets
   and light clients are not without an oracle or custodian.
-- **Chosen:** peer-to-peer atomic swaps. `contracts/swap.bas` is the DERO leg (any Veil asset or DERO); the other leg is
+- **Chosen:** peer-to-peer atomic swaps. `contracts/swap.bas` is the DERO leg (any DMZ asset or DERO); the other leg is
   a mirror escrow on the counter-chain (script on BTC/LTC/transparent ZEC, a program on Solana). The app will add an
   order board and a client behind an opt-in RPC setting so the CSP stays strict by default.
 - **Monero and shielded Zcash:** no scripts; a secret-as-key-share swap with DERO as the scripted side is possible in
@@ -458,14 +467,22 @@ Solana memecoin would". A pool must hold its reserve inside the VM that settles 
 sign for Monero or Zcash, so the reserve is held by a k-of-n signer federation and represented on DERO by wrapped
 assets (wXMR, wZEC, wSOL) minted one-for-one against deposits and burned to withdraw (`contracts/vault.bas`).
 Rules: no mint without k signer votes on an identical (id, to, amount); a deposit id mints once, ever; outstanding
-supply never exceeds `cap`, and `cap ≤ 3 × Σ bonds` at launch, raised only by k votes; signers post DERO bonds that
-k votes can slash; k votes halt; the owner has no power after `Seal()`; deposit addresses are per-user indexes
+supply never exceeds `cap`, and `cap ≤ capratio × Σ bonds`, checked at `Seal`, at `SetCap` and on every `Mint`, and
+re-established downward by `Slash`; `capratio` is a required install parameter, not an oracle — `cap` is in foreign
+base units and `Σ bonds` in DERO atomic units, so it is the operator's written-down price assumption frozen at
+install (3 in the simulator and the tests; risk W11 in `docs/PLATFORM_BACKLOG.md`). The check is implemented as
+`cap / capratio > bondtot`, so it is permissive by at most `capratio − 1` base units. `cap` is raised only by k votes;
+signers post DERO bonds that k votes can slash; k votes halt, and the daemons vote the halt in both directions from
+public state, so it clears itself; the owner has no power after `Seal()`; deposit addresses are per-user indexes
 attested by k votes (no memos). Threshold custody: FROST RedPallas for Zcash (reddsa, demonstrated 2-of-3), native
 multisig for Monero behind low caps until FROSTLASS ships, FROST ed25519 for Solana. Proof of reserves by
 published viewing keys. Disclosure: every wrapped balance and wrapped-quoted market shows "federation-backed" with
 the signer set, cap, bonds and reserve link. The atomic-swap path (`swap.bas`, the key-share proofs in
-`research/crosschain/poc`) stays deployed as the trustless exit so nobody depends on the federation. Deposit fee
-0.5 % funds a DERO gas sliver delivered with each deposit so foreign-only users can transact. Full reasoning:
+`research/crosschain/poc`) stays deployed as the trustless exit so nobody depends on the federation. The deposit fee
+of the D-12 sketch was not built: `Mint` credits the whole deposit. The vault's two fees are `wfee`, taken from each
+burn and accrued in `feepool` for the treasury, and `regfee`, paid once per deposit index and forwarded to the
+treasury immediately. A DERO gas sliver for foreign-only users is therefore a signer-side courtesy the contract
+neither funds nor can enforce — treat it as a promise of the federation, not a property of `vault.bas`. Full reasoning:
 `research/crosschain/README.md (Decision)`; spec: `research/crosschain/RESEARCH.md (Specification)`; security: `research/wrapper/README.md (security review)`.
 
 ### 10.14 One build, three networks (D-13, operator instruction 2026-09-06: "build for mainnet and for testnet")

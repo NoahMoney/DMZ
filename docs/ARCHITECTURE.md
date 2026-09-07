@@ -1,10 +1,10 @@
-# Veil architecture (as built)
+# DMZ architecture (as built)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │ Browser (served by a TELA host: Engram / tela-cli / tools/telainstall) │
-│  index.html styles.css ui.css parts.css desk.css config.js rpc.js xswd.js│
-│  screens.js token.js app.js  templates/*.bas        ← 14 TELA-DOC-1   │
+│  index.html · styles/ui/parts/desk.css · 20 JS modules                │
+│  templates/{launch,pool,nft,founders}.bas           ← 29 TELA-DOC-1   │
 │        │ XSWD ws://localhost:44326/xswd  (wallet methods, prompts)     │
 │        │ ws://<node>/ws  JSON-RPC  (DERO.GetSC, GetTransaction, …)     │
 │        ▼                                                              │
@@ -18,6 +18,10 @@
 │   launch.bas   per-token: curve → locked AMM, fee, tax, staking       │
 │   nft.bas      per-collection: hold-to-mint editions                  │
 │   social.bas   profiles + follows                                     │
+│   founders.bas Founders Pass: fee-share register + fixed-price sales  │
+│   vault.bas    k-of-n bonded federation wrapper (v3, simulator only)  │
+│   swap.bas     HTLC escrow — written and tested, not deployed         │
+│   board.bas    atomic-swap order board — written, not deployed        │
 │   TELA-INDEX-1 app manifest, ringsize 2 (updatable, commit chain)     │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -28,7 +32,11 @@ the feed are the pool's own `t_<n>` records, written only when the trader passed
 trade they did not make, and unpublished trades leave no record beyond the reserve change.
 
 Writes: gas estimate on the node → `transfer` through XSWD (the wallet prompts) → poll `DERO.GetTransaction`.
-Fees are the estimate's `gasstorage` plus a small margin. Everything is ringsize 2.
+Fees are the estimate's `gasstorage` plus a small margin. Calls that pay the caller through `SIGNER()` go at ringsize
+2 and so name the payer on chain; private mode uses the `…To` entrypoints, which pay a named address and go at
+ringsize 16 (`app/app.js:99,191`). The estimate names the signer to the node only at ringsize 2 — naming it at 16 would
+undo the ring (`app/app.js:115-117`). Every TELA DOC and the INDEX itself are installed at ringsize 2, so the INDEX
+stays updatable (`tools/telainstall/main.go:232,249`).
 
 No server: an optional Gnomon read cache is feature-flagged off and the app falls back to the node.
 
@@ -41,8 +49,11 @@ entrypoint exists for it. `pool.bas` exists for assets that already exist on DER
 - **Tokenised equities / "stocks".** Would need a regulated issuer and an oracle; DERO has neither. A synthetic
   price-tracker is a derivative. If this is ever revisited it belongs in a separate contract family with its own
   legal basis, not in `launch.bas`.
-- **Cross-chain memecoins (Solana / Base / …).** No trust-minimised bridge to DERO exists; a custodial bridge would
-  contradict the product. The `asset` field of `pool.bas` is the only integration point a future bridge asset would need.
+- **Cross-chain memecoins (Solana / Base / …).** No trust-minimised bridge to DERO exists. `contracts/vault.bas` is
+  the research answer and is not one: a named k-of-n federation of bonded signers holds the foreign reserve and can
+  steal or freeze it, and the contract only makes the DERO side honest and auditable. It is installed on the simulator
+  only (`deploy/networks.json`), with `app/wrap.js` as its screen; the trust model, party by party, is in
+  `research/wrapper/README.md`. The `asset` field of `pool.bas` is the only integration point a wrapped asset needs.
 - **Fiat on-ramp.** Out of scope; wallets already handle DERO acquisition.
 
 ## Data growth and the indexer

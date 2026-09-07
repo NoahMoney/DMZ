@@ -54,6 +54,7 @@ Uint64 values are numbers; string values are **hex** (see DECISIONS §3). Balanc
 3. `DERO.GetSC {code:true}` must return your code; if the install failed on chain the TX still confirms but the SC is absent.
 
 Storage gas per TX is capped at 20000 units and the code bytes count, so every contract must stay under ~19 KB.
+`vault.bas` is the one with no room left: 18 895 bytes, 19 229 gas of 20 000, comments included.
 
 ### 5. Invoke
 
@@ -122,7 +123,7 @@ Testnet coins come from mining (there is no faucet). Block rewards are spendable
 cd tools
 go run ./simdeploy -network testnet -daemon 127.0.0.1:40402 -w0 127.0.0.1:40403 -w2 127.0.0.1:40404
 go run ./genconfig -dist -network testnet
-cd .. && vendor\bin\telainstall.exe -network testnet -wallet .testnet\owner.db -password "" -daemon 127.0.0.1:40402 -app dist\testnet -durl veil.tela -out deploy\tela-testnet.json
+cd .. && vendor\bin\telainstall.exe -network testnet -wallet .testnet\owner.db -password "" -daemon 127.0.0.1:40402 -app dist\testnet -durl dmz.tela -out deploy\tela-testnet.json
 ```
 `simdeploy` records the testnet block in `deploy/networks.json`; `genconfig` refuses to bundle if the template
 hashes and the record disagree.
@@ -168,7 +169,8 @@ test networks only).
 Installed from the deployer wallet: factory `b0bbd7cc8c9ebd907dbb373372b1e92ecf0eebfb914f0b4c6e6c33fdd19abbf3`, social
 `a5f3d33d74a581a9873312940a28ada27d5c64d6aef106ca30f1ca1adc27dbce`, founders
 `f8271d089c8601710af11b53d32fd9a9132bbf60b3eebd0963a93227199254ca` (deploy/networks.json is the record; template
-hashes there match the files at install time). App bundle: dist/testnet (28 DOCs). TELA install: `deploy/testnet-tela.sh`
+hashes there match the files at install time). App bundle: dist/testnet (29 DOCs: 28 app files plus the bundle's
+`manifest.json`; `wrap.js` did not exist yet). TELA install: `deploy/testnet-tela.sh`
 (stop the deployer netwallet first: telainstall opens the wallet file itself).
 
 TELA (2026-09-06 16:05): INDEX `f20511a84b44a768866efa3a42ec6b7ea26b61089d67abdbcd361f58276469a8`, dURL `veil.tela`, 29 DOCs, author the
@@ -197,61 +199,77 @@ wallet.
 | the same commit ran a full simulator pass (launch, trade, graduate, founders, vault wrap/unwrap) | `docs/history/HISTORY.md (day log)` entry with txids |
 | testnet deployment live and exercised for at least one week | `deploy/README.md (Testnet)` record |
 | external review of `contracts/*.bas` and of `research/wrapper/README.md (security review)` items 1–3 closed | review report in `docs/` |
-| federation: signer set named, bonds posted, `cap ≤ 3 × Σ bonds`, viewing keys published, foreign backends on mainnet nodes | vault state + `deploy/federation.md` |
+| federation: signer set named, bonds posted, `cap / capratio ≤ Σ bonds` (`capratio` is fixed at install; the contract refuses any cap above the bound at `Seal`, at `SetCap` and at every mint), viewing key published with `SetViewKey`, foreign backends on mainnet nodes | vault state + `deploy/federation.md` |
 | treasury wallet and owner wallet are separate, offline-backed-up, seeds stored off machine | operator checklist |
 | the app's mainnet bundle shows "mainnet" in the status pill against a mainnet node | manual |
 | `tools/verifyvendor` green: every vendored checkout at its pinned commit with only the locked changes, binaries matching `deploy/binaries.lock` | `go run ./verifyvendor -root ..` |
 | the wallet that installs never mines and never receives block rewards; the treasury never transacts during the install | operator checklist (see Wallets) |
-| every fund-moving tool was started with `-yes` on purpose (treasurybot and vaultsigner refuse mainnet without it) | operator checklist |
+| every fund-moving tool was started with `-yes` on purpose (`simdeploy`, `telainstall` and `vaultsigner` exit on mainnet without it; `treasurybot` runs as a dry run) | operator checklist |
 
 ### Wallets and node
 
 ```
 vendor\bin\derod.exe --data-dir=%CD%\.mainnet\derod --rpc-bind=127.0.0.1:10102
-vendor\bin\netwallet.exe -network mainnet -daemon 127.0.0.1:10102 -wallet .mainnet\owner.db -password <pw> -rpc-bind 127.0.0.1:10103 -create
-vendor\bin\netwallet.exe -network mainnet -daemon 127.0.0.1:10102 -wallet .mainnet\treasury.db -password <pw> -rpc-bind 127.0.0.1:10104 -create
+vendor\bin\netwallet.exe -network mainnet -daemon 127.0.0.1:10102 -wallet .mainnet\owner.db -password <pw> -rpc-login <user:pw> -rpc-bind 127.0.0.1:10103 -create
+vendor\bin\netwallet.exe -network mainnet -daemon 127.0.0.1:10102 -wallet .mainnet\treasury.db -password <pw> -rpc-login <user:pw> -rpc-bind 127.0.0.1:10104 -create
 ```
-Fund the owner wallet with at least 2 DERO (measured install costs are below 0.2 DERO; the margin covers retries)
-and the treasury with 0.1 DERO for its first claims. Keep the seeds off this machine: `netwallet -create` prints
-the recovery words once and refuses `-write-seed` on mainnet; pass the password through `VEIL_WALLET_PASSWORD`
-rather than argv. Three wallets, three roles (learned on the private testnet, 2026-09-06): a wallet whose
-balance changes every block (a miner or integrator address) decodes its balance for minutes on every change and
-must never sit in a transaction path; the owner installs and registers; the treasury receives fees and rarely
-sends. Never point `xswdwallet` at any of them: it auto-approves, and it refuses mainnet daemons by design.
+The owner wallet pays for both the contracts and every TELA DOC. The three contracts are ≈ 0.18 DERO measured on
+the simulator; the app is the larger half and is unmeasured for the current bundle (see "Costs and sizes"), so
+fund the owner wallet with at least 4 DERO and re-measure before committing to a number. The treasury needs 0.1
+DERO for its first claims. Keep the seeds off this machine: `netwallet -create` prints the recovery words once and
+refuses `-write-seed` on mainnet; pass the password through `VEIL_WALLET_PASSWORD` rather than argv, and
+`-rpc-login user:password` (or `VEIL_RPC_LOGIN`) is not optional — `netwallet` exits on mainnet without it,
+because every local process could otherwise drive an unauthenticated wallet RPC. Three wallets, three roles
+(learned on the private testnet, 2026-09-06): a wallet whose balance changes every block (a miner or integrator
+address) decodes its balance for minutes on every change and must never sit in a transaction path; the owner
+installs and registers; the treasury receives fees and rarely sends. Never point `xswdwallet` at any of them: it
+auto-approves, and it refuses any daemon that is not a loopback test network.
 
 ### Contracts
 
 ```
 cd tools
-go run ./simdeploy -network mainnet -daemon 127.0.0.1:10102 -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
+go run ./simdeploy -network mainnet -yes -daemon 127.0.0.1:10102 -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
   -pass-image https://<your host>/pass.png -pass-price 500000 -pass-max 500 -pass-reserve 50 -pass-share 5000 -pass-mfee 250
 ```
 This installs `factory.bas`, `social.bas`, `founders.bas`, writes `app/config.js` and records the mainnet block
 in `deploy/networks.json`. Verify each SCID on a block explorer before continuing: code hash, treasury, owner.
 Measured on the simulator: factory ≈ 3.0k, social ≈ 2.2k, founders ≈ 12.8k atomic units of storage gas.
 
-Vault (only when the federation gates pass):
+Vault (only when the federation gates pass): `simvault` is a simulator tool — it has no `-network` flag and its
+wallet endpoints are the simulator's, so a mainnet vault is installed by the manual sequence in
+`contracts/README.md`:
+
 ```
-go run ./simvault -install -network mainnet ...   # or the manual sequence in contracts/README.md: InitializePrivate(k, treasury, cap), AddSigner ×n, Seal
+InitializePrivate(k, treasury, cap, minbond, minburn, wfee, mindep, regfee, capratio, bigbps, bigdelay)
+AddSigner(addr) ×n   →   each signer calls Bond()   →   optional SetLimits(winmax, wdelay)   →   Seal()
 ```
-and record the SCID under `mainnet.vault` in `networks.json`.
+DERO binds call arguments by name, so all eleven `InitializePrivate` parameters must be sent; there is no
+per-deposit maximum to set. `Seal` refuses unless `n ≥ k + 1`, every signer already holds `minbond`, and
+`cap / capratio ≤ bondtot` — so the bonds are posted before the seal, not after. Sealing is the point of no
+return: it is what revokes the deployer, and from then on there is no owner and no override. Record the SCID
+under `mainnet.vault` in `networks.json`.
 
 ### App on TELA
 
 ```
 cd tools && go run ./genconfig -dist -network mainnet          # dist/mainnet/, manifest.json, DOC size check
-vendor\bin\telainstall.exe -network mainnet -wallet .mainnet\owner.db -password <pw> -daemon 127.0.0.1:10102 -app dist\mainnet -durl veil.tela -out deploy\tela-mainnet.json
+vendor\bin\telainstall.exe -network mainnet -yes -wallet .mainnet\owner.db -password <pw> -daemon 127.0.0.1:10102 -app dist\mainnet -durl dmz.tela -out deploy\tela-mainnet.json
 ```
-Measured DOC sizes are in `dist/mainnet/manifest.json`; the simulator install of the same files cost ≈ 0.12 DERO
-in total (`deploy/README.md (TELA)`). Record the INDEX SCID under `mainnet.tela.index`. Updates: the same command
-with `-index <scid>` (only changed DOCs are re-installed; the INDEX keeps the commit history).
+Measured DOC sizes are in `dist/mainnet/manifest.json`; the install cost is unmeasured for the current app — see
+the STALE note under "Costs and sizes" and re-measure on the simulator before the go/no-go, because the last
+figure recorded there (≈ 1.64 DERO) predates `wrap.js`. Record the INDEX SCID under `mainnet.tela.index`.
+Updates: the same command with `-index <scid>` (only changed DOCs are re-installed; the INDEX keeps the commit
+history).
 
 ### After install
 
 1. Open the INDEX with `tela-cli serve <index scid>` on a clean machine; connect a mainnet node; the pill must read
    "Mainnet · <height>" and the Founders Pass must render from chain data.
 2. Start `tools/treasurybot` from the treasury wallet (`-wallet 127.0.0.1:10104`).
-3. Start the signers (`tools/vaultsigner -network mainnet -backend <chain> …`) only after the federation gates.
+3. Start the signers (`tools/vaultsigner -network mainnet -yes -vault <scid> -backend <chain> …`) only after the
+   federation gates. The daemon speaks vault v3 and exits against any other `v`; it needs no operator afterwards,
+   and there is no flag with which one could hold or release a withdrawal.
 4. Publish: INDEX SCID, factory SCID, template hashes, signer set, caps and viewing keys in one signed post.
 
 ### Rollback
@@ -265,11 +283,13 @@ shipping a new app; the old markets keep working for their holders.
 
 # tela install
 
-## Installing Veil on-chain (TELA)
+## Installing DMZ on-chain (TELA)
 
-The app is 21 files (18 in `app/` + 3 contract templates in `app/templates/`; 14 at the first install). Each becomes one `TELA-DOC-1`
+The app is 29 files (25 in `app/` — 20 JS, 4 CSS, `index.html` — plus 4 contract templates in `app/templates/`). Each becomes one `TELA-DOC-1`
 contract, gzip-compressed and base64-encoded (`tela.Compress`), with a DERO signature of the stored code in
-`fileCheckC/S`, then one `TELA-INDEX-1` embeds the DOC SCIDs (21 at commit 3). `index.html` is `DOC1` (the entrypoint).
+`fileCheckC/S`, then one `TELA-INDEX-1` embeds the DOC SCIDs (29 for the current bundle). `index.html` is `DOC1` (the entrypoint).
+`telainstall` installs every file it finds under `-app` except dotfiles and `.png`, so a `dist/<network>` bundle is
+one DOC more than `app/` is: `genconfig` writes `manifest.json` into the bundle and that file is installed too.
 Compression is mandatory here: `styles.css` contains `*/` and every JS file contains non-ASCII characters, neither of
 which can sit raw inside the DOC template's comment block (TELA-DOC-1 README, "Guidelines").
 
@@ -277,12 +297,14 @@ which can sit raw inside the DOC template's comment block (TELA-DOC-1 README, "G
 
 ```
 tools\telainstall\build.sh                                   # builds vendor/bin/telainstall.exe inside vendor/tela
-vendor\bin\telainstall.exe -wallet=<wallet.db> -password= -daemon=127.0.0.1:20000 -app=app -durl=veil.tela -serve
+vendor\bin\telainstall.exe -wallet=<wallet.db> -password= -daemon=127.0.0.1:20000 -app=app -durl=dmz.tela -serve
 ```
 - Installs every DOC with ringsize 2, waits for each TX, installs the INDEX with **ringsize 2 (updatable, public
   owner)**, verifies it with `tela.GetINDEXInfo`, writes `deploy/tela-deployment.json` (index SCID, per-file SCIDs,
   commit number, update TXIDs) and, with `-serve`, serves it exactly as a host app would (`tela.ServeTELA`).
-- Update after changing files: `... -index=<index scid>` re-installs the DOCs and calls `UpdateCode` on the INDEX.
+- Update after changing files: `... -index=<index scid>` re-installs only the DOCs whose bytes changed — an
+  unchanged one is pointed at again, but only after its on-chain code hash is read back and matched — and calls
+  `UpdateCode` on the INDEX.
   The INDEX stores `commit` and `STORE(<n>, HEX(TXID()))` for each update — the on-chain commit history that
   `tela-cli clone <scid>@<txid>` can check out.
 
@@ -290,13 +312,19 @@ vendor\bin\telainstall.exe -wallet=<wallet.db> -password= -daemon=127.0.0.1:2000
 
 ```
 vendor\bin\tela-cli.exe --simulator --daemon=127.0.0.1:20000 --wallet=<wallet.db> --password=
-install-doc app/index.html      (answer: dURL veil.tela, compress yes, ringsize 2)   × 14 files
-install-index Veil              (paste the 14 DOC SCIDs; DOC1 = index.html)
+install-doc app/index.html      (answer: dURL dmz.tela, compress yes, ringsize 2)   × 29 files
+install-index DMZ               (paste the 29 DOC SCIDs; DOC1 = index.html)
 serve <index scid>
 update-index <index scid>       (later changes)
 ```
 
-### Costs and sizes (measured update, simulator, 2026-09-05, commit 13)
+### Costs and sizes (measured update, simulator, 2026-09-05, commit 13 — STALE)
+
+> STALE. This table is the 28-DOC bundle of 2026-09-05. The app has since gained `wrap.js` and several files have
+> grown, so every row, the total and the DERO figure understate the current app. Per-file source and DOC bytes for it
+> are in `dist/<network>/manifest.json` (`bytes`, `docBytes`, `sha256` for all 29 files), written by
+> `cd tools && go run ./genconfig -dist -network <net>`; the install fee is only known from a real install, so
+> re-measure on the simulator before any mainnet install rather than reading a number off this table.
 
 | File | Source bytes | On-chain DOC bytes (gzip+base64 inside the template) | Install fee (storage gas, atomic units) |
 |---|---|---|---|
@@ -330,9 +358,11 @@ update-index <index scid>       (later changes)
 | xswd.js | 6 824 | 4 622 | 4 966 |
 | **28 DOCs** | 253 702 | 154 578 | 164 352 |
 
-Total: 28 DOCs ≈ 151.0 KB on chain, fees ≈ 164 352 atomic units ≈ **1.64 DERO** for the whole app
-(every file is re-installed by `telainstall`; the INDEX `UpdateCode` call adds ≈ 0.04 DERO). Largest single DOC:
-app.js at 9 720 on-chain bytes, well under the 18 KB DOC limit.
+Total for that bundle: 28 DOCs ≈ 151.0 KB on chain, fees ≈ 164 352 atomic units ≈ **1.64 DERO** for the whole app
+(that run re-installed every file; a later update pays only for the DOCs that changed, and the INDEX `UpdateCode`
+call adds ≈ 0.04 DERO). Those 28 came from `app/` directly; the current app is one file larger and its biggest DOC
+is still `app.js`. The DOC limit needs no hand-checking: `genconfig` computes each file's gzip+base64 DOC size and
+refuses to write the bundle if any file exceeds `-max-doc` (default 18 KB).
 
 ### Hosts
 

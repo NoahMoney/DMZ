@@ -23,8 +23,10 @@ whose done-criteria are stated. Where this file and the code disagree, the code 
 3. **Never claim trustless** for the wrapper or anything else unless the trust assumptions justify it. Name every
    trusted party (`research/wrapper/README.md`). Label every metric exact / provable / estimated / unavailable.
 4. **Money is `uint64`.** No floats in contracts, models, harness or bots; the suite's C5 lint enforces it.
-5. **Inclusion is not execution.** Anything off-chain that remembers an action proves it by a contract counter
-   (signer: `mc_/dc_/rc_/hc_`; bot: `fc`, `dep`; app: balance moves or key changes with a caller-specific check).
+5. **Inclusion is not execution.** Anything off-chain that remembers an action proves it by reading contract
+   state back (bot: the monotone counters `fc`, `dep`; app: balance moves or key changes with a caller-specific
+   check). A shared counter is not enough on its own where a co-signer can move it in the same block: a signer
+   proves its own vote by its own vote key `<f>v_<scope>_<address>`, which holds the choice it made.
 6. **Contracts are immutable; templates are hashed.** A contract change = new template hash: regenerate with
    `tools/simdeploy` (all earlier hashes as `legacy`), redeploy the simulator, run both UI passes. Never edit
    `app/templates/*.bas` by hand. LF line endings are enforced (`.gitattributes`) because the hash is of the bytes.
@@ -67,7 +69,8 @@ Practical constraints learned while publishing:
   `deploy/networks.json` (`testnet` block), TELA INDEX in `deploy/tela-testnet.json` (installed under the old dURL;
   the next install uses `dmz.tela` and needs `tools/genconfig -dist -network testnet` first, because the
   templates changed in loop 16).
-- Not done: everything in `docs/PLATFORM_BACKLOG.md` from B1.1 down; the wrapper's real backends (§5 below).
+- Not done: everything in `docs/PLATFORM_BACKLOG.md` from B1.1 down, except W1 (the daemon's port to vault v3,
+  done 2026-09-07 — see §5.1b); the wrapper's real backends (§5 below).
 - Untracked local state you will not have: `vendor/` (recreate: `deploy/README.md` §1, then `verifyvendor`),
   `.sim/` (simulator data, e2e logs), `.testnet/` (wallets, seeds: ask the operator), `dist/` (regenerate).
 
@@ -89,7 +92,7 @@ Commands you will run every loop:
 bash tests/run.sh                                   # contracts + models + fuzz (~450 s)
 cd tools && go test -count=1 ./vaultsigner ./treasurybot && go run ./verifyvendor
 PW_DIR=<playwright dir> bash tools/uitest/run.sh     # both UI passes, needs the simulator, serve and xswdwallet
-bash tools/simvault/e2e.sh <vault scid>              # after: simvault -install -maxdep … -winmax … -wdelay …
+bash tools/simvault/e2e.sh <vault scid>              # after: simvault -install -cap … -bigbps … -bigdelay …
 git add -A && git commit -m "…"                      # local only
 ```
 
@@ -144,7 +147,7 @@ Follow `docs/PLATFORM_BACKLOG.md`. Notes that are not in the backlog:
 
 ## 5. The wrapper: building the real backends without mistakes
 
-The contract (`contracts/vault.bas` v2), the signer daemon (`tools/vaultsigner`), the trust statement and the
+The contract (`contracts/vault.bas` v3), the signer daemon (`tools/vaultsigner`), the trust statement and the
 pipeline specification exist and are tested against a simulated foreign chain. What is missing is the foreign
 side. Read, in order: `research/wrapper/README.md`, `research/wrapper/DESIGN.md` (Mechanism review, Controls,
 Pipeline specification §C1–C6), `research/wrapper/RUNBOOKS.md`, `contracts/README.md` (vault), and the daemon.
@@ -159,15 +162,20 @@ Pipeline specification §C1–C6), `research/wrapper/RUNBOOKS.md`, `contracts/RE
   as trusted-not-malicious, low cap), migrating to FROSTLASS / FCMP++ multisig when released; per-index
   subaddresses as deposit addresses; confirmations 10; the private view key is published.
 - **DERO side:** `SIGNER()` at ring size 2 gates every vote; tuple-keyed votes with slash, halt and cap epochs;
-  `SetLimits` before `Seal`; a burn is paid only at or below DERO's stable height and after `wdelay`.
+  `SetLimits` before `Seal`; a burn is paid only at or below DERO's stable height and not before the release
+  height the contract recorded at burn time (`w_<j>_rel` = the burn height plus `wdelay`, plus `bigdelay` when
+  the burn exceeds `bigbps` of the supply).
 - **Solana** is optional and last.
 
 ### 5.1b State of the daemon (2026-09-07)
 
-`tools/vaultsigner` speaks v3 and runs the whole loop on the simulator: attest, mint against `(txid, vout)`, pay
-and release, veto a destination the chain cannot pay, and halt on a reserve shortfall or an outsized withdrawal.
-`bash tools/simvault/e2e.sh <scid>` walks all of it including the halt, an operator resume and the explicit
-`-allow-withdrawal` override. What is still missing is only the foreign side (§5.3 and §5.4).
+`tools/vaultsigner` speaks v3 (it refuses to start against any other `v`) and runs the whole loop on the
+simulator: attest, mint against `(txid, vout)`, pay abroad, verify its own payment on the foreign chain and vote
+`Released`, veto a destination the chain cannot pay, and halt on a reserve shortfall.
+`bash tools/simvault/e2e.sh <scid>` walks the wrap and the unwrap end to end — register, attest, deposit, mint,
+burn, the payment, the verification, the `Released` quorum that drops `sup` — and fails if the vault halts at
+any point, because an ordinary withdrawal must never halt it. What is still missing is only the foreign side
+(§5.3 and §5.4).
 
 Rules the daemon now enforces, each of which came from an audit finding:
 
@@ -178,22 +186,43 @@ Rules the daemon now enforces, each of which came from an audit finding:
   index next. The anchor is the foreign height at which this signer first saw the address published, kept in the
   state file. After a state loss the anchor is "now", which is conservative: other signers carry the vote.
 - **A deposit is re-read at vote time** (`Verify`) and never voted above the chain's finalized height.
-- **An outsized withdrawal halts the vault once, not forever.** The signer flags it, votes `Halt(1)` once, and
-  then leaves it alone: halting again after every resume would deadlock the vault, because the withdrawal is
-  still there. An operator either vetoes it with k votes or clears the flag with `-allow-withdrawal <j>`.
+- **An outsized withdrawal is delayed, never refused.** `bigbps`/`bigdelay` are fixed at install and never
+  changeable; `Burn` records `w_<j>_rel` = the height from which the withdrawal may be released (`wdelay`, plus
+  `bigdelay` when it exceeds `bigbps` of the supply). Doing nothing pays the user; stopping the payment takes a
+  k-of-n `Veto`. There is no daemon flag and no operator override.
+- **A halt is a condition, not a decision.** The daemon votes `Halt(1)` only while the foreign reserve is below
+  what the contract owes, and votes `Halt(0)` on its own once it is not. A halt reason the daemons cannot
+  compute from public state will be voted back up by them on their next pass.
+- **The reserve is compared to `sup` less the withdrawals in flight**, never to `sup` alone: `reserve ≥ sup −
+  inflight`, where `inflight` is every burned withdrawal the contract has not closed. The claim leaves the
+  reserve when the federation pays it and leaves `sup` only when the `Released` quorum records the payment, so
+  between those moments the reserve is legitimately short. Comparing against `sup` alone halted the vault on its
+  first withdrawal, and because `Released` refuses while halted the halt could never clear — a permanent freeze
+  with no operator to lift it (found and fixed 2026-09-07; `tools/simvault/e2e.sh` now fails on any halt).
+- **A signer votes `Released` only for a payment it verified itself** (`Backend.VerifyRelease`, re-checked
+  before every vote): a peer or coordinator cannot make it certify a payment nobody made. A payment that stays
+  invisible for `-verify-tries` passes is treated as one that did not happen and the backend is asked to pay
+  again, which is safe because `Release` is idempotent per `j` — never voting at all would be a freeze.
 - **A withdrawal already being paid is never vetoed** — the units would go back while the coins were gone.
 - The state file is bound to one vault (its intents name that vault's withdrawal indexes) and the lock file is
   removed on every exit path, including a signal.
 
 ### 5.2 The backend contract every implementation must satisfy
 
-`tools/vaultsigner` `Backend` today: `Height()`, `Deposits()`, `Address(index)`, `Release(j, dest, amount)`
-(idempotent per `j`), `Reserve()`. Add before any real chain:
+`tools/vaultsigner` `Backend` is the whole interface a foreign chain must satisfy, and every method must fail
+rather than guess: `Height()`, `Finalized()`, `Deposits()`, `Verify(d Deposit)`, `Address(index)`,
+`ValidDest(dest)`, `Release(j, dest, amount)` (idempotent per `j`), `VerifyRelease(j, ftx, dest, amount)`,
+`Reserve()`, `Health()`. Only the sim backend implements it today. What each one must mean on a real chain:
 
 - `Finalized() (height int64)` — the highest height this chain treats as irreversible under the network table
   (Zebra: tip − 100; Monero: tip − 10 spendable age is *not* finality, use tip − 10 as policy and re-verify);
   the daemon votes `Mint` only for deposits at or below it and re-reads the deposit at vote time (S16b).
 - `Verify(d Deposit) (still there bool)` — re-fetch by txid at vote time; a deposit that vanished is never voted.
+- `ValidDest(dest string) bool` — whether the string is spendable on this chain. A withdrawal whose destination
+  is not is vetoed rather than paid into nowhere, so this must never be optimistic.
+- `VerifyRelease(j, ftx, dest, amount) (bool, error)` — re-read the foreign chain and say whether `ftx` really
+  pays `amount` to `dest`. This is what turns the string `Release` returned into a fact; the daemon calls it
+  before every `Released` vote, and a "not visible yet" answer must be an error or `false`, never a guess.
 - `Health() error` — the node/wallet-rpc reachable, synced, the multisig or FROST share present; the daemon
   refuses to pass otherwise (fail closed).
 - Amount semantics: foreign base units as `uint64` (piconero 1e12, zatoshi 1e8) with an explicit **per-vault
@@ -256,14 +285,20 @@ Rules the daemon now enforces, each of which came from an audit finding:
 
 ### 5.5 Daemon and contract work that goes with the backends
 
-- Daemon: `Finalized`/`Verify`/`Health` (above); a read-only health endpoint; structured logs; metrics counters;
-  a stale-snapshot guard (re-read the contract if a pass takes longer than a block); vote refusal budget (stop
-  re-voting after N refusals and alert); the proposer election for foreign payments.
-- Contract (new template, tests first): `Veto(j)` (k votes cancel a withdrawal and refund the burn),
-  `Refund(j)` for deposits refused at the cap (pay back on the foreign chain, record on DERO), `RequestDeposit`
-  intents with expiry so a deposit is attributed to exactly one account (DESIGN §C2), encrypted destinations
-  (S19), `feepool` payout, signer rotation with epochs, `pub_view` key publication. Each is a backlog item with its
-  own test file; keep `vault.bas` under 20,000 storage gas (it is 14 KB) or split the wrapper into two contracts.
+- Daemon: a read-only health endpoint; structured logs; metrics counters; a stale-snapshot guard (re-read the
+  contract if a pass takes longer than a block); vote refusal budget (stop re-voting after N refusals and
+  alert); the proposer election for foreign payments. `Finalized`, `Verify`, `ValidDest`, `VerifyRelease` and
+  `Health` are already in the `Backend` interface (§5.2); what is missing is a real chain behind them.
+- Contract: `Veto(j)` (k votes cancel a withdrawal and refund the burn), `Refunded(txid, vout, ftx)` (k votes
+  record on DERO that a deposit was sent back on the foreign chain, closing its id), the `feepool` payout
+  (`ClaimFees`, treasury only), signer replacement on k votes (`AddSigner2`, which bumps the slash epoch so
+  every pending vote is voided; `Unbond` returns the bond of a candidate who was never voted in) and
+  viewing-key publication (`SetViewKey`) have all shipped in v3. Still open (new template, tests first):
+  `RequestDeposit` intents with expiry so a deposit is attributed to exactly one account (DESIGN §C2),
+  encrypted destinations (S19), and `Compensate` (W6: a slashed bond goes to the treasury, so victims are never
+  made whole). Each is a backlog item with its own test file — but `vault.bas` is 18,895 bytes and installs for
+  19,229 of the 20,000 storage gas one transaction may spend, so there are 771 units of headroom, comments
+  included. Any addition must buy its bytes back somewhere, or the wrapper splits into two contracts.
 - Formal model: update `research/wrapper/formal/` (TLA+) for every new vote family; run TLC.
 
 ### 5.6 The standard for "flawless"
@@ -273,13 +308,17 @@ A backend is done when all of these hold, and the loop record shows the evidence
 1. Unit tests with recorded fixtures for every RPC parse; property tests for unit conversion (never a float).
 2. Crash injection at every step of `processWithdrawal` with the real backend's idempotency (payments exactly
    once, votes at least once).
-3. Adversarial cases: deposit below dust, above `maxdep`, above the cap, to an unknown index, replaced by a
-   reorg below policy depth, sent twice with the same txid, partial payments, a withdrawal whose `dest` is
-   invalid on the foreign chain (must be vetoed/refunded, never lost), a proposer that disappears mid-signing.
+3. Adversarial cases: deposit below `mindep`, above the cap, over the rolling mint window, to an unknown index,
+   replaced by a reorg below policy depth, sent twice with the same txid, partial payments, a withdrawal whose
+   `dest` is invalid on the foreign chain (must be vetoed/refunded, never lost), a proposer that disappears
+   mid-signing. There is no per-deposit maximum to test: one that a deposit exceeded could never be minted at
+   all and nobody is guaranteed to exist who could send it back, which is rule 0's definition of a defect.
 4. An end-to-end run on the real test network with two signers and one observer, logged like
    `.sim/vault_e2e.log`, kept under `research/wrapper/evidence/` (no machine paths).
-5. The reserve invariant `reserve ≥ sup + unpaid burns` checked continuously by every signer and by an
-   independent script using only the published viewing key.
+5. The reserve invariant `reserve ≥ sup − inflight` (inflight = every burned withdrawal the contract has not
+   closed) checked continuously by every signer and by an independent script using only the published viewing
+   key. Not `reserve ≥ sup`: that halts on every honest withdrawal, and since `Released` refuses while halted
+   the halt can never clear. It froze the vault on its first withdrawal until it was fixed on 2026-09-07.
 6. Runbooks updated (`research/wrapper/RUNBOOKS.md`): ceremony, rotation, halt/resume, shortfall, refund.
 7. The trust statement updated and still true; the marketing copy still forbidden words.
 8. A pilot with a low cap on testnet for at least a week of real deposits and withdrawals before any mainnet
@@ -312,7 +351,9 @@ reserve is auditable), "insured", "guaranteed". The wrapped units are a claim on
 - **probe**: the app's post-transaction check that a contract key changed (with an optional caller-specific
   `check`), or that a wallet balance moved, before saying "confirmed".
 - **era**: a rollover of a reward accumulator (`era`/`ea_`, `sera`/`sea_`) when it would wrap 2^64.
-- **`fc`, `dep`, `mc_/dc_/rc_/hc_`**: monotone counters the bots and signers use as execution proof.
+- **`fc`, `dep`**: monotone contract counters the bots use as execution proof. A vault vote is counted in
+  `<f>c_<scope>_<choice>` and attributed in `<f>v_<scope>_<address>`; the signer reads the second one back,
+  because a co-signer can move the first in the same block.
 - **legacy hash**: an earlier template sha256 the app still accepts; contracts installed from it stay verified.
 - **minhst**: registered Founders units required before undistributed DERO is released.
 - **stable height**: `DERO.GetHeight.stableheight`, the finality anchor for paying a burn.

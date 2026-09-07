@@ -9,22 +9,31 @@ Signer daemon operation, cap and bonds, halt and resume, reserve-shortfall incid
 
 ## Wrapper runbooks
 
-Operator procedures for `contracts/vault.bas` v2 and `tools/vaultsigner`. Each runbook names the exact
+Operator procedures for `contracts/vault.bas` v3 and `tools/vaultsigner`. Each runbook names the exact
 entrypoint or flag; nothing here moves funds on mainnet without `-yes`, and every mainnet action is the
 operator's, never an agent's. Roles: **signer operator** (runs one `vaultsigner` with its own wallet and foreign
 backend), **owner** (installs the vault, adds signers, seals; has no power after `Seal`), **anyone** (can read
 every state key and call `Register`/`Burn`).
 
+Read this before the rest: after `Seal` the vault has no operator, and nothing in it needs one. Every limit
+either empties by itself (the rolling mint window) or expires into a payment (the withdrawal delay, longer for a
+large withdrawal). A halt is a condition the daemons compute from public state and vote in both directions, not a
+decision anyone takes or lifts. Where a procedure below reads like a lever, it is a k-of-n vote; there is no
+manual override anywhere in the contract and no override flag in the daemon.
+
 | runbook | when |
 |---|---|
-| [signer-daemon.md](signer-daemon.md) | starting, stopping, moving or recovering a signer |
-| [halt-and-resume.md](halt-and-resume.md) | anything smells wrong; after the cause is fixed |
-| [cap-and-bonds.md](cap-and-bonds.md) | raising or lowering the cap, bonding, slashing |
-| [incident-reserve-shortfall.md](incident-reserve-shortfall.md) | the foreign reserve is below the wrapped supply |
+| [signer daemon](#signer-daemon) | starting, stopping, moving or recovering a signer |
+| [halt and resume](#halt-and-resume) | what a halt is, what it blocks, and how it clears |
+| [cap and bonds](#cap-and-bonds) | raising or lowering the cap, bonding, slashing, replacing a signer |
+| [incident reserve shortfall](#incident-reserve-shortfall) | the foreign reserve is below the wrapped supply |
 
-State keys worth knowing (all readable with `DERO.GetSC`): `sup` wrapped supply, `cap`, `bondtot`, `na` active
-signers, `k`, `halted`, `he` halt epoch, `se` slash epoch, `ce` cap epoch, `un` user indexes, `wn` withdrawals,
-`w_<j>_{to,v,by,h,st,ftx}`, `md_<id>` minted deposit ids, `feepool`.
+State keys worth knowing (all readable with `DERO.GetSC`): `sup` wrapped supply, `cap`, `capratio` the
+cap-to-bond ratio fixed at install, `bondtot`, `na` active signers, `n` signer slots ever used, `k`, `halted`,
+`he` halt epoch, `se` slash epoch, `ce` cap epoch, `te` tighten epoch, `ve` view-key epoch, `winmax`, `wdelay`,
+`bigbps`, `bigdelay`, `viewkey`, `un` user indexes, `wn` withdrawals, `w_<j>_{to,v,f,by,h,rel,st,ftx}`,
+`mw_<bucket>` units minted in that 2000-block bucket, `mint_<id>` deposit ids that are closed (1 minted,
+2 refunded), `fu_<ftx>` foreign txids already used to settle a withdrawal, `feepool`.
 
 
 ---
@@ -33,33 +42,59 @@ signers, `k`, `halted`, `he` halt epoch, `se` slash epoch, `ce` cap epoch, `un` 
 
 ## Signer daemon
 
-One `vaultsigner` per signer wallet. It attests deposit addresses, votes mints after the confirmation policy,
-pays withdrawals on the foreign chain through durable intents, votes releases, and asks for a halt when the
-foreign reserve is below the wrapped supply.
+One `vaultsigner` per signer wallet. It attests deposit addresses, votes mints after the confirmation and
+finality policy, pays withdrawals on the foreign chain through durable intents, votes releases, returns
+withdrawals the foreign chain cannot pay (`Veto`), and votes to halt while the foreign reserve is below what the
+vault owes — voting to resume by itself once it is not.
 
 ### Start
 
 ```
 vaultsigner -network <simulator|testnet|mainnet> -daemon 127.0.0.1:<rpc> -wallet 127.0.0.1:<wallet rpc> \
-            -vault <scid> -backend <sim|zcash|monero|solana> [-confs N] [-state <file>] [-interval 20s] [-yes]
+            -vault <scid> -backend <sim|zcash|monero|solana> [-confs N] [-state <file>] [-interval 20s] \
+            [-verify-tries 20] [-yes]
 ```
 
+- The daemon speaks vault v3 and refuses to start against a vault whose `v` is anything else.
+- Only the `sim` backend is implemented today; `zcash`, `monero` and `solana` exit with a pointer to the build
+  plan in `docs/HANDOVER.md` section 5.
 - `-confs 0` takes the network table's confirmations for the backend (sim: 2). Never lower it on mainnet.
-- `-state` defaults to `vaultsigner-<last 12 chars of the signer address>.json` in the working directory. One
-  file per signer identity; never share it between two daemons.
+- `-state` defaults to `vaultsigner-<first 8 characters of the vault scid>-<last 12 of the signer address>.json`
+  in the working directory. One file per (vault, signer) pair; never share it between two daemons. The daemon
+  holds `<state>.lock` while it runs, so a second daemon on the same file will not start.
+- `-verify-tries` bounds how many passes a recorded foreign payment may stay invisible before the backend is
+  asked to pay that withdrawal again. It exists because not voting is right but never voting is a freeze, and
+  there is nobody to unfreeze it.
 - `-yes` is required on mainnet: the daemon pays real withdrawals.
 - The wallet RPC must be the signer's own wallet, on this device, and must never be a mining address.
 
 ### What a pass does, in order
 
-1. Reads the vault. Sealed? If not, waits. Reserve below `sup`? Votes `Halt(1)` once per 2000-block bucket and
-   stops. Halted? Stops.
+1. Reads the vault. Sealed? If not, waits. Then the reserve invariant. `inflight` is every burned withdrawal the
+   contract has not closed, and what the federation must still be able to show is `sup - inflight`, not `sup`.
+   Reserve below that? Votes `Halt(1)` once per direction per 2000-block bucket if the vault is not already
+   halted, runs the veto pass, and stops there. Halted with the reserve covering it again? Votes `Halt(0)`, runs
+   the veto pass, and stops. The veto pass runs in both cases: returning funds is the one thing a halted vault
+   must still do.
 2. Attests deposit addresses for new indexes (`Attest(j, addr)`); a refused vote means the quorum was already
    reached.
-3. Votes `Mint(j, id, amount)` for deposits at or beyond the confirmation policy that are not yet `md_<id>`.
-4. For each withdrawal `j` with `w_<j>_st == 0` whose burn height is at or below DERO's `stableheight`: writes an
-   intent (paying), calls the backend's `Release` (idempotent per `j`), records the foreign txid (paid), votes
-   `Released(j, ftx)` (voted). A burn above the stable height waits with a log line.
+3. Votes `Mint(j, txid, vout, amount)` for deposits at or beyond the confirmation and finality policy whose id is
+   not yet closed under `mint_<id>`. The id is `HEX(txid):vout` and the contract builds it from the raw 32-byte
+   txid, so a signer cannot name it. A deposit over the cap or over the rolling window is a wait, not a refusal:
+   the daemon retries every pass, and headroom from a later burn or from the window sliding credits it with
+   nobody having to act.
+4. Runs the veto pass. A withdrawal whose destination this chain cannot pay gets a `Veto(j)` vote, which returns
+   the units to the burner. It never vetoes one this daemon has already begun paying: the units would go back
+   while the coins had already gone out.
+5. For each withdrawal `j` with `w_<j>_st == 0` whose burn height is at or below DERO's `stableheight` and whose
+   recorded release height `w_<j>_rel` the tip has reached: writes an intent (paying), calls the backend's
+   `Release` (idempotent per `j`), records the foreign txid (paid), re-reads the foreign chain to confirm that
+   txid really pays that amount to that destination, then votes `Released(j, ftx)` (voted). A burn above the
+   stable height, or below its release height, waits with a log line.
+
+A deposit below `mindep` is never minted; the on-chain way to close it is `Refunded(txid, vout, ftx)`, k votes,
+which records the return abroad and marks the id refunded so it can never later be minted. The daemon does not
+cast that vote — it logs the deposit and the signers vote it.
 
 ### Stop and move
 
@@ -70,11 +105,13 @@ is not idempotent, could pay twice.
 
 ### Crash recovery
 
-On start the daemon loads its state strictly: a corrupt file stops it with a message rather than starting
-empty. Every intent in `paying` is retried (the backend must look the payment up by `j` before paying); every
-intent in `paid` is voted; `voted` intents are skipped. An intent whose `(dest, amount)` no longer matches the
-chain stops that withdrawal with an operator message; read both, decide, edit the state file by hand only with
-the daemon stopped.
+On start the daemon loads its state strictly: a corrupt file, or one belonging to a different vault, stops it
+with a message rather than starting empty. Every intent in `paying` is retried (the backend must look the payment
+up by `j` before paying); every intent in `paid` is verified against the foreign chain and only then voted;
+`voted` intents are skipped. A payment that stays invisible for `-verify-tries` passes is treated as one that did
+not happen: the intent goes back to `paying` and the backend is asked to pay `j` again, which is safe only
+because `Release` is idempotent per `j`. Edit the state file by hand only with the daemon stopped, and only after
+reading both chains.
 
 ### Backups
 
@@ -86,16 +123,25 @@ repository, never in `.testnet/` or `.mainnet/` on a shared machine.
 
 ```
 withdrawal 2 waits for DERO finality (burned at 5805, stable height 5798)
-RESERVE SHORTFALL: foreign reserve 46000 < wrapped supply 71000; voting Halt(1)
-Mint [{j U 0} {id S …} {amount U 25000}] tx d2ade4c4…
-vault: users 1, supply 92000 / cap 100000, withdrawals 2, halted 0
+withdrawal 3 is not releasable yet (tip 6100, releasable at 6300)
+RESERVE SHORTFALL: foreign reserve 46000 < supply 71000 less 5000 in flight; voting Halt(1)
+14:22:07 Mint [{j U 0} {txid H 9f3c…} {vout U 0} {amount U 25000}] tx d2ade4c4… height 5810
+14:22:09 vault: indexes 1, supply 92000 / cap 100000, withdrawals 2, halted 0, reserve 97000 (in flight 5000)
 ```
 
-The last line is the pass summary; compare it across signers to spot one that is behind.
+The last line is the pass summary; compare it across signers to spot one that is behind. Read `reserve` against
+the supply **less** the in-flight total, never against the supply alone: during any ordinary withdrawal a
+perfectly correct vault is short of its own supply by exactly what is in flight. A signer that compared the
+reserve to `sup` alone would halt on the first withdrawal, and the halt could never clear, because `Released` is
+refused while halted so `sup` could never fall. That is not hypothetical — it is the bug found and fixed on
+2026-09-07.
 
-A withdrawal larger than `-max-withdrawal-bps` (default 2000 = 20 %) of the foreign reserve is never paid by the
-daemon: it logs `SUSPICIOUS WITHDRAWAL`, votes `Halt(1)` once per bucket, and leaves the intent untouched for a
-human to decide (halt-and-resume.md). Lower the threshold as the reserve grows.
+A large withdrawal earns its extra delay at burn time: `Burn` records `w_<j>_rel` as the height from which the
+withdrawal may be released (`wdelay`, plus `bigdelay` when the burn exceeds `bigbps` of the supply), and
+`Released` refuses before it. The daemon has no size flag and no override — it reads `w_<j>_rel` and waits, and
+doing nothing pays the user. To stop a withdrawal the signers vote `Veto(j)`, which returns the units to the
+burner, or `Halt(1)`, which blocks `Released` while the halt lasts ([halt and resume](#halt-and-resume)). The
+daemon votes `Veto` on its own only when the destination is one the foreign chain cannot pay.
 
 
 ---
@@ -107,7 +153,10 @@ human to decide (halt-and-resume.md). Lower the threshold as the reserve grows.
 ### Cap
 
 `cap` is the most wrapped supply the vault will mint. It is enforced at the k-th mint vote and bounded by the
-bonds: `cap ≤ 3 × bondtot`, checked at `Seal` and at every `SetCap`. `SetCap(cap)` is a k-of-n vote keyed by the
+bonds: the contract refuses whenever `cap / capratio > bondtot`, checked at `Seal`, at every `SetCap` and at
+every mint. The on-chain test divides, so it is permissive by at most `capratio - 1` base units. `capratio` is
+fixed at install and is the operator's written-down price assumption relating foreign base units to DERO atomic
+units — there is no oracle, and nobody can change it after install. `SetCap(cap)` is a k-of-n vote keyed by the
 cap epoch `ce`; k agreeing votes set the cap and bump the epoch, which voids older votes for other values.
 
 To raise the cap: first raise the bonds (below), then k signers vote `SetCap(<new>)`. To lower it: k votes; a
@@ -115,31 +164,54 @@ cap below the current `sup` is allowed and stops further mints until burns bring
 
 ### Limits set once, before Seal
 
-`SetLimits(maxdep, winmax, wdelay)` (owner, before `Seal`; refused afterwards by everyone): the largest single
-deposit that will be minted, the most that will be minted over any two consecutive 2000-block buckets (a sliding window), and the number of blocks after
-a burn before any `Released` vote counts. Zero means no limit. Choose them so that a colluding quorum's fastest
-possible theft (one bucket of `winmax`) is less than the bonds, and so that `wdelay` covers the time an honest
-signer needs to notice a bad burn and halt.
+`SetLimits(winmax, wdelay)` (owner, before `Seal`; refused afterwards by everyone, and only `Tighten(winmax,
+wdelay)` — k votes, safe direction only — can move them later): the most that will be minted over any two
+consecutive 2000-block buckets (a sliding window), and the number of blocks after a burn before any `Released`
+vote counts. `winmax = 0` disables the window; `wdelay = 0` means no delay. The contract refuses `wdelay > 20000`
+and a non-zero `winmax` below `mindep`. Choose them so that a colluding quorum's fastest possible theft (one
+bucket of `winmax`) is less than the bonds, and so that `wdelay` covers the time an honest signer needs to notice
+a bad burn and vote `Veto` or `Halt`. Note that a single deposit larger than `winmax` can never be minted
+whatever the window state, so set `winmax` well above the largest deposit the vault expects to see.
+
+There is deliberately no per-deposit maximum. A deposit above one could never be minted at all, and nobody is
+guaranteed to exist who could send it back, so the limit would be a permanent freeze. Size is handled instead by
+`bigbps`/`bigdelay`, both fixed at install: a burn above `bigbps` of the supply has `bigdelay` blocks added to
+its release height at burn time. It is delayed, never refused.
 
 ### Bonds
 
-`Bond()` with DERO from a signer wallet adds to that signer's bond and to `bondtot`. Every signer must hold at
-least `minbond` before `Seal`. Bonds are the federation's skin in the game: a colluding quorum can take the
-foreign reserve, but the cap keeps the reserve at most three times what the bonds are worth in DERO.
+`Bond()` with DERO from a signer wallet adds to that signer's bond, and to `bondtot` if that address is an active
+signer. Every signer must hold at least `minbond` before `Seal`. Bonds are the federation's skin in the game: a
+colluding quorum can take the foreign reserve, but the cap keeps the reserve at most `capratio` times what the
+bonds are worth in DERO.
 
-Unbonding is not implemented (S21): a bond stays until a slash. Do not bond funds you may need.
+`Unbond()` returns the bond of a candidate who bonded and was never voted in. A signer, past or present, can
+never unbond: `Unbond` refuses anyone with an `isg_` key, and `Slash` zeroes that key rather than deleting it. An
+active signer's bond leaves the contract only through `Slash`, and it goes to the treasury, not back to the
+signer. Do not bond funds you may need.
 
 ### Slash
 
 `Slash(target)` is a k-of-n vote that removes a signer, takes its bond out of `bondtot`, lowers `na`, and opens
 a new slash epoch `se`, which voids every pending vote the removed signer cast (mint, attest, release, halt).
 The contract refuses a slash that would leave fewer than `k` active signers, and a signer cannot slash itself.
+The bond goes to the treasury.
 
-After a slash the cap bound `cap ≤ 3 × bondtot` may no longer hold; mints refuse until k signers lower the cap
-or the remaining signers bond more. Check `bondtot` and `cap` right after.
+`Slash` re-establishes the cap bound itself: if `cap / capratio` still exceeds `bondtot` once the bond is
+removed, it sets `cap = bondtot × capratio` and bumps the cap epoch `ce`, so mints do not silently stop and no
+vote is needed. Read `bondtot` and `cap` right after anyway. If the new `cap` is below the current `sup`, further
+mints wait until burns bring `sup` under it — the same behaviour as a `SetCap` lowering.
 
-Replacing a signer is not implemented (S21 rotation): the signer set only shrinks after `Seal`. Plan the set
-with spare signers.
+### Replacing a signer
+
+`AddSigner2(addr)` is a k-of-n vote that seats a signer after `Seal`. The candidate must already hold at least
+`minbond` — they call `Bond()` first, and their bond is held but does not count in `bondtot` until the vote
+executes. A key that was ever a signer never returns: `isg_` is checked, not deleted. Executing the vote bumps
+the slash epoch `se`, so every pending vote is voided; expect the daemons to re-cast on their next pass.
+
+Note the hard ceiling. `n` counts signer slots ever used and is never decremented by `Slash`, and both
+`AddSigner` and `AddSigner2` refuse at `n >= 20`. Twenty is the lifetime budget of signer keys for one vault,
+the initial set included; plan rotations against it.
 
 
 ---
@@ -149,16 +221,23 @@ with spare signers.
 ## Halt and resume
 
 `Halt(want)` is a k-of-n vote. `want = 1` halts, `want = 0` resumes. Votes live in 2000-block buckets under the
-current halt epoch `he`; k votes flip the state and open a new epoch. While halted: no mints, no releases, no
-burns, no attestations. Wrapped units keep their claim.
+current halt epoch `he`; k votes flip the state and open a new epoch. While halted: no registrations, no
+attestations, no mints, no burns, no releases — `Register`, `Attest`, `Mint`, `Burn` and `Released` are the five
+entrypoints a halt blocks, and the only ones that guard on `halted`. `Veto(j)` carries no such guard and still works, which is how a withdrawal that
+cannot be paid is returned to its burner while the vault is halted; so do `Refunded`, `Slash`, `SetCap`,
+`Tighten`, `Bond`, `Unbond`, `AddSigner2`, `SetViewKey` and `ClaimFees`. Wrapped units keep their claim.
 
-### When to halt
+### When a halt happens
 
-- A signer's daemon reports `RESERVE SHORTFALL` (it has already voted; the other signers' daemons will too on
-  their next pass if they see the same shortfall).
-- A signer key or machine is suspected compromised.
-- The foreign chain is in an incident (deep reorg, consensus bug, halted network).
-- A deposit was minted that the federation cannot find on the foreign chain.
+A halt is a condition, not a decision. Every daemon votes `Halt(1)` while the foreign reserve is below what the
+vault owes — `sup` less the withdrawals in flight — and votes `Halt(0)` as soon as the reserve covers it again,
+so the quorum forms and dissolves with nobody to ask. A shortfall is therefore the only halt reason that holds.
+
+A halt voted by hand for anything else — a suspected signer compromise, a foreign-chain incident, a mint the
+federation cannot find on the foreign chain — will be voted back up by the other daemons on their next pass,
+because they compute the halt only from the reserve against what is owed. For those causes the durable answers
+are `Slash(target)` for a compromised signer (see [cap and bonds](#cap-and-bonds)) and `Veto(j)` for a withdrawal
+that must not be paid. Any new halt reason must be computable from public state, or it cannot survive.
 
 ### How
 
@@ -168,23 +247,27 @@ Each signer operator, from their signer wallet, against the vault:
 entrypoint Halt, want = 1        # k signers within the same 2000-block bucket
 ```
 
-Confirm with `halted == 1` and a new `he`. The daemons stop acting on their own once they read `halted`.
+Confirm with `halted == 1` and a new `he`. The daemons stop attesting, minting and releasing on their own once
+they read `halted`; they keep running, and they keep running the veto pass.
 
-### Before resuming
+### While halted
+
+These are not preconditions for resuming — the resume is not yours to hold — but the work that has to happen
+anyway:
 
 1. The cause is written down (what, when, which blocks, which signers saw it).
-2. The foreign reserve is counted and equals or exceeds `sup` (until viewing keys are published this is the
-   signers' statement; publish the count anyway).
+2. The foreign reserve is counted (until this vault has published a `viewkey` this is the signers' statement;
+   publish the count anyway).
 3. Every intent file is reconciled: no `paying` or `paid` intent left behind.
-4. If a signer was compromised: slash it first (`cap-and-bonds.md`), then resume.
+4. If a signer was compromised: `Slash(target)` ([cap and bonds](#cap-and-bonds)). Slashing is what removes it;
+   the halt will not hold it out.
 
 ### Resume
 
-```
-entrypoint Halt, want = 0        # k signers, same bucket
-```
-
-Then start the daemons again and watch one full pass on each.
+The halt clears itself. Every honest daemon votes `Halt(0)` on its next pass once the reserve covers what is
+owed, so a resume needs no human and cannot be withheld by one. There is nothing to restart: the daemons never
+stopped. If you want the resume sooner, the only honest move is to make the reserve whole — `sup` cannot be
+lowered while halted, because `Released` is one of the entrypoints a halt blocks.
 
 
 ---
@@ -193,21 +276,23 @@ Then start the daemons again and watch one full pass on each.
 
 ## Incident: the foreign reserve is below the wrapped supply
 
-The daemons detect it (`Reserve()` from the backend against `sup`) and vote `Halt(1)`; with k honest daemons the
-vault halts within one pass interval. Everything below is what people do next.
+The daemons detect it (`Reserve()` from the backend against `sup` less the withdrawals in flight) and vote
+`Halt(1)`; with k honest daemons the vault halts within one pass interval. Everything below is what people do
+next.
 
 1. **Confirm the numbers.** Every signer counts the foreign reserve independently (wallet balance, minus
-   pending outgoing payments in `paying`/`paid` intents) and reads `sup` from the vault. Write the numbers down
-   with block heights on both chains.
+   pending outgoing payments in `paying`/`paid` intents) and reads `sup` and the in-flight total from the vault
+   (every `w_<j>` with `_st == 0`). Write the numbers down with block heights on both chains.
 2. **Find the cause.** In order of likelihood: a release paid twice (a non-idempotent backend after a crash: the
    intents show it); a deposit minted for a transaction that was reorganised out on the foreign chain (compare
-   `md_<id>` ids against the foreign chain at policy depth); a foreign-side theft (a signer's share compromised);
-   a mint vote that lied (compare the minted `(j, id, amount)` tuples against the foreign chain).
+   `mint_<id>` ids against the foreign chain at policy depth); a foreign-side theft (a signer's share
+   compromised); a mint vote that lied (compare the minted `(j, id, amount)` tuples against the foreign chain).
 3. **Stop the bleeding.** If a signer is compromised, `Slash(target)` (k votes). If a backend paid twice, stop
    that daemon and fix the backend's lookup before restarting.
-4. **Make the reserve whole or lower the supply.** The federation tops up the reserve from the bonds' owners,
-   or accepts that `sup` exceeds the reserve and says so publicly. Burns stay halted until the decision is
-   public.
-5. **Resume** only per `halt-and-resume.md`, with the count published.
+4. **Make the reserve whole, or say the supply exceeds it.** The federation tops up the reserve from the bonds'
+   owners, or accepts that `sup` exceeds the reserve and says so publicly. `sup` cannot be lowered while halted,
+   because `Released` is blocked, so publish the numbers while the shortfall stands rather than after it closes.
+5. **The halt clears itself** once the reserve covers what is owed: the daemons vote `Halt(0)` on their next
+   pass. Nobody signs off. Publish the count regardless.
 
 Never mint against the shortfall, never change the cap to hide it, never describe the halt as "maintenance".

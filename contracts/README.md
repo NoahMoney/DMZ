@@ -1,4 +1,4 @@
-# Veil contracts
+# DMZ contracts
 
 Nine immutable DVM-BASIC contracts. None defines `UpdateCode`. Every state-changing entrypoint that pays the caller
 requires **ringsize 2** (the node only reveals `SIGNER()` at ringsize 2; DECISIONS §2.4); the `…To` entrypoints pay a
@@ -8,17 +8,21 @@ specification: `../reference/`. Tests: `../tests/` (run with `tests/run.ps1`).
 Sizes and install cost (storage gas units, cap 20000 per TX — the code counts; install gas is the byte count plus
 a few hundred units, measured where given):
 
-| Contract | Bytes (2026-09-06) | Install storage gas | Compute gas |
+| Contract | Bytes (2026-09-07) | Install storage gas | Compute gas |
 |---|---|---|---|
-| `pool.bas` | 13 166 | ~13 400 | 409 000 |
-| `launch.bas` | 15 781 | ~16 000 | ~1 200 000 |
-| `founders.bas` | 12 586 | ~12 800 | — |
-| `vault.bas` | 14 098 | ~14 400 (14 276 measured at 14 010 B) | — |
-| `nft.bas` | 4 025 | ~4 600 | — |
+| `pool.bas` | 13 262 | ~13 520 | 409 000 |
+| `launch.bas` | 16 416 | ~16 680 | ~1 200 000 |
+| `founders.bas` | 12 637 | ~12 900 | — |
+| `vault.bas` | 18 895 | 19 229 of 20 000 (measured) | — |
+| `nft.bas` | 4 184 | ~4 760 | — |
 | `swap.bas` | 3 599 | — | — |
 | `factory.bas` | 2 852 | ~3 100 | — |
 | `board.bas` | 2 848 | — | — |
 | `social.bas` | 2 062 | — | — |
+
+`vault.bas` has 771 gas units of headroom under the 20 000 cap, comments included: any change to it must be
+byte-neutral or shrink something. Re-measure with `DERO.GetGasEstimate` before deploying rather than trusting an
+estimate.
 
 Worst-case compute gas seen in fuzzing (limit 10 000 000 per call): AddLiquidity 1.72 M, Unstake 1.78 M, Stake 1.69 M,
 launch Buy 1.61 M, pool swaps 1.06 M.
@@ -35,7 +39,9 @@ launch Buy 1.61 M, pool swaps 1.06 M.
 - **Sending value in**: `transfers:[{destination:<any>, burn:<dero>}]` and/or `[{scid:<asset>, burn:<units>}]`.
   Stray value (an asset the entrypoint does not expect) makes the call return 1, which refunds everything.
 - **Fee**: `fee` bps of every trade (deployed with 50 = 0.5 %, hard cap 100). Protocol share `pfee` in bps of the fee.
-  Accrued protocol fees sit in `fd` (DERO) / `fa` (asset) until the treasury calls `ClaimFees()`.
+  Accrued protocol fees sit in `fd` (DERO) / `fa` (asset) until **anyone** calls `ClaimFees()`, which always pays
+  the `treasury` address recorded at install: a fee path only one key can move stops the moment that key does, and
+  the protocol has no operator. `ClaimFees` reads no signer, so it works at any ring size.
 - **Social feed keys** (pool and launch): `tc` count and `t_<n>` = `side|address|in|out|height|timestamp` written
   only when the trader passes `publish = 1` (side 1 = bought asset, 2 = sold asset). `pc` count and `p_<n>` =
   `height|timestamp|rd|ra` = closing reserves of the previous active block, written on the first reserve change in a
@@ -54,9 +60,9 @@ launch Buy 1.61 M, pool swaps 1.06 M.
 | `RemoveLiquidity` | `min_dero, min_asset` | LP `l` (this SCID) | `⌊l·rd/lp⌋` DERO and `⌊l·ra/lp⌋` asset; `l ≤ lp − 1000`. |
 | `SwapDeroForAsset` | `min_out, publish` | DERO `d` | `fee = ⌈d·fee/10⁴⌉`, `pf = ⌊fee·pfee/10⁴⌋`, `out = ⌊(d−fee)·ra / (rd + d − fee)⌋`; `rd += d − pf`, `ra −= out`, `fd += pf`. |
 | `SwapAssetForDero` | `min_out, publish` | asset `a` | symmetric with the fee in asset units; `fa += pf`. |
-| `ClaimFees` | — | — | treasury only: sends `fd` DERO and `fa` asset. |
+| `ClaimFees` | — | — | anyone, any ring size: sends `fd` DERO and `fa` asset to the `treasury` recorded at install, and adds `fd` to the monotone counter `fc`. Reverts if both are 0. |
 
-Keys: `kind v asset treasury fee pfee rd ra lp fd fa tc pc lh lt t_<n> p_<n>`.
+Keys: `kind v asset treasury fee pfee rd ra lp fd fa fc tc pc lh lt t_<n> p_<n>`.
 
 **Invariants (tested after every fuzz op):** contract DERO balance = `rd + fd`; asset balance = `ra + fa`; `lp ≥ 1000`
 after the first deposit; `k = rd·ra` never decreases on swaps (floor rounding); every credit is guarded against
@@ -115,7 +121,7 @@ every swap into `tacc`. Nobody can withdraw the reserves: there is no entrypoint
   `rpool`. Sum of floors ≤ `paid`, so `rpool` cannot underflow; dust stays in the contract. If an increment would not
   fit in 64 bits `dist()` skips instead of reverting, so staking can never be bricked.
 
-Keys: headers + `kind v ticker dec S creator treasury fee pfee tax tmode cs Lq G vd0 phase sold real rd ra fd fa tacc
+Keys: headers + `kind v ticker dec S creator treasury fee pfee tax tmode cs Lq G vd0 phase sold real rd ra fd fa fc tacc
 rpool locked stot sacc gh tc pc lh lt t_<n> p_<n> st_<addr> sd_<addr>`.
 
 **Invariant:** contract DERO balance = `(phase 0 ? real : rd) + fd + tacc + rpool` (tested after every fuzz op).
@@ -144,10 +150,11 @@ code equals the shipped template and its `treasury` equals `tstr` before listing
 which `Unlock` never clears: lock → mint → unlock → lock again mints nothing more, 2026-09-06), while
 `minted < maxsupply`, paying ≥ `price` DERO (excess refunded; `fee` bps to `fd`, rest to `cacc`) sends **1 unit of
 the contract's own asset** = one edition and records `ed_<n> = minter`. `Unlock()` returns the tokens at any time
-and clears the lock. `ClaimCreator()`, `ClaimFees()`.
+and clears the lock. `ClaimCreator()` (the creator, ringsize 2) and `ClaimFees()` (anyone, any ring size, pays
+the treasury the `fd` DERO; there is no asset leg and no `fc` counter here).
 
 
-## founders.bas — Veil Founders Pass
+## founders.bas — Founders Pass
 
 A fixed-edition NFT (the contract's own asset, 0 decimals) whose *registered* holders receive a share of the
 exchange's fees in DERO. Entrypoints:
@@ -194,7 +201,8 @@ for the taker with an expiry shorter than the taker's counter-chain lock. Tested
 
 Mints its own asset one for one against foreign-chain deposits the signers have seen, and burns it to withdraw.
 The signers can steal or freeze what they hold abroad; this contract makes the DERO side honest and auditable.
-Trust model: `research/wrapper/README.md`. Daemon: `tools/vaultsigner` (v2 only, see the version guard). Driver:
+Trust model: `research/wrapper/README.md`. Daemon: `tools/vaultsigner` (v3; it refuses to start against any
+other `v`, see the version guard at `main.go:455`). Driver:
 `tools/simvault`. Tests: `vault_test.go`, `vault_v3_test.go`, `vault_limits_test.go`, `vault_fuzz_test.go`,
 `vault_haltslash_test.go`, `vault_smoke_test.go`.
 
@@ -207,15 +215,22 @@ because a deposit above one could never be minted at all and nobody is guarantee
 Stopping a withdrawal takes a k-of-n `Veto` or `Halt` that signer daemons cast from public state and clear the
 same way; doing nothing pays the user. There is no manual override anywhere in the contract or the daemon.
 
-**The invariant everything serves:** `foreign reserve >= sup`, at every moment, checkable by anyone from the
-published `viewkey`. `sup` counts every unit that is a claim on the reserve, including units held by the contract
+**The invariant everything serves:** `foreign reserve >= sup`, checkable by anyone from the published
+`viewkey`. `sup` counts every unit that is a claim on the reserve, including units held by the contract
 between a burn and its release, and the fee units in `feepool`. A burn does **not** reduce `sup`; `Released` does.
+The coins that pay a burn can leave the foreign chain before `Released` closes it, so what a signer daemon can check
+at one block is `reserve >= sup − inflight`, where `inflight` is every burned withdrawal the contract has not
+closed (`tools/vaultsigner/main.go:296-310`). Comparing the reserve to `sup` alone is not a stricter reading of the
+invariant but a broken one: it halts on the first ordinary withdrawal and can never clear, because `Released` is
+refused while halted (found and fixed 2026-09-07).
 
 ### Setup and governance
 
-`InitializePrivate(k, treasury, cap, minbond, minburn, wfee, mindep, regfee, capratio)` — `2 ≤ k ≤ 20`,
-`wfee < minburn`, `mindep ≠ 0`, `capratio ≠ 0`. Then owner `AddSigner(addr)` × n, each signer `Bond()`s at least
-`minbond`, optional `SetLimits(maxdep, winmax, wdelay)`, then `Seal()`. After `Seal` the owner has no power at all.
+`InitializePrivate(k, treasury, cap, minbond, minburn, wfee, mindep, regfee, capratio, bigbps, bigdelay)` —
+`2 ≤ k ≤ 20`, `0 < cap < 2⁶³`, `minbond ≠ 0`, `minburn ≠ 0`, `wfee < minburn`, `mindep ≠ 0`,
+`capratio ≠ 0`, `bigbps ≤ 10000`, `bigdelay ≤ 20000`. Then owner `AddSigner(addr)` × n, each signer
+`Bond()`s at least `minbond`, optional `SetLimits(winmax, wdelay)`, then `Seal()`. After `Seal` the owner has no
+power at all.
 
 - **`n > k` is enforced at `Seal`.** A k-of-k set can never slash anyone (`Slash` needs k votes from signers other
   than the target), so one compromised key would sit in the set for good and one lost key would freeze the vault.
@@ -233,7 +248,7 @@ between a burn and its release, and the fee units in `feepool`. A burn does **no
 - Only an **active** signer's bond counts in `bondtot`. A candidate for `AddSigner2` bonds first; their bond is
   held but not at stake, and `Unbond()` returns it if they are never voted in. A signer, past or present, can
   never unbond.
-- `AddSigner2(addr)` (k votes) replaces a slashed or lost signer; `Tighten(maxdep, winmax, wdelay)` (k votes)
+- `AddSigner2(addr)` (k votes) replaces a slashed or lost signer; `Tighten(winmax, wdelay)` (k votes)
   moves the limits in the safe direction only, with floors so a quorum cannot brick the vault; `SetViewKey(key)`
   (k votes) publishes the viewing key.
 
@@ -258,7 +273,7 @@ Every k-of-n decision goes through one internal function, so the counting rule h
 | `c` | SetCap | `<se>_<ce>` | the cap |
 | `s` | Slash | `<se>` | the target, raw |
 | `a` | AddSigner2 | `<se>` | the new signer, raw |
-| `t` | Tighten | `<se>_<te>` | `"<maxdep>\|<winmax>\|<wdelay>"` |
+| `t` | Tighten | `<se>_<te>` | `"<winmax>\|<wdelay>"` |
 | `k` | SetViewKey | `<se>_<ve>` | sha256 hex of the key |
 
 `se` slash epoch, `he` halt epoch, `ce` cap epoch, `te` limits epoch, `ve` view-key epoch, `bucket` =
@@ -279,9 +294,9 @@ from a future index can be paid before anyone owns it.
 `Mint(j, txid, vout, amount)` — `txid` is exactly **32 raw bytes**; the contract builds the id itself as
 `HEX(txid) + ":" + vout`, so one deposit output has exactly one id however a caller spells it, and `mint_<id>`
 makes it mintable once, ever. Votes count per `(j, amount)` tuple, so one wrong vote can neither block nor
-redirect a deposit, and a signer can move their vote until the quorum executes. The k-th vote checks `mindep`,
-`cap`, the bond ratio, `maxdep` and the sliding window (`mw_<bucket>`, this bucket plus the previous one) before
-crediting `sup` and paying the index owner.
+redirect a deposit, and a signer can move their vote until the quorum executes. Every vote checks `mindep`; the
+k-th also checks `cap`, the bond ratio and the sliding window (`mw_<bucket>`, this bucket plus the previous one)
+before crediting `sup` and paying the index owner.
 
 `Refunded(txid, vout, ftx)` — k votes record a deposit the federation could not credit and sent back abroad. The
 id is then closed: a deposit is minted **or** refunded, never both, and never later flipped when the cap rises.
@@ -300,17 +315,19 @@ units nor the coins (a destination the foreign chain rejects, a burn the federat
 while halted, which is when it is needed most. Released and vetoed are mutually exclusive and final.
 
 `ClaimFees()` — the treasury takes the fee units; they were counted in `sup` throughout, and the treasury
-withdraws the coins behind them by burning like any other holder.
+withdraws the coins behind them by burning like any other holder. Unlike the markets' `ClaimFees`, the vault's
+**is** treasury-gated (`vault.bas:434` compares `SIGNER()`, so it needs ring size 2), because the fee units are a
+claim on the foreign reserve and stay counted in `sup` until the treasury burns them.
 
 ### Storage keys
 
 ```
 kind v k n na se ce he te ve sealed halted owner treasury cap capratio sup un wn bondtot
-minbond minburn wfee mindep regfee feepool maxdep winmax wdelay viewkey
+minbond minburn wfee mindep regfee feepool bigbps bigdelay winmax wdelay viewkey
 signers   sg_<i>   isg_<raw> 1 active 0 removed   bond_<raw>
 users     ua_<j>   uc_<raw>   ul_<raw>_<i>   da_<j>   dver_<j>   dh_<j>
 deposits  mint_<id> 1 minted 2 refunded   mj_<id>   mh_<id>   ma_<id>   rf_<id>
-withdraw  w_<j>_to _v _f _by _h _st (0 pending 1 released 2 vetoed) _ftx   fu_<ftx>
+withdraw  w_<j>_to _v _f _by _h _rel _st (0 pending 1 released 2 vetoed) _ftx   fu_<ftx>
 window    mw_<height/2000>
 votes     <f>c_<kb>_<ch>   <f>v_<kb>_<s>   <f>d_<kb>
 ```
