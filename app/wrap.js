@@ -12,7 +12,7 @@
 //     a guess, and when the record is missing the raw base units are shown as-is.
 (function () {
   const V = window.Veil, U = V.ui, A = V.amm, D = V.data, B = BigInt;
-  const { h, render, button, kv, icon, pill, router, toast } = U;
+  const { h, render, button, kv, icon, router, toast } = U;
   const me = () => V.wallet.canon;
   const Z = 0n;
 
@@ -28,13 +28,15 @@
     // The vault is not a factory listing: its id comes from the deployment record baked into config.js, and the
     // contract is asked to confirm what it is (kind, v). A vault whose kind or version does not match is not
     // shown at all, because every key name below would mean something else.
-    async loadVault() {
-      const scid = this.cfg.vault;
+    async loadVault(pick) {
+      const list = this.vaults();
+      const scid = pick || (list[0] && list[0].scid) || this.cfg.vault;
       if (!scid || !/^[0-9a-f]{64}$/.test(scid)) return null;
       const r = await V.node.getSC(scid, { keys: [...NUM, "kind", "viewkey", "treasury"] });
       const kind = V.hexToStr(r.vals.kind || "");
       if (kind !== "vault") { console.warn("configured vault is not a vault contract"); return null; }
-      const w = { scid, asset: this.cfg.vaultAsset || {}, viewkey: U.clean(V.hexToStr(r.vals.viewkey || ""), 200) };
+      const rec = list.find((v) => v.scid === scid) || this.cfg.vaultAsset || {};
+      const w = { scid, asset: rec, viewkey: U.clean(V.hexToStr(r.vals.viewkey || ""), 200) };
       for (const k of NUM) w[k] = num(r.vals, k);
       if (w.v !== 3n) { console.warn("vault version " + w.v + " is not the version this app reads"); return null; }
       w.headroom = w.cap > w.sup ? w.cap - w.sup : Z;
@@ -66,7 +68,11 @@
           };
         }
       }
-      return { indexes: n, dep, withdrawals: await this.vaultWithdrawals(addr) };
+      // what this wallet actually holds of the wrapped asset, so the walkthrough can mark the last step done
+      // rather than leaving the user to check another screen
+      let units = 0n;
+      try { const bal = await V.wallet.getBalance(w.scid, true); units = V.toBig(bal && bal.balance) || 0n; } catch (e) {}
+      return Object.assign({ units }, { indexes: n, dep, withdrawals: await this.vaultWithdrawals(addr) });
     },
 
     // The last SCAN withdrawals, filtered to this address. w_<j>_by is the burner as ADDRESS_STRING, which is
@@ -116,6 +122,59 @@
     return "about " + Math.ceil(s / 86400) + " days";
   };
 
+  // ---- network grammar ----
+  // A network is a two-letter mono label with a hairline leading edge in its tint (.net / .net.xmr / .net.zec),
+  // so an amount, an address and a settlement each say plainly which chain they belong to. The tint is never a
+  // fill, and the chain is read from the deployment record rather than guessed.
+  const netOf = (a) => {
+    const s = (String(a.sym || "") + " " + String(a.chain || "")).toUpperCase();
+    if (/XMR|MONERO/.test(s)) return ["XM", "net xmr"];
+    if (/ZEC|ZCASH/.test(s)) return ["ZC", "net zec"];
+    return [(String(a.sym || "").toUpperCase().replace(/[^A-Z0-9]/g, "") + "??").slice(0, 2), "net"];
+  };
+  const mark = (code, cls, txt) => h("span", { class: "row tight" }, h("span", { class: cls }, code), h("span", { class: "label" }, txt));
+  const arrow = () => h("span", { class: "dim2" }, "→");
+  // state is stated, not glowed: a 6px square and precise words
+  const flag = (tint, word) => h("span", { class: "row tight" }, h("i", { class: "dot", style: "background:var(--" + tint + ")" }), h("span", { class: "label" }, word));
+  // a key/value row whose value is markup rather than a string
+  const kvn = (k, ...v) => h("div", { class: "kv" }, h("span", { class: "dim" }, k),
+    h("span", { class: "row tight", style: "flex-wrap:wrap;justify-content:flex-end" }, ...v));
+  // The settlement panel, and the only shape a settlement is ever described in on this screen: which way it
+  // moves, by what mechanism, who is holding the coins meanwhile, and what state it is in. Custody is a line of
+  // its own because a federation holding the reserve is the fact a badge would hide.
+  const panel = (c, from, to, custody, status) => [
+    kvn("Settlement", from, arrow(), to),
+    kv("Method", c.fed),
+    kv("Custody", custody),
+    kv("Status", status),
+  ];
+  // A string the user has to read in full — a deposit address, a destination, a settlement txid, the vault id —
+  // is never truncated and never boxed: a label above, the mono value below, all of it selectable, and a click
+  // copies it. Truncating any of these would hide the part that differs from a look-alike.
+  // Wrapping is a sequence with waits in it, so it is shown as one: what is finished, what is happening now,
+  // what is waiting on the federation, and what has not started. A user should never have to infer which.
+  //   done — this has happened and cannot un-happen
+  //   now  — your move; the action lives on this row
+  //   wait — the chain or the federation is working; nothing for you to do
+  //   todo — not reachable yet
+  const steps = (items) => h("ol", { class: "steps" }, items.filter(Boolean).map((it, i) =>
+    h("li", { class: "step " + it.state },
+      h("span", { class: "n mono" }, it.state === "done" ? "✓" : String(i + 1)),
+      h("div", { class: "grow" },
+        h("div", { class: "between" },
+          h("b", { class: "t" }, it.title),
+          h("span", { class: "label sst" }, it.state === "done" ? "Done" : it.state === "now" ? "Your move" : it.state === "wait" ? "Waiting" : "")),
+        it.detail ? h("div", { class: "d note" }, it.detail) : null,
+        it.body || null))));
+
+  const full = (label, value, copied) => h("div", { class: "stack", style: "gap:3px;margin-top:12px" },
+    h("div", { class: "eyebrow" }, label),
+    h("button", {
+      class: "mono sub", type: "button", "aria-label": "Copy " + label,
+      style: "display:block;width:100%;text-align:left;word-break:break-all;line-height:1.5",
+      onclick: () => { navigator.clipboard && navigator.clipboard.writeText(value).then(() => toast(copied, "ok")); },
+    }, value));
+
   // ---- screen ----
 
   // the tip drives the "payable in N blocks" countdown; live.js already polls it, so read that rather than
@@ -123,7 +182,9 @@
   let tip = 0;
   const refreshTip = async () => { if (V.live && V.live.height) { tip = V.live.height; return; } try { tip = await V.node.height(); } catch (e) {} };
 
-  router.on("wrap", async (el) => {
+  // #wrap/<scid> opens that vault; #wrap opens the first one recorded for this build
+  router.on("wrap", async (el, param) => {
+    const picked = /^[0-9a-f]{64}$/.test(String(param || "")) ? param : null;
     const draw = (w, my, err) => {
       if (err) return render(el, h("h1", { class: "mt mb" }, "Wrapped assets"), h("div", { class: "errbox" }, err));
       if (!w) return render(el, h("h1", { class: "mt mb" }, "Wrapped assets"),
@@ -133,23 +194,56 @@
       const a = w.asset || {}, name = U.clean(a.name || "the foreign asset", 40), chain = U.clean(a.chain || "its own chain", 40);
       const halted = w.halted !== Z;
       const mine = my && my.withdrawals ? my.withdrawals : [];
+      const dep = my && my.dep && my.dep.addr ? my.dep : null;
+      const nc = netOf(a);
+      // the two ends of every settlement on this screen, and the mechanism between them
+      const c = {
+        chain,
+        fed: w.k + "-of-" + w.na + " federation vault",
+        foreign: () => mark(nc[0], nc[1], chain),
+        dero: () => mark("DR", "net", "DERO"),
+      };
+      const depStatus = !V.wallet.connected
+        ? "no wallet connected, so no index and no address"
+        : dep
+          ? "address live since block " + dep.since + (a.conf ? ", credited after " + a.conf + " confirmations" : "")
+          : my && my.indexes > 0
+            ? "index registered, awaiting " + w.k + " signer attestations"
+            : "no deposit index registered on this wallet";
+
+      // One vault holds one foreign asset, so a build wrapping Monero and Zcash runs two of them and the user
+      // has to be able to say which. With a single vault there is nothing to choose and no strip is drawn.
+      const all = D.vaults();
+      const picker = all.length < 2 ? null : h("div", { class: "chips scrollx" }, all.map((v) =>
+        h("button", {
+          class: "chip " + (v.scid === w.scid ? "on" : ""), type: "button",
+          onclick: () => router.go("wrap", v.scid),
+        }, U.clean(v.sym || v.name || "wrapped", 10))));
 
       render(el,
         h("div", { class: "between mt" },
-          h("h1", null, "Wrap " + (a.sym ? U.clean(a.sym, 12) : "assets")),
-          halted ? pill("HALTED", "down") : pill("OPEN", "live")),
+          h("h1", null, "Deposit & withdraw " + (a.sym ? U.clean(a.sym, 12) : "assets")),
+          null),
+        picker,
+
+        // ---- Level 1: what the vault holds, which way it settles, and whether it is open ----
+        h("div", { class: "hero cut mt8" },
+          h("div", { class: "between" },
+            h("span", { class: "eyebrow" }, "Wrapped-asset vault"),
+            flag(halted ? "down" : "acc", halted ? "Halted" : "Open")),
+          h("div", { class: "row tight mt8", style: "flex-wrap:wrap;gap:6px 14px" }, c.foreign(), arrow(), c.dero()),
+          h("div", { class: "pulse-row mt" },
+            h("div", null, h("div", { class: "eyebrow" }, "Claims outstanding"), h("div", { class: "big num mt8" }, amt(w.sup, 4))),
+            h("div", { class: "row", style: "gap:22px;flex-wrap:wrap" },
+              h("div", { class: "mini" }, h("span", { class: "l" }, "Mint cap"), h("span", { class: "v" }, amt(w.cap, 4))),
+              h("div", { class: "mini" }, h("span", { class: "l" }, "Headroom"), h("span", { class: "v" }, amt(w.headroom, 4))),
+              h("div", { class: "mini" }, h("span", { class: "l" }, "Signers"), h("span", { class: "v" }, w.k + " of " + w.na))))),
 
         // ---- what this is, in the words that are actually true ----
-        h("div", { class: "card mt stack" },
-          h("div", { class: "sub" },
-            "Send " + name + " on " + chain + " to your own deposit address. When " + w.k + " of the " + w.na +
-            " active signers have both seen it, the vault mints you the same number of base units as a DERO asset. " +
-            "Burn those units with a destination and the same quorum pays you back on " + chain + "."),
-          h("div", { class: "stats4" },
-            h("div", { class: "stat" }, h("div", { class: "l" }, "Claims outstanding"), h("div", { class: "v num" }, amt(w.sup, 4))),
-            h("div", { class: "stat" }, h("div", { class: "l" }, "Mint cap"), h("div", { class: "v num" }, amt(w.cap, 4))),
-            h("div", { class: "stat" }, h("div", { class: "l" }, "Headroom"), h("div", { class: "v num" }, amt(w.headroom, 4))),
-            h("div", { class: "stat" }, h("div", { class: "l" }, "Signers"), h("div", { class: "v" }, w.k + " of " + w.na)))),
+        h("div", { class: "note mt8" },
+          "Send " + name + " on " + chain + " to your own deposit address. When " + w.k + " of the " + w.na +
+          " active signers have both seen it, the vault mints you the same number of base units as a DERO asset. " +
+          "Burn those units with a destination and the same quorum pays you back on " + chain + "."),
 
         halted ? h("div", { class: "warnbox mt" },
           h("b", null, "This vault is halted."),
@@ -162,44 +256,68 @@
         // The minimum is a property of the vault, not of the visitor, so it is published before the wallet is
         // connected and before an address exists. A deposit below it can never be minted and no operator exists
         // to send it back: someone deciding whether to use this vault at all has to be able to see that first.
-        h("div", { class: "warnbox mt" },
+        h("div", { class: "warnbox mt8" },
           h("b", null, "Minimum deposit: " + amt(w.mindep, 8)),
           h("div", { class: "sub" }, "Anything smaller cannot be minted, and there is nobody who can return it. Check the amount before you send.")),
-        !V.wallet.connected
-          ? h("div", { class: "card stack", style: "align-items:center;text-align:center" },
-              icon("wallet", "svgi dim2"), h("div", { class: "sub" }, "Connect your wallet to get a deposit address."),
-              button("Connect wallet", "primary", () => V.app.connectWallet()))
-          : h("div", { class: "card stack" },
-              my && my.dep && my.dep.addr
-                ? h("div", { class: "stack" },
-                    h("div", { class: "eyebrow" }, "Your deposit address on " + chain),
-                    h("button", {
-                      class: "card tight mono", type: "button", style: "word-break:break-all;line-height:1.5",
-                      onclick: () => { navigator.clipboard && navigator.clipboard.writeText(my.dep.addr).then(() => toast("Deposit address copied", "ok")); },
-                    }, my.dep.addr),
-                    kv("Live since block", String(my.dep.since)),
-                    a.conf ? kv("Confirmations waited for", String(a.conf)) : null,
-                    h("div", { class: "note" },
-                      "This address is yours alone and was published by " + w.k + " signers. Deposits made to it before block " +
-                      my.dep.since + " are ignored by every honest signer, so do not reuse an address you saw earlier. " +
-                      "Register again for a fresh, unlinked index whenever you want one."),
-                    button("Register another index (" + A.fmtDero(w.regfee, 5) + " DERO)", "small", () => doRegister(w)))
-                : my && my.indexes > 0
-                  ? h("div", { class: "stack" },
-                      h("b", null, "Waiting for attestation"),
-                      h("div", { class: "sub" }, "You hold index " + (my.dep ? my.dep.j : "?") + ". " + w.k + " signers must publish its foreign address before it exists. Until then there is nothing to send to."))
-                  : h("div", { class: "stack" },
-                      h("div", { class: "sub" }, "Registering allocates a fresh index, so two deposits of yours are not linked on chain. It costs " + A.fmtDero(w.regfee, 5) + " DERO, which goes to the treasury."),
-                      h("div", { class: "note" }, "Register is a ring-size-2 call because the contract must know who you are. Your address is public in that transaction."),
-                      button("Register a deposit index", "primary", () => doRegister(w), halted))),
+
+        h("div", { class: "mt" }, panel(c, c.foreign(), c.dero(), "the federation holds the reserve on " + chain, depStatus)),
+
+        (() => {
+          const connected = V.wallet.connected, registered = !!(my && my.indexes > 0), live = !!dep;
+          const held = my && my.units ? my.units : Z;
+          return steps([
+            {
+              state: !connected ? "now" : registered ? "done" : "now",
+              title: "Register a deposit index",
+              detail: !connected
+                ? "A deposit address belongs to one index of one wallet. Connect a wallet to claim one."
+                : registered
+                  ? "Index " + (dep ? dep.j : (my && my.dep ? my.dep.j : "?")) + ". Registering again gives you a fresh index, so two deposits of yours are not linked on chain."
+                  : "Costs " + A.fmtDero(w.regfee, 5) + " DERO to the treasury. This is a ring-size-2 call, so your address is public in that transaction.",
+              body: h("div", { class: "mt8" }, !connected
+                ? button("Connect wallet", "primary", () => V.app.connectWallet())
+                : button(registered ? "Register another index (" + A.fmtDero(w.regfee, 5) + " DERO)" : "Register a deposit index",
+                    registered ? "small" : "primary", () => doRegister(w), halted ? { disabled: true } : null)),
+            },
+            {
+              state: live ? "done" : registered ? "wait" : "todo",
+              title: w.k + " signers publish your address on " + chain,
+              detail: live
+                ? "Live since block " + dep.since + ". Anything paid to it before that block is ignored by every honest signer."
+                : registered
+                  ? "Nothing for you to do. Each signer derives the same address and votes for it; the address exists once " + w.k + " of them agree."
+                  : "Available once you hold an index.",
+            },
+            {
+              state: live ? "now" : "todo",
+              title: "Send at least " + amt(w.mindep, 8) + " to that address",
+              detail: live
+                ? "Send from your own " + name + " wallet. Less than the minimum can never be minted and cannot be returned."
+                : "The address appears here once the signers have published it.",
+              body: live ? full("Your deposit address on " + chain, dep.addr, "Deposit address copied") : null,
+            },
+            {
+              state: live ? "wait" : "todo",
+              title: (a.conf ? a.conf + " confirmations" : "Confirmations") + " on " + chain,
+              detail: "This app cannot see " + chain + ", so it cannot show your payment arriving. The signers watch for it and wait out the confirmation policy before they will vote.",
+            },
+            {
+              state: held > Z ? "done" : live ? "wait" : "todo",
+              title: w.k + " signers mint your wrapped units",
+              detail: held > Z
+                ? "You hold " + amt(held, 8) + " of wrapped " + (a.sym || "units") + "."
+                : "One vote each, on the exact deposit they saw. The units arrive in the wallet that registered the index.",
+            },
+          ]);
+        })(),
 
         // ---- withdraw ----
         h("h3", { class: "mt" }, "Withdraw"),
-        h("div", { class: "card stack" }, burnForm(w, halted)),
+        h("div", { class: "stack mt8" }, burnForm(w, halted)),
 
-        // ---- your withdrawals ----
+        // ---- your withdrawals, each read as a settlement ----
         mine.length ? h("h3", { class: "mt" }, "Your withdrawals") : null,
-        mine.length ? h("div", { class: "list mt" }, mine.map((x) => wrow(w, x))) : null,
+        mine.length ? mine.map((x) => wrow(w, x, c)) : null,
 
         // ---- the factual trust panel ----
         h("h3", { class: "mt" }, "What you are trusting"),
@@ -217,9 +335,8 @@
             : "The vault is NOT sealed. The deployer can still change the signer set. Do not deposit."),
           h("div", { class: "note" },
             "There is no operator and no override. Every limit either empties by itself or expires into a payment: " +
-            "doing nothing releases a withdrawal, it never cancels one. Stopping one takes " + w.k + " signers voting to veto or halt."),
-          h("div", { class: "row" },
-            h("button", { class: "sub mono ellipsis", type: "button", style: "display:block;max-width:100%", onclick: () => { navigator.clipboard && navigator.clipboard.writeText(w.scid).then(() => toast("Vault contract id copied", "ok")); } }, "vault " + w.scid.slice(0, 16) + "…"))));
+            "doing nothing releases a withdrawal, it never cancels one. Stopping one takes " + w.k + " signers voting to veto or halt.")),
+        full("Vault contract", w.scid, "Vault contract id copied"));
     };
 
     const trustLine = (ok, txt) => h("div", { class: "row tight", style: "align-items:flex-start" },
@@ -253,20 +370,56 @@
       ];
     };
 
-    // ---- one withdrawal row ----
-    const wrow = (w, x) => {
+    // ---- one withdrawal, read as a settlement ----
+    // Not a card and not a badge: a hairline, then what is moving, by what mechanism, who is holding it, and the
+    // height at which doing nothing pays it. The destination and the foreign txid are printed in full because
+    // they are the parts a person can check against their own wallet.
+    const wrow = (w, x, c) => {
       const away = x.rel - tip;
-      const state = x.st === 1 ? pill("PAID", "up") : x.st === 2 ? pill("RETURNED", "") : away > 0 ? pill("WAITING", "") : pill("PAYABLE", "live");
-      return h("div", { class: "card tight stack" },
-        h("div", { class: "between" }, h("b", null, "#" + x.j + " · " + amt(x.units, 8)), state),
-        h("div", { class: "sub mono", style: "word-break:break-all" }, x.dest),
-        x.st === 0
-          ? h("div", { class: "sub" }, away > 0
-              ? "Payable from block " + x.rel + " — " + blocksAway(away) + " away (burned at " + x.burned + ")."
-              : "Payable now, since block " + x.rel + ". The signers pay it without anyone asking; nothing here needs a person.")
-          : x.st === 1
-            ? h("div", { class: "sub mono", style: "word-break:break-all" }, "paid in " + x.ftx)
-            : h("div", { class: "sub" }, "The signers could not pay this destination, so the units were returned to you."));
+      const st = x.st === 1 ? ["up", "Settled"] : x.st === 2 ? ["warn", "Returned"] : away > 0 ? ["fg3", "Awaiting settlement"] : ["acc", "Payable now"];
+      const status = x.st === 1
+        ? "settled on " + c.chain
+        : x.st === 2
+          ? "the destination could not be paid, so the units were returned to you"
+          : away > 0
+            ? "awaiting settlement, payable at block " + x.rel + " — " + blocksAway(away) + " away"
+            : "payable now, since block " + x.rel + ". The signers pay it without anyone asking; nothing here needs a person.";
+      return h("div", { class: "mt", style: "padding-top:12px;border-top:1px solid var(--edge)" },
+        h("div", { class: "between", style: "padding-bottom:6px" },
+          h("span", { class: "row tight" }, h("span", { class: "mono dim2" }, "#" + x.j), h("b", { class: "num" }, amt(x.units, 8))),
+          flag(st[0], st[1])),
+        panel(c, c.dero(), c.foreign(), "the federation pays it from the reserve", status),
+        // the same walkthrough as a deposit, read backwards: what has happened, what is waiting, what is left
+        steps([
+          { state: "done", title: "Burned on DERO", detail: "Block " + x.burned + ". The claim leaves the supply when the payment is recorded, not now." },
+          {
+            state: x.st !== 0 || away <= 0 ? "done" : "wait",
+            title: "Release delay",
+            detail: x.st !== 0 || away <= 0
+              ? "Payable since block " + x.rel + "."
+              : "Payable at block " + x.rel + ", " + blocksAway(away) + " away. A larger withdrawal waits longer; the wait always ends, and doing nothing pays you.",
+          },
+          {
+            state: x.st === 1 ? "done" : x.st === 2 ? "todo" : away > 0 ? "todo" : "wait",
+            title: "The federation pays you on " + c.chain,
+            detail: x.st === 2
+              ? "Not attempted: the destination could not be paid."
+              : "Each signer pays, checks its own payment on " + c.chain + ", and votes. Nothing here needs a person.",
+          },
+          {
+            state: x.st === 1 ? "done" : x.st === 2 ? "done" : "todo",
+            title: x.st === 2 ? "Units returned to you" : "Settled",
+            detail: x.st === 1
+              ? "Recorded on DERO against the foreign transaction below."
+              : x.st === 2
+                ? "The quorum returned the units and the fee to the address that burned them."
+                : "Recorded on DERO once " + w.k + " signers agree on the transaction that paid you.",
+          },
+        ]),
+        kv("Burned at block", String(x.burned)),
+        x.fee > Z ? kv("Withdrawal fee", amt(x.fee, 8)) : null,
+        full("Destination on " + c.chain, x.dest, "Destination copied"),
+        x.ftx ? full("Foreign settlement txid", x.ftx, "Transaction id copied") : null);
     };
 
     // ---- actions ----
@@ -298,7 +451,8 @@
     const reload = async (force) => {
       try {
         await refreshTip();
-        const w = force || !D.vault ? await D.loadVault() : D.vault;
+        const want = picked || (D.vaults()[0] || {}).scid;
+        const w = force || !D.vault || (D.vault.scid !== want && want) ? await D.loadVault(want) : D.vault;
         const my = w && V.wallet.connected ? await D.myVault(me()) : null;
         lastMine = my;
         draw(w, my);

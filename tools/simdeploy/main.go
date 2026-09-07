@@ -32,6 +32,9 @@ var (
 	factory   = flag.String("factory", "", "reuse an existing factory scid instead of installing")
 	social    = flag.String("social", "", "reuse an existing social scid instead of installing")
 	founders  = flag.String("founders", "", "reuse an existing founders scid instead of installing")
+	chat      = flag.String("chat", "", "reuse an existing chat scid instead of installing")
+	chatFee   = flag.Uint64("chat-fee", 10000, "fee to post one message, in atomic units — the only spam control there is")
+	chatMax   = flag.Uint64("chat-maxlen", 280, "longest message the contract will store")
 	legacy    = flag.String("legacy", "", "comma-separated kind:sha256 of older template versions the app keeps accepting")
 	timeout   = flag.Duration("timeout", 180*time.Second, "per-tx timeout")
 	yes       = flag.Bool("yes", false, "required on mainnet: installs and the founders reserve mint spend real DERO")
@@ -48,7 +51,7 @@ var (
 )
 
 func read(p string) string { b, err := os.ReadFile(p); rpc.Must(err); return string(b) }
-func sha(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
+func sha(s string) string  { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 
 func main() {
 	flag.Parse()
@@ -78,7 +81,12 @@ func main() {
 			rpc.U("price", *passPrice), rpc.U("maxsupply", *passMax), rpc.U("start", *passStart), rpc.U("reserve", *passReserve),
 			rpc.U("share", *passShare), rpc.U("mfee", *passMfee), rpc.S("treasury", treasury)})
 	}
-	fmt.Printf("factory  %s\nsocial   %s\nfounders %s\n", *factory, *social, *founders)
+	if *chat == "" {
+		fmt.Println("installing chat.bas")
+		*chat, _, _ = c.Send(*w0, owner, read(filepath.Join(*contracts, "chat.bas")), "", nil, []rpc.Arg{
+			rpc.S("treasury", treasury), rpc.U("fee", *chatFee), rpc.U("maxlen", *chatMax)})
+	}
+	fmt.Printf("factory  %s\nsocial   %s\nfounders %s\nchat     %s\n", *factory, *social, *founders, *chat)
 
 	rpc.Must(os.MkdirAll(filepath.Join(*app, "templates"), 0o755))
 	hashes := map[string]string{}
@@ -121,20 +129,35 @@ func record(hashes map[string]string, old map[string][]string) *netcfg.Network {
 		n = &netcfg.Network{Templates: map[string]netcfg.Template{}}
 		f.Networks[*network] = n
 	}
-	n.Daemon, n.Factory, n.Social, n.Founders = *daemon, *factory, *social, *founders
+	n.Daemon, n.Factory, n.Social, n.Founders, n.Chat = *daemon, *factory, *social, *founders, *chat
 	n.FeeBps, n.PfeeBps, n.LaunchPfeeBps = 50, 5000, 5000
 	if n.Templates == nil {
 		n.Templates = map[string]netcfg.Template{}
 	}
 	for k, h := range hashes {
-		var leg []string
+		prev := n.Templates[k]
+		// Carry the previous hashes forward, and demote the outgoing current hash to legacy whenever the template
+		// has actually changed. Without this, running this tool for an unrelated reason silently invalidated every
+		// market already deployed from the old template: the app verifies a listing by hashing its on-chain code
+		// against this record, so a dropped hash turns a good market into an unlisted one.
+		leg := append([]string{}, prev.Legacy...)
+		if prev.Sha256 != "" && prev.Sha256 != h {
+			leg = append(leg, prev.Sha256)
+		}
 		for _, q := range old[k] {
 			leg = append(leg, strings.Trim(q, "\""))
 		}
-		if leg == nil {
-			leg = []string{}
+		seen, out := map[string]bool{h: true}, []string{}
+		for _, l := range leg {
+			if l != "" && !seen[l] {
+				seen[l] = true
+				out = append(out, l)
+			}
 		}
-		n.Templates[k] = netcfg.Template{Sha256: h, Legacy: leg}
+		if prev.Sha256 != "" && prev.Sha256 != h {
+			fmt.Printf("template %s changed: %s… kept as legacy so markets already deployed from it still verify\n", k, prev.Sha256[:12])
+		}
+		n.Templates[k] = netcfg.Template{Sha256: h, Legacy: out}
 	}
 	if n.Tela.Durl == "" {
 		n.Tela.Durl = "dmz.tela"

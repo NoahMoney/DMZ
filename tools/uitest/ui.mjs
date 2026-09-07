@@ -56,9 +56,14 @@ try {
   step("node pill: " + net);
   if (!/\d/.test(net)) fail("node not connected: " + net);
 
-  for (const tab of ["markets", "trade", "nfts", "portfolio", "profile"]) {
-    await page.click(`.tab[data-tab=${tab}]`); await sleep(800); await shot("02-" + tab);
-    step(tab + ": " + (await text()).slice(0, 90));
+  // Eight destinations do not fit a phone bar, so Profile is reached from Portfolio and the wallet button
+  // instead. Click the tab when it is in the bar at this width; otherwise take the route directly.
+  for (const tab of ["markets", "trade", "wrap", "nfts", "portfolio", "profile"]) {
+    const inBar = await page.evaluate((t) => { const e = document.querySelector(`.tab[data-tab=${t}]`); return !!e && getComputedStyle(e).display !== "none"; }, tab);
+    if (inBar) await page.click(`.tab[data-tab=${tab}]`);
+    else await page.evaluate((t) => { location.hash = "#" + t; }, tab);
+    await sleep(900); await shot("02-" + tab);
+    step(tab + (inBar ? ": " : " (not in the phone bar): ") + (await text()).slice(0, 90));
   }
   // a holder-NFT collection page when the simulator has one
   const nftId = await page.evaluate(() => { const n = [...window.Veil.data.nfts.keys()]; return n.length ? n[0] : null; });
@@ -71,13 +76,45 @@ try {
     const wt = await text();
     const configured = await page.evaluate(() => !!(window.Veil.data.cfg.vault));
     if (configured) {
-      if (!/Minimum deposit/.test(wt)) fail("wrap screen does not publish the minimum deposit: " + wt.slice(0, 200));
-      if (!/What you are trusting/.test(wt)) fail("wrap screen has no trust panel: " + wt.slice(0, 200));
+      if (!/minimum deposit/i.test(wt)) fail("wrap screen does not publish the minimum deposit: " + wt.slice(0, 200));
+      if (!/what you are trusting/i.test(wt)) fail("wrap screen has no trust panel: " + wt.slice(0, 200));
       if (/\bSAFE\b/.test(wt)) fail("wrap screen shows a SAFE badge; the trust panel must be factual");
-    } else if (!/No vault on this network/.test(wt)) {
+    } else if (!/no vault on this network/i.test(wt)) {
       fail("wrap screen with no configured vault should say so: " + wt.slice(0, 200));
     }
     step("wrap: " + wt.replace(/\s+/g, " ").slice(0, 110));
+  }
+  // chat: an IRC client whose server is a contract. It must say the three things that are irreversible.
+  {
+    await page.evaluate(() => { location.hash = "#chat"; }); await sleep(2000); await shot("03c-chat");
+    const ct = await text();
+    const configured = await page.evaluate(() => !!(window.Veil.data.cfg.chat));
+    if (configured) {
+      if (!/ring-size-2/i.test(ct)) fail("chat does not say posting is a ring-size-2 call: " + ct.slice(0, 200));
+      if (!/permanent/i.test(ct)) fail("chat does not say a message is permanent: " + ct.slice(0, 200));
+      const rooms = await page.evaluate(() => document.querySelectorAll(".roomrow").length);
+      if (rooms < 2) fail("chat listed " + rooms + " rooms");
+      step("chat: " + rooms + " rooms · " + ct.replace(/\s+/g, " ").slice(0, 90));
+    } else if (!/no chat on this network/i.test(ct)) {
+      fail("chat with no configured contract should say so: " + ct.slice(0, 160));
+    }
+  }
+  // the message from the dev outranks every other piece of copy, so it must be present and reachable
+  {
+    await page.evaluate(() => { location.hash = "#notice"; }); await sleep(900); await shot("03d-notice");
+    const nt = await text();
+    for (const want of [/no support/i, /code is law/i, /space cowboy/i, /revoked/i]) {
+      if (!want.test(nt)) fail("the dev message is missing " + want + ": " + nt.slice(0, 200));
+    }
+    step("notice: " + nt.replace(/\s+/g, " ").slice(0, 90));
+  }
+  // deposit and withdraw must be reachable from the navigation, not only by typing a URL
+  {
+    const tabs = await page.evaluate(() => [...document.querySelectorAll(".tab")].map((t) => t.dataset.tab));
+    for (const want of ["wrap", "chat"]) if (!tabs.includes(want)) fail("no " + want + " tab: " + tabs.join(","));
+    const vis = await page.evaluate(() => [...document.querySelectorAll(".tab")].filter((t) => getComputedStyle(t).display !== "none").length);
+    step("tabs: " + tabs.join(" ") + " (" + vis + " visible at this width)");
+    if (vis > 7) fail(vis + " tabs visible on a phone");
   }
   // Screen handlers subscribe to D.onChange on every dispatch. Navigating must not accumulate them, or every
   // block redraws the screen once per past visit.

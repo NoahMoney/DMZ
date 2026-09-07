@@ -1,5 +1,5 @@
 // DMZ live.js — what makes the app feel alive: a block clock driving refreshes, rolling numbers with up/down
-// flashes, live "ago" labels, the price tape and the mood glow. Respects prefers-reduced-motion.
+// flashes, live "ago" labels and the price tape. Respects prefers-reduced-motion.
 (function () {
   const V = window.Veil;
   const reduced = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -58,8 +58,6 @@
       for (const s of assets) if (s.m && s.m.c24h !== null) { const k = 1 + Math.log1p(s.m.vol24); acc += s.m.c24h * k; w += k; }
       const m = w ? acc / w : 0; const t = Math.max(-1, Math.min(1, m / 25));
       const hue = t >= 0 ? 150 + (1 - t) * 90 : 350 + t * 15; // green ← violet → coral
-      document.documentElement.style.setProperty("--mood", `hsl(${hue} 80% 60%)`);
-      document.documentElement.style.setProperty("--mood-a", (0.12 + Math.abs(t) * 0.18).toFixed(2));
       document.documentElement.dataset.mood = t > 0.15 ? "up" : t < -0.15 ? "down" : "flat";
     },
   };

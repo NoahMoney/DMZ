@@ -74,7 +74,8 @@
       "chain": "the vault simulator",
       "dec": 5,
       "conf": 2
-    }
+    },
+    "chat": "eb1f6b36cd836d5da80c2fc0d464ff4d52003318e2c08603a6ad5c6f985aa9da"
   },
   "testnet": {
     "daemon": "127.0.0.1:40402",

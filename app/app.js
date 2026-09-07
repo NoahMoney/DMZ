@@ -48,7 +48,10 @@
     if (side) U.render(side, W.connected
       ? h("button", { class: "side-wallet", type: "button", onclick: btn.onclick || (() => {}) }, U.avatar(W.canon, "sm"), h("div", { class: "grow ellipsis" }, h("b", null, D.displayName(W.canon)), h("div", { class: "sub ellipsis" }, app.holdings ? A.fmtDero(app.holdings.dero, 2) + " DERO" : "connected")))
       : h("button", { class: "side-wallet", type: "button", onclick: app.connectWallet }, h("span", { class: "iconbtn" }, icon("wallet")), h("div", { class: "grow" }, h("b", null, "Connect wallet"), h("div", { class: "sub" }, "Engram · XSWD"))));
-    if (note) note.textContent = (D.cfg.network || "") + " · TELA commit " + ((document.querySelector('meta[name="veil-commit"]') || {}).content || "—");
+    // The rail foot carries the build stamp and, above it, the one page that outranks every other piece of copy.
+    if (note) U.render(note,
+      h("button", { class: "notice-link", type: "button", onclick: () => U.router.go("notice") }, "A message from the dev"),
+      h("span", { class: "notice-build" }, (D.cfg.network || "") + " · TELA commit " + ((document.querySelector('meta[name="veil-commit"]') || {}).content || "—")));
     btn.onclick = W.connected ? () => openSheet(h("h2", null, "Wallet"), h("div", { class: "card mt stack" }, kv("Address", h("span", { class: "mono" }, V.shortAddr(W.address))), kv("Node", W.daemon || "—"), kv("Connection", "XSWD on this device")),
       h("div", { class: "note mt" }, "DMZ never sees your keys. Every transaction is built here, shown to you by your wallet, and only sent when you approve it there."),
       button("Disconnect", "wide mt", () => { app.saveSettings({ autoConnect: false }); W.disconnect(); closeSheet(); })) : app.connectWallet;
@@ -97,7 +100,7 @@
     if (!opts.code && !isScid(opts.scid)) { toast("Refusing: bad contract id", "err"); return null; }
     if (opts.asset && !isScid(opts.asset.scid)) { toast("Refusing: bad asset id", "err"); return null; }
     const ring = opts.ring === 16 ? 16 : 2; // 16 only for entrypoints that pay a named address (SIGNER() is blank above 2)
-    if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid) || (D.cfg.vault && opts.scid === D.cfg.vault))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
+    if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid) || (D.cfg.vault && opts.scid === D.cfg.vault) || (D.cfg.chat && opts.scid === D.cfg.chat))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
     const transfers = [];
     if (opts.dero && opts.dero > Z) {
       let dst; try { dst = await V.node.randomAddress(); } catch (e) { toast("No node answers for a burn destination: " + short(e.message), "err", 6000); return null; }

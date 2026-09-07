@@ -14,10 +14,9 @@
 <link rel="stylesheet" href="desk.css">
 </head>
 <body>
-<div id="glow" aria-hidden="true"></div>
 <div id="app" class="app">
   <header class="top">
-    <div class="brand" id="brand"><span class="logo" aria-hidden="true"></span>DMZ</div>
+    <div class="brand" id="brand"><svg class="mark" viewBox="0 0 154 40" role="img" aria-label="DMZ"><path fill="var(--fg)" fill-rule="evenodd" d="M0 6 6 0h18l10 10v20l-10 10H6L0 34Z M10 11h10l4 4v10l-4 4H10Z"/><path fill="var(--fg)" d="M44 40V6l6-6h6l14 24L84 0h6l6 6v34h-10V16L74 37h-8L54 16v24Z"/><path fill="var(--acc)" d="M57 40h11L84 0H73Z"/><path fill="var(--fg)" d="M104 0h50v10l-32 20h32v10h-50v-10l32-20h-32Z"/><path fill="var(--graphite)" d="M136 10h18l-32 20h-18Z"/></svg></div>
     <div class="gsearch"><input id="gsearch" type="search" placeholder="Search markets, tickers, contract ids" autocomplete="off" spellcheck="false" aria-label="search"></div>
     <div class="top-right">
       <span id="net" class="pill dim">offline</span>
@@ -29,11 +28,13 @@
   <main id="screen" class="screen"></main>
 
   <nav class="tabs" role="tablist" aria-label="Main">
-    <div class="side-brand" aria-hidden="true"><span class="logo"></span>DMZ</div>
+    <div class="side-brand"><svg class="mark" viewBox="0 0 154 40" role="img" aria-label="DMZ"><path fill="var(--fg)" fill-rule="evenodd" d="M0 6 6 0h18l10 10v20l-10 10H6L0 34Z M10 11h10l4 4v10l-4 4H10Z"/><path fill="var(--fg)" d="M44 40V6l6-6h6l14 24L84 0h6l6 6v34h-10V16L74 37h-8L54 16v24Z"/><path fill="var(--acc)" d="M57 40h11L84 0H73Z"/><path fill="var(--fg)" d="M104 0h50v10l-32 20h32v10h-50v-10l32-20h-32Z"/><path fill="var(--graphite)" d="M136 10h18l-32 20h-18Z"/></svg></div>
     <button class="tab" data-tab="home" role="tab" type="button"><i class="ic ic-home"></i><span>Home</span></button>
     <button class="tab" data-tab="markets" role="tab" type="button"><i class="ic ic-markets"></i><span>Markets</span></button>
     <button class="tab tab-main" data-tab="trade" role="tab" type="button"><i class="ic ic-trade"></i><span>Trade</span></button>
+    <button class="tab" data-tab="wrap" role="tab" type="button"><i class="ic ic-wrap"></i><span>Wrap</span></button>
     <button class="tab" data-tab="nfts" role="tab" type="button"><i class="ic ic-nft"></i><span>NFTs</span></button>
+    <button class="tab" data-tab="chat" role="tab" type="button"><i class="ic ic-chat"></i><span>Chat</span></button>
     <button class="tab" data-tab="portfolio" role="tab" type="button"><i class="ic ic-port"></i><span>Portfolio</span></button>
     <button class="tab" data-tab="profile" role="tab" type="button"><i class="ic ic-user"></i><span>Profile</span></button>
     <div class="side-foot"><div id="sideWallet"></div><div class="note" id="sideNote"></div></div>
@@ -63,6 +64,8 @@
 <script src="nft.js"></script>
 <script src="nfts.js"></script>
 <script src="wrap.js"></script>
+<script src="notice.js"></script>
+<script src="chat.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

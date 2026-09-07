@@ -1,11 +1,16 @@
 // DMZ forms.js — creation forms: launch, pool, holder NFT, profile.
 (function () {
-  const V = window.Veil, U = V.ui, A = V.amm, D = V.data, W = V.wallet, S = V.stats, { h, render, pill, toast, openSheet, closeSheet, button, router } = U;
+  const V = window.Veil, U = V.ui, A = V.amm, D = V.data, W = V.wallet, S = V.stats, { h, render, toast, openSheet, closeSheet, button, router } = U;
   const Z = 0n, F = (V.forms = {});
   const field = (label, input) => h("label", { class: "field" }, label, input);
   const inp = (attrs) => h("input", Object.assign({ autocomplete: "off" }, attrs));
+  // a group of fields sits one level above a field label: h3, not the label type the fields already use
+  const group = (t) => h("h3", { class: "mt" }, t);
+  const mini = (label, value) => h("div", { class: "mini", style: "flex:1 0 44%" }, h("div", { class: "l" }, label), value);
   const badUrl = (v) => v && !U.safeUrl(v.trim()); // creators may leave it empty; if set it must be https
   const TICK = /^[A-Z0-9]{1,10}$/;
+  // every entrypoint here reads SIGNER(), so the call goes out at ring size 2 and the payer is public
+  const RING2 = "Ring size 2: the transaction names your address. Anyone can compute who signed it.";
   async function template(kind) { const t = D.cfg.templates[kind]; const r = await fetch(t.file); if (!r.ok) throw new Error("template " + kind + " missing"); const code = await r.text(); if (t.sha256 && (await V.sha256Hex(code)) !== t.sha256) throw new Error("template hash mismatch"); return code; }
   async function installAndRegister(kind, args, registerEntry) {
     const code = await template(kind);
@@ -30,7 +35,7 @@
     const modes = U.segmented([{ v: 0, l: "No tax" }, { v: 1, l: "Creator" }, { v: 2, l: "Buyback" }, { v: 3, l: "Stakers" }], 0, (v) => { tmode = v; update(); });
     const unitsNote = h("div", { class: "note" });
     // live preview
-    const pv = { av: h("div"), name: h("b", { class: "ellipsis" }), tick: h("div", { class: "sub ellipsis" }), start: h("b", { class: "num" }), end: h("b", { class: "num" }), mcap: h("b", { class: "num" }), tax: h("b"), curve: h("div"), cost: h("span", { class: "note" }) };
+    const pv = { av: h("div"), name: h("b", { class: "ellipsis" }), tick: h("div", { class: "sub ellipsis" }), start: h("div", { class: "v" }), end: h("div", { class: "v" }), mcap: h("div", { class: "v" }), tax: h("div", { class: "v" }), curve: h("div"), cost: h("div", { class: "note mt8" }), err: h("div") };
     const chips = h("div", { class: "chips nowrap mt8" }, [10, 50, 100, 500].map((g) => h("button", { class: "chip sm", type: "button", onclick: () => { f.grad.value = String(g); update(); } }, g + " DERO")));
     // one parser for the preview and the submit, with the limits InitializePrivate enforces: what the preview
     // shows is what the contract receives, and a value the contract would refuse never reaches the wallet
@@ -56,7 +61,8 @@
       const t = (f.ticker.value || "").toUpperCase().slice(0, 10);
       render(pv.av, U.avatar({ ticker: t || "?", scid: "preview:" + (t || f.name.value), icon: U.safeUrl(f.icon.value) }));
       pv.name.textContent = f.name.value.trim() || "Your token"; pv.tick.textContent = (t || "TICKER") + " · curve 0%";
-      if (!r.ok) { pv.start.textContent = pv.end.textContent = pv.mcap.textContent = "—"; render(pv.curve); pv.cost.textContent = r.error; return; }
+      if (!r.ok) { pv.start.textContent = pv.end.textContent = pv.mcap.textContent = pv.tax.textContent = "—"; render(pv.curve); pv.cost.textContent = ""; render(pv.err, h("div", { class: "errbox mt" }, r.error)); return; }
+      render(pv.err);
       const alloc = (supply / 10000n) * cbps + ((supply % 10000n) * cbps) / 10000n, rest = supply - alloc, lq = rest / 5n, c = rest - lq, vd0 = grad / 3n, vt0 = ((grad + vd0) * c) / grad;
       const k = vd0 * vt0, p0 = A.price({ rd: vd0, ra: vt0 }, dec), p1 = p0 * 16, pts = [];
       for (let i = 0; i <= 40; i++) { const d = (grad * BigInt(i)) / 40n; pts.push({ ts: i, rd: vd0 + d, ra: k / (vd0 + d) }); }
@@ -68,19 +74,22 @@
     };
     for (const k of Object.keys(f)) f[k].oninput = update;
     openSheet(h("h2", null, "Launch a token"), h("div", { class: "sub mt8" }, "Fixed supply on a bonding curve that graduates into a locked AMM. Nothing to run, nothing to rug."),
-      h("div", { class: "card tight mt" }, h("div", { class: "row" }, pv.av, h("div", { class: "grow ellipsis" }, pv.name, pv.tick), pill("NEW", "warn")),
+      // Level 1: the token you are about to install, priced with the maths the contract itself runs
+      h("div", { class: "hero mt" }, h("div", { class: "between" }, h("span", { class: "eyebrow" }, "Preview"), h("span", { class: "net" }, "DR")),
+        h("div", { class: "row mt8" }, pv.av, h("div", { class: "grow ellipsis" }, pv.name, pv.tick)),
         h("div", { class: "mt8" }, pv.curve),
-        h("div", { class: "grid4 mt8", style: "grid-template-columns:repeat(2,1fr)" },
-          h("div", { class: "stat" }, h("div", { class: "l" }, "First price"), h("div", { class: "v" }, pv.start)), h("div", { class: "stat" }, h("div", { class: "l" }, "At graduation (16×)"), h("div", { class: "v" }, pv.end)),
-          h("div", { class: "stat" }, h("div", { class: "l" }, "FDV at graduation"), h("div", { class: "v" }, pv.mcap)), h("div", { class: "stat" }, h("div", { class: "l" }, "Tax"), h("div", { class: "v" }, pv.tax))),
-        h("div", { class: "mt8" }, pv.cost)),
-      h("div", { class: "stack mt" }, h("div", { class: "row" }, field("Name", f.name), field("Ticker", f.ticker)),
-        h("div", { class: "field" }, "Graduation target (DERO raised before the AMM opens)", f.grad, chips),
+        h("div", { class: "pulse-row mt" }, mini("First price", pv.start), mini("At graduation (16×)", pv.end), mini("FDV at graduation", pv.mcap), mini("Tax", pv.tax)),
+        pv.cost),
+      pv.err,
+      group("Token"),
+      h("div", { class: "stack mt8" }, h("div", { class: "row" }, field("Name", f.name), field("Ticker", f.ticker)),
+        h("div", null, field("Graduation target (DERO)", f.grad), chips, h("div", { class: "note mt8" }, "How much DERO the curve raises before the AMM opens.")),
         field("Image", f.icon), field("Description", f.descr)),
       U.details("Advanced: supply, decimals, allocation, tax",
         h("div", { class: "stack", style: "padding-bottom:8px" }, h("div", { class: "row" }, field("Supply (whole tokens)", f.supply), field("Decimals (≤12)", f.dec)), unitsNote,
           h("div", { class: "row" }, field("Creator allocation % (≤5)", f.cbps), field("Tax % of each trade's DERO leg (≤10)", f.tax)), field("Tax goes to", modes), field("Tags", f.tags))),
-      h("div", { class: "note mt" }, "80% of the supply after the creator allocation is sold on the curve; 20% seeds the AMM at graduation with the DERO raised, locked forever. Protocol fee " + Number(D.cfg.feeBps) / 100 + "% per trade."),
+      h("div", { class: "stack mt", style: "gap:0" }, U.kv("Route", "bonding curve, then a locked AMM"), U.kv("Protocol fee", Number(D.cfg.feeBps) / 100 + "% per trade")),
+      h("div", { class: "note mt8" }, "80% of the supply after the creator allocation is sold on the curve; 20% seeds the AMM at graduation with the DERO raised, locked forever. " + RING2),
       button("Launch", "primary wide mt", async () => {
         const r = readForm();
         if (!r.ok) return toast(r.error, "err");
@@ -96,8 +105,11 @@
   };
   F.pool = () => {
     const asset = inp({ placeholder: "Asset SCID (64 hex)", class: "mono" });
-    openSheet(h("h2", null, "Create a pool"), h("div", { class: "stack mt" }, field("Asset", asset)),
-      h("div", { class: "note mt" }, "Fee " + Number(D.cfg.feeBps) / 100 + "% per trade, half to LPs, half to the protocol. After creation add the first liquidity from the token page. Two confirmations: install, then register. A pool over an asset that is not a DMZ launch is listed with an amber \u201casset unknown\u201d badge: DMZ cannot verify what an arbitrary asset is."),
+    openSheet(h("h2", null, "Create a pool"), h("div", { class: "sub mt8" }, "A constant-product market over any DERO asset. Two wallet confirmations: install, then register."),
+      h("div", { class: "stack mt" }, field("Asset", asset)),
+      h("div", { class: "stack mt", style: "gap:0" }, U.kv("Fee", Number(D.cfg.feeBps) / 100 + "% per trade"), U.kv("Fee split", "half to LPs, half to the protocol"), U.kv("Route", "constant-product AMM")),
+      h("div", { class: "warnbox mt" }, "DMZ cannot verify what an arbitrary asset is: anyone can create a DERO asset with any name. A pool over an asset that is not a DMZ launch is listed with an amber “asset unknown” badge. Check the asset id yourself."),
+      h("div", { class: "note mt8" }, "Add the first liquidity from the token page once the pool exists. " + RING2),
       button("Create", "primary wide mt", async () => {
         const a = asset.value.trim().toLowerCase(); if (!/^[0-9a-f]{64}$/.test(a)) return toast("Enter a 64-hex SCID", "err");
         try { const sc = await V.node.getSC(a, { code: true }); if (!sc.code) throw new Error(); } catch (e) { return toast("No contract at that SCID", "err"); }
@@ -108,11 +120,18 @@
   };
   F.nft = () => {
     const launches = D.list().filter((s) => s.kind === "launch");
+    if (!launches.length) return openSheet(h("h2", null, "Create a holder NFT"),
+      U.emptyState("gem", "No launch to gate on", "A holder NFT is minted only by holders of a DMZ launch, and no launch is listed yet.", button("Launch one first", "primary", () => F.launch())));
     const sel = h("select", null, launches.map((s) => h("option", { value: s.scid }, s.ticker + " · " + s.name)));
     const f = { name: inp({ placeholder: "Name (≤64)", maxlength: 64 }), descr: h("textarea", { placeholder: "Description" }), icon: inp({ placeholder: "Icon URL" }), file: inp({ placeholder: "Image URL" }), tags: inp({ placeholder: "#tags" }), coll: inp({ placeholder: "Collection name" }), minhold: inp({ value: "1000", inputmode: "decimal" }), blocks: inp({ value: "1000", inputmode: "numeric" }), max: inp({ value: "100", inputmode: "numeric" }), price: inp({ value: "1", inputmode: "decimal" }) };
-    openSheet(h("h2", null, "Create a holder NFT"),
-      h("div", { class: "stack mt" }, field("Token to hold", sel), field("Name", f.name), field("Description", f.descr), field("Icon URL", f.icon), field("Image URL", f.file), field("Tags", f.tags), field("Collection", f.coll),
-        h("div", { class: "row" }, field("Min hold (tokens)", f.minhold), field("Hold blocks", f.blocks)), h("div", { class: "row" }, field("Max editions", f.max), field("Mint price (DERO)", f.price))),
+    openSheet(h("h2", null, "Create a holder NFT"), h("div", { class: "sub mt8" }, "An edition only a holder of your token can mint."),
+      group("Identity"),
+      h("div", { class: "stack mt8" }, field("Name", f.name), field("Description", f.descr), field("Icon URL", f.icon), field("Image URL", f.file), field("Tags", f.tags), field("Collection", f.coll)),
+      group("Holder gate"),
+      h("div", { class: "stack mt8" }, field("Token to hold", sel), h("div", { class: "row" }, field("Min hold (tokens)", f.minhold), field("Hold blocks", f.blocks))),
+      group("Edition"),
+      h("div", { class: "stack mt8" }, h("div", { class: "row" }, field("Max editions", f.max), field("Mint price (DERO)", f.price))),
+      h("div", { class: "note mt" }, "Two wallet confirmations: install, then register. " + RING2),
       button("Create", "primary wide mt", async () => {
         const tok = D.assets.get(sel.value); if (!tok) return toast("Pick a token", "err");
         const minhold = A.parseUnits(f.minhold.value, tok.dec), price = A.parseUnits(f.price.value, 5n) || Z;
@@ -125,7 +144,9 @@
   };
   F.profile = (p) => {
     const name = inp({ value: p.name || "", maxlength: 32, placeholder: "Display name" }), bio = h("textarea", { maxlength: 160, placeholder: "Bio" }, p.bio || ""), av = inp({ value: p.avatar || "", placeholder: "Avatar URL" });
-    openSheet(h("h2", null, "Edit profile"), h("div", { class: "stack mt" }, field("Name", name), field("Bio", bio), field("Avatar URL", av)), h("div", { class: "note mt" }, "Stored publicly on the social contract under your address."),
+    openSheet(h("h2", null, "Edit profile"), h("div", { class: "sub mt8" }, "What this address shows other people. Your balances and your trades are not part of it."),
+      h("div", { class: "stack mt" }, field("Name", name), field("Bio", bio), field("Avatar URL", av)),
+      h("div", { class: "warnbox mt" }, "This is stored in the clear on the social contract, under your address, for anyone to read. " + RING2),
       button("Save", "primary wide mt", async () => { if (badUrl(av.value)) return toast("Avatar URL must start with https://", "err"); closeSheet(); const ok = await V.app.tx({ scid: D.cfg.social, entry: "Profile", args: [["name", "S", name.value], ["bio", "S", bio.value], ["avatar", "S", av.value]], describe: "Update profile" }); if (ok) { await D.loadSocial(W.canon); router.dispatch(); } }));
   };
 })();

@@ -1,79 +1,204 @@
-/* DMZ components 2/2 — trade sheet, forms, stats, chart, tape, progress, intro, misc */
-.amount{display:flex;align-items:baseline;gap:8px;background:var(--s2);border:1px solid var(--hair2);border-radius:var(--r2);padding:14px 16px;transition:border-color .15s,box-shadow .15s}
-.amount:focus-within{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc2)}
-.amount input{background:none;border:0;padding:0;font-size:32px;font-weight:800;width:100%;font-variant-numeric:tabular-nums;letter-spacing:-.03em;box-shadow:none}
+/* DMZ components 2/2 — trade sheet, forms, stats, chart, tape, progress, intro, misc.
+   Level 3 data carries no background and no border: a label, a number, and the space around it. */
+.amount{display:flex;align-items:baseline;gap:8px;background:var(--s2);border:1px solid var(--edge);border-radius:var(--r1);padding:13px 14px;transition:border-color .15s}
+.amount:focus-within{border-color:var(--acc)}
+.amount input{background:none;border:0;padding:0;font-size:30px;font-weight:650;width:100%;font-variant-numeric:tabular-nums;letter-spacing:-.035em;box-shadow:none}
 .amount input:focus{outline:0;box-shadow:none}
-.amount .unit{font-weight:700;color:var(--fg2)}
-.outline{background:var(--s2);border:1px solid var(--hair);border-radius:var(--r2);padding:13px 16px}
-.outline .l{font-size:12px;color:var(--fg3)}.outline .v{font-size:24px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
-.kv{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px dashed var(--hair);font-size:13.5px}
-.kv:last-child{border:0}.kv b{font-variant-numeric:tabular-nums;font-weight:600;text-align:right;min-width:0;overflow-wrap:anywhere}
+.amount .unit{font-weight:650;color:var(--fg2)}
+.outline{background:transparent;border:1px solid var(--edge);border-radius:var(--r1);padding:12px 14px}
+.outline .l{font-size:10.5px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:var(--fg3)}
+.outline .v{font-size:22px;font-weight:650;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin-top:2px}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--edge);font-size:13px}
+.kv:last-child{border:0}
+.kv>.dim{color:var(--fg3);font-size:12.5px}
+.kv b{font-variant-numeric:tabular-nums;font-weight:650;text-align:right;min-width:0;overflow-wrap:anywhere}
 .toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0}
-.sw{width:46px;height:27px;border-radius:14px;background:var(--s4);position:relative;transition:background .15s;flex:none}
-.sw::after{content:"";position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;background:#fff;transition:transform .18s cubic-bezier(.2,.7,.2,1);box-shadow:0 1px 3px rgba(0,0,0,.4)}
-.sw.on{background:var(--up)}.sw.on::after{transform:translateX(19px)}
-details.more{border-top:1px solid var(--hair);margin-top:12px}
-details.more summary{list-style:none;cursor:pointer;padding:12px 0;font-size:13.5px;color:var(--fg2);display:flex;justify-content:space-between;align-items:center}
+.sw{width:40px;height:22px;border-radius:var(--r1);background:var(--s3);position:relative;transition:background .15s;flex:none;border:1px solid var(--edge)}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:0;background:var(--fg3);transition:transform .15s cubic-bezier(.2,0,0,1),background .15s}
+.sw.on{background:var(--acc-dim);border-color:color-mix(in oklab,var(--acc) 45%,transparent)}
+.sw.on::after{transform:translateX(18px);background:var(--acc)}
+details.more{border-top:1px solid var(--edge);margin-top:12px}
+details.more summary{list-style:none;cursor:pointer;padding:11px 0;font-size:12.5px;color:var(--fg2);display:flex;justify-content:space-between;align-items:center}
 details.more summary::-webkit-details-marker{display:none}
 details.more[open] summary .svgi{transform:rotate(180deg)}
-.riskbox{border-radius:var(--r2);padding:11px 13px;font-size:13px;line-height:1.45;display:flex;gap:9px;align-items:flex-start}
-.riskbox.warn{background:var(--warn2);border:1px solid rgba(255,181,71,.35);color:#ffd9a0}
-.riskbox.danger{background:var(--down2);border:1px solid rgba(255,92,138,.4);color:#ffb8cb}
-.warnbox{background:var(--warn2);border:1px solid rgba(255,181,71,.35);border-radius:var(--r2);padding:11px 13px;font-size:13px}
-.errbox{background:var(--down2);border:1px solid rgba(255,92,138,.4);border-radius:var(--r2);padding:11px 13px;font-size:13px}
-.field{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--fg2);flex:1}
-.seg{display:grid;grid-auto-flow:column;gap:4px;background:var(--s2);padding:4px;border-radius:var(--pill);border:1px solid var(--hair)}
-.seg button{padding:8px 12px;border-radius:var(--pill);font-weight:600;color:var(--fg2);font-size:13px;transition:background .15s,color .15s}
-.seg button.on{background:var(--s4);color:var(--fg);box-shadow:inset 0 1px 0 var(--hi)}
-.iconbtn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;background:var(--s2);border:1px solid var(--hair);color:var(--fg2)}
-.iconbtn svg{width:16px;height:16px}
-/* stats */
-.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.grid4 .stat{padding:9px 8px}.grid4 .stat .v{font-size:13px}
+/* caution surfaces: a leading edge and plain words, never a tinted glowing panel */
+.riskbox{border-radius:var(--r1);padding:10px 12px;font-size:12.5px;line-height:1.5;display:flex;gap:9px;align-items:flex-start;background:var(--s1);border:1px solid var(--edge)}
+.riskbox.warn{border-left:2px solid var(--warn);color:var(--fg2)}
+.riskbox.danger{border-left:2px solid var(--down);color:var(--fg2)}
+.warnbox{background:var(--s1);border:1px solid var(--edge);border-left:2px solid var(--warn);border-radius:var(--r1);padding:10px 12px;font-size:12.5px;color:var(--fg2)}
+.warnbox b{color:var(--fg)}
+.errbox{background:var(--s1);border:1px solid var(--edge);border-left:2px solid var(--down);border-radius:var(--r1);padding:10px 12px;font-size:12.5px;color:var(--fg2)}
+.field{display:flex;flex-direction:column;gap:6px;font-size:10.5px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:var(--fg3);flex:1}
+.field input,.field textarea,.field select{font-size:14px;font-weight:400;letter-spacing:0;text-transform:none;color:var(--fg)}
+/* a segmented control is divided cells, not floating pills in a tray */
+.seg{display:grid;grid-auto-flow:column;gap:0;background:transparent;padding:0;border-radius:var(--r1);border:1px solid var(--edge)}
+.seg button{padding:8px 12px;border-radius:0;font-weight:650;color:var(--fg3);font-size:12.5px;transition:color .15s,background .15s;position:relative}
+.seg button+button{box-shadow:inset 1px 0 0 var(--edge)}
+.seg button.on{background:var(--s2);color:var(--fg)}
+.iconbtn{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:var(--r1);background:transparent;border:1px solid var(--edge);color:var(--fg2)}
+.iconbtn:hover{border-color:var(--edge2);color:var(--fg)}
+.iconbtn svg{width:15px;height:15px}
+/* stats — Level 3: no box, hairline separated */
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:0}
+.grid4 .stat{padding:9px 10px}.grid4 .stat .v{font-size:13px}
+.stats3{display:flex;gap:0;border:1px solid var(--edge);border-radius:var(--r1)}
 .stats3 .stat{flex:1}
-.stat{background:var(--s2);border-radius:var(--r2);padding:11px 12px;flex:1;min-width:0;border:1px solid var(--hair)}
-.stat .l{font-size:10.5px;color:var(--fg3);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}
-.stat .v{font-weight:800;font-size:15.5px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.02em}
-.pressure{height:7px;border-radius:4px;background:var(--down2);overflow:hidden;margin-top:6px}
-.pressure i{display:block;height:100%;background:linear-gradient(90deg,var(--up),#8ff5d0);border-radius:4px;transition:width .6s;box-shadow:0 0 10px var(--up)}
-.progress{height:8px;border-radius:4px;background:var(--s3);overflow:hidden}
-.progress i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc3),var(--up));transition:width .6s}
-.flash-up{animation:fup .9s ease-out}.flash-down{animation:fdown .9s ease-out}
-@keyframes fup{0%{color:var(--up);text-shadow:0 0 14px rgba(46,230,166,.75)}100%{color:inherit;text-shadow:none}}
-@keyframes fdown{0%{color:var(--down);text-shadow:0 0 14px rgba(255,92,138,.75)}100%{color:inherit;text-shadow:none}}
-/* chart */
+.stat{background:transparent;border-radius:0;padding:10px 12px;flex:1;min-width:0;border:0}
+.stat+.stat{box-shadow:inset 1px 0 0 var(--edge)}
+.stat .l{font-size:10px;color:var(--fg3);text-transform:uppercase;letter-spacing:.10em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}
+.stat .v{font-weight:650;font-size:15px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.025em;font-variant-numeric:tabular-nums}
+.pressure{height:3px;border-radius:0;background:var(--s3);overflow:hidden;margin-top:8px}
+.pressure i{display:block;height:100%;background:var(--up);border-radius:0;transition:width .4s}
+.progress{height:3px;border-radius:0;background:var(--s3);overflow:hidden}
+.progress i{display:block;height:100%;background:var(--acc);transition:width .4s}
+.flash-up{animation:fup .6s ease-out}.flash-down{animation:fdown .6s ease-out}
+@keyframes fup{0%{color:var(--up)}100%{color:inherit}}
+@keyframes fdown{0%{color:var(--down)}100%{color:inherit}}
+/* chart: hairline grid, 1px line, no fill gradient and no glow. The chart is the hero. */
 .chart{position:relative;margin-top:12px}
-.chart svg.cx{width:100%;height:auto;display:block;border-radius:16px}
+.chart svg.cx{width:100%;height:auto;display:block;border-radius:0}
 .chart svg text{font-family:var(--font)}
-.live-dot{animation:pulse 1.6s ease-out infinite}
-.ctip{position:absolute;top:6px;background:rgba(15,16,25,.96);border:1px solid var(--hair2);border-radius:12px;padding:8px 11px;font-size:11.5px;display:flex;flex-direction:column;gap:2px;pointer-events:none;font-variant-numeric:tabular-nums;z-index:2;min-width:124px;box-shadow:var(--sh)}
-.ctip b{color:var(--fg2);font-weight:600}.ctip i{font-style:normal;font-weight:700}
-/* tape */
-.tape{overflow:hidden;white-space:nowrap;border-bottom:1px solid var(--hair);background:rgba(255,255,255,.015);-webkit-mask:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);mask:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
-.tape-track{display:inline-flex;gap:6px;padding:7px 0;animation:tape var(--tape-dur,40s) linear infinite}
+.live-dot{animation:none}
+.ctip{position:absolute;top:6px;background:var(--s2);border:1px solid var(--edge2);border-radius:var(--r1);padding:8px 10px;font-size:11px;display:flex;flex-direction:column;gap:2px;pointer-events:none;font-variant-numeric:tabular-nums;z-index:2;min-width:120px}
+.ctip b{color:var(--fg3);font-weight:700;font-size:10px;letter-spacing:.08em;text-transform:uppercase}.ctip i{font-style:normal;font-weight:650}
+/* tape: a telemetry strip. Ambient, thin, mono, never dominant. */
+.tape{overflow:hidden;white-space:nowrap;border-bottom:1px solid var(--edge);background:var(--bg);-webkit-mask:linear-gradient(90deg,transparent,#000 4%,#000 96%,transparent);mask:linear-gradient(90deg,transparent,#000 4%,#000 96%,transparent)}
+.tape-track{display:inline-flex;gap:0;padding:5px 0;animation:tape var(--tape-dur,40s) linear infinite}
 .tape:hover .tape-track{animation-play-state:paused}
 @keyframes tape{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-.tape-item{display:inline-flex;align-items:baseline;gap:6px;padding:2px 10px;font-size:12px;border-radius:var(--pill)}
-.tape-item b{letter-spacing:.02em}.tape-item .tc{font-size:11px;font-weight:700}
+.tape-item{display:inline-flex;align-items:baseline;gap:6px;padding:1px 14px;font-size:11px;border-radius:0;font-family:var(--mono);letter-spacing:-.01em}
+.tape-item+.tape-item{box-shadow:inset 1px 0 0 var(--edge)}
+.tape-item b{letter-spacing:.04em;font-weight:700;color:var(--fg2)}.tape-item .tc{font-size:10.5px;font-weight:650}
 /* intro + verified */
 .intro{display:flex;flex-direction:column;gap:14px}
 .intro .step{display:flex;gap:12px;align-items:flex-start}
-.intro .n{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;background:var(--acc2);color:#d3ccff;font-weight:800;flex:none}
-.intro-mark{width:56px;height:56px;border-radius:18px;background:conic-gradient(from 200deg,var(--acc),var(--acc3),var(--up),var(--down),var(--acc));box-shadow:0 12px 34px rgba(124,108,255,.45),inset 0 0 0 1px rgba(255,255,255,.25);margin-bottom:14px}
-.verified{display:inline-flex;align-items:center;gap:4px;color:var(--up);font-size:12px;font-weight:700}
-.verified svg{width:14px;height:14px}
-/* hero pulse */
-.pulse-row{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+.intro .n{width:24px;height:24px;border-radius:0;display:grid;place-items:center;background:transparent;border:1px solid var(--edge);color:var(--fg3);font-weight:700;font-size:12px;flex:none;font-variant-numeric:tabular-nums}
+.intro-mark{width:auto;height:34px;border-radius:0;background:none;box-shadow:none;margin-bottom:16px}
+.verified{display:inline-flex;align-items:center;gap:4px;color:var(--up);font-size:11.5px;font-weight:650}
+.verified svg{width:13px;height:13px}
+/* hero: Level 1 */
+.pulse-row{display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap}
 .pulse-row .big{font-size:38px}
-.mini{display:flex;flex-direction:column;gap:2px}
-.mini .l{font-size:10.5px;color:var(--fg3);text-transform:uppercase;letter-spacing:.09em;font-weight:700}
-.mini .v{font-weight:800;font-size:16px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-.founders{background:linear-gradient(135deg,rgba(124,108,255,.18),rgba(90,209,255,.08));border-color:rgba(124,108,255,.35)}
+.mini{display:flex;flex-direction:column;gap:3px}
+.mini .l{font-size:10px;color:var(--fg3);text-transform:uppercase;letter-spacing:.10em;font-weight:700}
+.mini .v{font-weight:650;font-size:15px;letter-spacing:-.025em;font-variant-numeric:tabular-nums}
+.founders{background:var(--s1);border-color:var(--edge);border-left:2px solid var(--acc)}
 .side-wallet{display:none}
 
-.verified.warn{background:var(--warn2);color:var(--warn);border-color:rgba(255,181,71,.35)}
+.verified.warn{background:transparent;color:var(--warn);border-color:transparent}
 .svgi.warn{color:var(--warn)}
 
-/* four stats fit two-up on a phone and four-up once there is room; .stats3 stays a flex row */
-.stats4{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-@media (min-width:720px){.stats4{grid-template-columns:repeat(4,minmax(0,1fr))}}
+/* four stats fit two-up on a phone and four-up once there is room */
+.stats4{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--edge);border-radius:var(--r1)}
+.stats4 .stat:nth-child(2n){box-shadow:inset 1px 0 0 var(--edge)}
+.stats4 .stat:nth-child(n+3){box-shadow:inset 0 1px 0 var(--edge)}
+.stats4 .stat:nth-child(2n+4){box-shadow:inset 1px 0 0 var(--edge),inset 0 1px 0 var(--edge)}
+@media (min-width:720px){
+  .stats4{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .stats4 .stat:nth-child(n+3){box-shadow:inset 1px 0 0 var(--edge)}
+  .stats4 .stat:first-child{box-shadow:none}
+}
+/* network grammar: a two-letter mono label with a hairline leading edge in the network's tint */
+.net{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--fg3);padding-left:6px;border-left:2px solid var(--net-dero)}
+.net.xmr{border-left-color:var(--net-xmr)}
+.net.zec{border-left-color:var(--net-zec)}
+
+/* chat: an IRC client whose server is a contract. Dense, monospace, hairline-ruled — the block height is the
+   clock, so the gutter carries a number rather than a wall-clock time nobody can verify. */
+.chat-grid{display:flex;flex-direction:column;margin:0 -16px}
+.rooms{display:flex;gap:0;overflow-x:auto;scrollbar-width:none;border-top:1px solid var(--edge);border-bottom:1px solid var(--edge)}
+.rooms::-webkit-scrollbar{display:none}
+.rooms-h{display:none}
+.roomrow{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:8px 14px;white-space:nowrap;color:var(--fg3);position:relative;flex:none;transition:color .15s;text-align:left}
+.roomrow .tiny{margin-left:auto}
+.roomrow+.roomrow{box-shadow:inset 1px 0 0 var(--edge)}
+.roomrow:hover{color:var(--fg2)}
+.roomrow.on{color:var(--fg)}
+.roomrow.on::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--acc)}
+.roomrow .grow{flex:none}
+.chan{display:flex;flex-direction:column;min-width:0}
+.chan-head{display:flex;align-items:baseline;gap:10px;padding:10px 16px;border-bottom:1px solid var(--edge)}
+.chan-head b{font-size:14px;letter-spacing:.02em}
+.log{display:flex;flex-direction:column;justify-content:flex-end;padding:6px 0}
+/* one message: height gutter, nick column, text. The three columns are what make a wall of chat scannable. */
+.msg{display:grid;grid-template-columns:58px 104px minmax(0,1fr);gap:10px;align-items:baseline;padding:3px 16px;border-left:2px solid transparent}
+.msg:hover{background:var(--s1)}
+.msg.mine{border-left-color:var(--acc)}
+.msg .when{font-size:10.5px;color:var(--fg3);text-align:right}
+.msg .who{font-size:11.5px;color:var(--fg2);text-align:right;font-weight:700;padding:0}
+.msg.mine .who{color:var(--fg)}
+.msg .what{font-size:13.5px;line-height:1.5;overflow-wrap:anywhere}
+.msg .what.act{color:var(--fg2);font-style:italic}
+.msg.sending{opacity:.45}
+.composer{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--edge)}
+.composer .prompt{font-size:14px;flex:none}
+.compose{background:transparent;border:0;border-radius:0;padding:6px 0;font-size:13.5px}
+.compose:focus{border:0;outline:0}
+.chan-foot{padding:0 16px 8px}
+@media (min-width:960px){
+  .chat-grid{flex-direction:row;margin:0;border:1px solid var(--edge);border-radius:var(--r1);min-height:calc(100vh - 190px)}
+  .rooms{flex-direction:column;overflow-x:visible;overflow-y:auto;width:190px;flex:none;border:0;border-right:1px solid var(--edge);padding:8px 0}
+  .rooms-h{display:block;padding:6px 14px 8px}
+  .roomrow{padding:6px 14px;flex:none}
+  .roomrow+.roomrow{box-shadow:none}
+  .roomrow.on::after{left:0;right:auto;top:0;bottom:0;width:2px;height:auto}
+  .roomrow .grow{flex:1}
+  .chan{flex:1}
+  .log{flex:1;overflow-y:auto;padding:8px 0;justify-content:flex-end}
+  .msg{grid-template-columns:62px 128px minmax(0,1fr)}
+}
+
+@media (max-width:719px){
+  .msg{display:block;padding:4px 16px}
+  .msg .when{display:inline;margin-right:8px}
+  .msg .who{display:inline;margin-right:6px;text-align:left}
+  .msg .what{display:inline}
+}
+
+/* A market row narrow enough for a column that has a rail beside it. The Markets table grid needs ~586px, which
+   overflows the Home and token main columns, so those use this instead of redeclaring the grid inline. */
+.mrow.narrow{grid-template-columns:20px 22px minmax(0,1fr) var(--sp,62px) auto;gap:9px;padding:9px 2px}
+.mrow.narrow .sp{width:var(--sp,62px);height:22px}
+@media (min-width:960px){.mrow.narrow{--sp:84px}}
+/* A strip of Level 3 read-outs: two up on a phone, four once there is room. No boxes — a label, a number, and a
+   hairline above the set. */
+.readouts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 0;border-top:1px solid var(--edge);padding-top:12px}
+.readouts .mini{min-width:0;padding-right:14px}
+@media (min-width:960px){.readouts{grid-template-columns:repeat(4,minmax(0,1fr))}}
+/* the first section head in a column meets the top of the page */
+.sh.flush{margin-top:0}
+/* a progress bar that reports a value rather than an action: lime is a verb, and a curve filling up is data */
+.progress.data i{background:var(--fg3)}
+
+/* the message from the dev: a plaque, not a card. Measure is capped for reading, the lime rule marks it as the
+   one page that outranks every other piece of copy in the app. */
+.notice{max-width:62ch;border-left:2px solid var(--acc);padding-left:20px;margin-top:8px}
+.notice-body{margin-top:6px}
+.notice-p{margin:0 0 14px;font-size:15px;line-height:1.65;color:var(--fg2)}
+.notice-p b{color:var(--fg);font-weight:650}
+.notice-sign{margin:26px 0 6px;font-size:13.5px;color:var(--fg2);letter-spacing:.04em}
+.notice-facts{border-top:1px solid var(--edge);margin-top:10px}
+@media (min-width:960px){.notice{padding-left:26px}.notice-p{font-size:15.5px}}
+.notice-link{display:block;color:var(--fg2);font-size:11.5px;font-weight:650;text-align:left;padding-bottom:6px;letter-spacing:0;text-transform:none;font-family:var(--font)}
+.notice-link:hover{color:var(--acc)}
+.notice-build{display:block}
+
+/* the walkthrough: what has happened, what is happening, what is waiting on the federation, what is left.
+   A rail of numbered rows, the current one marked by the zone rule. Nothing here is a card. */
+.steps{list-style:none;margin:10px 0 0;padding:0}
+.step{display:flex;gap:12px;align-items:flex-start;padding:11px 0 11px 12px;border-left:2px solid var(--edge);position:relative}
+.step .n{flex:none;width:22px;height:22px;display:grid;place-items:center;border:1px solid var(--edge);color:var(--fg3);font-size:11px;font-weight:700;border-radius:var(--r1)}
+.step .t{font-size:13.5px;font-weight:650;color:var(--fg2)}
+.step .sst{flex:none;font-size:9.5px}
+.step .d{margin-top:3px}
+.step.done{border-left-color:var(--up)}
+.step.done .n{border-color:color-mix(in oklab,var(--up) 45%,transparent);color:var(--up)}
+.step.done .t{color:var(--fg)}
+.step.done .sst{color:var(--up)}
+.step.now{border-left-color:var(--acc)}
+.step.now .n{border-color:var(--acc);background:var(--acc);color:var(--acc-ink)}
+.step.now .t{color:var(--fg)}
+.step.now .sst{color:var(--acc)}
+.step.wait .n{border-style:dashed}
+.step.wait .sst{color:var(--fg3)}
+.step.todo{opacity:.55}

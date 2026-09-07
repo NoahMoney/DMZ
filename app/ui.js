@@ -68,7 +68,8 @@
     return el;
   }
   const pill = (txt, cls = "") => h("span", { class: "pill " + cls }, txt);
-  const changePill = (c) => (c === null || c === undefined ? pill("—", "dim") : pill(A.pct(c), c >= 0 ? "up" : "down"));
+  // direction is a number in a numeric column, not a boxed control: .chg carries colour and tabular figures only
+  const changePill = (c) => (c === null || c === undefined ? h("span", { class: "chg" }, "—") : h("span", { class: "chg " + (c >= 0 ? "up" : "down") }, A.pct(c)));
   function toggle(label, on, cb, note, id) {
     const sw = h("button", { class: "sw " + (on ? "on" : ""), role: "switch", "aria-checked": String(on), type: "button", id: id || null, "aria-label": label });
     sw.onclick = () => { on = !on; sw.classList.toggle("on", on); sw.setAttribute("aria-checked", String(on)); cb(on); };
@@ -106,15 +107,14 @@
   const svg = (tag, a) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(a || {})) e.setAttribute(k, v); return e; };
   function sparkline(points, dec, up) {
     const s = points.map((p) => ({ x: p.ts, y: A.price(p, dec) })).filter((p) => p.y > 0); const w = 120, hgt = 34; const el = svg("svg", { viewBox: `0 0 ${w} ${hgt}`, preserveAspectRatio: "none" });
-    if (s.length < 2) { el.append(svg("line", { x1: 0, y1: hgt / 2, x2: w, y2: hgt / 2, stroke: "var(--hair2)", "stroke-width": 1.5 })); return h("div", { class: "spark" }, el); }
+    if (s.length < 2) { el.append(svg("line", { x1: 0, y1: hgt / 2, x2: w, y2: hgt / 2, stroke: "var(--fg3)", "stroke-width": 1, "vector-effect": "non-scaling-stroke" })); return h("div", { class: "spark" }, el); }
     const xs = s.map((p) => p.x), ys = s.map((p) => p.y); const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0 + 1, y0 = Math.min(...ys), y1 = Math.max(...ys);
     const X = (x) => ((x - x0) / (x1 - x0 || 1)) * (w - 2) + 1, Y = (y) => hgt - 2 - ((y - y0) / (y1 - y0 || 1)) * (hgt - 4);
     const d = s.map((p, i) => (i ? "L" : "M") + X(p.x).toFixed(1) + " " + Y(p.y).toFixed(1)).join(" ");
-    const col = up ? "var(--up)" : "var(--down)", gid = "sg" + (sparkN++);
-    const g = svg("linearGradient", { id: gid, x1: 0, y1: 0, x2: 0, y2: 1 }); g.append(svg("stop", { offset: 0, style: "stop-color:" + col + ";stop-opacity:.35" }), svg("stop", { offset: 1, style: "stop-color:" + col + ";stop-opacity:0" }));
-    const defs = svg("defs"); defs.append(g); el.append(defs);
-    el.append(svg("path", { d: d + " L" + X(s[s.length - 1].x).toFixed(1) + " " + hgt + " L" + X(s[0].x).toFixed(1) + " " + hgt + " Z", fill: "url(#" + gid + ")" }));
-    el.append(svg("path", { d, fill: "none", stroke: col, "stroke-width": 1.8, "stroke-linejoin": "round", "stroke-linecap": "round", "vector-effect": "non-scaling-stroke" }));
+    // no gradient fill and no glow: the line is the information. A fill under a 74px sparkline is decoration
+    // that costs a <defs>, a gradient and a second path per row, on a list that redraws every block.
+    const col = up ? "var(--up)" : "var(--down)";
+    el.append(svg("path", { d, fill: "none", stroke: col, "stroke-width": 1.5, "stroke-linejoin": "round", "stroke-linecap": "round", "vector-effect": "non-scaling-stroke" }));
     return h("div", { class: "spark" }, el);
   }
   // ---- router ----

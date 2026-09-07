@@ -22,6 +22,21 @@
     onChange(fn, keep) { this.listeners.push({ fn, gen: keep ? -1 : (V.ui.router.gen | 0) }); },
     changed() { const g = V.ui.router.gen | 0; this.listeners = this.listeners.filter((e) => e.gen === -1 || e.gen === g); for (const e of this.listeners.slice()) { try { e.fn(); } catch (err) { console.error(err); } } },
     rawToAddr(rawHex) { try { return V.rawToAddress(rawHex); } catch (e) { return null; } },
+    // Every wrapped asset this build knows about: one vault per foreign chain, because a vault holds exactly one
+    // asset. `vault`/`vaultAsset` are the older single-vault spelling and are folded in for compatibility.
+    vaults() {
+      const c = this.cfg, out = [];
+      const add = (v) => { if (v && /^[0-9a-f]{64}$/.test(v.scid || "") && !out.some((x) => x.scid === v.scid)) out.push(v); };
+      for (const v of c.vaults || []) add(v);
+      if (c.vault) add(Object.assign({ scid: c.vault }, c.vaultAsset || {}));
+      return out;
+    },
+    // The vault whose wrapped asset this market trades, or null when the market is a native DERO one.
+    vaultOf(s) {
+      if (!s) return null;
+      for (const v of this.vaults()) if (s.asset === v.scid || s.scid === v.scid) return v;
+      return null;
+    },
 
     async registry_() {
       const cfg = this.cfg; if (!cfg.factory) throw new Error("no factory configured");
