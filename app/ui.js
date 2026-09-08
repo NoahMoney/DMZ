@@ -108,8 +108,10 @@
     // First, and worded as a statement rather than a caution: "check the contract id" asks a user to do work
     // they cannot do. This one is knowable — the vault that owns the name is in the shipped config — so say it.
     if (s && s.impersonates) w.push(h("span", { class: "pill bad", title: "This is a token that named itself after " + s.impersonates + ". It is not the wrapped asset, it is not backed by anything held in the vault, and it has nothing to do with the " + s.impersonates + " you can deposit and withdraw on the Wrap screen." }, "Not real " + s.impersonates));
+    if (s && s.splitWith && !s.splitDeepest) w.push(h("span", { class: "pill warn", title: "Another contract trades this same pair and holds more of it. This one is thinner: the same order moves its price more, and a large one can empty it. Markets shows both, deepest first." }, "Split pair \u00b7 thinner"));
     if (s && s.dupTicker) w.push(h("span", { class: "pill warn", title: "Another listed market uses a ticker that reads the same. Check the contract id before trading." }, "Ticker shared"));
     if (s && s.lookalike) w.push(h("span", { class: "pill warn", title: "This ticker contains characters that look like others (Cyrillic or Greek letters, digits for letters)." }, "Look-alike ticker"));
+    if (s && s.splitWith && s.splitDeepest) w.push(h("span", { class: "pill dim", title: "Another contract trades this same pair with less liquidity. This is the deeper one." }, "Split pair"));
     return w;
   };
   // section head with an icon, and an illustrated empty state

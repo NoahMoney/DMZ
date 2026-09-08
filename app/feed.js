@@ -56,12 +56,36 @@
     },
     // Whether this market wears a wrapped asset's name without being that asset. The genuine article is the
     // market whose traded asset IS the vault; nothing a creator can type is evidence either way.
+    // A display name carrying a vault's symbol or name as a whole word — "Wrapped Monero" beside a ticker that
+    // copies nothing — was the gap left when only the ticker was guarded. Whole words, not substrings: a token
+    // called Zecret is not claiming to be Zcash, and a red "Not real ZEC" on it would teach users to ignore the
+    // pill that matters.
+    reservedIn(text) {
+      const words = new Set(String(text || "").split(/[^\p{L}\p{N}]+/u).map((w) => V.ui.tickerKey(w)).filter(Boolean));
+      if (!words.size) return null;
+      for (const v of this.allVaults()) {
+        const first = String(v.name || "").split(/[^\p{L}\p{N}]+/u)[0];
+        for (const nm of [v.sym, "w" + (v.sym || ""), first]) { const k = nm && V.ui.tickerKey(nm); if (k && words.has(k)) return v; }
+      }
+      return null;
+    },
     impersonation(s) {
       if (!s) return null;
-      const v = this.reservedBy(s.ticker);
+      const v = this.reservedBy(s.ticker) || this.reservedIn(s.name);
       if (!v || s.asset === v.scid || s.scid === v.scid) return null;
       return V.ui.clean(v.sym || v.name || "a wrapped asset", 10);
     },
+    // A split pair: two or more contracts trading the same base against the same quote, each with its own
+    // reserves. The thinner one gives a worse price for the same size, and a large order can empty it while the
+    // deeper one is untouched — the owner's own requirement is that nobody be handed the thin half unwarned.
+    // Computed here once per refresh so every surface reads one answer: it lived inside markets.js, which meant
+    // Home, the tape, trending and the trade sheet could not see it, and the trade sheet is where the drain
+    // happens. A launch's own token is its scid; a pool names its asset.
+    pairKey(s) { const id = (x) => (typeof x === "string" && /^[0-9a-f]{64}$/.test(x) ? x : ""); const b = id(s.asset) || id(s.scid); return b ? b + "/" + (id(s.quote) || "dero") : ""; },
+    // What the contract actually holds of its quote: a curve holds what it raised, an AMM its quote reserve.
+    // Only ever compared inside one pair, so both sides are the same asset with the same decimals — this never
+    // becomes a cross-quote comparison, which there is no rate for and must never be one.
+    depth(s) { return s.kind === "launch" && s.phase === 0n ? s.real || 0n : s.rd || 0n; },
     // The vault whose wrapped asset this market trades, or null when the market is a native DERO one.
     // The symbol a market's prices, reserves and fees are denominated in. Never assume DERO: a market quoted in
     // wrapped XMR shows XMR amounts, and labelling them DERO would misstate the price by whatever the rate is.
@@ -262,6 +286,15 @@
       // warning on the real asset while a copy of it carried none — the guard pointing the wrong way.
       for (const g of groups.values()) if (g.length > 1 && g.every((s) => s.wrappedBase)) for (const s of g) s.dupTicker = false;
       for (const s of this.assets.values()) if (s.kind === "pool" && s.assetVerified) { const l = this.assets.get(s.asset); if (!l) continue; s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; s.impersonates = l.impersonates || null; } // a launch and its own pool share a ticker by design
+      // split pairs: ids, deepest first, on every member (ids rather than objects, so a cached record has no cycle)
+      const byPair = new Map();
+      for (const s of this.assets.values()) { s.splitWith = null; s.splitDeepest = false; if (s.kind === "nft") continue; const k = this.pairKey(s); if (k) (byPair.get(k) || byPair.set(k, []).get(k)).push(s); }
+      for (const g of byPair.values()) {
+        if (g.length < 2) continue;
+        g.sort((x, y) => (this.depth(y) > this.depth(x) ? 1 : this.depth(y) < this.depth(x) ? -1 : 0));
+        const ids = g.map((x) => x.scid);
+        for (const s of g) { s.splitWith = ids; s.splitDeepest = g[0] === s; }
+      }
       for (const s of this.assets.values()) S.enrich(s, this.height);
       for (const n of this.nfts.values()) { const t = this.assets.get(n.token); n.tokenTicker = t ? t.ticker : V.shortAddr(n.token); n.tokenDec = t ? t.dec : 5n; n.tokenDecUnknown = !t; }
     },
@@ -314,8 +347,12 @@
 
     list() { return [...this.assets.values()]; },
     active() { return this.list().filter((s) => s.rd > 0n); },
-    trending(n = 12) { return this.active().sort((a, b) => b.m.hot - a.m.hot || b.m.vol24 - a.m.vol24 || b.points.length - a.points.length).slice(0, n); },
-    movers(n = 8) { return this.active().filter((s) => s.m.c24h !== null && s.points.length > 1).sort((a, b) => Math.abs(b.m.c24h) - Math.abs(a.m.c24h)).slice(0, n); },
+    // The thin half of a split pair never ranks: its hot score and its 24h move are the cheapest numbers on the
+    // exchange to manufacture, and Home rank 1 is exactly where a drain would be advertised. It stays listed on
+    // Markets, marked, next to the contract that holds the liquidity.
+    ranked() { return this.active().filter((s) => !s.splitWith || s.splitDeepest); },
+    trending(n = 12) { return this.ranked().sort((a, b) => b.m.hot - a.m.hot || b.m.vol24 - a.m.vol24 || b.points.length - a.points.length).slice(0, n); },
+    movers(n = 8) { return this.ranked().filter((s) => s.m.c24h !== null && s.points.length > 1).sort((a, b) => Math.abs(b.m.c24h) - Math.abs(a.m.c24h)).slice(0, n); },
     newest(n = 8) { return this.list().filter((s) => s.kind === "launch").sort((a, b) => (b.installHeight || 0) - (a.installHeight || 0)).slice(0, n); },
     graduating(n = 8) { return this.list().filter((s) => s.kind === "launch" && s.phase === 0n).sort((a, b) => b.m.progress - a.m.progress).slice(0, n); },
     feed(filter, me) {

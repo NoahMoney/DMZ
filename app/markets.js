@@ -29,19 +29,12 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
   const ID = (x) => (/^[0-9a-f]{64}$/i.test(String(x || "")) ? String(x).toLowerCase() : "");
   // a launch's base asset is its own SCID (feed.js sets `asset: scid`); a pool names its base in `asset`.
   // Anything with no readable base asset is left ungrouped rather than lumped in with the other unreadable ones.
-  const pairKey = (s) => { const b = ID(s.asset) || ID(s.scid); return b ? b + "/" + (ID(s.quote) || "dero") : ""; };
+  // pairKey, depth and the grouping live on the data layer now (feed.js decorate), so every surface agrees
   // The quote the contract actually holds, in that quote's own units: a curve holds what it raised, an AMM
   // holds its quote reserve. Only ever compared inside one pair, so both sides are the same asset with the same
   // decimals — this never becomes a cross-quote comparison, which there is no rate for and must never be one.
-  const depth = (s) => (s.kind === "launch" && s.phase === 0n ? s.real || 0n : s.rd || 0n);
-  let pairs = new Map(); // pairKey → markets, deepest first. Only pairs traded by more than one contract.
-  function findPairs(list) {
-    const g = new Map();
-    for (const s of list) { const k = pairKey(s); if (!k) continue; (g.get(k) || g.set(k, []).get(k)).push(s); }
-    for (const [k, a] of g) { if (a.length < 2) g.delete(k); else a.sort((x, y) => (depth(y) > depth(x) ? 1 : depth(y) < depth(x) ? -1 : 0)); }
-    return g;
-  }
-  const dupOf = (s) => pairs.get(pairKey(s)) || null;
+  const depth = (s) => D.depth(s);
+  const dupOf = (s) => (s.splitWith ? s.splitWith.map((id) => D.assets.get(id)).filter(Boolean) : null);
   const pairName = (s) => s.pair || (s.ticker || "?") + " / " + D.qsym(s);
   const held = (s) => A.fmtCompact(depth(s), D.qdec(s)) + " " + D.qsym(s);
   // plain words, and the full contract ids: the id is the only thing that distinguishes these rows, so it is the
@@ -85,10 +78,10 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
     // duplicate must never be able to sit above the market that actually holds the liquidity — that ordering is
     // what a newcomer reads as "the real one". The group takes the rank of its best-placed member and stays
     // together, so the two depths are next to each other on screen rather than pages apart.
-    if (pairs.size) {
+    if (out.some((s) => s.splitWith)) {
       const shown = new Set(out), done = new Set(), ranked = [];
       for (const s of out) {
-        const k = pairKey(s), g = pairs.get(k);
+        const k = D.pairKey(s), g = dupOf(s);
         if (!g) { ranked.push(s); continue; }
         if (done.has(k)) continue;
         done.add(k);
@@ -199,10 +192,11 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
       // for this pair" must not change because the list is filtered to Pools. Computed before the chips, because
       // the Split pairs chip only exists when there is a split pair to look at.
       const all = D.list();
-      pairs = findPairs(all);
       // the chip appears only when there is a split pair to look at — and stays while it is the active filter,
       // so the last split pair closing does not leave an empty list under a filter the user can no longer see
-      const extra = pairs.size || filter === "split" ? [["split", "Split pairs"]] : [];
+      // how many distinct pairs are split: every member carries the same id list, so that list keys the group
+      const splitN = new Set(all.filter((s) => s.splitWith).map((s) => s.splitWith.join())).size;
+      const extra = splitN || filter === "split" ? [["split", "Split pairs"]] : [];
       render(chips, netFilters().concat(extra).concat(FILTERS).map(([v, l]) => h("button", { class: "chip " + (filter === v ? "on" : ""), type: "button", onclick: () => { filter = v; draw(); } }, l)));
       const items = select(all);
       const act = D.active();
@@ -214,8 +208,8 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
     const flowText = [...byQuote].sort((a, b) => (wrapped.has(b[0]) ? 1 : 0) - (wrapped.has(a[0]) ? 1 : 0) || b[1] - a[1])
       .map(([sym, v]) => S.fmtDeroShort(v) + " " + sym).join(" · ");
       render(summary, h("span", null, items.length + " markets · 24h flow " + flowText,
-        pairs.size ? h("span", { class: "warn", title: "A split pair is one traded by more than one contract. They do not share liquidity, so the thinner one prices worse and can be drained. Every row of a split pair says how much its own contract holds." },
-          " · " + pairs.size + " split " + (pairs.size === 1 ? "pair" : "pairs")) : null),
+        splitN ? h("span", { class: "warn", title: "A split pair is one traded by more than one contract. They do not share liquidity, so the thinner one prices worse and can be drained. Every row of a split pair says how much its own contract holds." },
+          " · " + splitN + " split " + (splitN === 1 ? "pair" : "pairs")) : null),
         h("span", null, h("i", { class: "dot" }), " block " + (L.height || "…") + " · ", h("span", { "data-block-age": 1 }, "—")));
       // an empty state names the area, says why it is empty, and offers the one action that fills it
       if (!items.length) render(list, q.length === 64 ? U.emptyState("markets", "Open a contract", "Not listed here, but you can open it by id.", button("Open " + q.slice(0, 10) + "…", "small", () => router.go("token", q)))

@@ -109,6 +109,7 @@ try {
     }
     step("notice: " + nt.replace(/\s+/g, " ").slice(0, 90));
   }
+  const D_VAULTS = await page.evaluate(() => { const v = window.Veil.data.vaults()[0]; return v ? (v.sym || v.name) : null; });
   // The name of a wrapped asset is the most valuable thing to steal on DMZ: the whole product points a Monero
   // holder at a ticker called XMR, so a token that simply calls itself WXMR is the cheapest attack there is.
   // Checked against synthetic markets rather than chain state, so it holds on any network and needs no fixture.
@@ -138,6 +139,27 @@ try {
       if (r.flaggedGenuine.length) fail("a genuine wrapped market carries an impersonation or shared-ticker warning: " + r.flaggedGenuine.join(","));
       step("impersonation: " + r.sym + " and w" + r.sym + " reserved to the vault; listed copies: " + (r.listedCopies.join(", ") || "none"));
     }
+  }
+  // The thin half of a split pair must never rank: its hot score and 24h move are the cheapest numbers on the
+  // exchange to manufacture, and Home rank 1 is where a drain would be advertised. Every member carries the
+  // group, exactly one is the deepest, and only that one may appear in trending or movers.
+  {
+    const r = await page.evaluate(() => {
+      const D = window.Veil.data;
+      const groups = new Map();
+      for (const s of D.list()) if (s.splitWith) (groups.get(s.splitWith.join()) || groups.set(s.splitWith.join(), []).get(s.splitWith.join())).push(s);
+      const ranked = new Set(D.trending(100).concat(D.movers(100)).map((s) => s.scid));
+      const bad = [];
+      for (const [k, g] of groups) {
+        if (g.filter((s) => s.splitDeepest).length !== 1) bad.push("group " + k.slice(0, 8) + " has " + g.filter((s) => s.splitDeepest).length + " deepest");
+        for (const s of g) if (!s.splitDeepest && ranked.has(s.scid)) bad.push("thin " + s.scid.slice(0, 8) + " ranked");
+      }
+      return { groups: groups.size, bad, imp: D.impersonation({ name: "Wrapped Monero", ticker: "WM", scid: "f".repeat(64) }), safe: D.impersonation({ name: "Zecret", ticker: "ZCR", scid: "e".repeat(64) }) };
+    });
+    if (r.bad.length) fail("split pairs: " + r.bad.join("; "));
+    if (D_VAULTS && r.imp !== D_VAULTS) fail("a token NAMED after the wrapped asset is not flagged: " + r.imp);
+    if (r.safe) fail("a name that merely contains the letters of a symbol is flagged: " + r.safe);
+    step("split pairs: " + r.groups + " group(s), thin halves never rank; name impersonation " + (r.imp || "n/a"));
   }
   // deposit and withdraw must be reachable from the navigation, not only by typing a URL
   {

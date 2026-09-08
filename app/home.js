@@ -19,6 +19,14 @@
     // First, above every other risk. The others cost a user money on a market that is what it says it is; this
     // one means the market is not that thing at all, and the vault holds nothing for it.
     if (s.impersonates) out.push({ k: "fake", t: "This is not " + s.impersonates + ". It is a token whose ticker copies the wrapped asset. No vault holds any " + s.impersonates + " for it, and it cannot be withdrawn to " + s.impersonates + " on any chain. The real one is on the Wrap screen." });
+    // Second, and on the trade sheet because H.risks is what it renders: the split pair. The thinner contract is
+    // the one a large order empties, and the deepest one is named in full so the reader can go there instead.
+    if (s.splitWith && s.splitWith.length > 1) {
+      const g = s.splitWith.map((id) => D.assets.get(id)).filter(Boolean), deep = g[0];
+      const held = (x) => A.fmtCompact(D.depth(x), D.qdec(x)) + " " + D.qsym(x);
+      if (deep && deep !== s) out.push({ k: "split", t: "This is the thinner of " + g.length + " contracts trading " + (s.pair || s.ticker) + ": it holds " + held(s) + " and the deepest holds " + held(deep) + ". They do not share liquidity, so a large order can empty this one while the other is untouched. Deepest: " + deep.scid });
+      else if (g[1]) out.push({ k: "split", t: g.length + " separate contracts trade " + (s.pair || s.ticker) + " and do not share liquidity. This is the deepest, holding " + held(s) + "; the next holds " + held(g[1]) + "." });
+    }
     if (s.kind === "launch" && H.allocBps(s) >= 100) out.push({ k: "alloc", t: "The creator received " + (H.allocBps(s) / 100).toFixed(2) + "% of the supply at launch (" + A.fmtCompact(H.allocation(s), s.dec) + " " + s.ticker + "), sellable at any time." });
     if (s.kind === "launch" && s.tax > 500n) out.push({ k: "tax", t: "High tax: " + Number(s.tax) / 100 + "% of every trade's " + D.qsym(s) + " leg goes to " + ["nobody", "the creator", "buybacks", "stakers"][Number(s.tmode)] + "." });
     if (s.m.liq < 20) out.push({ k: "thin", t: "Thin market: about " + S.fmtDeroShort(s.m.liq) + " " + D.qsym(s) + " of liquidity. Small orders move the price a lot." });
