@@ -1,10 +1,14 @@
 // DMZ screens.js — Portfolio, Profile, Settings (with the security & privacy panel).
-// Portfolio is the app's visual anchor: one Level 1 instrument reading, then Level 3 accounting with no box
-// around it, then holdings as a hairline table with one aligned value column. Profile separates what this
-// address published from what the address itself gives away from what never leaves this browser. Settings is a
-// technical panel: labelled sections, hairline rows, mono for machine strings.
+// Portfolio answers one question for a Monero or Zcash holder: what do I hold, in the asset I actually care
+// about. So the wrapped assets lead — present or zero — DERO is named as gas rather than as a market, and token
+// holdings are grouped by the quote they trade against, subtotalled inside each quote and never across them.
+// There is no rate between XMR, ZEC and DERO here and there must never be an oracle, so a cross-currency total
+// would be an invented number: where one used to be printed there is now a sentence saying why there is not.
+// Profile separates what this address published from what the address itself gives away from what never leaves
+// this browser. Settings is a technical panel: labelled sections, hairline rows, mono for machine strings.
 (function () {
   const V = window.Veil, U = V.ui, A = V.amm, D = V.data, S = V.stats, L = V.live, H = V.home, { h, render, avatar, changePill, router, button, kv, icon } = U;
+  const Z = 0n;
   const me = () => V.wallet.canon;
   const connectCTA = (title, why) => U.emptyState("wallet", title, why, button("Connect wallet", "primary", () => V.app.connectWallet()));
   const monoKv = (k, v) => kv(k, h("span", { class: "mono" }, v));
@@ -13,61 +17,170 @@
     h("i", { class: "dot", style: L.height ? null : "background:var(--fg3)" }),
     h("span", { class: "mono dim2" }, (D.cfg.network || "dero") + " · block " + (L.height || "—") + " · ",
       h("span", { "data-block-age": 1 }, "—"), " ago" + (tail ? " · " + tail : "")));
+  // network grammar (docs/DESIGN_SYSTEM.md §Networks): a two-letter mono label with a hairline leading edge in
+  // the origin chain's tint. The chain is read from the deployment record, never guessed from the symbol alone.
+  const netOf = (a) => {
+    const s = (String(a.sym || "") + " " + String(a.chain || "")).toUpperCase();
+    if (/XMR|MONERO/.test(s)) return ["XM", "net xmr"];
+    if (/ZEC|ZCASH/.test(s)) return ["ZC", "net zec"];
+    return [(String(a.sym || "").toUpperCase().replace(/[^A-Z0-9]/g, "") + "??").slice(0, 2), "net"];
+  };
+  // A.fmtUnits trims trailing zeros, which is right in prose and wrong in a column: a balance column only reads
+  // as a column when every row has the same shape, and a Monero holder with nothing wrapped yet must see
+  // "0.00000" — an answer — rather than "0", which reads like a placeholder.
+  const fixed = (v, dec, frac) => {
+    const s = A.fmtUnits(v, dec, frac), i = s.indexOf(".");
+    return frac <= 0 ? s : i < 0 ? s + "." + "0".repeat(frac) : s + "0".repeat(frac - (s.length - i - 1));
+  };
+  const symOf = (v) => U.clean(v.sym || v.name || "wrapped", 10);
+  const decOf = (v) => (Number.isInteger(v.dec) ? v.dec : 5);
 
   // ---- PORTFOLIO ----
   router.on("portfolio", async (el) => {
-    if (!V.wallet.connected) return render(el, h("h1", { class: "mt mb" }, "Portfolio"),
-      connectCTA("No wallet connected", "Balances are encrypted on DERO. DMZ reads yours through your wallet and adds them up on this device; there is nowhere else for the number to come from."));
     const hide = V.app.settings.hideBalances, mask = (s) => (hide ? "•••••" : s);
+    // A wrapped asset is not a launch, so V.app.holdings never covers it: the vault's own balance is read here,
+    // one wallet call per vault, and kept for a minute like the rest of the holdings read.
+    const wb = new Map(); let wbAt = 0, wbBusy = false;
+    const loadWrapped = async (force) => {
+      if (wbBusy || !V.wallet.connected || (!force && wbAt && Date.now() - wbAt < 60000)) return;
+      wbBusy = true;
+      try {
+        for (const v of D.vaults()) { const b = await V.wallet.getBalance(v.scid, true).catch(() => null); wb.set(v.scid, b ? V.toBig(b.balance) : null); }
+        wbAt = Date.now();
+      } finally { wbBusy = false; }
+      if (router.current && router.current.name === "portfolio") draw();
+    };
+
+    // ---- the wrapped assets, which is what an XMR or ZEC holder came here for ----
+    // Every vault this build ships is listed whether the balance is zero or not, and before a wallet is even
+    // connected: a zero line says "this is where your Monero goes and there is none here yet", a missing line
+    // says "unsupported", and only one of those is true.
+    const vaults = D.vaults();
+    const wrapLine = (v) => {
+      const [code, cls] = netOf(v), sym = symOf(v), dec = decOf(v);
+      const bal = !V.wallet.connected ? null : wb.has(v.scid) ? wb.get(v.scid) : undefined;
+      return h("div", { class: "between mt", style: "align-items:flex-end;gap:14px" },
+        h("div", { class: "grow" },
+          h("span", { class: cls }, code + " · w" + sym),
+          h("div", { class: "note", style: "margin-top:7px" },
+            "Wrapped " + U.clean(v.name || sym, 40) + " — a claim on " + U.clean(v.chain || "its own chain", 44) +
+            ", held one for one by a k-of-n federation. Backed, not trustless."),
+          h("div", { class: "row tight", style: "margin-top:8px" },
+            button("Deposit / withdraw", "small", () => router.go("wrap", v.scid)))),
+        h("div", { style: "text-align:right;flex:none" },
+          h("div", { class: vaults.length > 1 ? "display num" : "big num" },
+            bal === undefined ? "…" : bal === null ? "—" : mask(fixed(bal, dec, Math.min(dec, 5)))),
+          h("div", { class: "label", style: "margin-top:6px" }, "w" + sym)));
+    };
+    const wrapHero = () => h("div", { class: "hero cut mt8" },
+      h("div", { class: "between" }, h("span", { class: "eyebrow" }, "Wrapped assets you hold"),
+        h("span", { class: "label" }, vaults.length + " chain" + (vaults.length === 1 ? "" : "s"))),
+      vaults.length ? vaults.map(wrapLine)
+        : h("div", { class: "note mt8" }, "This build has no wrapped-asset vault configured, so there is no XMR or ZEC to hold on it yet."),
+      netLine(V.wallet.connected ? "read through your wallet on this device" : "no wallet connected"));
+    const wrapNote = () => h("div", { class: "note mt8" }, "One line per asset, never a combined figure: wrapped XMR and wrapped ZEC are different coins and DMZ has no price oracle to convert between them. " +
+      (V.wallet.connected ? "Each balance is decrypted by your wallet on this device." : "Balances on DERO are encrypted, so only your own wallet can read them."));
+
+    if (!V.wallet.connected) return render(el, h("h1", { class: "mt" }, "Portfolio"), wrapHero(), wrapNote(),
+      connectCTA("No wallet connected", "Connect your wallet and this screen reads the balances above, the DERO that pays your gas, and each token you hold — on this device, through your wallet. Nothing is uploaded and there is nowhere else for a number here to come from."));
+
     const draw = () => {
       const hold = V.app.holdings;
-      if (!hold) return render(el, h("h1", { class: "mt" }, "Portfolio"), h("div", { class: "list mt" }, U.skeleton(3)), h("div", { class: "note" }, "Reading balances through your wallet…"));
-      const pnl = V.app.pnl(hold.rows), n = hold.rows.length, va = D.cfg.vaultAsset || {};
-      const total = h("div", { class: "big num mt8" }); L.num(total, hold.total, (v) => mask(v.toFixed(3)) + " DERO");
+      if (!hold) return render(el, h("h1", { class: "mt" }, "Portfolio"), wrapHero(), wrapNote(), h("div", { class: "list mt" }, U.skeleton(3)), h("div", { class: "note" }, "Reading balances through your wallet…"));
+      const pnl = V.app.pnl(hold.rows);
       // one hairline row per holding: name and value on the first line, the working out on the second, and every
       // value printed to the same decimals so that the column reads as a column
       const hrow = (av, name, sub, val, right, go) => h(go ? "button" : "div", { class: "feed-item", type: go ? "button" : null, onclick: go },
         av, h("div", { class: "body" },
           h("div", { class: "between" }, h("b", { class: "ellipsis" }, name), h("b", { class: "num" }, val)),
           h("div", { class: "between" }, h("span", { class: "meta" }, sub), right || null)));
+
+      // ---- group holdings and P&L by the quote each market trades against ----
+      // A quote is a currency. Two quotes are two currencies, and DMZ has no oracle, so a number from one is
+      // never added to, averaged with, or ranked against a number from the other. Subtotals stop at the group.
+      const marketOf = (asset) => { const r = hold.rows.find((x) => x.s.asset === asset); return r ? r.s : D.list().find((x) => x.asset === asset) || null; };
+      const groups = new Map();
+      const groupFor = (s) => {
+        const k = (s && s.quote) || "dero";
+        let g = groups.get(k);
+        // q is the decimal count every figure in this block prints to, so the value column adds up to the
+        // subtotal printed under it; a 12-decimal quote is still read at five rather than as a wall of digits.
+        if (!g) { const dec = Number(D.qdec(s)); groups.set(k, (g = { key: k, quote: (s && s.quote) || null, sym: D.qsym(s), dec, q: Math.min(dec, 5), rows: [], value: Z, realised: Z, unreal: Z, trades: 0 })); }
+        return g;
+      };
+      for (const r of hold.rows) { const g = groupFor(r.s); g.rows.push(r); g.value += r.value; }
+      let unplaced = 0; // traded assets whose market is no longer listed: their quote is unknown, so they belong to no group
+      for (const [asset, b] of Object.entries(pnl.byAsset)) { // a closed position still has realised P&L and still belongs to one quote
+        const s = marketOf(asset); if (!s) { unplaced++; continue; }
+        const g = groupFor(s); g.realised += b.realised; g.unreal += b.unreal || Z; g.trades += b.n;
+      }
+      const vidx = new Map(vaults.map((v, i) => [v.scid, i]));
+      const rank = (g) => (g.quote ? (vidx.has(g.quote) ? vidx.get(g.quote) : 900) : 1000); // wrapped quotes first, DERO last: gas ranks below the thing you came to trade
+      const gs = [...groups.values()].sort((a, b) => rank(a) - rank(b) || a.sym.localeCompare(b.sym));
+
+      // equityPoints values a point as rd/1e5 ÷ ra/10^dec — DERO's five decimals baked in. Restated in the
+      // group's own quote it is that number × 10^(5 − quote decimals); for a five-decimal quote nothing moves.
+      const curve = (g) => { const f = Math.pow(10, 5 - g.dec); return V.app.equityPoints(g.rows).map((p) => ({ ts: p.ts, v: p.v * f })); };
+      // zero is not a gain: it takes no sign and no direction colour. Only a real move is coloured.
+      const sign = (g, v) => (v > Z ? "+" : "") + fixed(v, g.dec, g.q);
+      const dir = (v) => (v > Z ? " up" : v < Z ? " down" : "");
+
+      const block = (g) => [
+        U.sectionHead("wallet", "Priced in " + g.sym, g.rows.length + " token" + (g.rows.length === 1 ? "" : "s") +
+          " trading against " + g.sym + " · every number below is " + g.sym + " and is only ever compared with other " + g.sym +
+          (g.quote ? ", and is bought and sold with the wrapped " + g.sym + " above" : "")),
+        h("div", { class: "kv", style: "padding:12px 12px 8px" }, h("span", { class: "label" }, "Asset"), h("span", { class: "label" }, "Value · " + g.sym)),
+        h("div", { class: "list" }, g.rows.slice().sort((a, b) => (a.value < b.value ? 1 : a.value > b.value ? -1 : 0)).map((r) => {
+          const b = pnl.byAsset[r.s.asset];
+          // avg cost is recomputed here in the quote's own decimals: V.app.pnl divides by 1e5, which is only
+          // right when the quote is DERO
+          const avg = b && b.units > Z ? (Number(b.cost) / 10 ** g.dec) / (Number(b.units) / 10 ** Number(r.s.dec)) : null;
+          return hrow(avatar(r.s, "sm"), r.s.ticker,
+            [mask(A.fmtUnits(r.units, r.s.dec, 4)) + " " + r.s.ticker,
+              avg ? " · avg " + S.fmtPriceSub(avg) : null,
+              b && avg ? h("span", { class: "num" + dir(b.unreal) }, " · " + mask(sign(g, b.unreal)) + " " + g.sym) : null],
+            mask(fixed(r.value, g.dec, g.q)), changePill(r.s.m.c24h), () => router.go("token", r.s.scid));
+        })),
+        // Accounting for this quote and no other. Hairline rows rather than the old three-up tile strip: the
+        // strip is a bordered box around data (against §Surfaces Level 3) and a third of a 390px phone cannot
+        // hold "+0.0000 wXMR" without truncating the number, which is the one thing a balance may never do.
+        kv("Subtotal · " + g.sym + " only", mask(fixed(g.value, g.dec, g.q)) + " " + g.sym, "num"),
+        kv("Realised", mask(sign(g, g.realised)) + " " + g.sym, "num" + dir(g.realised)),
+        kv("Unrealised", mask(sign(g, g.unreal)) + " " + g.sym, "num" + dir(g.unreal)),
+        kv("Trades in this quote", String(g.trades), "num"),
+        U.sectionHead("trend", "Value over time · " + g.sym, "Holdings value in " + g.sym + ", from each market's own block history. Never merged with another quote's curve — there is no rate to merge them with"),
+        V.chart.series(null, curve(g), { height: 150, empty: "Trade once and the curve starts here", wide: window.innerWidth >= 960 }),
+      ];
+
       render(el,
         h("h1", { class: "mt" }, "Portfolio"),
-        // Level 1 — the instrument reading. There is no price source for DERO, so there is no fiat line.
-        h("div", { class: "hero cut mt8" },
-          h("div", { class: "between" }, h("span", { class: "eyebrow" }, "Total private balance"),
-            h("span", { class: "row tight" }, h("span", { class: "label" }, "24h"), changePill(hold.change24))),
-          total,
-          h("div", { class: "sub mt8" }, n + " token" + (n === 1 ? "" : "s") + " · " + mask(A.fmtDero(hold.dero, 2)) + " DERO free"),
-          netLine("added up on this device")),
-        // Level 3 — accounting. A label above a number, hairlines between, no card.
-        h("div", { class: "stats3 mt" },
-          h("div", { class: "stat" }, h("div", { class: "l" }, "Realised"), h("div", { class: "v num " + (pnl.realised >= 0n ? "up" : "down") }, mask(A.fmtDero(pnl.realised, 2)))),
-          h("div", { class: "stat" }, h("div", { class: "l" }, "Unrealised"), h("div", { class: "v num " + (pnl.unrealised >= 0n ? "up" : "down") }, mask(A.fmtDero(pnl.unrealised, 2)))),
-          h("div", { class: "stat" }, h("div", { class: "l" }, "Trades"), h("div", { class: "v num" }, pnl.count))),
-        U.sectionHead("wallet", "Holdings", "Valued at what the curve or pool would pay for them right now"),
-        h("div", { class: "kv", style: "padding:12px 12px 8px" }, h("span", { class: "label" }, "Asset"), h("span", { class: "label" }, "Value · DERO")),
-        h("div", { class: "list" },
-          hrow(avatar({ ticker: "DERO", icon: "", scid: "dero" }, "sm"), "DERO", "Native asset · " + mask(A.fmtDero(hold.dero, 5)), mask(A.fmtDero(hold.dero, 3)), null, null),
-          hold.rows.map((r) => {
-            const b = pnl.byAsset[r.s.asset];
-            return hrow(avatar(r.s, "sm"), r.s.ticker,
-              [mask(A.fmtUnits(r.units, r.s.dec, 4)),
-                b && b.avg ? " · avg " + S.fmtPriceSub(b.avg) : null,
-                b && b.avg ? h("span", { class: b.unreal >= 0n ? "up" : "down" }, " · " + (b.unreal >= 0n ? "+" : "") + mask(A.fmtDero(b.unreal, 3))) : null],
-              mask(A.fmtDero(r.value, 3)), changePill(r.s.m.c24h), () => router.go("token", r.s.scid));
-          })),
-        !n ? U.emptyState("wallet", "No tokens held", "This wallet holds no listed DMZ token, so the table has only your DERO. Buying one on any market adds it here.", button("Find a market", "small primary", () => router.go("markets"))) : null,
-        U.sectionHead("trend", "Holdings value", "What these holdings were worth, from each market's own block history"),
-        V.chart.series(null, V.app.equityPoints(hold.rows), { height: 150, empty: "Trade once and the curve starts here", wide: window.innerWidth >= 960 }),
-        D.cfg.vault ? h("button", { class: "card row mt", type: "button", onclick: () => router.go("wrap") },
-          icon("gem", "svgi"),
-          h("div", { class: "grow" }, h("b", null, "Wrapped " + (va.sym || "assets")),
-            h("div", { class: "sub" }, "Deposit or withdraw " + (va.sym || "the wrapped coin") + " on " + (va.chain || "its own chain") + ". A k-of-n federation holds the reserve one for one, so it is not trustless.")),
-          icon("chevron", "svgi dim2")) : null,
-        h("div", { class: "between mt" }, h("span", { class: "note" }, "Cost basis from " + pnl.count + " trade" + (pnl.count === 1 ? "" : "s") + ": the ones made on this device" + (pnl.chainCount ? " plus " + pnl.chainCount + " this address published from elsewhere" : "") + ". Nothing is uploaded."),
-          button("Refresh", "small", () => V.app.loadHoldings(true))));
+        // Level 1 — the instrument reading, and it is the wrapped assets. There is no rate between them, so
+        // there is no single total here and no fiat line: one asset, one number, its own row.
+        wrapHero(), wrapNote(),
+
+        // DERO is the rail, not the destination, and saying so is the whole point of this section.
+        U.sectionHead("bolt", "DERO · gas", "What pays the network fee on every transaction here — not one of the assets you came to trade"),
+        kv("Free balance", mask(fixed(hold.dero, 5, 5)) + " DERO", "num"),
+        h("div", { class: "note mt8" }, "Keep a little DERO even if you only trade XMR or ZEC markets: a buy quoted in wrapped XMR still pays its DERO network fee, and a wallet with none cannot send anything."),
+
+        // Holdings, one block per quote. Never a figure across two of them.
+        gs.length ? gs.map(block) : [
+          U.sectionHead("wallet", "Tokens", "Grouped by the asset each market is priced in"),
+          U.emptyState("wallet", "No tokens held", "This wallet holds no listed DMZ token. Buy one on any market and it appears here, in a group named after the asset that market is priced in — XMR markets with XMR, DERO markets with DERO.", button("Find a market", "small primary", () => router.go("markets"))),
+          U.sectionHead("trend", "Value over time", "Holdings value is drawn here from each market's own block history, one curve per quote, as soon as you hold something"),
+          V.chart.series(null, [], { height: 150, empty: "Trade once and the curve starts here", wide: window.innerWidth >= 960 }),
+        ],
+        gs.length > 1 ? h("div", { class: "note mt" }, "These " + gs.length + " subtotals are deliberately not added together. " +
+          gs.map((g) => g.sym).join(", ").replace(/, ([^,]*)$/, " and $1") + " are different assets and DMZ has no price oracle and must never have one, so a single portfolio number would be a rate this app invented.") : null,
+
+        // silently dropping a figure is the same sin as inventing one, so say when one was dropped and why
+        unplaced ? h("div", { class: "note mt" }, unplaced + " traded asset" + (unplaced === 1 ? " is" : "s are") + " left out of the groups above: " +
+          (unplaced === 1 ? "its market is" : "their markets are") + " no longer listed, so the app cannot tell which asset " +
+          (unplaced === 1 ? "it was" : "they were") + " priced in, and putting the figure in the wrong quote would be worse than omitting it.") : null,
+        h("div", { class: "between mt" }, h("span", { class: "note" }, "Cost basis from " + pnl.count + " trade" + (pnl.count === 1 ? "" : "s") + ": the ones made on this device" + (pnl.chainCount ? " plus " + pnl.chainCount + " this address published from elsewhere" : "") + ", kept in this browser. Nothing is uploaded."),
+          button("Refresh", "small", () => { V.app.loadHoldings(true); loadWrapped(true); })));
     };
-    draw(); if (!V.app.holdings) V.app.loadHoldings(); D.onChange(() => router.current && router.current.name === "portfolio" && draw());
+    draw(); if (!V.app.holdings) V.app.loadHoldings(); loadWrapped(); D.onChange(() => router.current && router.current.name === "portfolio" && draw());
   });
 
   // ---- PROFILE ----

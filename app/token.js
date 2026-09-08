@@ -132,33 +132,78 @@
   };
 
   // ---- trade sheet ----
+  // Requirement 3: every cost stands in front of the button, in the asset it is actually charged in. The trading
+  // fee, the protocol's share of it, the token tax, price impact and the minimum received are all in the market's
+  // own quote (D.qsym / D.qdec — never assume DERO). The network fee is DERO on every market whatever it trades,
+  // so it is a row of its own, named as DERO. Nothing that costs money sits behind a disclosure.
   T.tradeSheet = (s, side) => {
-    const launch = s.kind === "launch", buy = side === 1;
+    const launch = s.kind === "launch", buy = side === 1, curve = launch && s.phase === Z;
+    const qsym = D.qsym(s), qdec = D.qdec(s), qv = s.quote ? D.vaults().find((v) => v.scid === s.quote) : null;
+    // the fee is charged on whatever goes in, except on the curve where both legs are priced in the quote
+    const feeQ = buy || curve, feeSym = feeQ ? qsym : s.ticker, feeDec = feeQ ? qdec : s.dec;
+    // on the curve the whole fee is the protocol's; in an AMM pfee of it is and the rest stays in the reserves
+    const protoBps = curve ? 10000n : (s.pfee || Z);
+    const taxTo = ["nobody", "the creator", "a buyback that locks tokens", "stakers"][Number(s.tmode || Z)] || "the contract";
     let slip = V.app.settings.slippage || 100, publish = false, ack = false, amount = Z, balance = null, q = null, priv = false;
+    let gasTxt = "", gasSeq = 0, gasTimer = null;
     const destIn = h("input", { placeholder: "address that is not linked to you", class: "mono", autocomplete: "off", spellcheck: "false", "aria-label": "receive at" });
     const input = h("input", { inputmode: "decimal", placeholder: "0", "aria-label": "amount", autocomplete: "off" });
-    const unit = buy ? D.qsym(s) : s.ticker, dec = buy ? D.qdec(s) : s.dec, outUnit = buy ? s.ticker : D.qsym(s), outDec = buy ? s.dec : D.qdec(s);
-    const outV = h("div", { class: "v num" }, "0"), outL = h("div", { class: "l" }, "You receive (estimated)"), rate = h("div", { class: "note mt8" }), detail = h("div", { class: "stack", style: "gap:0" }), riskBox = h("div");
+    const unit = buy ? qsym : s.ticker, dec = buy ? qdec : s.dec, outUnit = buy ? s.ticker : qsym, outDec = buy ? s.dec : qdec;
+    const outV = h("div", { class: "v num" }, "0"), outL = h("div", { class: "l" }, "You receive (estimated)"), rate = h("div", { class: "note mt8" }), costs = h("div", { class: "stack", style: "gap:0" }), riskBox = h("div");
     const confirm = button((buy ? "Buy " : "Sell ") + s.ticker, (buy ? "buy" : "sell") + " wide mt", () => go(), { disabled: true });
     const risks = H.risks(s);
+    const slipEl = h("div", { class: "chips" }, [50, 100, 200, 500].map((b) => h("button", { class: "chip sm " + (slip === b ? "on" : ""), type: "button", onclick: (e) => { slip = b; U.$$("button", slipEl).forEach((x) => x.classList.remove("on")); e.currentTarget.classList.add("on"); V.app.saveSettings({ slippage: b }); quote(); } }, b / 100 + "%")));
+    // the cost block, drawn whether or not an amount is typed: the fee, the route and the ring are facts about the
+    // market and are true before anything is entered; the amounts fill in as soon as there is a quote
+    const paint = () => {
+      const big = q && q.impact > 1500, mid = q && q.impact > 500, dash = "—";
+      render(costs,
+        kv("Trading fee · " + Number(s.fee) / 100 + "%", q ? A.fmtUnits(q.fee, feeDec, 5) + " " + feeSym : dash),
+        kv("of it, protocol treasury · " + Number(protoBps) / 100 + "%", q ? A.fmtUnits(A.bps(q.fee, protoBps), feeDec, 5) + " " + feeSym : dash),
+        q && q.tax > Z ? kv("Token tax · " + Number(s.tax) / 100 + "% to " + taxTo, A.fmtUnits(q.tax, qdec, 5) + " " + qsym) : null,
+        q && q.refund > Z ? kv("Refund, the curve ends here", A.fmtUnits(q.refund, qdec, 5) + " " + qsym + (priv ? " → paid to the receive address, not to you" : "")) : null,
+        kv("Price impact", q ? (q.impact / 100).toFixed(2) + "%" : dash, big ? "down" : mid ? "warn" : ""),
+        kv("Minimum received, or it reverts", q ? A.fmtUnits(A.minOut(q.out, slip), outDec, 6) + " " + outUnit : dash),
+        kv("Max slippage", slipEl),
+        V.sheets.gasRow(gasTxt, !!q),
+        kv("Route", curve ? "bonding curve" : "constant-product AMM"),
+        kv("Ring size", priv ? "16 · the payer is hidden" : "2 · the payer is public"),
+        h("div", { class: "note mt8" }, (curve ? "On the bonding curve the whole trading fee goes to the protocol treasury. " : "The rest of the trading fee stays in the pool, for its liquidity providers. ")
+          + (priv ? "At ring size 16 the contract never learns who paid, but the address you name below receives in clear. " : "At ring size 2 the contract pays the signer, so anyone can compute which address made this call. ")
+          + "The network fee is DERO on every market" + (s.quote ? ", so this one needs a little DERO as well as " + qsym : "") + "; your wallet shows the exact amount before you confirm."),
+        priv && V.wallet.canon && V.canonAddress(destIn.value.trim()) === V.wallet.canon ? h("div", { class: "warnbox mt8" }, "This is the connected address: the ring hides who paid, but the receiver is you, in clear.") : null,
+        q && q.graduates ? h("div", { class: "warnbox mt8" }, "This buy completes the curve: the token graduates to its locked AMM.") : null);
+    };
+    // the node prices the exact call before the user commits, so the gas row is a number rather than a promise
+    const schedGas = () => { clearTimeout(gasTimer); gasSeq++; gasTxt = ""; if (q) gasTimer = setTimeout(estGas, 320); };
+    const estGas = async () => {
+      const my = ++gasSeq, at = q;
+      try {
+        const dest = priv && V.isAddress(destIn.value.trim()) ? destIn.value.trim() : null;
+        const args = dest ? [["dest", "S", dest]] : [];
+        args.push(["min_out", "U", A.minOut(at.out, slip)], ["publish", "U", publish && !priv ? 1n : Z]);
+        // what the call actually sends: the quote asset on a buy (DERO is the asset whose id is the zero hash),
+        // the token on a sell
+        const t = await V.sheets.gas({ scid: s.scid, entry: (buy ? "SwapDeroForAsset" : "SwapAssetForDero") + (dest ? "To" : ""), args, send: [{ scid: buy ? s.quote : s.asset, amount }] });
+        if (my !== gasSeq || q !== at) return;
+        gasTxt = t;
+      } catch (e) { if (my !== gasSeq) return; gasTxt = ""; }
+      if (my === gasSeq) paint();
+    };
     const quote = () => {
       amount = A.parseUnits(input.value, dec) || Z;
       q = amount > Z ? (buy ? (launch ? A.launchBuy(s, amount) : A.poolBuy(s, amount)) : (launch ? A.launchSell(s, amount) : A.poolSell(s, amount))) : null;
       const big = q && q.impact > 1500, mid = q && q.impact > 500;
       confirm.disabled = !q || (big && !ack) || (balance !== null && amount > balance) || (priv && !V.isAddress(destIn.value.trim())) || (priv && q.refund > Z);
       confirm.textContent = balance !== null && amount > balance ? "Insufficient " + unit : priv && q.refund > Z ? "Overshoots the curve: lower the amount" : (buy ? "Buy " : "Sell ") + s.ticker;
-      if (!q) { outV.textContent = amount > Z ? "—" : "0"; rate.textContent = amount > Z ? "This amount cannot be filled: too small, above what the curve has left, or more than the pool can take." : "1 " + s.ticker + " ≈ " + S.fmtPriceSub(s.price) + " DERO"; render(detail); render(riskBox, risks.length ? h("div", { class: "riskbox warn mt" }, icon("warn"), h("div", null, risks.map((r) => h("div", null, r.t)))) : null); return; }
-      const min = A.minOut(q.out, slip);
-      outV.textContent = A.fmtUnits(q.out, outDec, 6) + " " + outUnit;
-      rate.textContent = "Price impact " + (q.impact / 100).toFixed(2) + "% · at least " + A.fmtUnits(min, outDec, 6) + " " + outUnit + " or the trade reverts";
+      outV.textContent = q ? A.fmtUnits(q.out, outDec, 6) + " " + outUnit : amount > Z ? "—" : "0";
+      // the price this order really executes at, next to the price the market quotes: the gap is what size costs
+      const exec = q ? (buy ? Number(amount) / 10 ** Number(qdec) / (Number(q.out) / 10 ** Number(s.dec)) : Number(q.out) / 10 ** Number(qdec) / (Number(amount) / 10 ** Number(s.dec))) : 0;
+      rate.textContent = q ? "1 " + s.ticker + " = " + S.fmtPriceSub(exec) + " " + qsym + " at this size · quoted " + S.fmtPriceSub(s.price) + " " + qsym
+        : amount > Z ? "This amount cannot be filled: too small, above what the curve has left, or more than the pool can take."
+          : "1 " + s.ticker + " ≈ " + S.fmtPriceSub(s.price) + " " + qsym;
       rate.className = "note mt8 " + (big ? "down" : mid ? "warn" : "");
-      render(detail,
-        kv("Fee " + Number(s.fee) / 100 + "%", A.fmtUnits(q.fee, buy || (launch && s.phase === Z) ? D.qdec(s) : s.dec, 5) + " " + (buy || (launch && s.phase === Z) ? D.qsym(s) : s.ticker)),
-        q.tax > Z ? kv("Token tax " + Number(s.tax) / 100 + "%", A.fmtUnits(q.tax, D.qdec(s), 5) + " " + D.qsym(s)) : null,
-        q.refund > Z ? kv("Refund (curve ends)", A.fmtUnits(q.refund, D.qdec(s), 5) + " " + D.qsym(s) + (priv ? " → would be paid to the receive address, not to you" : "")) : null,
-        kv("Min received", A.fmtUnits(min, outDec, 6) + " " + outUnit), kv("Route", launch && s.phase === Z ? "bonding curve" : "constant-product AMM"), kv("Ring size", priv ? "16 (the payer is one of 16 accounts)" : "2 (the contract pays the signer; anyone can compute it)"),
-        priv && V.wallet.canon && V.canonAddress(destIn.value.trim()) === V.wallet.canon ? h("div", { class: "warnbox mt8" }, "This is the connected address: the ring hides who paid, but the receiver is you, in clear.") : null,
-        q.graduates ? h("div", { class: "warnbox mt8" }, "This buy completes the curve: the token graduates to its locked AMM.") : null);
+      schedGas(); paint();
       render(riskBox,
         big ? h("div", { class: "riskbox danger mt" }, icon("warn"), h("div", null, h("b", null, "Price impact " + (q.impact / 100).toFixed(1) + "%"), h("div", null, "You would move the market a lot and get much less than the current price suggests. Split the order or trade less."), U.toggle("I understand, continue anyway", ack, (on) => { ack = on; quote(); }, null, "ackSw")))
           : mid ? h("div", { class: "riskbox warn mt" }, icon("warn"), h("div", null, "Price impact " + (q.impact / 100).toFixed(1) + "%: this order noticeably moves the price.")) : null,
@@ -166,22 +211,26 @@
     };
     input.oninput = quote;
     const presets = h("div", { class: "chips nowrap" }, [25, 50, 75, 100].map((p) => h("button", { class: "chip sm", type: "button", onclick: () => { if (balance === null) return toast("Connect the wallet to use presets"); let v = balance * BigInt(p) / 100n; if (buy && p === 100) v = v > 20000n ? v - 20000n : Z; input.value = A.fmtUnits(v, dec, Number(dec)).replace(/,/g, ""); quote(); } }, p === 100 ? "Max" : p + "%")));
-    const slipEl = h("div", { class: "chips" }, [50, 100, 200, 500].map((b) => h("button", { class: "chip " + (slip === b ? "on" : ""), type: "button", onclick: (e) => { slip = b; U.$$("button", slipEl).forEach((x) => x.classList.remove("on")); e.currentTarget.classList.add("on"); V.app.saveSettings({ slippage: b }); quote(); } }, b / 100 + "%")));
     // a private trade is never published: a public record would name the receiver
     const go = async () => { if (!q) return; const min = A.minOut(q.out, slip); closeSheet(); await V.app.trade(s, side, amount, min, publish && !priv ? 1 : 0, q, priv ? { dest: destIn.value.trim() } : null); };
     destIn.oninput = () => quote();
-    // switch to another market without leaving the sheet (same side); the route pill says which maths applies
+    // switch to another market without leaving the sheet (same side); the route row says which maths applies
     const pick = () => openSheet(h("h2", null, "Choose a market"), h("div", { class: "sub mt8" }, "Same side, same sheet."),
       h("div", { class: "list mt" }, D.active().sort((a, b) => b.m.hot - a.m.hot).slice(0, 30).map((x) => h("button", { class: "feed-item", type: "button", onclick: () => T.tradeSheet(x, side) }, avatar(x, "sm"), h("div", { class: "body ellipsis" }, h("b", null, x.ticker), h("div", { class: "sub ellipsis" }, x.name)), h("div", { style: "text-align:right" }, h("div", { class: "num" }, S.fmtPriceSub(x.price)), changePill(x.m.c24h))))));
     openSheet(
-      h("div", { class: "row" }, avatar(s, "sm"), h("div", { class: "grow" }, h("button", { class: "row tight", type: "button", onclick: pick, "aria-label": "switch market", title: "Switch market" }, h("h2", null, (buy ? "Buy " : "Sell ") + s.ticker), icon("chevron", "svgi dim2")), h("div", { class: "sub num" }, S.fmtPriceSub(s.price) + " DERO", " ", changePill(s.m.c24h))), h("div", { class: "badges col" }, U.verified(s), pill(launch && s.phase === Z ? "curve" : "AMM"))),
+      h("div", { class: "row" }, avatar(s, "sm"), h("div", { class: "grow" }, h("button", { class: "row tight", type: "button", onclick: pick, "aria-label": "switch market", title: "Switch market" }, h("h2", null, (buy ? "Buy " : "Sell ") + s.ticker), icon("chevron", "svgi dim2")), h("div", { class: "sub num" }, S.fmtPriceSub(s.price) + " " + qsym, " ", changePill(s.m.c24h))), h("div", { class: "badges col" }, U.verified(s), pill(curve ? "curve" : "AMM"))),
       h("div", { class: "row tight mt8", style: "flex-wrap:wrap" }, h("span", { class: "sub tiny mono" }, "Contract " + V.shortAddr(s.scid)), U.warnings(s)),
+      // a wrapped quote is stated before the amount box, not discovered when the trade fails
+      s.quote ? h("div", { class: "warnbox mt" }, h("b", null, "This market settles in wrapped " + qsym + "."),
+        h("div", { class: "mt8" }, (buy ? "You spend wrapped " + qsym + ", held on DERO as an asset" : "You are paid in wrapped " + qsym + ", held on DERO as an asset") + " — not " + qsym + " on " + ((qv && qv.name) || "its own chain") + ", and not DERO. Wrapped units are backed one for one by a k-of-n federation that can fail, so they are not trustless. The network fee is DERO either way."),
+        button((buy ? "Get wrapped " : "Unwrap ") + qsym, "ghost small mt8", () => { closeSheet(); router.go("wrap"); })) : null,
       h("div", { class: "amount mt" }, input, h("span", { class: "unit" }, unit)),
       h("div", { class: "between mt8" }, h("span", { class: "note ellipsis", id: "balNote" }, "Balance: …"), presets),
       h("div", { class: "outline mt" }, outL, outV, rate),
       riskBox,
-      U.details("Details, slippage and fees", h("div", { class: "between", style: "padding:6px 0 10px" }, h("span", { class: "sub" }, "Max slippage"), slipEl), detail),
-      U.toggle("Post this trade", publish, (on) => { publish = on; }, "Off by default. Publishing writes your address and this trade into the contract for everyone to see. Balances stay private either way.", "publishSw"),
+      h("div", { class: "eyebrow mt" }, "What this trade costs"),
+      h("div", { class: "mt8" }, costs),
+      U.toggle("Post this trade", publish, (on) => { publish = on; schedGas(); paint(); }, "Off by default. Publishing writes your address and this trade into the contract for everyone to see, and costs a little more gas. Balances stay private either way.", "publishSw"),
       U.details("Private mode: hide who paid", h("div", { class: "stack", style: "gap:8px;padding:6px 0 10px" },
         U.toggle("Ring size 16, pay a named address", priv, (on) => { priv = on; quote(); }, "The contract never learns who paid: the wallet hides the payer among 16 accounts. What you buy or sell goes to the address below, which is public. Sending it to the connected address hides nothing.", "privSw"),
         h("div", { class: "field" }, "Receive at", destIn),
