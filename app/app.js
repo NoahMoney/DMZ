@@ -79,9 +79,8 @@
     if (!W.connected || app.loadingHold || (!force && app.holdings && Date.now() - app.holdings.at < 60000)) return; app.loadingHold = true;
     try { // low-priority wallet reads: a user action never waits behind them
       const dero = V.toBig((await W.getBalance("", true).catch(() => ({ balance: 0 }))).balance) ?? 0n;
-      const rows = []; let total = dero, prev = Number(dero) / 1e5;
-      for (const s of D.list()) { if (s.kind !== "launch") continue; const b = await W.getBalance(s.scid, true).catch(() => null); const units = b ? V.toBig(b.balance) : null; if (!units) continue; const q = A.launchSell(s, units) || { out: Z }; total += q.out; rows.push({ s, units, value: q.out }); const p0 = S.priceAt(s, S.now() - 86400); if (p0) prev += (Number(units) / 10 ** Number(s.dec)) * p0; }
-      const tot = Number(total) / 1e5;
+      const rows = [];
+      for (const s of D.list()) { if (s.kind !== "launch") continue; const b = await W.getBalance(s.scid, true).catch(() => null); const units = b ? V.toBig(b.balance) : null; if (!units) continue; const q = A.launchSell(s, units) || { out: Z }; rows.push({ s, units, value: q.out }); }
       // Per quote, never summed across. q.out is atomic units of THAT market's quote asset; adding wrapped XMR
       // to DERO and dividing by DERO's decimals produced a scalar that was never a quantity of anything.
       const totals = new Map();
@@ -90,7 +89,10 @@
         cur.units += r.value;
         totals.set(k, cur);
       }
-      app.holdings = { dero, rows, totals, total: tot, change24: prev > 0 ? ((tot - prev) / prev) * 100 : null, at: Date.now() };
+      // No cross-quote total and no cross-quote 24h change. Both were dead fields, and both were a sum of
+      // wrapped XMR and DERO: a number that is not a quantity of anything and cannot be made one without a rate.
+      // There is no oracle here and there must not be one, so the honest shape is per-quote totals only.
+      app.holdings = { dero, rows, totals, at: Date.now() };
       D.changed();
     } finally { app.loadingHold = false; }
   };
@@ -243,7 +245,7 @@
       const lg = (ledger[r.s.asset] || []).sort((x, y) => x.ts - y.ts); let held = Z, li = 0; const out = [];
       for (const p of r.s.points) {
         if (lg.length) { while (li < lg.length && lg[li].ts <= p.ts) { held += lg[li].d; li++; } if (held < Z) held = Z; } else held = r.units;
-        out.push({ ts: p.ts, v: p.ra > Z && held > Z ? (Number(held) / 10 ** Number(r.s.dec)) * A.price(p, r.s.dec) : 0 }); stamps.add(p.ts);
+        out.push({ ts: p.ts, v: p.ra > Z && held > Z ? (Number(held) / 10 ** Number(r.s.dec)) * A.price(p, r.s.dec, r.s.quoteDec) : 0 }); stamps.add(p.ts);
       }
       series.push(out);
     }

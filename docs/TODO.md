@@ -100,6 +100,38 @@ unnoticed. That is an app-integrity gap, not an attacker path.
 
 ---
 
+## 0d. Every price, liquidity and volume figure assumed DERO's five decimals. DONE 2026-09-08.
+
+`A.price` divided the quote reserve by `1e5`, and `stats.js` did the same in five more places (`flow`,
+`published`, `liq`, the candle volumes). Both simulator vaults were configured as five-decimal too, so nothing
+ever looked wrong — but **real Monero is twelve decimals and real Zcash is eight**. On a real vault this would
+have reported 0.431 XMR of liquidity as **4 310 000 XMR**, and a token priced in XMR wrong by a factor of ten
+million, with no warning of any kind. `screens.js` already knew and carried a `10^(5 − quote decimals)`
+correction to undo it at the display end — the right diagnosis applied at the wrong place, because every new
+caller inherits the fault and has to remember the correction.
+
+Fixed where the units are known: `A.price(s, dec, qdec)` and one `qunit(s)` helper in stats.js. The downstream
+correction is gone (leaving it would double-correct). `app.holdings.total` and `change24` were **deleted**
+rather than fixed — nothing read them and they summed wrapped XMR into DERO, which is not a quantity of anything
+and cannot be made one without a rate. There is no oracle here and there must not be one.
+
+**The simulator now runs XMR at 12 decimals and ZEC at 8**, so these paths are actually exercised and the demo
+stops misrepresenting both chains. Verified against contract state by hand: the `BRW / XMR` pool holds
+rd = 103 095 base units, and the app reports liquidity 2.0619e-7 XMR (= rd / 10¹² × 2) and price 1.2074e-11 XMR
+per BRW — both exact. Before the fix the same pool would have read 2.0619 XMR.
+
+*Checked and cleared:* `capratio` guards are written as `cap / capratio > bondtot`, never
+`bondtot * capratio`, so they cannot overflow a uint64 — and `Slash`'s `STORE("cap", bt * capratio)` is only
+reached when `bt < cap / capratio`, which bounds the product below `cap`. Deliberate, and worth not undoing.
+
+*Discovered, still open:* **`capratio` is decimals-dependent and its documented default of 3 is only meaningful
+for a five-decimal asset.** A real Monero vault deployed with it could wrap at most 1.8e-7 XMR — economically
+nothing. An operator following the current runbook would deploy a vault that cannot hold anything. The
+deployment runbook must state capratio per foreign chain, alongside `mindep`, `minburn`, `wfee` and `cap`,
+all of which are in that chain's base units and all of which are wrong by 10⁷ if copied from the simulator.
+
+---
+
 ## 1. Correctness blockers — the things that are wrong *now*
 
 **1.1 The revenue chain is DERO-only, so fees on XMR/ZEC markets are lost or miscounted. HALF DONE.**

@@ -118,9 +118,9 @@
       const rank = (g) => (g.quote ? (vidx.has(g.quote) ? vidx.get(g.quote) : 900) : 1000); // wrapped quotes first, DERO last: gas ranks below the thing you came to trade
       const gs = [...groups.values()].sort((a, b) => rank(a) - rank(b) || a.sym.localeCompare(b.sym));
 
-      // equityPoints values a point as rd/1e5 ÷ ra/10^dec — DERO's five decimals baked in. Restated in the
-      // group's own quote it is that number × 10^(5 − quote decimals); for a five-decimal quote nothing moves.
-      const curve = (g) => { const f = Math.pow(10, 5 - g.dec); return V.app.equityPoints(g.rows).map((p) => ({ ts: p.ts, v: p.v * f })); };
+      // equityPoints now values a point in its own market's quote (A.price takes the quote decimals), so the
+      // correction factor that used to live here is gone. Leaving it would double-correct.
+      const curve = (g) => V.app.equityPoints(g.rows);
       // zero is not a gain: it takes no sign and no direction colour. Only a real move is coloured.
       const sign = (g, v) => (v > Z ? "+" : "") + fixed(v, g.dec, g.q);
       const dir = (v) => (v > Z ? " up" : v < Z ? " down" : "");
@@ -132,8 +132,8 @@
         h("div", { class: "kv", style: "padding:12px 12px 8px" }, h("span", { class: "label" }, "Asset"), h("span", { class: "label" }, "Value · " + g.sym)),
         h("div", { class: "list" }, g.rows.slice().sort((a, b) => (a.value < b.value ? 1 : a.value > b.value ? -1 : 0)).map((r) => {
           const b = pnl.byAsset[r.s.asset];
-          // avg cost is recomputed here in the quote's own decimals: V.app.pnl divides by 1e5, which is only
-          // right when the quote is DERO
+          // avg cost in the quote's own decimals. V.app.pnl still accumulates cost in atomic units, so the
+          // division belongs here where the group's quote is known.
           const avg = b && b.units > Z ? (Number(b.cost) / 10 ** g.dec) / (Number(b.units) / 10 ** Number(r.s.dec)) : null;
           return hrow(avatar(r.s, "sm"), r.s.ticker,
             [mask(A.fmtUnits(r.units, r.s.dec, 4)) + " " + r.s.ticker,

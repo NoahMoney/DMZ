@@ -3,7 +3,7 @@
 (function () {
   const V = window.Veil, A = V.amm;
   const WIN = { "5m": 300, "1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800 };
-  const price = (p, dec) => A.price(p, dec);
+  const price = (p, dec, qdec) => A.price(p, dec, qdec);
   const now = () => Math.floor(Date.now() / 1000);
 
   // last recorded price at or before ts; falls back to the first point when the token is younger than the window.
@@ -16,7 +16,7 @@
     return price(pts[r < 0 ? 0 : r], s.dec);
   }
   function change(s, secs) {
-    const p1 = price(s, s.dec), p0 = priceAt(s, now() - secs);
+    const p1 = price(s, s.dec, s.quoteDec), p0 = priceAt(s, now() - secs);
     return p0 > 0 && p1 > 0 ? ((p1 - p0) / p0) * 100 : null;
   }
   // liquidity added or removed on a pool is not a trade: both reserves move in proportion (price unchanged), and the
@@ -27,6 +27,12 @@
     const pa = Number(a.rd) / Number(a.ra), pb = Number(b.rd) / Number(b.ra);
     return Math.abs(pb - pa) / pa < 1e-6;
   }
+  // One quote unit, in the atomic units the contract counts. Every reserve, volume and liquidity number on a
+  // market is denominated in that market's QUOTE, and DERO's five decimals were hard-coded into all of them.
+  // Both simulator vaults happen to be five-decimal too, so nothing looked wrong — but a real Monero vault is
+  // twelve, which would have reported 0.431 XMR of liquidity as 4,310,000 XMR. quoteDec is set by nameQuote
+  // before enrich runs; the fallback keeps a DERO market on exactly the numbers it had.
+  const qunit = (s) => 10 ** (Number.isInteger(s && s.quoteDec) ? s.quoteDec : 5);
   // net reserve flow per active block inside the window: covers unpublished trades too (netted per block)
   function flow(s, secs) {
     // walked backwards and stopped at the window edge: the sums are order-independent, and the old forward scan
@@ -39,23 +45,23 @@
       if (lpMove(s, a, b)) continue;
       const d = b.rd > a.rd ? b.rd - a.rd : a.rd - b.rd; vol += d; blocks++; if (b.rd > a.rd) up++; else down++;
     }
-    return { vol: Number(vol) / 1e5, blocks, up, down };
+    return { vol: Number(vol) / qunit(s), blocks, up, down };
   }
   function published(s, secs) {
     const from = now() - secs; let buys = 0, sells = 0, bv = 0n, sv = 0n, last = 0;
     const who = new Set();
     for (let i = s.trades.length - 1; i >= 0; i--) { const t = s.trades[i]; if (t.ts < from) break; who.add(t.addr); if (t.side === 1) { buys++; bv += t.in; } else { sells++; sv += t.out; } if (t.ts > last) last = t.ts; }
-    return { buys, sells, who: who.size, buyVol: Number(bv) / 1e5, sellVol: Number(sv) / 1e5, last };
+    return { buys, sells, who: who.size, buyVol: Number(bv) / qunit(s), sellVol: Number(sv) / qunit(s), last };
   }
   function enrich(s, height) {
-    const p = price(s, s.dec);
+    const p = price(s, s.dec, s.quoteDec);
     const f24 = flow(s, WIN["24h"]), f1 = flow(s, WIN["1h"]), pub24 = published(s, WIN["24h"]), pub1 = published(s, WIN["1h"]);
     const m = {
       price: p, c5m: change(s, WIN["5m"]), c1h: change(s, WIN["1h"]), c6h: change(s, WIN["6h"]), c24h: change(s, WIN["24h"]), c7d: change(s, WIN["7d"]),
       flow24: f24, flow1h: f1, pub24, pub1,
       vol24: f24.vol, blocks24: f24.blocks, buys24: pub24.buys, sells24: pub24.sells, upBlocks24: f24.up, downBlocks24: f24.down,
       mcap: s.kind === "launch" ? p * (Number(s.supply) / 10 ** Number(s.dec)) : null, // fully diluted: price × total supply (labelled FDV)
-      liq: s.kind === "launch" && s.phase === 0n ? Number(s.real) / 1e5 : (Number(s.rd) / 1e5) * 2, // a curve holds only the DERO actually raised
+      liq: s.kind === "launch" && s.phase === 0n ? Number(s.real) / qunit(s) : (Number(s.rd) / qunit(s)) * 2, // a curve holds only the quote actually raised
       lastTs: s.points.length ? s.points[s.points.length - 1].ts : 0,
       age: s.installHeight && height ? Math.max(0, height - s.installHeight) : null,
       progress: s.kind === "launch" && s.phase === 0n && s.G > 0n ? Number(s.real * 10000n / s.G) / 100 : (s.kind === "launch" ? 100 : null),
@@ -83,7 +89,7 @@
       while (i < pts.length && pts[i].ts < t + interval) {
         const p = pts[i], pr = price(p, dec); if (pr > 0) { c.h = Math.max(c.h, pr); c.l = Math.min(c.l, pr); c.c = pr; c.n++; }
         // reserve flow: DERO in = net buying, DERO out = net selling (per active block)
-        if (!lpMove(s, prevPt, p)) { if (p.rd >= prevRd) c.bv += Number(p.rd - prevRd) / 1e5; else c.sv += Number(prevRd - p.rd) / 1e5; }
+        if (!lpMove(s, prevPt, p)) { if (p.rd >= prevRd) c.bv += Number(p.rd - prevRd) / qunit(s); else c.sv += Number(prevRd - p.rd) / qunit(s); }
         prevRd = p.rd; prevPt = p; prevClose = pr; i++;
       }
       c.v = c.bv + c.sv; c.up = c.n === 0 ? null : c.c >= c.o;
