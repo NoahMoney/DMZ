@@ -139,9 +139,9 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
     // A split pair always shows its full pair, not the bare ticker: the pair is the thing two contracts are
     // fighting over, and the row has to name it before the warning underneath can mean anything.
     const dup = dupOf(s);
-    p.name.textContent = (s.quote || dup ? s.pair : s.ticker) + (dup || s.dupTicker || s.lookalike ? " \u26a0" : "");
+    p.name.textContent = (s.quote || dup ? s.pair : s.ticker) + (dup || s.dupTicker || s.lookalike || s.impersonates ? " \u26a0" : "");
     // a split pair outranks a look-alike ticker: one costs you the spread, the other only the wrong logo
-    p.name.title = dup ? dupTitle(s, dup) : s.dupTicker ? "Another listed market uses a ticker that reads the same. Check the contract id before trading." : s.lookalike ? "This ticker contains characters that look like others (Cyrillic or Greek letters)." : "";
+    p.name.title = s.impersonates ? "Not real " + s.impersonates + ": a token that named itself after the wrapped asset. Nothing backs it." : dup ? dupTitle(s, dup) : s.dupTicker ? "Another listed market uses a ticker that reads the same. Check the contract id before trading." : s.lookalike ? "This ticker contains characters that look like others (Cyrillic or Greek letters)." : "";
     // Rewritten on every pass, like the name and the sub line: a market becomes a duplicate the moment someone
     // else installs a contract over its pair, and depth moves on every block. A band written once at first
     // render would freeze at whatever was true then \u2014 rows are reused across draws.

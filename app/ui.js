@@ -84,12 +84,23 @@
   function button(label, cls, onclick, attrs) { return h("button", Object.assign({ class: "btn " + (cls || ""), type: "button", onclick }, attrs || {}), label); }
   // two tiers: the contract code is one thing, what it trades or where it is listed is another
   const verified = (s) => {
+    // A market that wears a wrapped asset's name must not be handed the word "Verified" on its own. The badge
+    // is true — the code does match the template — but next to a copy it reads as a blessing of the name, which
+    // is the one thing it says nothing about. Say what was checked instead.
+    if (s && s.impersonates) return h("span", { class: "verified warn", title: "Only the contract code was checked, and it matches the shipped template. That says nothing about the name: this is not " + s.impersonates + ", and no vault holds anything for it." }, icon("shield"), "Code checked · name is not");
+    // A wrapped asset is not a launch, so the launch check called wrapped Monero "asset unknown" — the app
+    // telling an XMR holder that the one asset it ships a vault for is a stranger. Its id comes from the same
+    // bundle as this code and its vault is named there, which is a stronger claim than any launch can make.
+    if (s && s.wrappedBase && s.vaultRec) return h("span", { class: "verified", title: "This market trades " + (s.vaultRec.name || "a wrapped asset") + ", whose vault contract id ships with this app. The pool contract matches the shipped template and pays the protocol treasury." }, icon("shield"), "Wrapped asset \u00b7 verified");
     if (s && s.kind === "pool" && !s.assetVerified) return h("span", { class: "verified warn", title: "The pool contract matches the shipped template and pays the protocol treasury, but its asset is not a DMZ launch: anyone can create a DERO asset with any name. Check the asset id yourself." }, icon("shield"), "Pool verified \u00b7 asset unknown");
     if (s && s.unlisted) return h("span", { class: "verified warn", title: "The code matches a shipped template, but this contract is not in the DMZ registry: nobody registered it with the factory" }, icon("shield"), "Code verified \u00b7 not listed");
     return h("span", { class: "verified", title: "Contract code matches the shipped template and pays the protocol treasury" }, icon("shield"), "Verified");
   };
   const warnings = (s) => {
     const w = [];
+    // First, and worded as a statement rather than a caution: "check the contract id" asks a user to do work
+    // they cannot do. This one is knowable — the vault that owns the name is in the shipped config — so say it.
+    if (s && s.impersonates) w.push(h("span", { class: "pill bad", title: "This is a token that named itself after " + s.impersonates + ". It is not the wrapped asset, it is not backed by anything held in the vault, and it has nothing to do with the " + s.impersonates + " you can deposit and withdraw on the Wrap screen." }, "Not real " + s.impersonates));
     if (s && s.dupTicker) w.push(h("span", { class: "pill warn", title: "Another listed market uses a ticker that reads the same. Check the contract id before trading." }, "Ticker shared"));
     if (s && s.lookalike) w.push(h("span", { class: "pill warn", title: "This ticker contains characters that look like others (Cyrillic or Greek letters, digits for letters)." }, "Look-alike ticker"));
     return w;

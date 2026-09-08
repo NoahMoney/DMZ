@@ -117,3 +117,6 @@ button.card:hover{background:var(--s2);border-color:var(--edge2)}
 .toast{background:var(--s2);border:1px solid var(--edge2);border-radius:var(--r1);padding:11px 13px;font-size:13.5px;animation:fade .15s ease-out;pointer-events:auto;display:flex;gap:9px;align-items:center}
 .toast.ok{border-left:2px solid var(--acc)}.toast.err{border-left:2px solid var(--down)}
 @keyframes fade{from{opacity:0}to{opacity:1}}
+/* The one warning that means "this is not what it says it is". Every other pill is an outline, so a filled one
+   reads as louder without needing a bigger size or a colour the palette does not have. */
+.pill.bad{color:var(--bg);background:var(--down);border-color:var(--down)}

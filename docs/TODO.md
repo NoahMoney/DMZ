@@ -65,6 +65,41 @@ no `-network` fails on testnet. This predates the Canon change. It needs a testn
 
 ---
 
+## 0c. A token calling itself WXMR listed with no warning at all. DONE 2026-09-08.
+
+The name of a wrapped asset is the most valuable thing to steal here: the whole product points a Monero holder
+at a ticker called XMR, so a token that simply calls itself WXMR is the cheapest attack there is. Installed one
+(`tools/simscam`) and looked, rather than reasoning about it. The app listed it as
+`WXMR / Wrapped Monero / Verified`, `dupTicker: false`, `lookalike: false`, no warning of any kind — while the
+two **genuine** wrapped-XMR pools each carried "Ticker shared" for matching each other, and the real wrapped
+Monero market said **"Pool verified · asset unknown"**. Every guard was pointing the wrong way: the copy looked
+cleaner than the original, and the original was described as a stranger.
+
+The impersonation guard only ever compared listed markets against each other, so a name with no duplicate had
+nothing to collide with — and the wrapped assets are named in config, not in the market list, so they were not
+in the namespace at all. Now each vault's symbol, name and `w` + symbol are reserved to the vault config names,
+and the vault SCID is what settles who is genuine: nothing a creator types is evidence either way.
+
+- `D.reservedBy(ticker)` / `D.impersonation(s)` in feed.js; the mark rides on the market as `s.impersonates`.
+- A filled red `Not real XMR` pill (every other pill is an outline, so filled reads as louder without a new
+  colour), the market row's ⚠ and title, and the first line of `H.risks`, in plain words: no vault holds any
+  XMR for it and it cannot be withdrawn to XMR on any chain.
+- The "Verified" badge no longer stands alone next to a copy. It now reads **"Code checked · name is not"**,
+  because the code genuinely does match the template and that says nothing whatever about the name.
+- The genuine article reads **"Wrapped asset · verified"**, citing the vault whose id ships with the app.
+- Two genuine pools of one wrapped asset no longer flag each other; that is a split pair, which Markets already
+  reports far more usefully. Fixed in feed.js and again in token.js, which recomputed it independently.
+
+Guarded by an assertion in `tools/uitest/ui.mjs` that runs against synthetic markets, so it needs no fixture
+and holds on any network. Verified it fails when the rule is removed.
+
+*Trust root, written down:* the vault list is `config.js`, which ships inside the TELA bundle the user verifies
+by its own hash — as trustworthy as the app itself, and the right place for it. What is **not** yet checked is
+that a configured vault SCID's on-chain code matches a vault template; today a wrong config entry would go
+unnoticed. That is an app-integrity gap, not an attacker path.
+
+---
+
 ## 1. Correctness blockers — the things that are wrong *now*
 
 **1.1 The revenue chain is DERO-only, so fees on XMR/ZEC markets are lost or miscounted. HALF DONE.**

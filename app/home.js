@@ -16,6 +16,9 @@
   H.allocBps = (s) => { const a = H.allocation(s); return a > 0n ? Number((a * 10000n) / s.supply) : 0; };
   H.risks = (s) => {
     const out = [];
+    // First, above every other risk. The others cost a user money on a market that is what it says it is; this
+    // one means the market is not that thing at all, and the vault holds nothing for it.
+    if (s.impersonates) out.push({ k: "fake", t: "This is not " + s.impersonates + ". It is a token whose ticker copies the wrapped asset. No vault holds any " + s.impersonates + " for it, and it cannot be withdrawn to " + s.impersonates + " on any chain. The real one is on the Wrap screen." });
     if (s.kind === "launch" && H.allocBps(s) >= 100) out.push({ k: "alloc", t: "The creator received " + (H.allocBps(s) / 100).toFixed(2) + "% of the supply at launch (" + A.fmtCompact(H.allocation(s), s.dec) + " " + s.ticker + "), sellable at any time." });
     if (s.kind === "launch" && s.tax > 500n) out.push({ k: "tax", t: "High tax: " + Number(s.tax) / 100 + "% of every trade's DERO leg goes to " + ["nobody", "the creator", "buybacks", "stakers"][Number(s.tmode)] + "." });
     if (s.m.liq < 20) out.push({ k: "thin", t: "Thin market: about " + S.fmtDeroShort(s.m.liq) + " " + D.qsym(s) + " of liquidity. Small orders move the price a lot." });

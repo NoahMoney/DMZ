@@ -108,6 +108,36 @@ try {
     }
     step("notice: " + nt.replace(/\s+/g, " ").slice(0, 90));
   }
+  // The name of a wrapped asset is the most valuable thing to steal on DMZ: the whole product points a Monero
+  // holder at a ticker called XMR, so a token that simply calls itself WXMR is the cheapest attack there is.
+  // Checked against synthetic markets rather than chain state, so it holds on any network and needs no fixture.
+  {
+    const r = await page.evaluate(() => {
+      const D = window.Veil.data, v = D.vaults()[0];
+      if (!v) return { skip: true };
+      const sym = v.sym || v.name;
+      return {
+        sym,
+        copy: D.impersonation({ ticker: sym, scid: "f".repeat(64) }),
+        wCopy: D.impersonation({ ticker: "w" + sym, scid: "e".repeat(64) }),
+        genuine: D.impersonation({ ticker: sym, scid: "d".repeat(64), asset: v.scid }),
+        vaultItself: D.impersonation({ ticker: sym, scid: v.scid }),
+        unrelated: D.impersonation({ ticker: "SOMETHINGELSE", scid: "c".repeat(64) }),
+        listedCopies: D.list().filter((x) => x.impersonates).map((x) => x.ticker + "→" + x.impersonates),
+        flaggedGenuine: D.list().filter((x) => x.wrappedBase && (x.impersonates || x.dupTicker)).map((x) => x.ticker),
+      };
+    });
+    if (r.skip) step("impersonation: no vault configured, skipped");
+    else {
+      if (r.copy !== r.sym) fail("a token calling itself " + r.sym + " is not flagged as a copy: " + r.copy);
+      if (r.wCopy !== r.sym) fail("a token calling itself w" + r.sym + " is not flagged as a copy: " + r.wCopy);
+      if (r.genuine) fail("the real wrapped asset is flagged as a copy of itself: " + r.genuine);
+      if (r.vaultItself) fail("the vault contract is flagged as a copy of itself: " + r.vaultItself);
+      if (r.unrelated) fail("an unrelated ticker is flagged as a copy: " + r.unrelated);
+      if (r.flaggedGenuine.length) fail("a genuine wrapped market carries an impersonation or shared-ticker warning: " + r.flaggedGenuine.join(","));
+      step("impersonation: " + r.sym + " and w" + r.sym + " reserved to the vault; listed copies: " + (r.listedCopies.join(", ") || "none"));
+    }
+  }
   // deposit and withdraw must be reachable from the navigation, not only by typing a URL
   {
     const tabs = await page.evaluate(() => [...document.querySelectorAll(".tab")].map((t) => t.dataset.tab));

@@ -31,6 +31,29 @@
       if (c.vault) add(Object.assign({ scid: c.vault }, c.vaultAsset || {}));
       return out;
     },
+    // The name of a wrapped asset belongs to its vault, and a vault is named by the shipped config, so its
+    // symbol cannot be forged. Anything else wearing that name is claiming to be it. This is the name most
+    // worth stealing on DMZ: the product points a Monero holder at a ticker called XMR, so a token that simply
+    // calls itself WXMR is the cheapest attack there is. "w" + symbol is reserved too, since that is how a
+    // wrapped asset is usually written.
+    reservedBy(ticker) {
+      const k = V.ui.tickerKey(ticker || "");
+      if (!k) return null;
+      for (const v of this.vaults()) {
+        for (const nm of [v.sym, v.name, "w" + (v.sym || "")]) {
+          if (nm && V.ui.tickerKey(nm) === k) return v;
+        }
+      }
+      return null;
+    },
+    // Whether this market wears a wrapped asset's name without being that asset. The genuine article is the
+    // market whose traded asset IS the vault; nothing a creator can type is evidence either way.
+    impersonation(s) {
+      if (!s) return null;
+      const v = this.reservedBy(s.ticker);
+      if (!v || s.asset === v.scid || s.scid === v.scid) return null;
+      return V.ui.clean(v.sym || v.name || "a wrapped asset", 10);
+    },
     // The vault whose wrapped asset this market trades, or null when the market is a native DERO one.
     // The symbol a market's prices, reserves and fees are denominated in. Never assume DERO: a market quoted in
     // wrapped XMR shows XMR amounts, and labelling them DERO would misstate the price by whatever the rate is.
@@ -181,16 +204,20 @@
       for (const s of this.assets.values()) {
         if (s.kind !== "pool") continue;
         const bv = this.vaults().find((x) => x.scid === s.asset);
-        if (bv) { s.ticker = V.ui.clean(bv.sym || bv.name || "wrapped", 10); s.name = V.ui.clean(bv.name || "wrapped asset", 40); s.dec = B(Number.isInteger(bv.dec) ? bv.dec : 5); s.wrappedBase = true; }
+        if (bv) { s.ticker = V.ui.clean(bv.sym || bv.name || "wrapped", 10); s.name = V.ui.clean(bv.name || "wrapped asset", 40); s.dec = B(Number.isInteger(bv.dec) ? bv.dec : 5); s.wrappedBase = true; s.vaultRec = bv; }
       }
       // Name the quote so a market can be read as a pair. A wrapped quote is named by its vault record; anything
       // else is shown by its contract id rather than guessed at.
       for (const s of this.assets.values()) this.nameQuote(s);
       // impersonation: markets whose tickers read alike (look-alikes folded) are all marked, so the copy never looks safer than the original
       const groups = new Map();
-      for (const s of this.assets.values()) { if (s.kind === "nft" || (s.kind === "pool" && s.assetVerified)) continue; const k = V.ui.tickerKey(s.ticker); s.lookalike = V.ui.hasHomoglyph(s.ticker); (groups.get(k) || groups.set(k, []).get(k)).push(s); }
+      for (const s of this.assets.values()) { if (s.kind === "nft" || (s.kind === "pool" && s.assetVerified)) continue; const k = V.ui.tickerKey(s.ticker); s.lookalike = V.ui.hasHomoglyph(s.ticker); s.impersonates = this.impersonation(s); (groups.get(k) || groups.set(k, []).get(k)).push(s); }
       for (const g of groups.values()) for (const s of g) s.dupTicker = g.length > 1;
-      for (const s of this.assets.values()) if (s.kind === "pool" && s.assetVerified) { const l = this.assets.get(s.asset); if (!l) continue; s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; } // a launch and its own pool share a ticker by design
+      // Two genuine pools of one wrapped asset share its ticker because they trade the same thing. That is a
+      // split pair, which markets.js already reports far more usefully, and calling it a shared ticker put a
+      // warning on the real asset while a copy of it carried none — the guard pointing the wrong way.
+      for (const g of groups.values()) if (g.length > 1 && g.every((s) => s.wrappedBase)) for (const s of g) s.dupTicker = false;
+      for (const s of this.assets.values()) if (s.kind === "pool" && s.assetVerified) { const l = this.assets.get(s.asset); if (!l) continue; s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; s.impersonates = l.impersonates || null; } // a launch and its own pool share a ticker by design
       for (const s of this.assets.values()) S.enrich(s, this.height);
       for (const n of this.nfts.values()) { const t = this.assets.get(n.token); n.tokenTicker = t ? t.ticker : V.shortAddr(n.token); n.tokenDec = t ? t.dec : 5n; }
     },
