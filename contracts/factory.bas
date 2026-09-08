@@ -1,7 +1,7 @@
-// Veil factory v1: registry of pools, launches and NFT collections plus the protocol treasury pointer.
+// Veil factory v1: registry of pools, launches, NFT collections and NFAs plus the protocol treasury pointer.
 // The DVM has no cross-contract reads, so registration is a paid hint: the app verifies every registered SCID
 // (code equal to the shipped template, treasury equal to "treasury" here) before listing it.
-// Keys: owner treasury tstr regfee pc pool_<n> lc launch_<n> nc nft_<n>   (SCIDs stored as hex strings)
+// Keys: owner treasury tstr regfee pc pool_<n> lc launch_<n> nc nft_<n> nfa_<n>   (SCIDs stored as hex strings)
 
 Function Initialize(treasury String, regfee Uint64) Uint64
 5 IF EXISTS("initd") != 0 THEN GOTO 900
@@ -81,6 +81,17 @@ End Function
 Function RegisterNFT(scid String) Uint64
 10 IF reg(scid) == 0 THEN GOTO 900
 20 STORE("nft_" + LOAD("nc"), HEX(scid))
+21 STORE("nc", LOAD("nc") + 1)
+30 RETURN 0
+900 RETURN 1
+End Function
+
+// An NFA (contracts/nfa.bas, one ART-NFA-MS1 asset per contract) takes the next slot of the badge counter:
+// slot i holds exactly one of nft_<i> / nfa_<i>, so the app walks one range for both kinds and reads each
+// slot by prefix, skipping the spelling that is absent. Initialize gains no key.
+Function RegisterNFA(scid String) Uint64
+10 IF reg(scid) == 0 THEN GOTO 900
+20 STORE("nfa_" + LOAD("nc"), HEX(scid))
 21 STORE("nc", LOAD("nc") + 1)
 30 RETURN 0
 900 RETURN 1

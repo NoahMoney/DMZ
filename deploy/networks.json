@@ -1,28 +1,17 @@
 {
-  "_doc": "Source of truth for per-network deployment. tools/simdeploy writes the block it deployed; tools/genconfig turns a block into app/config.js or a dist/<network>/ bundle. Empty scids mean 'not deployed on this network yet'.",
+  "_doc": "Source of truth for per-network deployment. tools/simdeploy writes the block it deployed; tools/genconfig turns a block into app/config.js or a dist/\u003cnetwork\u003e/ bundle. Empty scids mean 'not deployed on this network yet'.",
   "mainnet": {
     "daemon": "127.0.0.1:10102",
     "factory": "",
     "social": "",
     "founders": "",
     "vault": "",
-    "vaultAsset": {
-      "name": "",
-      "sym": "",
-      "chain": "",
-      "dec": 0,
-      "conf": 0
-    },
     "vaults": null,
     "chat": "",
     "feeBps": 50,
     "pfeeBps": 5000,
     "launchPfeeBps": 5000,
     "templates": {},
-    "indexer": {
-      "enabled": false,
-      "url": ""
-    },
     "tela": {
       "index": "",
       "durl": "veil.tela"
@@ -34,13 +23,6 @@
     "social": "c91b0c18b0611f294fc1ed0e0bea79daa9572e2e944938c10d1b841b9bdc5aa6",
     "founders": "aee674633edab4c12fe5007765629f06852d1e379847da5553de6a1a4928dde2",
     "vault": "f23403b0741852161cd796249bdb1d32b796fa2b646f60041043f6f03bf686fb",
-    "vaultAsset": {
-      "name": "Monero",
-      "sym": "XMR",
-      "chain": "Monero — simulated on this network (12 decimals, as Monero)",
-      "dec": 12,
-      "conf": 10
-    },
     "vaults": [
       {
         "scid": "f23403b0741852161cd796249bdb1d32b796fa2b646f60041043f6f03bf686fb",
@@ -103,6 +85,10 @@
           "09cb53d2cfc33c64c3670d85798550862e4625d2596f7f18029e8bbb02acb609"
         ]
       },
+      "nfa": {
+        "sha256": "e1e77b6b2350f9e8f7798489a22521f35607de5abd646df88f84413202a91005",
+        "legacy": []
+      },
       "nft": {
         "sha256": "f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f",
         "legacy": [
@@ -124,10 +110,6 @@
         ]
       }
     },
-    "indexer": {
-      "enabled": false,
-      "url": "http://127.0.0.1:8082"
-    },
     "tela": {
       "index": "ece546025848fd8f02849c1723d5578d5169e50948aa55c9a1c010b0863b65cb",
       "durl": "veil.tela"
@@ -139,13 +121,6 @@
     "social": "a5f3d33d74a581a9873312940a28ada27d5c64d6aef106ca30f1ca1adc27dbce",
     "founders": "f8271d089c8601710af11b53d32fd9a9132bbf60b3eebd0963a93227199254ca",
     "vault": "",
-    "vaultAsset": {
-      "name": "",
-      "sym": "",
-      "chain": "",
-      "dec": 0,
-      "conf": 0
-    },
     "vaults": null,
     "chat": "",
     "feeBps": 50,
@@ -168,10 +143,6 @@
         "sha256": "d4e42ece020cff3c7cfa172d31f648ec53c8a7d6c84364f5fbe6b18bce295591",
         "legacy": []
       }
-    },
-    "indexer": {
-      "enabled": false,
-      "url": ""
     },
     "tela": {
       "index": "",

@@ -94,7 +94,9 @@ func main() {
 
 	rpc.Must(os.MkdirAll(filepath.Join(*app, "templates"), 0o755))
 	hashes := map[string]string{}
-	for _, k := range []string{"pool", "launch", "nft", "founders"} {
+	// nfa is the ART-NFA-MS1 asset (contracts/nfa.bas), a fifth template beside nft, which stays the holder badge
+	// under its own key: a market deployed from either keeps verifying against the hash it was made from.
+	for _, k := range []string{"pool", "launch", "nft", "nfa", "founders"} {
 		code := read(filepath.Join(*contracts, k+".bas"))
 		rpc.Must(os.WriteFile(filepath.Join(*app, "templates", k+".bas"), []byte(code), 0o644))
 		hashes[k] = sha(code)

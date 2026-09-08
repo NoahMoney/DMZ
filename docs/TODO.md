@@ -10,6 +10,33 @@ on something named.
 
 ---
 
+## RESUME HERE — session ended 2026-09-09 ~00:30 with two builds mid-flight
+
+`main` is green at `0e91b6a`. Everything on disk at session end is on branch **`wip/2026-09-09-swap-nfa`**,
+**unverified as a whole**: check it out, run the validators in `docs/LOOP_PROMPT.md`, keep what passes.
+
+**Operator rulings 2026-09-08:** "we want it trustless" — the DERO↔XMR atomic swap is the active track; the
+operator hosts nothing 24/7; NFA (ART-NFA-MS1) replaces `nft.bas`; spore is the rendezvous channel only.
+
+**Swap (`docs/XMR_SWAP_BUILD.md`)** — committed and verified: `contracts/htlc.bas` + tests, the proof CLI,
+`docs/XMR_SWAP.md`. On the WIP branch, first-verified with all three exits run on the simulator but **failing
+invariants 8–13** (the six added from the adversarial review): `tools/xmrswap`, `tools/simhtlc`. The six fixes
+the verifier named, in order: (1) `swap.go` clear Bob's `LastSent` when the lock leaves the open state
+(TestCrashFuzz flake); (2) inv. 8 — gate only on `Unlocked && UnlockTime == 0` outputs, fake wallet must emit a
+locked one, test; (3) inv. 9/11 — Alice stops claiming at `t1 − 8 − margin`, `StableHeight` + claim height on
+the `Dero` interface, Bob sweeps only when the Claim block ≤ stable; (4) inv. 10 — `DefaultConfirmations = 20`,
+refuse lower unless passed explicitly; (5) inv. 13 — record used secrets, refuse reuse, test; (6) `simhtlc`
+default `-t1 24`, document `-fund`. Then re-run `simhtlc` for all three exits (≈25 min of chain time; fund
+30006/30007 first).
+
+**NFA (`docs/NFA_BUILD.md`)** — build launched 23:24, mid-way at session end: `contracts/nfa.bas` + tests,
+`factory.bas RegisterNFA`, template plumbing, `docs/NFA.md`, then the app screen. Partial files may be on the
+WIP branch; the spec is the source of truth.
+
+**The loop** — cron is session-only and fires only when idle; recreate from `docs/LOOP_PROMPT.md`.
+
+---
+
 ## 0. Where the quote-asset programme stands
 
 Both market contracts are quote-agnostic as of 2026-09-08. A market can be TOKEN/DERO, TOKEN/wXMR or

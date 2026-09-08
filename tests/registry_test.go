@@ -315,3 +315,41 @@ func TestNFTMintOncePerAddress(t *testing.T) {
 		t.Fatalf("second unlock: %v", r.Err)
 	}
 }
+
+// RegisterNFA takes the next slot of the badge counter: after a badge collection at nft_0 an NFA lands at nfa_1
+// and nc reads 2, with nft_1 and nfa_0 absent — a slot holds exactly one spelling, and the app's registry walk
+// (feed.js registry_) skips the one that is missing. The fee and length rules are reg()'s, as for every kind.
+func TestFactoryRegisterNFA(t *testing.T) {
+	c := harness.New()
+	owner, treasury, alice := c.NewAccount(), c.NewAccount(), c.NewAccount()
+	code := readContract(t, "factory.bas")
+	scid, res := c.Install(code, nil, rpc.Arguments{harness.S("treasury", treasury.String()), harness.U("regfee", 10000)}, owner, harness.MaxStorageGas)
+	if !res.OK() {
+		t.Fatalf("install: %v", res.Err)
+	}
+	var nft, nfa crypto.Hash
+	nft[0], nfa[0] = 7, 9
+	if r := c.Call(scid, "RegisterNFA", rpc.Arguments{harness.H("scid", nfa)}, map[crypto.Hash]uint64{zero: 9999}, alice); r.OK() || c.U(scid, "nc") != 0 {
+		t.Fatal("underpaid NFA registration accepted")
+	}
+	if r := c.Call(scid, "RegisterNFA", rpc.Arguments{harness.S("scid", "abcd")}, map[crypto.Hash]uint64{zero: 10000}, alice); r.OK() || c.U(scid, "nc") != 0 {
+		t.Fatal("bad scid accepted")
+	}
+	if r := c.Call(scid, "RegisterNFT", rpc.Arguments{harness.H("scid", nft)}, map[crypto.Hash]uint64{zero: 10000}, alice); !r.OK() || c.U(scid, "nc") != 1 {
+		t.Fatalf("register nft: %v", r.Err)
+	}
+	r := c.Call(scid, "RegisterNFA", rpc.Arguments{harness.H("scid", nfa)}, map[crypto.Hash]uint64{zero: 12000}, alice)
+	if !r.OK() || r.Sent(zero, treasury) != 12000 || c.U(scid, "nc") != 2 || c.S(scid, "nfa_1") != hex.EncodeToString(nfa[:]) {
+		t.Fatalf("register nfa: %v sent=%d nc=%d", r.Err, r.Sent(zero, treasury), c.U(scid, "nc"))
+	}
+	if c.Exists(scid, "nft_1") || c.Exists(scid, "nfa_0") || c.S(scid, "nft_0") != hex.EncodeToString(nft[:]) {
+		t.Fatal("a slot must hold exactly one of nft_<i> / nfa_<i>")
+	}
+	if c.SCBalance(scid, zero) != 0 {
+		t.Fatal("factory kept fee")
+	}
+	// anonymous registration is allowed when paying, as for every other kind
+	if r := c.Call(scid, "RegisterNFA", rpc.Arguments{harness.H("scid", nfa)}, map[crypto.Hash]uint64{zero: 10000}, nil); !r.OK() || c.U(scid, "nc") != 3 || c.S(scid, "nfa_2") != hex.EncodeToString(nfa[:]) {
+		t.Fatalf("anonymous paid NFA registration: %v", r.Err)
+	}
+}
