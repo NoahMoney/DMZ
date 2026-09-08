@@ -246,6 +246,47 @@ sources by URL; no invented numbers.
 7. **Nothing is proxied and nothing is hosted**: both companions talk to their own wallets; the channel carries
    only what the table in §1 lists.
 
+Added 2026-09-08 from the adversarial review in `docs/XMR_SWAP.md` §9 — each was a hole in the seven above:
+
+8. **The gate requires an output Bob can actually spend, not merely a confirmed one** (review R5d, R6). Every
+   Monero transaction carries `unlock_time`; Alice could lock the agreed amount with `unlock_time` years ahead
+   and a companion that checked only confirmations would release `k_b`, claim the DERO, and leave Bob's XMR
+   frozen at no cost to her. Bob's companion sends `k_b` only when his own view-only wallet reports the joint
+   address's **unlocked** balance ≥ the agreed amount, every contributing transfer has `unlock_time == 0`, and
+   no duplicate-output ("burnt") warning was raised — read from the wallet's balance and transfer entries, never
+   summed from Alice's claims. `Incoming.Unlocked` and an `UnlockTime` field carry this; `FakeWallet` must be
+   able to produce a locked-time output so the test can prove the gate refuses it.
+9. **A Claim Bob acts on must be one DERO can no longer undo** (review R2). DERO may replace a block shallower
+   than `STABLE_LIMIT = 8`. If Alice's Claim is mined in the last eight blocks before T1 and re-mined at or after
+   T1, it is refused, the lock reopens, and Bob — already holding `s_a` — can Refund and reveal `s_b`: both then
+   hold `s_a + s_b` and the XMR goes to whoever sweeps first. Two rules: Alice's companion never sends a Claim
+   later than `t1 − 8 − margin` (default margin 8 blocks) and otherwise waits for Refund or Punish; Bob's
+   companion never sweeps until the Claim's block is at or below the daemon's stable height.
+10. **Confirmation depth before the gate is a parameter, defaulted above ten** (review R3). Monero has no
+    consensus bound on reorganisation depth and an 18-block reorganisation has been reported; below ten
+    confirmations nobody can spend the output anyway, so ten buys Bob nothing but time. Default 20; the
+    companion refuses a lower value unless the operator sets it explicitly. This is the one assumption in the
+    protocol that is policy rather than proof, and `docs/XMR_SWAP.md` §10 says so.
+11. **No fee spent on a call the contract will refuse** (review R1). Alice's companion stops attempting Claim
+    once `now + 1 ≥ t1 − 8 − margin`; Bob's stops attempting Refund once `now ≥ t2`; each moves to the exit
+    that remains.
+12. **Every contract call is sent at ring size 2, set by the companion itself** (review R16). At any other ring
+    size `SIGNER()` is 33 zero bytes and line 21 of each entrypoint refuses the call — and for a **Lock**, which
+    carries the DERO, derohe returns a refused call's value only when it can identify the sender, which it
+    cannot above ring 2: `transaction_execute.go:397–404` — *"we could not extract signer, we burn all the
+    funds"*. A Lock at the wrong ring size loses the DERO to nobody. The DERO client never inherits a wallet
+    default; a test asserts the ring size on every request it builds.
+13. **Every secret is fresh per swap** (review R20, R23): `s_a`, `s_b`, `k_b` and the view key pair are generated
+    for one swap id and never reused. Reusing `s_a` publishes the second swap's key share at the first Claim;
+    reusing `k_b` lets one counterparty claim another swap's DERO. The state file records the swap id each secret
+    belongs to, and a companion refuses to start a swap whose secrets it has seen before.
+
+Policy the companion states rather than proves (review R18, R19, R24): it warns loudly when `-daemon` or
+`-monero` is not loopback, because a lying node is the one loss the protocol cannot see; it converts remaining
+DERO blocks to minutes at the rate it has actually observed since the lock and refuses to lock XMR when the
+remaining budget is below what its own path needs; and a height-gated call whose fixed fee does not mine is
+re-sent with a higher fee while `now + 8 + 1 < t1`, then abandoned for the exit that remains.
+
 ---
 
 ## 5. Tests that must exist before "done"
