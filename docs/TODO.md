@@ -27,6 +27,44 @@ and no line branches on the quote.
 
 ---
 
+## 0b. Nobody may take out more than was put in — the veto double-payment hole. DONE 2026-09-08.
+
+A withdrawal is `st == 0` from the moment it is burned until k signers vote `Released`. A signer sends the
+Monero in the middle of that window. Nothing on chain said so, so k signers could vote `Veto` in good faith and
+hand the burner their units back as well: coins gone, units returned, reserve short by the amount for good. The
+only record that a payment was under way was each signer's own local intent file, which the quorum cannot read.
+
+`Paying(j)` puts it on chain before the money moves. `Veto` refuses for 2 000 blocks (~10 hours) after the mark
+— long enough for any Monero or Zcash payment to confirm and for k signers to record `Released`, short enough
+that nobody is stranded. The mark cannot be refreshed, so one signer cannot freeze a withdrawal for ever, and it
+expires on its own, so a payment that is marked and then never made unfreezes without anyone's help.
+`vaultsigner` sends `Paying` before `be.Release` and **fails closed**: no mark, no payment.
+
+Proven, not assumed: `TestVetoCannotPayAWithdrawalTwice` fails with "the burner is paid twice" when only the
+two guard lines are removed. Live on the simulator, vault `c32e6572`: signer 0 marked withdrawal 0, the quorum's
+veto could not even be built ("Discarded knowingly"), state stayed `st 0 / sup 50000 / halted 0`, and the
+payment then completed to 45 100. On withdrawal 1 the daemon marked at height 15074 and voted Released at 15076
+with no prompting. `simvault -paying <j>` and `-veto <j>` drive it by hand.
+
+**Comments are no longer charged as install gas.** The DVM charges storage gas on source bytes, comments
+included, against 20 000 units. vault.bas sat at 19 400 with its documentation, leaving 771 — not enough for
+this fix. Documentation that costs gas is documentation that gets deleted under pressure. `reference.Canon`
+drops whole-line comments and blank lines at install time; the repo keeps the prose and the chain gets the code.
+vault.bas installs at **15 765 gas on a real transaction, 4 235 spare**. pool.bas gives back 3 646 bytes,
+launch.bas 1 817, founders.bas 2 239. `TestCanonOnlyDropsCommentsAndBlanks` proves every surviving line is
+byte-identical and that no numbered statement can go missing.
+
+This also fixed what template verification attests. It used to hash prose, so rewording a comment invalidated
+every deployed market for no change in behaviour, and a user comparing hashes was being asked to trust
+paragraphs. It now covers the executable source and only that. Templates and `config.js` regenerated; the four
+outgoing hashes were demoted to legacy, so markets already deployed still verify.
+
+*Still open on this front:* `deploy/networks.json`'s **testnet** record has been stale since the first
+deployment (its `founders` hash `8afd70fb` is the simulator's *first* legacy entry), so `genconfig -dist` with
+no `-network` fails on testnet. This predates the Canon change. It needs a testnet redeploy, not a record edit.
+
+---
+
 ## 1. Correctness blockers — the things that are wrong *now*
 
 **1.1 The revenue chain is DERO-only, so fees on XMR/ZEC markets are lost or miscounted. HALF DONE.**

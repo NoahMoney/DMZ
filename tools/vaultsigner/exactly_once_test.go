@@ -60,6 +60,11 @@ func TestExactlyOnceUnderCrashes(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 	be := &countingBackend{paid: map[uint64]int{}, ftx: map[uint64]string{}}
 	votes := map[uint64][]string{}
+	// The on-chain "being paid" mark, modelled as the contract stores it: set once, readable by every signer,
+	// and sometimes unreachable. A mark that cannot be recorded must stop the payment, not delay it into a
+	// second one.
+	marked := map[uint64]bool{}
+	markRefusals := 0
 	for j := uint64(0); j < 100; j++ {
 		dest, amount := "dest-"+strconv.FormatUint(j, 10), 1000+j
 		voteRefusals := rng.Intn(3) // the first votes may be refused (quorum already complete elsewhere, or a busy wallet)
@@ -77,9 +82,21 @@ func TestExactlyOnceUnderCrashes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			crashStage := []string{"", "after-intent", "after-pay", "after-paid", "after-vote"}[rng.Intn(5)]
+			markRefusals = rng.Intn(2)
+			crashStage := []string{"", "after-intent", "after-mark", "after-pay", "after-paid", "after-vote"}[rng.Intn(6)]
 			crash := func(stage string) bool { return stage == crashStage }
-			err = processWithdrawal(mem, be, j, dest, amount, voteReleased, crash)
+			markPaying := func(j uint64) bool {
+				if marked[j] {
+					return true
+				}
+				if markRefusals > 0 {
+					markRefusals--
+					return false
+				}
+				marked[j] = true
+				return true
+			}
+			err = processWithdrawal(mem, be, j, dest, amount, markPaying, voteReleased, crash)
 			if err == nil && mem.Intents[strconv.FormatUint(j, 10)].State == "voted" {
 				break
 			}
@@ -89,6 +106,9 @@ func TestExactlyOnceUnderCrashes(t *testing.T) {
 		}
 		if be.paid[j] != 1 {
 			t.Fatalf("withdrawal %d paid %d times", j, be.paid[j])
+		}
+		if !marked[j] {
+			t.Fatalf("withdrawal %d was paid without ever being marked on chain", j)
 		}
 		// Payments are exactly-once. Votes are at-least-once: a crash between the vote and the "voted" record
 		// repeats the vote on restart, and the contract refuses a second vote from the same signer
@@ -150,7 +170,7 @@ func TestIntentMismatchStops(t *testing.T) {
 	if err := mem.save(); err != nil {
 		t.Fatal(err)
 	}
-	err := processWithdrawal(mem, be, 7, "b", 5, func(uint64, string) bool { return true }, nil)
+	err := processWithdrawal(mem, be, 7, "b", 5, alwaysMark, func(uint64, string) bool { return true }, nil)
 	if err == nil || be.paid[7] != 0 {
 		t.Fatalf("mismatched intent paid: err %v paid %d", err, be.paid[7])
 	}
@@ -186,7 +206,7 @@ func TestNoVoteWithoutVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := processWithdrawal(mem, be, 7, "dest-7", 1000, vote, nil); err == nil {
+	if err := processWithdrawal(mem, be, 7, "dest-7", 1000, alwaysMark, vote, nil); err == nil {
 		t.Fatal("expected a refusal to vote for a payment the chain does not show")
 	}
 	if voted != 0 {
@@ -198,7 +218,7 @@ func TestNoVoteWithoutVerification(t *testing.T) {
 
 	// the same withdrawal, now visible on the foreign chain: it votes, and it does not pay twice
 	be.blind = false
-	if err := processWithdrawal(mem, be, 7, "dest-7", 1000, vote, nil); err != nil {
+	if err := processWithdrawal(mem, be, 7, "dest-7", 1000, alwaysMark, vote, nil); err != nil {
 		t.Fatal(err)
 	}
 	if voted != 1 || be.paid[7] != 1 {
@@ -210,14 +230,48 @@ func TestNoVoteWithoutVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := processWithdrawal(mem2, be, 8, "dest-8", 1000, vote, nil); err != nil {
+	if err := processWithdrawal(mem2, be, 8, "dest-8", 1000, alwaysMark, vote, nil); err != nil {
 		t.Fatal(err)
 	}
 	r := be.rec[8]
 	r.Dest = "attacker"
 	be.rec[8] = r
 	mem2.Intents["8"].State = "paid" // as if the process died before the vote was recorded
-	if err := processWithdrawal(mem2, be, 8, "dest-8", 1000, vote, nil); err == nil {
+	if err := processWithdrawal(mem2, be, 8, "dest-8", 1000, alwaysMark, vote, nil); err == nil {
 		t.Fatal("expected a refusal: the recorded payment went to another destination")
+	}
+}
+
+// alwaysMark stands in for a chain that records the mark first time, for the tests whose subject is something
+// else. TestAPaymentIsNotMadeWhenTheMarkCannotBeRecorded covers the case where it does not.
+func alwaysMark(uint64) bool { return true }
+
+// Fail closed. If the mark cannot be written the guard is not up, so paying would risk exactly the double
+// payment the mark exists to prevent. The withdrawal must simply wait: the intent survives, nothing is sent,
+// and the next pass tries again.
+func TestAPaymentIsNotMadeWhenTheMarkCannotBeRecorded(t *testing.T) {
+	dir := t.TempDir()
+	be := &countingBackend{paid: map[uint64]int{}, ftx: map[uint64]string{}}
+	mem, err := loadMemory(filepath.Join(dir, "state.json"), "vaultA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	voted := false
+	vote := func(uint64, string) bool { voted = true; return true }
+	if err := processWithdrawal(mem, be, 3, "dest-3", 1000, func(uint64) bool { return false }, vote, nil); err == nil {
+		t.Fatal("paid without recording the mark")
+	}
+	if be.paid[3] != 0 || voted {
+		t.Fatalf("the foreign chain was touched anyway: paid %d voted %v", be.paid[3], voted)
+	}
+	if it := mem.Intents["3"]; it == nil || it.State != "paying" {
+		t.Fatalf("the intent did not survive to be retried: %+v", it)
+	}
+	// and once the chain is reachable the same withdrawal goes through, exactly once
+	if err := processWithdrawal(mem, be, 3, "dest-3", 1000, alwaysMark, vote, nil); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if be.paid[3] != 1 || !voted {
+		t.Fatalf("retry paid %d times, voted %v", be.paid[3], voted)
 	}
 }

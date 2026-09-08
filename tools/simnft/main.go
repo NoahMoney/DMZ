@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"time"
+	ref "veil/reference"
 
 	rpc "veil/tools/simrpc"
 )
@@ -26,20 +27,21 @@ func main() {
 	c := &rpc.Client{Daemon: *daemon, Timeout: 180 * time.Second}
 	w := func(i int) string { return fmt.Sprintf("127.0.0.1:%d", 30000+i) }
 	cr, hd, tr := rpc.Address(w(*creator)), rpc.Address(w(*holder)), rpc.Address(w(*treasuryIdx))
-	code, err := os.ReadFile(*contracts + "/nft.bas")
+	codeRaw, err := os.ReadFile(*contracts + "/nft.bas")
 	rpc.Must(err)
+	code := ref.Canon(string(codeRaw))
 	args := []rpc.Arg{rpc.S("name", "VSC Holder Badge"), rpc.S("descr", "earned by holding VSC"), rpc.S("icon", ""), rpc.S("file", ""), rpc.S("tags", "#vsc"),
 		rpc.S("collection", "VSC Badges"), rpc.H("token", *launch), rpc.U("minhold", 1000), rpc.U("holdblocks", 2), rpc.U("maxsupply", 10),
 		rpc.U("price", 100000), rpc.S("treasury", tr), rpc.U("fee", 50)}
 	fmt.Println("holder token balance:", rpc.Balance(w(*holder), *launch), "DERO:", rpc.Balance(w(*holder), ""))
 	fmt.Println("1. estimate nft install")
-	g, err := c.Estimate(cr, string(code), "", nil, args)
+	g, err := c.Estimate(cr, code, "", nil, args)
 	fmt.Println("   ->", g, err)
 	if err != nil {
 		os.Exit(1)
 	}
 	fmt.Println("2. install")
-	nft, gas, _ := c.Send(w(*creator), cr, string(code), "", nil, args)
+	nft, gas, _ := c.Send(w(*creator), cr, code, "", nil, args)
 	fmt.Println("   nft", nft, gas)
 	fmt.Println("3. register on factory")
 	if _, err := c.Estimate(cr, "", *factory, []rpc.Transfer{{Destination: c.RandomAddress(), Burn: 10000}}, []rpc.Arg{rpc.S("entrypoint", "RegisterNFT"), rpc.H("scid", nft)}); err != nil {

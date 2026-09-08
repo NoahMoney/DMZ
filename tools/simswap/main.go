@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	ref "veil/reference"
 
 	rpc "veil/tools/simrpc"
 )
@@ -25,12 +26,13 @@ func main() {
 	wb := flag.String("b", "127.0.0.1:30004", "taker wallet rpc (claims)")
 	flag.Parse()
 	c := &rpc.Client{Daemon: *daemon, Timeout: 180 * time.Second}
-	code, err := os.ReadFile(filepath.Join(*contracts, "swap.bas"))
+	codeRaw, err := os.ReadFile(filepath.Join(*contracts, "swap.bas"))
 	rpc.Must(err)
+	code := ref.Canon(string(codeRaw))
 	a, b := rpc.Address(*wa), rpc.Address(*wb)
 	t0 := time.Now()
 	fmt.Printf("maker %s\ntaker %s\n", a, b)
-	scid, gas, h := c.Send(*wa, a, string(code), "", nil, nil)
+	scid, gas, h := c.Send(*wa, a, code, "", nil, nil)
 	fmt.Printf("[%5.1fs] INSTALL swap.bas scid %s storage-gas %d height %d\n", time.Since(t0).Seconds(), scid, gas.GasStorage, h)
 
 	var secret [32]byte

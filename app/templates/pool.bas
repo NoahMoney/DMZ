@@ -1,17 +1,3 @@
-// Veil pool v2 - constant-product AMM for one quote/asset pair. Immutable: no UpdateCode.
-// The quote side is an SCID fixed at install: the zero hash (DERO) or a wrapped asset (wXMR, wZEC).
-// ASSETVALUE(zero hash) is DEROVALUE() and SEND_ASSET_TO_ADDRESS(a,n,zero hash) is SEND_DERO_TO_ADDRESS(a,n),
-// so one asset-shaped path serves both and no line branches on the quote.
-// All arithmetic is uint64. Every product of two possibly-large numbers goes through muldiv (128-bit).
-// Every other arithmetic line carries its bound. Rounding: outputs floor, fees ceil, LP mint floor.
-// Invariant: the contract holds exactly rd + fd quote and ra + fa asset; every credit is guarded against wrapping
-// that total (the node credits the FULL incoming value with plain wrapping arithmetic before the code runs, so the
-// guard always uses the amounts received, never the amounts used).
-// Every entrypoint requires ringsize 2: SIGNER() must resolve because output is sent to the signer.
-// Storage keys: kind v asset qt treasury fee pfee rd ra lp fd fa tc pc lh lt   t_<n> (published trades)  p_<n>
-// Trade record t_<n> = side|address|in|out|height|timestamp   (side 1 = bought asset with quote, 2 = sold for quote)
-// Price point  p_<n> = height|timestamp|rd|ra  = closing reserves of the previous active block, written on the first reserve change of a new block
-
 Function InitializePrivate(asset String, quote String, treasury String, fee Uint64, pfee Uint64) Uint64
 5 IF EXISTS("initd") != 0 THEN GOTO 900
 10 DIM t as String
@@ -42,9 +28,6 @@ Function InitializePrivate(asset String, quote String, treasury String, fee Uint
 100 RETURN 0
 900 RETURN 1
 End Function
-
-// Deposit quote and asset in the current ratio. Excess on one side is refunded. Mints LP (this SCID) to the signer.
-// First deposit: LP minted = quote deposited, 1000 units stay locked forever (MIN_LIQ), first deposit >= 100000 units.
 Function AddLiquidity(min_lp Uint64) Uint64
 10 DIM d, a, rd, ra, lp, l, ld, la, need as Uint64
 11 DIM s, asset, q as String
@@ -96,8 +79,6 @@ Function AddLiquidity(min_lp Uint64) Uint64
 560 RETURN 0
 900 RETURN 1
 End Function
-
-// Burn LP (send this SCID) and receive the proportional share of both reserves, rounded down.
 Function RemoveLiquidity(min_dero Uint64, min_asset Uint64) Uint64
 10 DIM l, rd, ra, lp, dout, aout as Uint64
 11 DIM s, asset, q as String
@@ -125,8 +106,6 @@ Function RemoveLiquidity(min_dero Uint64, min_asset Uint64) Uint64
 210 RETURN 0
 900 RETURN 1
 End Function
-
-// Send quote, receive asset. fee = ceil(d * fee / 10000); protocol share pf = floor(fee * pfee / 10000) accrues to fd; the rest stays in reserves.
 Function SwapDeroForAsset(min_out Uint64, publish Uint64) Uint64
 10 DIM s as String
 20 LET s = SIGNER()
@@ -134,7 +113,6 @@ Function SwapDeroForAsset(min_out Uint64, publish Uint64) Uint64
 30 RETURN buyto(s, min_out, publish)
 900 RETURN 1
 End Function
-
 Function SwapDeroForAssetTo(dest String, min_out Uint64, publish Uint64) Uint64
 10 DIM s as String
 20 LET s = ADDRESS_RAW(dest)
@@ -144,7 +122,6 @@ Function SwapDeroForAssetTo(dest String, min_out Uint64, publish Uint64) Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
 Function buyto(s String, min_out Uint64, publish Uint64) Uint64
 10 DIM d, fee, pf, deff, rd, ra, out as Uint64
 11 DIM asset, q as String
@@ -172,8 +149,6 @@ Function buyto(s String, min_out Uint64, publish Uint64) Uint64
 230 RETURN 0
 900 RETURN 1
 End Function
-
-// Send asset, receive quote. Fee taken in asset units with the same rule.
 Function SwapAssetForDero(min_out Uint64, publish Uint64) Uint64
 10 DIM s as String
 20 LET s = SIGNER()
@@ -181,7 +156,6 @@ Function SwapAssetForDero(min_out Uint64, publish Uint64) Uint64
 30 RETURN sellto(s, min_out, publish)
 900 RETURN 1
 End Function
-
 Function SwapAssetForDeroTo(dest String, min_out Uint64, publish Uint64) Uint64
 10 DIM s as String
 20 LET s = ADDRESS_RAW(dest)
@@ -191,7 +165,6 @@ Function SwapAssetForDeroTo(dest String, min_out Uint64, publish Uint64) Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
 Function refundto(s String) Uint64
 5 DIM q as String
 6 LET q = LOAD("qt")
@@ -207,7 +180,6 @@ Function refundto(s String) Uint64
 40 STORE("rf_" + HEX(TXID()), 1)
 100 RETURN 0
 End Function
-
 Function sellto(s String, min_out Uint64, publish Uint64) Uint64
 10 DIM a, fee, pf, aeff, rd, ra, out as Uint64
 11 DIM asset, q as String
@@ -235,9 +207,6 @@ Function sellto(s String, min_out Uint64, publish Uint64) Uint64
 230 RETURN 0
 900 RETURN 1
 End Function
-
-// Treasury withdraws accrued protocol fees.
-// Anyone may trigger the payout; it always goes to the treasury recorded at install (see launch.bas).
 Function ClaimFees() Uint64
 10 DIM fd, fa as Uint64
 11 DIM t, q as String
@@ -254,10 +223,6 @@ Function ClaimFees() Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
-// ---- internal helpers -------------------------------------------------------------------------
-
-// Price point: on the first reserve change in a new block, persist the closing reserves of the previous active block.
 Function tick(rd Uint64, ra Uint64) Uint64
 10 DIM h, n as Uint64
 20 LET h = BLOCK_HEIGHT()
@@ -270,8 +235,6 @@ Function tick(rd Uint64, ra Uint64) Uint64
 90 STORE("lt", BLOCK_TIMESTAMP())
 100 RETURN 0
 End Function
-
-// Published trade record. Only written when the trader passed publish = 1.
 Function post(side Uint64, ain Uint64, aout Uint64, publish Uint64, s String) Uint64
 10 DIM n as Uint64
 20 IF publish == 0 THEN GOTO 100
@@ -280,13 +243,9 @@ Function post(side Uint64, ain Uint64, aout Uint64, publish Uint64, s String) Ui
 50 STORE("tc", n + 1)
 100 RETURN 0
 End Function
-
-// floor(x * f / 10000) exactly, without overflow, for f <= 10000:  x = 10000q + r  =>  q*f + floor(r*f/10000)
 Function bps(x Uint64, f Uint64) Uint64
 10 RETURN (x / 10000) * f + ((x % 10000) * f) / 10000
 End Function
-
-// ceil(x * f / 10000): the only fractional part comes from r*f/10000
 Function bpsup(x Uint64, f Uint64) Uint64
 10 DIM r as Uint64
 20 LET r = bps(x, f)
@@ -294,18 +253,12 @@ Function bpsup(x Uint64, f Uint64) Uint64
 40 RETURN r + 1
 50 RETURN r
 End Function
-
-// DVM quirk: LET parses without the operator rejoiner, so only single-character operators (+ - * / % & | ^) work in LET.
-// Shifts are therefore written as multiply/divide by 2^32 (identical under wrapping) or via shl/shr, which use RETURN.
 Function shl(x Uint64, s Uint64) Uint64
 10 RETURN x << s
 End Function
-
 Function shr(x Uint64, s Uint64) Uint64
 10 RETURN x >> s
 End Function
-
-// High 64 bits of a*b via 32-bit limbs. p00, p01, p10, a1*b1 are each < 2^64; mid < 3 * 2^32.
 Function mulhi(a Uint64, b Uint64) Uint64
 10 DIM a0, a1, b0, b1, p00, p01, p10, mid as Uint64
 20 LET a0 = a & 4294967295
@@ -318,8 +271,6 @@ Function mulhi(a Uint64, b Uint64) Uint64
 90 LET mid = p00 / 4294967296 + (p01 & 4294967295) + (p10 & 4294967295)
 100 RETURN a1 * b1 + p01 / 4294967296 + p10 / 4294967296 + mid / 4294967296
 End Function
-
-// Number of leading zero bits of x, x != 0. Binary search, six steps. x * 2^k wraps exactly like x << k.
 Function nlz(x Uint64) Uint64
 10 DIM n as Uint64
 20 LET n = 0
@@ -342,10 +293,6 @@ Function nlz(x Uint64) Uint64
 190 LET n = n + 1
 200 RETURN n
 End Function
-
-// (u1 * 2^64 + u0) / v for u1 < v (quotient fits in 64 bits). Hacker's Delight divlu2 with base 2^32.
-// Wrapping arithmetic on line 200 is exact because the true value of un21 is below 2^64.
-// The && conditions are evaluated in full (no short-circuit): a wrapped q*vn0 is harmless because q < 2^32 fails first.
 Function divlu(u1 Uint64, u0 Uint64, v Uint64) Uint64
 10 DIM s, vn1, vn0, un32, un10, un1, un0, q1, q0, rhat, un21 as Uint64
 20 LET s = nlz(v)
@@ -374,8 +321,6 @@ Function divlu(u1 Uint64, u0 Uint64, v Uint64) Uint64
 260 IF rhat < 4294967296 THEN GOTO 230
 300 RETURN q1 * 4294967296 + q0
 End Function
-
-// floor(a * b / c). Panics (reverting the whole call) when c == 0 or the result does not fit in 64 bits.
 Function muldiv(a Uint64, b Uint64, c Uint64) Uint64
 10 DIM hi, lo as Uint64
 20 LET hi = mulhi(a, b)
@@ -387,9 +332,6 @@ Function muldiv(a Uint64, b Uint64, c Uint64) Uint64
 900 PANIC()
 910 RETURN 0
 End Function
-
-// ceil(a * b / c). Remainder = lo - q*c in wrapping arithmetic, exact because the true remainder is below c < 2^64.
-// q = 2^64-1 with a non-zero remainder means the ceiling does not fit: panic instead of wrapping to 0.
 Function muldivup(a Uint64, b Uint64, c Uint64) Uint64
 10 DIM q as Uint64
 20 LET q = muldiv(a, b, c)

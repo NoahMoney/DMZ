@@ -1,14 +1,3 @@
-// Veil Founders Pass v1: a fixed-edition NFT (this contract's own asset, 0 decimals) whose registered holders receive
-// a share of the exchange's fees, paid in DERO to their wallets. Anyone can Deposit; the protocol treasury deposits
-// `share` bps of the fees it claims from every market (the promise is stored here, immutable). Rewards use a
-// per-unit accumulator (acc, ×2^32) so a deposit is O(1) and any number of holders is supported; PayBatch pushes
-// pending rewards to registered wallets in slices, Claim pulls them. Built-in marketplace: List / Buy / Unlist at a
-// fixed price per unit, `mfee` bps of every sale goes to the holders. Immutable: no UpdateCode.
-// Keys: nameHdr descrHdr iconURLHdr fileURL typeHdr kind v creator treasury price maxsupply start reserve share mfee
-//       minted hst acc rpool und dep mdep paid hn   h_<i> hi_<addr> hu_<addr> hd_<addr>   ln la ls_<id> lp_<id> lu_<id>
-// Invariant: contract DERO == rpool + und. rpool is owed to registered holders (already in acc); und is waiting for
-// the first registration. Contract units == hst + sum(lu_).
-
 Function InitializePrivate(name String, descr String, icon String, file String, price Uint64, maxsupply Uint64, start Uint64, reserve Uint64, share Uint64, mfee Uint64, treasury String) Uint64
 5 IF EXISTS("initd") != 0 THEN GOTO 900
 10 DIM s, t as String
@@ -53,8 +42,6 @@ Function InitializePrivate(name String, descr String, icon String, file String, 
 100 RETURN 0
 900 RETURN 1
 End Function
-
-// Mint n editions for exactly n × price DERO (proceeds go to the treasury). Opens at block `start`.
 Function Mint(n Uint64) Uint64
 10 DIM s as String
 11 DIM m, cost as Uint64
@@ -72,8 +59,6 @@ Function Mint(n Uint64) Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
-// Register the passes sent with this call so they earn. Pending rewards are settled first.
 Function Register() Uint64
 10 DIM s, a as String
 11 DIM u, hn, hu as Uint64
@@ -100,8 +85,6 @@ Function Register() Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
-// Withdraw u registered passes back to the wallet (rewards settled first). Leaving the registry compacts it.
 Function Withdraw(u Uint64) Uint64
 10 DIM s, a as String
 11 DIM hu as Uint64
@@ -122,7 +105,6 @@ Function Withdraw(u Uint64) Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
 Function Claim() Uint64
 10 DIM s as String
 20 LET s = SIGNER()
@@ -132,8 +114,6 @@ Function Claim() Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
-// Anyone can deposit DERO for the holders (the treasury does, with its promised share of the fees).
 Function Deposit() Uint64
 10 DIM d as Uint64
 20 LET d = DEROVALUE()
@@ -144,17 +124,12 @@ Function Deposit() Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
-// Moves DERO that arrived while nobody was registered into the accumulator. Anyone.
 Function Distribute() Uint64
 10 IF DEROVALUE() != 0 THEN GOTO 900
 20 distribute(0)
 100 RETURN 0
 900 RETURN 1
 End Function
-
-// Pushes pending rewards to registered holders from..from+n-1 (n ≤ 15: each settle costs ≈ 0.41M of the 10M
-// compute gas a call has). Anyone.
 Function PayBatch(from Uint64, n Uint64) Uint64
 10 DIM i, end, hn as Uint64
 11 DIM a as String
@@ -173,8 +148,6 @@ Function PayBatch(from Uint64, n Uint64) Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
-// Marketplace: deposit passes with an ask price per unit.
 Function List(price Uint64) Uint64
 10 DIM s as String
 11 DIM u, id as Uint64
@@ -191,7 +164,6 @@ Function List(price Uint64) Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
 Function Unlist(id Uint64) Uint64
 10 DIM s as String
 20 LET s = SIGNER()
@@ -206,8 +178,6 @@ Function Unlist(id Uint64) Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
-// Buy n units of listing id for exactly n × price. mfee bps of the price goes to the holders, the rest to the seller.
 Function Buy(id Uint64, n Uint64) Uint64
 10 DIM s as String
 11 DIM lu, cost, fee as Uint64
@@ -233,11 +203,6 @@ Function Buy(id Uint64, n Uint64) Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
-// ---- internals ----
-// distribute(x): pool = und + x. With no registered units it waits in und; otherwise acc += floor(pool·2^32/hst) and
-// ceil(inc·hst/2^32) ≤ pool moves to rpool, so the same residual is never credited twice (what stays in und is
-// strictly less than one atomic unit per registered unit).
 Function distribute(x Uint64) Uint64
 10 DIM pool, hst, inc, acc, covered as Uint64
 20 LET pool = LOAD("und") + x

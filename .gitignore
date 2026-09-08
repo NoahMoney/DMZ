@@ -25,3 +25,8 @@ research/farcaster-core/
 research/frost/
 research/mycelium/
 research/xmr-btc-swap/
+
+# signer daemon local state: vote memory and release intents, one file per signer per vault
+tools/vaultsigner-*.json
+# built binaries
+tools/*.exe

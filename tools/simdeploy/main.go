@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	ref "veil/reference"
 	"veil/tools/netcfg"
 	rpc "veil/tools/simrpc"
 )
@@ -50,7 +51,10 @@ var (
 	passMfee    = flag.Uint64("pass-mfee", 250, "marketplace fee in bps, paid to holders")
 )
 
-func read(p string) string { b, err := os.ReadFile(p); rpc.Must(err); return string(b) }
+// read returns the source a contract is installed with, which is also the source written to app/templates and
+// hashed into config.js: ref.Canon drops whole-line comments and blank lines, so the template hash a user
+// checks covers the code that runs and nothing else.
+func read(p string) string { b, err := os.ReadFile(p); rpc.Must(err); return ref.Canon(string(b)) }
 func sha(s string) string  { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 
 func main() {

@@ -112,7 +112,7 @@ func TestPayingDoesNotLookLikeTheft(t *testing.T) {
 	st := state(map[string]uint64{"sup": 50000, "wn": 1, "w_0_st": 0, "w_0_v": 39900})
 
 	voted := false
-	if err := processWithdrawal(mem, be, 0, "dest-0", 39900, func(uint64, string) bool { voted = true; return true }, nil); err != nil {
+	if err := processWithdrawal(mem, be, 0, "dest-0", 39900, alwaysMark, func(uint64, string) bool { voted = true; return true }, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !voted {

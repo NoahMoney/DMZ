@@ -1,8 +1,3 @@
-// Veil launch v1: memecoin with bonding curve, built-in AMM after graduation, fee on every trade, optional creator tax
-// (tmode 1 creator, 2 buyback-and-lock, 3 staker rewards) and a staking vault. Immutable: no UpdateCode.
-// Maths, key list and proofs: contracts/README.md. Same swap entrypoints and rd/ra/t_/p_ keys as pool.bas.
-// Invariants: rd - real == vd0 and ra + sold == vt0 while phase == 0; contract DERO == real|rd + fd + tacc + rpool.
-
 Function InitializePrivate(name String, ticker String, descr String, icon String, tags String, quote String, dec Uint64, supply Uint64, grad Uint64, cbps Uint64, tax Uint64, tmode Uint64, treasury String, fee Uint64, pfee Uint64) Uint64
 5 IF EXISTS("initd") != 0 THEN GOTO 900
 10 DIM t, s as String
@@ -71,9 +66,6 @@ Function InitializePrivate(name String, ticker String, descr String, icon String
 100 RETURN 0
 900 RETURN 1
 End Function
-
-// Buy: phase 0 bonding curve (whole fee to treasury, last buy capped at the remaining curve tokens with the rest refunded,
-// graduates when the curve is sold out), phase 1 constant-product AMM (fee split by pfee). Tax on the DERO leg in both.
 Function SwapDeroForAsset(min_out Uint64, publish Uint64) Uint64
 10 DIM s as String
 20 LET s = SIGNER()
@@ -81,7 +73,6 @@ Function SwapDeroForAsset(min_out Uint64, publish Uint64) Uint64
 30 RETURN buyto(s, min_out, publish)
 900 RETURN 1
 End Function
-
 Function SwapDeroForAssetTo(dest String, min_out Uint64, publish Uint64) Uint64
 10 DIM s as String
 20 LET s = ADDRESS_RAW(dest)
@@ -91,7 +82,6 @@ Function SwapDeroForAssetTo(dest String, min_out Uint64, publish Uint64) Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
 Function buyto(s String, min_out Uint64, publish Uint64) Uint64
 10 DIM d, fee, pf, tx, deff, rd, ra, out, rem, cost, real, used as Uint64
 11 DIM q as String
@@ -157,9 +147,6 @@ Function buyto(s String, min_out Uint64, publish Uint64) Uint64
 211 RETURN 0
 900 RETURN 1
 End Function
-
-// Sell: phase 0 only tokens previously sold by the curve can come back (a <= sold), DERO out is bounded by real;
-// phase 1 AMM with the fee in tokens. Tax on the DERO leg in both.
 Function SwapAssetForDero(min_out Uint64, publish Uint64) Uint64
 10 DIM s as String
 20 LET s = SIGNER()
@@ -167,7 +154,6 @@ Function SwapAssetForDero(min_out Uint64, publish Uint64) Uint64
 30 RETURN sellto(s, min_out, publish)
 900 RETURN 1
 End Function
-
 Function SwapAssetForDeroTo(dest String, min_out Uint64, publish Uint64) Uint64
 10 DIM s as String
 20 LET s = ADDRESS_RAW(dest)
@@ -177,7 +163,6 @@ Function SwapAssetForDeroTo(dest String, min_out Uint64, publish Uint64) Uint64
 100 RETURN 0
 900 RETURN 1
 End Function
-
 Function refundto(s String) Uint64
 5 DIM q as String
 6 LET q = LOAD("qt")
@@ -191,7 +176,6 @@ Function refundto(s String) Uint64
 30 STORE("rf_" + HEX(TXID()), 1)
 100 RETURN 0
 End Function
-
 Function sellto(s String, min_out Uint64, publish Uint64) Uint64
 10 DIM a, fee, pf, tx, aeff, rd, ra, dout, out, real as Uint64
 11 DIM q as String
@@ -239,9 +223,6 @@ Function sellto(s String, min_out Uint64, publish Uint64) Uint64
 215 RETURN 0
 900 RETURN 1
 End Function
-
-// Anyone may trigger the payout; it always goes to the treasury recorded at install. Permissionless because a
-// fee path that only one key can move stops the moment that key does, and the protocol has no operator to rely on.
 Function ClaimFees() Uint64
 10 DIM fd, fa as Uint64
 11 DIM t, q as String
@@ -258,8 +239,6 @@ Function ClaimFees() Uint64
 40 RETURN 0
 900 RETURN 1
 End Function
-
-// tmode 1: the creator withdraws the accrued tax.
 Function ClaimTax() Uint64
 10 DIM s, q as String
 11 DIM x as Uint64
@@ -272,10 +251,6 @@ Function ClaimTax() Uint64
 40 RETURN 0
 900 RETURN 1
 End Function
-
-// tmode 2: anyone (any ringsize) buys tokens from the AMM with the accrued tax; the tokens are locked forever.
-// One call spends at most 1 % of the DERO reserve and calls are 20 blocks apart: a trader who buys, triggers the
-// buyback and sells cannot move the price by more than the round-trip fees cost.
 Function Buyback() Uint64
 10 DIM d, rd, ra, out as Uint64
 20 IF LOAD("tmode") != 2 || LOAD("phase") != 1 THEN GOTO 900
@@ -299,15 +274,12 @@ Function Buyback() Uint64
 40 RETURN 0
 900 RETURN 1
 End Function
-
-// tmode 3: staking vault. Rewards = accrued tax, distributed pro rata with a 2^32 fixed-point accumulator.
 Function Distribute() Uint64
 10 IF LOAD("tmode") != 3 THEN GOTO 900
 20 dist()
 30 RETURN 0
 900 RETURN 1
 End Function
-
 Function Stake() Uint64
 10 DIM s, a as String
 11 DIM t, st as Uint64
@@ -329,7 +301,6 @@ Function Stake() Uint64
 40 RETURN 0
 900 RETURN 1
 End Function
-
 Function Unstake(amt Uint64) Uint64
 10 DIM s, a as String
 11 DIM st as Uint64
@@ -353,7 +324,6 @@ Function Unstake(amt Uint64) Uint64
 41 RETURN 0
 900 RETURN 1
 End Function
-
 Function Claim() Uint64
 10 DIM s as String
 20 LET s = SIGNER()
@@ -363,10 +333,6 @@ Function Claim() Uint64
 40 RETURN 0
 900 RETURN 1
 End Function
-
-// ---- internal ----
-
-// Move accrued tax into the reward accumulator. Skips (never reverts) when the increment would not fit.
 Function dist() Uint64
 10 DIM tacc, stot, inc, acc, paid as Uint64
 20 LET tacc = LOAD("tacc")
@@ -386,8 +352,6 @@ Function dist() Uint64
 43 STORE("rpool", LOAD("rpool") + paid)
 100 RETURN 0
 End Function
-
-// Pay the pending reward of a staker and reset its debt. pend = st * (acc - sd) / 2^32.
 Function settle(s String, a String) Uint64
 10 DIM st, sd, acc, pend, e, era as Uint64
 11 DIM q as String
@@ -415,7 +379,6 @@ Function settle(s String, a String) Uint64
 52 SEND_ASSET_TO_ADDRESS(s, pend, q)
 100 RETURN 0
 End Function
-
 Function tick(rd Uint64, ra Uint64) Uint64
 10 DIM h, n as Uint64
 20 LET h = BLOCK_HEIGHT()
@@ -428,7 +391,6 @@ Function tick(rd Uint64, ra Uint64) Uint64
 90 STORE("lt", BLOCK_TIMESTAMP())
 100 RETURN 0
 End Function
-
 Function post(side Uint64, ain Uint64, aout Uint64, publish Uint64, s String) Uint64
 10 DIM n as Uint64
 20 IF publish == 0 THEN GOTO 100
@@ -437,11 +399,9 @@ Function post(side Uint64, ain Uint64, aout Uint64, publish Uint64, s String) Ui
 50 STORE("tc", n + 1)
 100 RETURN 0
 End Function
-
 Function bps(x Uint64, f Uint64) Uint64
 10 RETURN (x / 10000) * f + ((x % 10000) * f) / 10000
 End Function
-
 Function bpsup(x Uint64, f Uint64) Uint64
 10 DIM r as Uint64
 20 LET r = bps(x, f)
@@ -449,15 +409,12 @@ Function bpsup(x Uint64, f Uint64) Uint64
 40 RETURN r + 1
 50 RETURN r
 End Function
-
 Function shl(x Uint64, s Uint64) Uint64
 10 RETURN x << s
 End Function
-
 Function shr(x Uint64, s Uint64) Uint64
 10 RETURN x >> s
 End Function
-
 Function mulhi(a Uint64, b Uint64) Uint64
 10 DIM a0, a1, b0, b1, p00, p01, p10, mid as Uint64
 20 LET a0 = a & 4294967295
@@ -470,7 +427,6 @@ Function mulhi(a Uint64, b Uint64) Uint64
 90 LET mid = p00 / 4294967296 + (p01 & 4294967295) + (p10 & 4294967295)
 100 RETURN a1 * b1 + p01 / 4294967296 + p10 / 4294967296 + mid / 4294967296
 End Function
-
 Function nlz(x Uint64) Uint64
 10 DIM n as Uint64
 20 LET n = 0
@@ -493,7 +449,6 @@ Function nlz(x Uint64) Uint64
 190 LET n = n + 1
 200 RETURN n
 End Function
-
 Function divlu(u1 Uint64, u0 Uint64, v Uint64) Uint64
 10 DIM s, vn1, vn0, un32, un10, un1, un0, q1, q0, rhat, un21 as Uint64
 20 LET s = nlz(v)
@@ -522,7 +477,6 @@ Function divlu(u1 Uint64, u0 Uint64, v Uint64) Uint64
 260 IF rhat < 4294967296 THEN GOTO 230
 300 RETURN q1 * 4294967296 + q0
 End Function
-
 Function muldiv(a Uint64, b Uint64, c Uint64) Uint64
 10 DIM hi, lo as Uint64
 20 LET hi = mulhi(a, b)
@@ -534,7 +488,6 @@ Function muldiv(a Uint64, b Uint64, c Uint64) Uint64
 900 PANIC()
 910 RETURN 0
 End Function
-
 Function muldivup(a Uint64, b Uint64, c Uint64) Uint64
 10 DIM q as Uint64
 20 LET q = muldiv(a, b, c)

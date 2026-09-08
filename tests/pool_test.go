@@ -30,13 +30,16 @@ End Function
 
 var zero crypto.Hash
 
+// Every test installs the source the chain actually gets: ref.Canon strips whole-line comments and blank
+// lines, which is what simdeploy installs and what the shipped template hashes cover. Measuring install gas
+// on the commented file measured a contract nobody deploys.
 func readContract(t *testing.T, name string) string {
 	t.Helper()
 	b, err := os.ReadFile("../contracts/" + name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+	return ref.Canon(string(b))
 }
 
 type poolEnv struct {

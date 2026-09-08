@@ -414,6 +414,27 @@ Function Released(j Uint64, ftx String) Uint64
 900 RETURN 1
 End Function
 
+// A signer marks a withdrawal here before it pays abroad. Veto then refuses while the mark is fresh, so the
+// quorum cannot return units for coins that have already gone: before this, the only record that a payment was
+// under way was each signer own local file, which the quorum does not share.
+//
+// 2000 blocks is about ten hours, long enough for any Monero or Zcash payment to confirm and for k signers to
+// record Released, short enough that a user is not stranded. The mark cannot be refreshed (line 24 returns if
+// it is already set): a renewable mark would let one signer freeze a withdrawal for ever, and nothing here may
+// need a human to leave it. A signer slashed after marking still costs the withdrawal that one window, which is
+// bounded delay rather than lost money.
+Function Paying(j Uint64) Uint64
+10 DIM s as String
+20 LET s = SIGNER()
+21 IF issigner(s) == 0 || DEROVALUE() != 0 THEN GOTO 900
+22 IF EXISTS("w_" + j + "_st") == 0 THEN GOTO 900
+23 IF LOAD("w_" + j + "_st") != 0 THEN GOTO 900
+24 IF EXISTS("w_" + j + "_p") != 0 THEN GOTO 100
+30 STORE("w_" + j + "_p", BLOCK_HEIGHT())
+100 RETURN 0
+900 RETURN 1
+End Function
+
 // k votes return a withdrawal that cannot be paid, so a user is never left with neither units nor coins.
 Function Veto(j Uint64) Uint64
 10 DIM s, kb as String
@@ -422,6 +443,8 @@ Function Veto(j Uint64) Uint64
 21 IF issigner(s) == 0 || DEROVALUE() != 0 THEN GOTO 900
 22 IF EXISTS("w_" + j + "_st") == 0 THEN GOTO 900
 23 IF LOAD("w_" + j + "_st") != 0 THEN GOTO 900
+24 IF EXISTS("w_" + j + "_p") == 0 THEN GOTO 30
+25 IF BLOCK_HEIGHT() < LOAD("w_" + j + "_p") + 2000 THEN GOTO 900
 30 LET kb = "" + LOAD("se") + "_" + LOAD("he") + "_" + (BLOCK_HEIGHT() / 2000) + "_" + j
 31 LET r = votek("g", kb, "1", s)
 32 IF r == 2 THEN GOTO 900

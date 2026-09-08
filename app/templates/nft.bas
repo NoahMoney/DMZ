@@ -1,9 +1,3 @@
-// Veil holder NFT v1: an ART-NFA-header collection whose editions are earned by holding a token.
-// Lock >= min_hold of the token for >= hold_blocks blocks, then mint one edition (one per lock) for `price` DERO
-// (fee bps of the price to the treasury, the rest to the creator). Unlock returns the tokens at any time.
-// Keys: nameHdr descrHdr typeHdr iconURLHdr fileURL tagsHdr collection kind v creator treasury token minhold holdblocks
-//       maxsupply price fee minted fd cacc   lk_<addr> lh_<addr> lm_<addr>   ed_<n> = minter address string
-
 Function InitializePrivate(name String, descr String, icon String, file String, tags String, collection String, token String, minhold Uint64, holdblocks Uint64, maxsupply Uint64, price Uint64, treasury String, fee Uint64) Uint64
 5 IF EXISTS("initd") != 0 THEN GOTO 900
 10 DIM s, t as String
@@ -38,7 +32,6 @@ Function InitializePrivate(name String, descr String, icon String, file String, 
 60 RETURN 0
 900 RETURN 1
 End Function
-
 Function Lock() Uint64
 10 DIM s, a as String
 11 DIM v as Uint64
@@ -54,7 +47,6 @@ Function Lock() Uint64
 40 RETURN 0
 900 RETURN 1
 End Function
-
 Function Mint() Uint64
 10 DIM s, a as String
 11 DIM d, price, fee, n as Uint64
@@ -82,7 +74,6 @@ Function Mint() Uint64
 41 RETURN 0
 900 RETURN 1
 End Function
-
 Function Unlock() Uint64
 10 DIM s, a as String
 20 LET s = SIGNER()
@@ -96,7 +87,6 @@ Function Unlock() Uint64
 40 RETURN 0
 900 RETURN 1
 End Function
-
 Function ClaimCreator() Uint64
 10 DIM s as String
 11 DIM x as Uint64
@@ -108,8 +98,6 @@ Function ClaimCreator() Uint64
 40 RETURN 0
 900 RETURN 1
 End Function
-
-// Anyone may trigger the payout; it always goes to the treasury recorded at install (see launch.bas).
 Function ClaimFees() Uint64
 10 DIM t as String
 11 DIM x as Uint64
@@ -121,7 +109,6 @@ Function ClaimFees() Uint64
 40 RETURN 0
 900 RETURN 1
 End Function
-
 Function bps(x Uint64, f Uint64) Uint64
 10 RETURN (x / 10000) * f + ((x % 10000) * f) / 10000
 End Function

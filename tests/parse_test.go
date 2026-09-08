@@ -22,7 +22,7 @@ func TestContractsParse(t *testing.T) {
 		"founders.bas": {"InitializePrivate", "Mint", "Register", "Withdraw", "Claim", "Deposit", "Distribute", "PayBatch", "List", "Unlist", "Buy"},
 		"swap.bas":     {"Initialize", "Lock", "Claim", "Refund"},
 		"board.bas":    {"Initialize", "Post", "Accept", "Cancel"},
-		"vault.bas":    {"InitializePrivate", "SetLimits", "Tighten", "SetViewKey", "AddSigner", "AddSigner2", "Bond", "Unbond", "Seal", "Register", "Attest", "Mint", "Refunded", "Burn", "Released", "Veto", "ClaimFees", "Halt", "SetCap", "Slash"},
+		"vault.bas":    {"InitializePrivate", "SetLimits", "Tighten", "SetViewKey", "AddSigner", "AddSigner2", "Bond", "Unbond", "Seal", "Register", "Attest", "Mint", "Refunded", "Burn", "Released", "Paying", "Veto", "ClaimFees", "Halt", "SetCap", "Slash"},
 	}
 	for name, entries := range want {
 		code := readContract(t, name)

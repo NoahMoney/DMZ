@@ -321,7 +321,7 @@ func inflightUnits(st rpc.SCState) uint64 {
 // processWithdrawal drives one withdrawal j through its intent. It is the only place that pays on the foreign
 // chain. crash, when non-nil, is a test hook: returning true at a stage abandons the call as a process death
 // would, after the durable step that preceded it.
-func processWithdrawal(mem *memory, be Backend, j uint64, dest string, amount uint64, voteReleased func(j uint64, ftx string) bool, crash func(stage string) bool) error {
+func processWithdrawal(mem *memory, be Backend, j uint64, dest string, amount uint64, markPaying func(j uint64) bool, voteReleased func(j uint64, ftx string) bool, crash func(stage string) bool) error {
 	js := strconv.FormatUint(j, 10)
 	it := mem.Intents[js]
 	if it == nil {
@@ -339,6 +339,17 @@ func processWithdrawal(mem *memory, be Backend, j uint64, dest string, amount ui
 		return fmt.Errorf("withdrawal %d: recorded intent (%s, %d) differs from the chain (%s, %d); operator must reconcile", j, it.Dest, it.Amount, dest, amount)
 	}
 	if it.State == "paying" {
+		// Say so on chain before the coins move. The intent file above is this signer's own record and the
+		// quorum cannot read it, so without the on-chain mark k signers could Veto a withdrawal whose coins had
+		// already left and hand the burner their units back too. Fail closed: if the mark is not recorded, do
+		// not pay. Nothing is lost by waiting a pass, and the mark expires on its own, so a vault that cannot
+		// reach the chain stalls rather than freezes.
+		if !markPaying(j) {
+			return fmt.Errorf("withdrawal %d: could not record on chain that it is being paid; not paying this pass", j)
+		}
+		if crash != nil && crash("after-mark") {
+			return errors.New("crashed after marking, before paying")
+		}
 		ftx, err := be.Release(j, it.Dest, it.Amount) // idempotent per j: a repeat after a crash finds the earlier payment
 		if err != nil {
 			return err
@@ -776,6 +787,18 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 	// 3. withdrawals
 	vetoPass(c, be, me, dvmMe, mem, st, scope)
 	tip, stable := c.Height(), c.StableHeight()
+	// Paying is not a vote — one signer's mark protects the withdrawal for every signer — so it is confirmed by
+	// reading the mark back rather than a vote key. A mark a co-signer already set is just as good as our own.
+	markPaying := func(j uint64) bool {
+		k := "w_" + strconv.FormatUint(j, 10) + "_p"
+		if c.GetSC(*vault, false).Has(k) {
+			return true
+		}
+		if _, _, ok := send(c, me, "Paying", []rpc.Arg{rpc.U("j", j)}, 0); !ok {
+			return false
+		}
+		return c.GetSC(*vault, false).Has(k)
+	}
 	voteReleased := func(j uint64, ftx string) bool {
 		// Released is gated on BLOCK_HEIGHT(), which the daemon's estimator runs at height 0, so it goes out
 		// with a fixed fee: a refused vote is mined and reverted, which is the price of the delay.
@@ -829,7 +852,7 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 			}
 			continue
 		}
-		if err := processWithdrawal(mem, be, j, dest, amount, voteReleased, nil); err != nil {
+		if err := processWithdrawal(mem, be, j, dest, amount, markPaying, voteReleased, nil); err != nil {
 			log.Printf("withdrawal %d: %v", j, err)
 		}
 	}

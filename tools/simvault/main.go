@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	ref "veil/reference"
 
 	rpc "veil/tools/simrpc"
 )
@@ -46,6 +47,8 @@ var (
 	mindep   = flag.Uint64("mindep", 1, "smallest foreign deposit that may ever be minted")
 	capratio = flag.Uint64("capratio", 3, "foreign base units of cap each DERO atomic unit of bond supports")
 	vout     = flag.Uint64("vout", 0, "output index of the simulated deposit within its transaction")
+	paying   = flag.Int("paying", -1, "one signer wallet marks withdrawal j as being paid abroad (Paying)")
+	veto     = flag.Int("veto", -1, "k signer wallets vote Veto on withdrawal j")
 	halt     = flag.String("halt", "", "operator: two signer wallets vote Halt(want), 1 to stop the vault or 0 to resume it")
 	bondNow  = flag.Bool("bond", false, "every signer wallet bonds minbond into -vault (repairs a half-finished install)")
 	sealNow  = flag.Bool("seal", false, "owner seals -vault")
@@ -91,6 +94,30 @@ func main() {
 	flag.Parse()
 	c := &rpc.Client{Daemon: *daemon, Timeout: 180 * time.Second}
 	switch {
+	case *paying >= 0:
+		// One signer says on chain that it is about to send the coins. Veto then refuses for 2000 blocks, so the
+		// quorum cannot return the units for a payment already in flight.
+		if len(*vault) != 64 {
+			log.Fatal("-vault required")
+		}
+		j := uint64(*paying)
+		a := rpc.Address(signers[0])
+		txid, _, _ := c.Send(signers[0], a, "", *vault, nil, []rpc.Arg{rpc.S("entrypoint", "Paying"), rpc.U("j", j)})
+		st := c.GetSC(*vault, false)
+		fmt.Printf("Paying(%d) from %s, tx %s; w_%d_p = %d (tip %d)\n", j, a[:16], txid[:8], j, st.U("w_"+strconv.FormatUint(j, 10)+"_p"), c.Height())
+	case *veto >= 0:
+		if len(*vault) != 64 {
+			log.Fatal("-vault required")
+		}
+		j := uint64(*veto)
+		js := strconv.FormatUint(j, 10)
+		for _, w := range signers[:2] {
+			a := rpc.Address(w)
+			txid, _, _ := c.Send(w, a, "", *vault, nil, []rpc.Arg{rpc.S("entrypoint", "Veto"), rpc.U("j", j)})
+			fmt.Printf("Veto(%d) from %s, tx %s\n", j, a[:16], txid[:8])
+		}
+		st := c.GetSC(*vault, false)
+		fmt.Printf("w_%d_st = %d (0 open, 1 released, 2 vetoed), sup = %d\n", j, st.U("w_"+js+"_st"), st.U("sup"))
 	case *halt != "":
 		// operator tool: k signer wallets vote Halt(want). A halt is how the federation stops everything; a
 		// resume is how it starts again once a human has judged what tripped it.
@@ -228,11 +255,12 @@ func main() {
 }
 
 func doInstall(c *rpc.Client) {
-	code, err := os.ReadFile(*contract)
+	codeRaw, err := os.ReadFile(*contract)
 	rpc.Must(err)
+	code := ref.Canon(string(codeRaw))
 	own := rpc.Address(owner)
 	tre := rpc.Address(treasury)
-	scid, gas, h := c.Send(owner, own, string(code), "", nil, []rpc.Arg{rpc.U("k", 2), rpc.S("treasury", tre), rpc.U("cap", *cap), rpc.U("minbond", *minbond), rpc.U("minburn", *minburn), rpc.U("wfee", *wfee), rpc.U("mindep", *mindep), rpc.U("regfee", 0), rpc.U("capratio", *capratio), rpc.U("bigbps", *bigbps), rpc.U("bigdelay", *bigdelay)})
+	scid, gas, h := c.Send(owner, own, code, "", nil, []rpc.Arg{rpc.U("k", 2), rpc.S("treasury", tre), rpc.U("cap", *cap), rpc.U("minbond", *minbond), rpc.U("minburn", *minburn), rpc.U("wfee", *wfee), rpc.U("mindep", *mindep), rpc.U("regfee", 0), rpc.U("capratio", *capratio), rpc.U("bigbps", *bigbps), rpc.U("bigdelay", *bigdelay)})
 	fmt.Printf("vault installed: %s (height %d, storage gas %d)\n", scid, h, gas.GasStorage)
 	for _, w := range signers {
 		a := rpc.Address(w)

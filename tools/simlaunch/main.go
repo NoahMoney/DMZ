@@ -28,7 +28,7 @@ func wallet(i int) string { return fmt.Sprintf("127.0.0.1:%d", 30000+i) }
 func read(name string) string {
 	b, err := os.ReadFile(*contracts + "/" + name)
 	rpc.Must(err)
-	return string(b)
+	return ref.Canon(string(b))
 }
 
 func check(step string, st rpc.SCState, m *ref.Launch) {

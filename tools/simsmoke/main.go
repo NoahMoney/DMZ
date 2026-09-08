@@ -40,8 +40,9 @@ func main() {
 	flag.Parse()
 	log.SetFlags(0)
 	c := &rpc.Client{Daemon: *daemon, Timeout: *timeout}
-	pool, err := os.ReadFile(*contracts + "/pool.bas")
+	poolRaw, err := os.ReadFile(*contracts + "/pool.bas")
 	rpc.Must(err)
+	pool := ref.Canon(string(poolRaw))
 	asset := "Function InitializePrivate() Uint64\n10 RETURN 0\nEnd Function\nFunction Mint(amount Uint64) Uint64\n10 SEND_ASSET_TO_ADDRESS(SIGNER(), amount, SCID())\n20 RETURN 0\nEnd Function\n"
 
 	a0, a1, a2 := rpc.Address(*w0), rpc.Address(*w1), rpc.Address(*w2)
@@ -57,7 +58,7 @@ func main() {
 	}
 
 	fmt.Println("3. install pool.bas (fee 50 bps, protocol share 50%)")
-	poolSCID, gas, _ := c.Send(*w0, a0, string(pool), "", nil, []rpc.Arg{rpc.H("asset", assetSCID), rpc.S("treasury", a2), rpc.U("fee", 50), rpc.U("pfee", 5000)})
+	poolSCID, gas, _ := c.Send(*w0, a0, pool, "", nil, []rpc.Arg{rpc.H("asset", assetSCID), rpc.S("treasury", a2), rpc.U("fee", 50), rpc.U("pfee", 5000)})
 	fmt.Printf("  pool scid %s (gas %d/%d, code %d bytes)\n", poolSCID, gas.GasCompute, gas.GasStorage, len(pool))
 	st := c.GetSC(poolSCID, true)
 	if st.Str("kind") != "pool" || hex.EncodeToString([]byte(st.Str("asset"))) != assetSCID {
@@ -92,7 +93,7 @@ func main() {
 	fmt.Println("7. slippage: buy with min_out above the quote must be rejected by the estimator")
 	d = 50000
 	q, _ = m.Quote(d)
-	if _, err := c.Estimate(a1, "", poolSCID, []rpc.Transfer{{Destination: c.RandomAddress(), Burn: d}}, []rpc.Arg{rpc.S("entrypoint", "SwapDeroForAsset"), rpc.U("min_out", q + 1), rpc.U("publish", 0)}); err == nil {
+	if _, err := c.Estimate(a1, "", poolSCID, []rpc.Transfer{{Destination: c.RandomAddress(), Burn: d}}, []rpc.Arg{rpc.S("entrypoint", "SwapDeroForAsset"), rpc.U("min_out", q+1), rpc.U("publish", 0)}); err == nil {
 		log.Fatal("gas estimate accepted a call that must revert")
 	}
 	fmt.Println("  rejected as expected")
