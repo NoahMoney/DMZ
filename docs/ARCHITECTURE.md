@@ -21,6 +21,7 @@
 │   founders.bas Founders Pass: fee-share register + fixed-price sales  │
 │   vault.bas    k-of-n bonded federation wrapper (v3, simulator only)  │
 │   swap.bas     HTLC escrow — written and tested, not deployed         │
+│   htlc.bas     three-exit escrow of the DERO ↔ Monero swap — tested   │
 │   board.bas    atomic-swap order board — written, not deployed        │
 │   TELA-INDEX-1 app manifest, ringsize 2 (updatable, commit chain)     │
 └──────────────────────────────────────────────────────────────────────┘

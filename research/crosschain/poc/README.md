@@ -6,7 +6,7 @@ lacks. Helper scripts live in `wsl/`; targets are built under `~/target/<crate>`
 | directory | what it proves | run | result |
 |---|---|---|---|
 | `swap.bas`, `board.bas`, `*_test.go` | DERO hash-time-locked escrow and offer board (Phase 1) | `tests/run.sh -run 'Swap|Board'` | `simswap-run.log` (simulator txids) |
-| `proof-xmr` | SHA256(s)=H ∧ s·G=S on ed25519, Bulletproofs + sigma protocol | `wsl/build.sh proof-xmr build --release` then `wsl/run.sh proof-xmr proof-xmr` | `proof-xmr/run.log`: 37,460 gates, 14.8 s / 1.15 s, 1,601 B |
+| `proof-xmr` | SHA256(s)=H ∧ s·G=S on ed25519, Bulletproofs + sigma protocol — since 2026-09-08 a tool: `keygen` / `prove <secret>` / `verify <h> <s> <proof>` with a fixed byte layout and a worked vector (`proof-xmr/README.md`); `prove` refuses an unreduced scalar | `wsl/build.sh proof-xmr build --release` then `wsl/run.sh proof-xmr proof-xmr keygen`; `cargo test --release` covers round trip, wrong H, wrong S, tampered sigma and R1CS, truncation, the reduced-scalar refusal | `proof-xmr/run.log`: 37,460 gates, prove 8.5 s / verify 0.74 s (release, this machine), 1,601 B; the companion invokes it through `tools/xmrswap` `NewProverCLI` |
 | `vendor/bulletproofs` | dalek bulletproofs 5.0.0 with the 3-line `CtOption` fix for the R1CS feature | vendored by `wsl/vendor-bulletproofs.sh` | — |
 | `vendor/bp-pallas` | the same R1CS system on the Pallas curve (types, MSM, generators, parallel fold) | `wsl/bp-pallas-test.sh` | 2 unit tests |
 | `proof-zec` | the same statement for an Orchard `ask` share; joint `ak`; RedPallas signature with the sum | `wsl/proof-zec-run.sh` | `proof-zec/run.log`: 12.2 s / 0.47 s |

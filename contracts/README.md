@@ -1,6 +1,6 @@
 # DMZ contracts
 
-Nine immutable DVM-BASIC contracts. None defines `UpdateCode`. Every state-changing entrypoint that pays the caller
+Ten immutable DVM-BASIC contracts. None defines `UpdateCode`. Every state-changing entrypoint that pays the caller
 requires **ringsize 2** (the node only reveals `SIGNER()` at ringsize 2; DECISIONS §2.4); the `…To` entrypoints pay a
 named address and work at any ring size (§ private mode below). Arithmetic rules: DECISIONS §10.2. Executable
 specification: `../reference/`. Tests: `../tests/` (run with `tests/run.ps1`).
@@ -16,6 +16,7 @@ a few hundred units, measured where given):
 | `vault.bas` | 19 059 | 19 400 of 20 000 (measured) | — |
 | `nft.bas` | 4 184 | ~4 760 | — |
 | `swap.bas` | 3 599 | — | — |
+| `htlc.bas` | 5 798 (3 561 installed) | 3 598 (measured) | — |
 | `factory.bas` | 2 852 | ~3 100 | — |
 | `board.bas` | 2 848 | — | — |
 | `social.bas` | 2 062 | — | — |

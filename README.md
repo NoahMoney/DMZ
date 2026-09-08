@@ -68,8 +68,8 @@ payer deniability, not a private amount or destination. DMZ is not a private exc
 
 - **Contracts** (`contracts/`, DVM-BASIC): `launch.bas` (curve → AMM, taxes, staking), `pool.bas` (constant-product
   AMM with LP tokens), `factory.bas` (registry + fee), `social.bas` (profiles, follows), `nft.bas` (holder NFTs),
-  `founders.bas` (fee-sharing pass + marketplace), `swap.bas` (HTLC escrow), `board.bas` (order board),
-  `vault.bas` (federation wrapper). All arithmetic is `uint64`; overflow paths are tested. Every formula has a Go
+  `founders.bas` (fee-sharing pass + marketplace), `swap.bas` (HTLC escrow), `htlc.bas` (the three-exit escrow
+  of the trustless DERO ↔ Monero swap), `board.bas` (order board), `vault.bas` (federation wrapper). All arithmetic is `uint64`; overflow paths are tested. Every formula has a Go
   model in `reference/` checked against `math/big`, and `tests/` drives derohe's own DVM executor.
 - **App** (`app/`): 20 plain-JS files, 4 CSS files, one HTML file, **no framework, no bundler, no external
   dependency**. 260 KB raw, ~79 KB gzipped. Served from a TELA INDEX (29 DOCs on chain) or from any static host.
