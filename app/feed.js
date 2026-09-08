@@ -28,13 +28,17 @@
     rawToAddr(rawHex) { try { return V.rawToAddress(rawHex); } catch (e) { return null; } },
     // Every wrapped asset this build knows about: one vault per foreign chain, because a vault holds exactly one
     // asset. `vault`/`vaultAsset` are the older single-vault spelling and are folded in for compatibility.
-    vaults() {
+    allVaults() {
       const c = this.cfg, out = [];
       const add = (v) => { if (v && /^[0-9a-f]{64}$/.test(v.scid || "") && !out.some((x) => x.scid === v.scid)) out.push(v); };
       for (const v of c.vaults || []) add(v);
       if (c.vault) add(Object.assign({ scid: c.vault }, c.vaultAsset || {}));
       return out;
     },
+    // The vaults a user may deposit into or quote a launch in. A superseded vault (legacy: true) is left out
+    // here and only here: its markets are still named and scaled by allVaults(), and its units can still be
+    // burned, because a holder of them must always have the exit.
+    vaults() { return this.allVaults().filter((v) => !v.legacy); },
     // The name of a wrapped asset belongs to its vault, and a vault is named by the shipped config, so its
     // symbol cannot be forged. Anything else wearing that name is claiming to be it. This is the name most
     // worth stealing on DMZ: the product points a Monero holder at a ticker called XMR, so a token that simply
@@ -43,7 +47,7 @@
     reservedBy(ticker) {
       const k = V.ui.tickerKey(ticker || "");
       if (!k) return null;
-      for (const v of this.vaults()) {
+      for (const v of this.allVaults()) {
         for (const nm of [v.sym, v.name, "w" + (v.sym || "")]) {
           if (nm && V.ui.tickerKey(nm) === k) return v;
         }
@@ -64,7 +68,8 @@
     // Give a market its quote's display name. Safe to call more than once and on a market with no quote.
     nameQuote(s) {
       if (!s) return s;
-      const v = s.quote ? this.vaults().find((x) => x.scid === s.quote) : null, known = !!(v && Number.isInteger(v.dec));
+      const v = s.quote ? this.allVaults().find((x) => x.scid === s.quote) : null, known = !!(v && Number.isInteger(v.dec));
+      s.quoteLegacy = !!(v && v.legacy);
       s.quoteSym = !s.quote ? "DERO" : v ? V.ui.clean(v.sym || v.name || "wrapped", 10) : s.quote.slice(0, 6);
       s.quoteDec = !s.quote ? 5 : known ? v.dec : 5;
       // A quote nobody names has no known scale. The 5 above is a placeholder that keeps the maths finite, not a
@@ -78,7 +83,7 @@
     qdec(s) { return BigInt(Number.isInteger(s && s.quoteDec) ? s.quoteDec : 5); },
     vaultOf(s) {
       if (!s) return null;
-      for (const v of this.vaults()) if (s.asset === v.scid || s.scid === v.scid || s.quote === v.scid) return v;
+      for (const v of this.allVaults()) if (s.asset === v.scid || s.scid === v.scid || s.quote === v.scid) return v;
       return null;
     },
 
@@ -236,10 +241,10 @@
     // that scales an amount by it must say so. Safe to call more than once and on an unlisted pool.
     nameBase(s) {
       if (!s || s.kind !== "pool") return s;
-      const l = this.assets.get(s.asset), bv = this.vaults().find((x) => x.scid === s.asset);
+      const l = this.assets.get(s.asset), bv = this.allVaults().find((x) => x.scid === s.asset);
       s.assetVerified = !!(l && l.kind === "launch"); s.icon = "";
       if (s.assetVerified) { s.name = l.name + " pool"; s.ticker = l.ticker; s.dec = l.dec; s.icon = l.icon; }
-      else if (bv) { s.ticker = V.ui.clean(bv.sym || bv.name || "wrapped", 10); s.name = V.ui.clean(bv.name || "wrapped asset", 40); s.dec = B(Number.isInteger(bv.dec) ? bv.dec : 5); s.wrappedBase = true; s.vaultRec = bv; }
+      else if (bv) { s.ticker = V.ui.clean(bv.sym || bv.name || "wrapped", 10); s.name = V.ui.clean(bv.name || "wrapped asset", 40); s.dec = B(Number.isInteger(bv.dec) ? bv.dec : 5); s.wrappedBase = true; s.vaultRec = bv; s.baseLegacy = !!bv.legacy; }
       s.decUnknown = !s.assetVerified && !bv;
       return s;
     },

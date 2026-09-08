@@ -114,7 +114,7 @@
     if (!opts.code && !isScid(opts.scid)) { toast("Refusing: bad contract id", "err"); return null; }
     if (opts.asset && !isScid(opts.asset.scid)) { toast("Refusing: bad asset id", "err"); return null; }
     const ring = opts.ring === 16 ? 16 : 2; // 16 only for entrypoints that pay a named address (SIGNER() is blank above 2)
-    if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid) || D.vaults().some((v) => v.scid === opts.scid) || (D.cfg.chat && opts.scid === D.cfg.chat))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
+    if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid) || D.allVaults().some((v) => v.scid === opts.scid) || (D.cfg.chat && opts.scid === D.cfg.chat))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
     const transfers = [];
     if (opts.dero && opts.dero > Z) {
       let dst; try { dst = await V.node.randomAddress(); } catch (e) { toast("No node answers for a burn destination: " + short(e.message), "err", 6000); return null; }

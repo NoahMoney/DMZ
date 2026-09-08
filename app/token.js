@@ -32,7 +32,7 @@
       // deep-linked market "not listed" told visitors a registered, verified market was unvouched for — on the
       // exact route a shared link takes, which is where that warning does the most damage.
       const listed = D.assets.get(scid);
-      try { s = listed || (await D.loadContract(scid)); } catch (e) { return render(el, h("div", { class: "errbox mt" }, "Cannot load " + scid + ": " + e.message)); } if (!s || s.untrusted) return render(el, h("div", { class: "errbox mt" }, "Not listed: " + (s ? s.untrusted : "unknown"))); if (!listed) s.unlisted = true; if (s.kind === "pool") { const l = D.assets.get(s.asset); s.assetVerified = !!(l && l.kind === "launch"); } if (s.kind === "pool" && s.assetVerified) { const l = D.assets.get(s.asset); s.ticker = l.ticker; s.name = l.name + " pool"; s.dec = l.dec; s.icon = l.icon; s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; } else { const k = U.tickerKey(s.ticker); s.lookalike = U.hasHomoglyph(s.ticker); s.dupTicker = !!k && D.list().some((x) => x.scid !== s.scid && !(x.kind === "pool" && x.assetVerified) && !(s.wrappedBase && x.wrappedBase && x.asset === s.asset) && U.tickerKey(x.ticker) === k); } s.impersonates = D.impersonation(s); D.nameQuote(s); S.enrich(s, D.height); }
+      try { s = listed || (await D.loadContract(scid)); } catch (e) { return render(el, h("div", { class: "errbox mt" }, "Cannot load " + scid + ": " + e.message)); } if (!s || s.untrusted) return render(el, h("div", { class: "errbox mt" }, "Not listed: " + (s ? s.untrusted : "unknown"))); if (!listed) s.unlisted = true; D.nameBase(s); if (s.kind === "pool" && s.assetVerified) { const l = D.assets.get(s.asset); s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; } else { const k = U.tickerKey(s.ticker); s.lookalike = U.hasHomoglyph(s.ticker); s.dupTicker = !!k && D.list().some((x) => x.scid !== s.scid && !(x.kind === "pool" && x.assetVerified) && !(s.wrappedBase && x.wrappedBase && x.asset === s.asset) && U.tickerKey(x.ticker) === k); } s.impersonates = D.impersonation(s); D.nameQuote(s); S.enrich(s, D.height); }
     let tab = "trades", lastSig = null;
     const chartBox = h("div"), priceEl = h("div", { class: "big num" }), statsEl = h("div"), pressEl = h("div"), techEl = h("div"), bodyEl = h("div", { class: "mt" }), headEl = h("div", { class: "hero card mt" }), gradEl = h("div"), riskEl = h("div");
     const drawChart = () => {
@@ -140,7 +140,7 @@
   // so it is a row of its own, named as DERO. Nothing that costs money sits behind a disclosure.
   T.tradeSheet = (s, side) => {
     const launch = s.kind === "launch", buy = side === 1, curve = launch && s.phase === Z;
-    const qsym = D.qsym(s), qdec = D.qdec(s), qv = s.quote ? D.vaults().find((v) => v.scid === s.quote) : null;
+    const qsym = D.qsym(s), qdec = D.qdec(s), qv = s.quote ? D.allVaults().find((v) => v.scid === s.quote) : null;
     // the fee is charged on whatever goes in, except on the curve where both legs are priced in the quote
     const feeQ = buy || curve, feeSym = feeQ ? qsym : s.ticker, feeDec = feeQ ? qdec : s.dec;
     // on the curve the whole fee is the protocol's; in an AMM pfee of it is and the rest stays in the reserves

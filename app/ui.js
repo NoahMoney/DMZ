@@ -92,6 +92,9 @@
     // is true — the code does match the template — but next to a copy it reads as a blessing of the name, which
     // is the one thing it says nothing about. Say what was checked instead.
     if (s && s.impersonates) return h("span", { class: "verified warn", title: "Only the contract code was checked, and it matches the shipped template. That says nothing about the name: this is not " + s.impersonates + ", and no vault holds anything for it." }, icon("shield"), "Code checked · name is not");
+    // The code and the fee were checked; the factory's treasury could not be read this session, so whether this
+    // market pays the protocol treasury was NOT checked. Before the wrapped-asset branch, whose title says it was.
+    if (s && s.treasuryUnverified) return h("span", { class: "verified warn", title: "The contract code matches the shipped template and the fee is right, but the factory's treasury could not be read this session, so whether this market pays the protocol treasury was not checked." }, icon("shield"), "Code checked \u00b7 treasury unread");
     // A wrapped asset is not a launch, so the launch check called wrapped Monero "asset unknown" — the app
     // telling an XMR holder that the one asset it ships a vault for is a stranger. Its id comes from the same
     // bundle as this code and its vault is named there, which is a stronger claim than any launch can make.

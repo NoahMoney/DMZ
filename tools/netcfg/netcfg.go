@@ -35,6 +35,11 @@ type VaultAsset struct {
 type VaultRec struct {
 	Scid string `json:"scid"`
 	VaultAsset
+	// A superseded vault. Its markets keep their name and their decimals — a market quoted in it must never
+	// render a contract id where a symbol belongs, or scale by a placeholder — and a holder of its units can
+	// still burn them. It is not offered for a new deposit and not offered as a launch quote. The same shape
+	// as a legacy template hash: what was verified stays verifiable, what is current is one thing.
+	Legacy bool `json:"legacy,omitempty"`
 }
 
 type Network struct {
@@ -145,13 +150,22 @@ func ConfigJS(name string, n *Network, generator string) string {
 	vault := ""
 	if len(recs) > 0 {
 		var lines []string
-		for _, r := range recs {
-			lines = append(lines, fmt.Sprintf("    { scid: %q, name: %q, sym: %q, chain: %q, dec: %d, conf: %d }",
-				r.Scid, r.Name, r.Sym, r.Chain, r.Dec, r.Conf))
+		first := -1
+		for i, r := range recs {
+			leg := ""
+			if r.Legacy {
+				leg = ", legacy: true"
+			} else if first < 0 {
+				first = i // the single-vault spelling names the first CURRENT record, never a superseded one
+			}
+			lines = append(lines, fmt.Sprintf("    { scid: %q, name: %q, sym: %q, chain: %q, dec: %d, conf: %d%s }",
+				r.Scid, r.Name, r.Sym, r.Chain, r.Dec, r.Conf, leg))
 		}
 		vault = fmt.Sprintf("  vaults: [\n%s\n  ],\n", strings.Join(lines, ",\n"))
-		vault += fmt.Sprintf("  vault: %q,\n  vaultAsset: { name: %q, sym: %q, chain: %q, dec: %d, conf: %d },\n",
-			recs[0].Scid, recs[0].Name, recs[0].Sym, recs[0].Chain, recs[0].Dec, recs[0].Conf)
+		if first >= 0 {
+			vault += fmt.Sprintf("  vault: %q,\n  vaultAsset: { name: %q, sym: %q, chain: %q, dec: %d, conf: %d },\n",
+				recs[first].Scid, recs[first].Name, recs[first].Sym, recs[first].Chain, recs[first].Dec, recs[first].Conf)
+		}
 	}
 	if len(n.Chat) == 64 {
 		vault += fmt.Sprintf("  chat: %q,\n", n.Chat)

@@ -184,6 +184,52 @@ double-pay without that cost. `PROTO·BC-4` (`n ≥ 2k` at Seal) remains a decis
 
 ---
 
+## 0f. The audit follow-up, applied. 2026-09-08, second half.
+
+Seven agents with disjoint file ownership verified every assigned finding against the code as it stood before
+touching it; an eighth ran every test layer and read the money-path diffs. 41 findings FIXED, 4 ALREADY_FIXED,
+1 FALSE_POSITIVE (a finding id that did not exist), the rest DEFERRED with a written design. The full ledger is
+commit `ef3acac`; the two that matter most:
+
+- **Every sell was being erased from the local ledger** and the whole cache discarded for any market with a
+  published sell — two validators requiring `side ∈ {0,1}` against contracts that emit `{1,2}`. One constant.
+- **The new JS test layer** (`tests/js/`, plain `node --test`, no dependency, vectors printed by the Go fuzz)
+  found two quoting bugs in `amm.js` within minutes of existing: `impact()` divided by a spot price that
+  floors to zero on a drained pool (a `RangeError` where the contract simply paid), and `launchBuy` mirrored
+  the *old* overshoot refund. Both fixed; both tests are hard assertions now. This layer is the guard the audit
+  said was missing between the DVM suite and the browser.
+
+**Legacy vault records.** Switching the simulator to the real-decimal vaults orphaned every market quoted in or
+based on the old ones: they rendered a hex label where a symbol belongs and scaled their numbers by a
+placeholder 5 — wrong by 10⁷, the exact fault this project keeps finding. A vault record can now be
+`legacy: true`: named and scaled by `D.allVaults()` everywhere a market is read, transactable (a holder of
+superseded units must always be able to burn), and absent from `D.vaults()` — the Wrap picker and the launch
+wizard's quote chips. The superseded simulator vaults are `XMR-old` and `ZEC-old` at their true five
+decimals, so nothing is mistaken for the real thing. Same shape as a legacy template hash.
+
+**The simulator now runs two real-decimal vaults** — Monero `f23403b0` at 12 decimals and Zcash `93013bb2`
+at 8 — with the halt-lease/Reclaim state machine and parameters that make sense at those decimals
+(`deploy/VAULT_PARAMETERS.md`). `XMR / DERO` reads 5.85 DERO per XMR with 2.16 DERO of liquidity;
+`ZEC / DERO` 0.62 with 2.23. Cold-cache probe and the UI pass at 390/768/1024 confirm every number.
+
+**A mistake of mine, on the record.** `simwrapmkt`'s new "already registered" check compared a decoded scid
+against the hex of its ASCII form and never matched, so both new pools were registered on the factory a second
+time before I caught it. The factory has no dedup and no removal (audit P7-04), so `pool_7` and `pool_8` are
+permanent duplicates of `pool_5` and `pool_6` on this simulator (and `pool_1`/`pool_2` were already a pair
+from before tonight). The app collapses by scid so nothing lists twice; the cost is P7-04's per-block RPC
+amplification. The comparison is fixed and the tool now refuses to re-seed a pool that already has liquidity.
+
+**Deferred, with designs written by the agents that found them** (see `docs/audit/DMZ_FABLE_5_1_FOLLOWUP.md`
+and commit `ef3acac`): the `decorateOne` extraction (identity computed per screen — `token.js` still has a
+drifted duplicate for the unlisted path, now at least naming its base through `D.nameBase`); display-name
+impersonation and NFT name checks; split-pair detection on the trade path (the owner's own requirement, still
+absent where the trade is signed); the shipped accepted-treasury set (`cfg.treasuries` — data layer done,
+`networks.json` field not yet emitted); per-asset Founders accounting; the ring-16 `BurnTo` wrapper; the
+`simrpc` `Try*` API for `vaultsigner`; and a Wrap-screen picker entry for a superseded vault so a holder can
+burn old units from the UI rather than the CLI.
+
+---
+
 ## 1. Correctness blockers — the things that are wrong *now*
 
 **1.1 The revenue chain is DERO-only, so fees on XMR/ZEC markets are lost or miscounted. HALF DONE.**

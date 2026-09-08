@@ -45,7 +45,7 @@
       if (wbBusy || !V.wallet.connected || (!force && wbAt && Date.now() - wbAt < 60000)) return;
       wbBusy = true;
       try {
-        for (const v of D.vaults()) { const b = await V.wallet.getBalance(v.scid, true).catch(() => null); wb.set(v.scid, b ? V.toBig(b.balance) : null); }
+        for (const v of D.allVaults()) { const b = await V.wallet.getBalance(v.scid, true).catch(() => null); wb.set(v.scid, b ? V.toBig(b.balance) : null); }
         wbAt = Date.now();
       } finally { wbBusy = false; }
       if (router.current && router.current.name === "portfolio") draw();
@@ -55,7 +55,8 @@
     // Every vault this build ships is listed whether the balance is zero or not, and before a wallet is even
     // connected: a zero line says "this is where your Monero goes and there is none here yet", a missing line
     // says "unsupported", and only one of those is true.
-    const vaults = D.vaults();
+    // a superseded vault is listed only while the wallet still holds its units: it is not where new Monero goes
+    const vaults = D.allVaults().filter((v) => !v.legacy || (wb.get(v.scid) || Z) > Z);
     const wrapLine = (v) => {
       const [code, cls] = netOf(v), sym = symOf(v), dec = decOf(v);
       const bal = !V.wallet.connected ? null : wb.has(v.scid) ? wb.get(v.scid) : undefined;

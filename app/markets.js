@@ -210,7 +210,7 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
     // denominated in the same asset, and there is no rate between them. Wrapped assets lead: they are the venue.
     const byQuote = new Map();
     for (const s of act) byQuote.set(D.qsym(s), (byQuote.get(D.qsym(s)) || 0) + s.m.vol24);
-    const wrapped = new Set(D.vaults().map((v) => U.clean(v.sym || v.name || "wrapped", 10)));
+    const wrapped = new Set(D.allVaults().map((v) => U.clean(v.sym || v.name || "wrapped", 10)));
     const flowText = [...byQuote].sort((a, b) => (wrapped.has(b[0]) ? 1 : 0) - (wrapped.has(a[0]) ? 1 : 0) || b[1] - a[1])
       .map(([sym, v]) => S.fmtDeroShort(v) + " " + sym).join(" · ");
       render(summary, h("span", null, items.length + " markets · 24h flow " + flowText,
