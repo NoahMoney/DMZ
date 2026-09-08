@@ -43,12 +43,30 @@ is worse than breaking it loudly. Decide between: per-asset accounting in `found
 converts before depositing (needs a market and a price, so probably no); or Pass holders claiming each asset
 separately. Whichever, the app must never show a fee total that mixes assets.
 
-**1.2 `AddLiquidity`'s first-deposit floor is hardcoded to 100 000 quote units. NEXT.**
-`pool.bas` line 140. Written when the quote was always DERO at five decimals. For 12-decimal XMR that is
-0.0000001 XMR — dust, so the floor stops protecting anything. For a coarser quote it could be enormous. It needs
-to scale with the quote's decimals, or become an install parameter with a sane bound.
+**1.2 ~~`AddLiquidity`'s first-deposit floor is decimals-blind~~ — WRONG, checked and withdrawn.**
+`pool.bas` line 140 requires the first deposit to be at least 100 000 quote units, and line 150 mints
+`d - 1000` LP with 1 000 locked forever. Both numbers are in the SAME units — the quote's — so the floor is a
+ratio, not a value: it guarantees the permanently locked liquidity is at most 1 % of the first deposit, and that
+holds identically for a 12-decimal XMR quote and a 5-decimal DERO one. It never was a value floor and needs no
+decimals. I recorded this as a bug from the shape of the constant without reading what it guards.
 
-**1.3 The app prices, sorts and totals everything as if it were DERO. NEXT.**
+What IS true, and is a different point: nothing anywhere requires a pool to hold economically meaningful
+liquidity, so a market can be created with dust and its price is then meaningless. That is equally true of DERO
+markets today and is a product decision (a minimum, a warning, or a ranking that ignores thin pools), not a
+quote-asset bug.
+
+**1.3 The app prices, sorts and totals everything as if it were DERO. PART DONE.**
+
+*Done:* `D.qsym(s)` and `D.qdec(s)` name a market's quote once, and every label that describes a market amount now
+uses them — the token page's price eyebrow, reserve, graduation progress and buyback; the trade sheet's units, fee,
+tax and refund rows; the thin-market warning; the launch pipeline; the market row's sub line. A wXMR market no
+longer claims its prices are DERO.
+
+*Still open:* sorting and ranking still compare across quotes as though the numbers were commensurable —
+`select()` orders by `m.liq`, `m.vol24` and `m.mcap` regardless of quote, so a market quoted in a 12-decimal
+asset sorts against a 5-decimal one on raw magnitude. Portfolio totals, P&L and the equity curve sum across
+quotes the same way. The tape mixes them too. None of this can be fixed with a rate — there is no oracle. The
+answer is to rank and total WITHIN a quote and never across.
 `amm.js` (`fmtDero`, `price`), `stats.js` (`priceAt`, `change`, `flow`, `enrich`, ranking), `app.js` (holdings,
 pnl, equity), the tape, and every "for 0.5 DERO" string. A DERO price and an XMR price cannot be compared
 without a rate and **there is no oracle and must not be one**. The honest design: never mix quotes in one

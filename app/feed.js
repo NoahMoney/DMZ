@@ -32,6 +32,10 @@
       return out;
     },
     // The vault whose wrapped asset this market trades, or null when the market is a native DERO one.
+    // The symbol a market's prices, reserves and fees are denominated in. Never assume DERO: a market quoted in
+    // wrapped XMR shows XMR amounts, and labelling them DERO would misstate the price by whatever the rate is.
+    qsym(s) { return (s && s.quoteSym) || "DERO"; },
+    qdec(s) { return BigInt(Number.isInteger(s && s.quoteDec) ? s.quoteDec : 5); },
     vaultOf(s) {
       if (!s) return null;
       for (const v of this.vaults()) if (s.asset === v.scid || s.scid === v.scid || s.quote === v.scid) return v;

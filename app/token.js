@@ -41,7 +41,7 @@
       render(headEl,
         h("div", { class: "row" }, avatar(s, "big"), h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, h("h1", { class: "ellipsis" }, s.ticker), H.star(s), U.warnings(s)), h("div", { class: "sub ellipsis" }, s.name), h("div", { class: "row tight mt8" }, U.verified(s), H.badges(s))),
           h("button", { class: "iconbtn", type: "button", "aria-label": "copy link to this market", title: "Copy link", onclick: () => copy(location.href.split("#")[0] + "#token/" + s.scid, "Link") }, icon("share"))),
-        h("div", { class: "eyebrow mt" }, "Price · DERO"),
+        h("div", { class: "eyebrow mt" }, "Price · " + D.qsym(s)),
         h("div", { class: "pulse-row mt8" }, priceEl,
           // the four changes are one aligned block: it sits beside the price where there is room and drops whole
           // below it where there is not, so a single window never strands itself on its own line
@@ -50,7 +50,7 @@
       L.num(priceEl, s.price, S.fmtPriceSub);
       render(gradEl, curve ? [head("Graduation", h("b", { class: "num" }, m.progress.toFixed(1) + "%")),
         h("div", { class: "progress mt8" }, h("i", { style: "width:" + Math.min(100, m.progress) + "%" })),
-        h("div", { class: "note mt8" }, A.fmtDero(s.real, 1) + " of " + A.fmtDero(s.G, 0) + " DERO raised. At 100% the curve becomes a permanently locked AMM at the same price.")] : null);
+        h("div", { class: "note mt8" }, A.fmtUnits(s.real, D.qdec(s), 1) + " of " + A.fmtUnits(s.G, D.qdec(s), 0) + " " + D.qsym(s) + " raised. At 100% the curve becomes a permanently locked AMM at the same price.")] : null);
       const risks = H.risks(s);
       render(riskEl, risks.length ? h("div", { class: "riskbox warn mt" }, icon("warn"), h("div", null, risks.map((r) => h("div", null, r.t)))) : null);
       // Level 3 — two readings, in two voices: what the market is worth, and what was said in public about it
@@ -92,7 +92,7 @@
         const fee = Number(s.fee) / 100;
         // the verification sentence is prose, so it is a line of prose — a right-aligned value column is for numbers
         const unsure = s.unlisted || (s.kind === "pool" && !s.assetVerified);
-        const items = [kv("Fee", fee + "% per trade"), kv("DERO reserve", A.fmtDero(s.rd, 2)), kv("Token reserve", A.fmtCompact(s.ra, s.dec)), kv("Price points", String(s.pc)), kv("Published trades", String(s.tc))];
+        const items = [kv("Fee", fee + "% per trade"), kv(D.qsym(s) + " reserve", A.fmtUnits(s.rd, D.qdec(s), 2)), kv("Token reserve", A.fmtCompact(s.ra, s.dec)), kv("Price points", String(s.pc)), kv("Published trades", String(s.tc))];
         if (launch) items.push(kv("Supply", A.fmtCompact(s.supply, s.dec)), kv("Creator allocation", H.allocation(s) > Z ? A.fmtCompact(H.allocation(s), s.dec) + " (" + (H.allocBps(s) / 100).toFixed(2) + "% at launch)" : "none"), kv("Creator", button("View profile", "ghost small", () => router.go("profile", s.creator))), kv("Tax", s.tax > Z ? Number(s.tax) / 100 + "% → " + ["none", "creator", "buyback & lock", "stakers"][Number(s.tmode)] : "none"), kv("Locked by buyback", A.fmtCompact(s.locked, s.dec)), kv("Staked", A.fmtCompact(s.stot, s.dec)), kv("Liquidity", s.phase === Z ? "curve (virtual)" : "contract-owned, locked forever"));
         else items.push(kv("LP supply", A.fmtUnits(s.lp, 5, 2)));
         items.unshift(h("div", { class: "row tight mb", style: "align-items:flex-start" }, icon("shield", unsure ? "svgi warn" : "svgi up"),
@@ -100,7 +100,7 @@
         if (s.descr) items.unshift(h("div", { class: "sub mb", style: "line-height:1.5" }, s.descr));
         const actions = [];
         if (launch && s.tmode === 3n) actions.push(button("Stake / rewards", "wide", () => V.sheets.stake(s)));
-        if (launch && s.tmode === 2n && s.phase === 1n && s.tacc > Z) actions.push(button("Trigger buyback (" + A.fmtDero(s.tacc, 2) + " DERO)", "wide", () => V.app.tx({ scid: s.scid, entry: "Buyback", args: [], describe: "Buyback" })));
+        if (launch && s.tmode === 2n && s.phase === 1n && s.tacc > Z) actions.push(button("Trigger buyback (" + A.fmtUnits(s.tacc, D.qdec(s), 2) + " " + D.qsym(s) + ")", "wide", () => V.app.tx({ scid: s.scid, entry: "Buyback", args: [], describe: "Buyback" })));
         if (launch && s.tmode === 1n && me() === s.creator && s.tacc > Z) actions.push(button("Claim creator tax (" + A.fmtDero(s.tacc, 2) + ")", "wide", () => V.app.tx({ scid: s.scid, entry: "ClaimTax", args: [], describe: "Claim tax" })));
         if (!launch) actions.push(button("Add / remove liquidity", "wide", () => V.sheets.liquidity(s)));
         if (me() && me() === s.treasury && (s.fd > Z || s.fa > Z)) actions.push(button("Claim protocol fees", "wide", () => V.app.tx({ scid: s.scid, entry: "ClaimFees", args: [], describe: "Claim fees" })));
@@ -127,7 +127,7 @@
     let slip = V.app.settings.slippage || 100, publish = false, ack = false, amount = Z, balance = null, q = null, priv = false;
     const destIn = h("input", { placeholder: "address that is not linked to you", class: "mono", autocomplete: "off", spellcheck: "false", "aria-label": "receive at" });
     const input = h("input", { inputmode: "decimal", placeholder: "0", "aria-label": "amount", autocomplete: "off" });
-    const unit = buy ? "DERO" : s.ticker, dec = buy ? 5n : s.dec, outUnit = buy ? s.ticker : "DERO", outDec = buy ? s.dec : 5n;
+    const unit = buy ? D.qsym(s) : s.ticker, dec = buy ? D.qdec(s) : s.dec, outUnit = buy ? s.ticker : D.qsym(s), outDec = buy ? s.dec : D.qdec(s);
     const outV = h("div", { class: "v num" }, "0"), outL = h("div", { class: "l" }, "You receive (estimated)"), rate = h("div", { class: "note mt8" }), detail = h("div", { class: "stack", style: "gap:0" }), riskBox = h("div");
     const confirm = button((buy ? "Buy " : "Sell ") + s.ticker, (buy ? "buy" : "sell") + " wide mt", () => go(), { disabled: true });
     const risks = H.risks(s);
@@ -143,9 +143,9 @@
       rate.textContent = "Price impact " + (q.impact / 100).toFixed(2) + "% · at least " + A.fmtUnits(min, outDec, 6) + " " + outUnit + " or the trade reverts";
       rate.className = "note mt8 " + (big ? "down" : mid ? "warn" : "");
       render(detail,
-        kv("Fee " + Number(s.fee) / 100 + "%", A.fmtUnits(q.fee, buy || (launch && s.phase === Z) ? 5n : s.dec, 5) + " " + (buy || (launch && s.phase === Z) ? "DERO" : s.ticker)),
-        q.tax > Z ? kv("Token tax " + Number(s.tax) / 100 + "%", A.fmtDero(q.tax, 5) + " DERO") : null,
-        q.refund > Z ? kv("Refund (curve ends)", A.fmtDero(q.refund, 5) + " DERO" + (priv ? " → would be paid to the receive address, not to you" : "")) : null,
+        kv("Fee " + Number(s.fee) / 100 + "%", A.fmtUnits(q.fee, buy || (launch && s.phase === Z) ? D.qdec(s) : s.dec, 5) + " " + (buy || (launch && s.phase === Z) ? D.qsym(s) : s.ticker)),
+        q.tax > Z ? kv("Token tax " + Number(s.tax) / 100 + "%", A.fmtUnits(q.tax, D.qdec(s), 5) + " " + D.qsym(s)) : null,
+        q.refund > Z ? kv("Refund (curve ends)", A.fmtUnits(q.refund, D.qdec(s), 5) + " " + D.qsym(s) + (priv ? " → would be paid to the receive address, not to you" : "")) : null,
         kv("Min received", A.fmtUnits(min, outDec, 6) + " " + outUnit), kv("Route", launch && s.phase === Z ? "bonding curve" : "constant-product AMM"), kv("Ring size", priv ? "16 (the payer is one of 16 accounts)" : "2 (the contract pays the signer; anyone can compute it)"),
         priv && V.wallet.canon && V.canonAddress(destIn.value.trim()) === V.wallet.canon ? h("div", { class: "warnbox mt8" }, "This is the connected address: the ring hides who paid, but the receiver is you, in clear.") : null,
         q.graduates ? h("div", { class: "warnbox mt8" }, "This buy completes the curve: the token graduates to its locked AMM.") : null);

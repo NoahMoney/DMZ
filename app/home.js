@@ -18,7 +18,7 @@
     const out = [];
     if (s.kind === "launch" && H.allocBps(s) >= 100) out.push({ k: "alloc", t: "The creator received " + (H.allocBps(s) / 100).toFixed(2) + "% of the supply at launch (" + A.fmtCompact(H.allocation(s), s.dec) + " " + s.ticker + "), sellable at any time." });
     if (s.kind === "launch" && s.tax > 500n) out.push({ k: "tax", t: "High tax: " + Number(s.tax) / 100 + "% of every trade's DERO leg goes to " + ["nobody", "the creator", "buybacks", "stakers"][Number(s.tmode)] + "." });
-    if (s.m.liq < 20) out.push({ k: "thin", t: "Thin market: about " + S.fmtDeroShort(s.m.liq) + " DERO of liquidity. Small orders move the price a lot." });
+    if (s.m.liq < 20) out.push({ k: "thin", t: "Thin market: about " + S.fmtDeroShort(s.m.liq) + " " + D.qsym(s) + " of liquidity. Small orders move the price a lot." });
     if (s.m.isNew) out.push({ k: "new", t: "Launched " + S.ageText(s.m.age) + " ago. New markets are the most volatile." });
     return out;
   };
@@ -51,7 +51,7 @@
     avatar(s, "sm"),
     h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, h("b", { class: "ellipsis" }, s.ticker), h("span", { class: "sub tiny ellipsis" }, s.name)), h("div", { class: "progress data", style: "margin-top:7px" }, h("i", { style: "width:" + Math.min(100, s.m.progress) + "%" }))),
     h("div", { class: "right" }, h("span", { class: "num price" }, s.phase === 0n ? s.m.progress.toFixed(0) + "%" : "AMM"),
-      h("span", { class: "sub tiny" }, s.phase === 0n ? A.fmtDero(s.real, 1) + " / " + A.fmtDero(s.G, 0) + " DERO" : "locked · " + S.ageText(s.m.age) + " old")));
+      h("span", { class: "sub tiny" }, s.phase === 0n ? A.fmtUnits(s.real, D.qdec(s), 1) + " / " + A.fmtUnits(s.G, D.qdec(s), 0) + " " + D.qsym(s) : "locked · " + S.ageText(s.m.age) + " old")));
   // the rail's first head sits flush with the top of the main column; stacked below 1180 it keeps its air
   const head = (ic, t, sub, action, flush) => { const el = U.sectionHead(ic, t, sub, action); if (flush) el.style.marginTop = "0"; return el; };
 

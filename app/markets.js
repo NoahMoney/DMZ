@@ -72,7 +72,7 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
     // ticker would let a BRW/wXMR market and a BRW/DERO market look like the same row at two different prices.
     p.name.textContent = (s.quote ? s.pair : s.ticker) + (s.dupTicker || s.lookalike ? " \u26a0" : "");
     p.name.title = s.dupTicker ? "Another listed market uses a ticker that reads the same. Check the contract id before trading." : s.lookalike ? "This ticker contains characters that look like others (Cyrillic or Greek letters)." : "";
-    p.sub.textContent = s.name + " · V " + S.fmtDeroShort(s.m.vol24) + " · L " + S.fmtDeroShort(s.m.liq) + (s.m.mcap ? " · FDV " + S.fmtDeroShort(s.m.mcap) : "");
+    p.sub.textContent = s.name + " · " + D.qsym(s) + " V " + S.fmtDeroShort(s.m.vol24) + " · L " + S.fmtDeroShort(s.m.liq) + (s.m.mcap ? " · FDV " + S.fmtDeroShort(s.m.mcap) : "");
     p.nm.textContent = s.name; p.vol.textContent = S.fmtDeroShort(s.m.vol24); p.liq.textContent = S.fmtDeroShort(s.m.liq); p.mcap.textContent = s.m.mcap ? S.fmtDeroShort(s.m.mcap) : "—";
     // The three expensive children are rebuilt only when their content can actually have changed. draw() runs
     // on every block and on every keystroke in the search box, and the sparkline alone filtered the whole
