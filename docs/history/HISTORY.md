@@ -2682,3 +2682,78 @@ stop, or eat money, with nobody able to intervene.
 - An adversarial pass over the install path itself: everything that must be right before `Seal`.
 - The remaining app findings: the localStorage cache re-verification, and `stats.enrich` being called for assets
   whose probe signature did not change.
+
+
+## 2026-09-08 — the audit, its follow-up, and the mechanism verdict
+
+### SHIPPED
+
+- **A reproduced P0 fund drain closed** (`d1c5a89`): `launch.bas buyto` refunded a caller's overshoot one line
+  before its `min_out` exit, and the `...To` wrapper turned that into a double payment — 2,052,806 taken from a
+  2,150,000 pot on the real DVM. The refund is recorded and paid past every exit; `pool.bas AddLiquidity` had the
+  same shape and got the same treatment before a wrapper made it exploitable. `TestNoExternalSendBeforeAFailureExit`
+  walks control flow from every external send and fails on the pre-fix contract naming line 59.
+- **The vault state machine** (`71de9e8`): a halt is a 20 000-block lease that lapses unless renewed; `Burn` and
+  `Released` work while halted; `Reclaim(j)` returns an unmarked burn's units by itself 20 000 blocks past
+  release; the halt matrix is a test. Install gas 16 368 of 20 000 on a real transaction; proven live through a
+  halt, an epoch bump and out the other side to `sup 43 200 = reserve 43 200`.
+- **Comments no longer cost install gas** (`e3fc36c`): `reference.Canon` strips them at install; the vault went
+  from 771 units of headroom to 4 244. Template verification now hashes the executable source only.
+- **The audit follow-up, applied by seven agents told not to trust the audit** (`ef3acac`, `9b4ad6b`, `0e6c97e`):
+  41 findings fixed, the JS test layer that found two more quoting bugs the same hour, legacy vault records, and
+  split pairs on the data layer so the thin half never ranks and the trade sheet names the deepest contract.
+- **The simulator runs real decimals**: Monero at 12, Zcash at 8, both with the new state machine and parameters
+  that make sense at those decimals (`deploy/VAULT_PARAMETERS.md`).
+- **`research/wrapper/MECHANISM_REVIEW.md`** — the verdict, re-examined against "the operator hosts nothing 24/7".
+
+### ALSO FIXED
+
+- The units regression my own decimals fix had introduced (`priceAt` and `candles` still at DERO's 5): every
+  change window on a wrapped market read −100 %. `A.priceOf(market, pt)` reads both decimals off the market so
+  a call site cannot express the wrong thing.
+- Every Zcash deposit and withdrawal was refused as "not a verified listing" (the allow-list tested the
+  single-vault field). Create-a-pool could never succeed (four arguments where the contract needs five). A
+  "100 XMR" graduation target installed as 0.00001 XMR, immutably.
+- A token calling itself WXMR listed clean while the real wrapped Monero was flagged; vault names are reserved
+  by ticker and, since tonight, by display name as whole words.
+- Two pre-existing daemon liveness defects the live vault run exposed: a stranded `Released` vote in a dead epoch
+  scope, and a stale epoch after the daemon's own halt vote.
+- `simwrapmkt` re-registered two pools on the factory because my "already registered" check compared the wrong
+  encoding; the factory has no dedup, so `pool_7`/`pool_8` are permanent duplicates on this simulator. Fixed,
+  and the tool no longer re-seeds a pool that already has liquidity.
+
+### VERIFIED (this cycle's evidence for the five standing requirements)
+
+1. *XMR/ZEC first*: cold-cache probe and the UI pass at 390/768/1024 — Wrap offers XMR and ZEC only; the
+   superseded vaults read `XMR-old`/`ZEC-old`; the ZEC pool reads "Wrapped asset · verified".
+2. *Balances*: per-quote totals only; `holdings.total` and `change24` (cross-quote sums) deleted.
+3. *Fees before the button*: the trade sheet's cost rows are per asset charged; the wrap screen prints vault
+   constants at full precision (a 12-decimal minimum no longer rounds to "0 XMR").
+4. *Nobody extracts more than deposited*: BC-1 fixed and guarded; the Paying/Veto interlock plus `Released`
+   while halted; the DVM suite (63 s) green; live run `sup = reserve`, in flight 0.
+5. *No drainable duplicates*: `s.splitWith` on the data layer; UI test asserts no thin member ranks and exactly
+   one deepest per group.
+
+### UNCONSIDERED
+
+1. **The factory registry has no removal and no dedup**, so any tool mistake — mine tonight — leaves permanent
+   per-block RPC amplification on every client (P7-04). A registry with a bounded, prunable list is a contract
+   change nobody has designed.
+2. **A superseded vault's holders have no UI exit.** Legacy vault records keep old markets honest and old units
+   burnable, but the Wrap picker hides them; a holder of `XMR-old` must use the CLI. On mainnet a vault
+   supersession is a migration event that needs its own runbook and screen.
+3. **The daemon's stranded-vote and epoch fixes are verified live only.** They live inside `pass()`, which needs
+   a chain; the unit tests cannot reach them. A harness that fakes the vote scopes would make them regression-safe.
+4. **The transparent-ZEC swap path has never been driven from the app.** `board.bas` and `swap.bas` ran on the
+   simulator from Go tools on 2026-09-06; no screen offers or takes a swap. The first mainnet product has no UI.
+5. **Spore's whisper was not driven against our simulator** — the same limitation Q1 recorded on 2026-09-05.
+   Adopting it as the rendezvous rests on its own README and code, not on a run here.
+
+### NEXT
+
+- The NFA-compliant asset contract with a quote parameter, replacing `nft.bas`, with tests and a simulator run.
+- A design note and a simulator run of the DERO leg for the transparent-ZEC swap market, with spore as the
+  rendezvous — the first thing DMZ can honestly put on mainnet.
+- Founders Pass per-asset accounting.
+- The Monero backend for `vaultsigner` against recorded wallet-rpc fixtures — subaddresses, not payment ids.
+- `deploy/federation.md`: who runs the signers if the operator does not, and the `n ≥ 2k` disclosure.

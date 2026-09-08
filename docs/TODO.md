@@ -230,6 +230,35 @@ burn old units from the UI rather than the CLI.
 
 ---
 
+## 0g. The mechanism verdict, written; and three new threads. 2026-09-08, late.
+
+**`research/wrapper/MECHANISM_REVIEW.md` now exists** — the standalone verdict the audit said was never
+written. The analysis had been done (DESIGN.md Phase A, RESEARCH.md, the Phase 6 DECISION); what changed
+tonight is a constraint the operator stated for the first time: **they will not host anything 24/7.** That does
+not disqualify the federation, it disqualifies the *operator-run* federation. The verdict by pair:
+
+- **Transparent Zcash ↔ DERO: trustless HTLC, no host, works on mainnet DERO today.** `swap.bas` + `board.bas`
+  exist and ran. The one pair DMZ can honestly put on mainnet first. Privacy cost: the ZEC leg is transparent.
+- **Monero ↔ DERO, trustless: not shippable yet.** The DVM has no curve or signature ops, so the COMIT/Farcaster
+  adaptor-signature swap does not apply; the key-share consistency proof is prototyped (`poc/proof-xmr`) but the
+  escrow, companion and stagenet runs are unbuilt. **Monero on DMZ today means the federation**, run by
+  third-party signers, never called trustless.
+- **NFA (`civilware/artificer-nfa-standard`, ART-NFA-MS1): adopt it.** Headers, ownership as one unit of the
+  contract's own asset, built-in marketplace, royalties — all DERO-priced; extend with a `quote` parameter the
+  same way pool.bas and launch.bas were. Replaces `nft.bas`; every DMZ asset then indexes in Engram/Gnomon.
+- **spore (formerly mycelium, HEAD `254beba`): adopt as the maker/taker rendezvous channel** for board offers
+  and swap negotiation — serverless, on DERO mainnet now. Not a bridge; its Monero backend is mock-only on a
+  deprecated payment-id seam and must not be reused.
+
+**Mainnet sequence:** ZEC-transparent swap market → NFA assets → federation only with named third-party
+signers (`n ≥ 2k`) → the trustless Monero path.
+
+*The loop.* Three scheduled loops "never fired" for one reason: a cron job runs only while the session is
+idle, and the turn never ended. Job `fe29e0cd` (20 min) carries the cycle text and these threads; each cycle
+must end its turn.
+
+---
+
 ## 1. Correctness blockers — the things that are wrong *now*
 
 **1.1 The revenue chain is DERO-only, so fees on XMR/ZEC markets are lost or miscounted. HALF DONE.**
