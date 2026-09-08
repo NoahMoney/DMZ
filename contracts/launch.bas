@@ -3,7 +3,7 @@
 // Maths, key list and proofs: contracts/README.md. Same swap entrypoints and rd/ra/t_/p_ keys as pool.bas.
 // Invariants: rd - real == vd0 and ra + sold == vt0 while phase == 0; contract DERO == real|rd + fd + tacc + rpool.
 
-Function InitializePrivate(name String, ticker String, descr String, icon String, tags String, dec Uint64, supply Uint64, grad Uint64, cbps Uint64, tax Uint64, tmode Uint64, treasury String, fee Uint64, pfee Uint64) Uint64
+Function InitializePrivate(name String, ticker String, descr String, icon String, tags String, quote String, dec Uint64, supply Uint64, grad Uint64, cbps Uint64, tax Uint64, tmode Uint64, treasury String, fee Uint64, pfee Uint64) Uint64
 5 IF EXISTS("initd") != 0 THEN GOTO 900
 10 DIM t, s as String
 11 DIM alloc, rest, lq, c, vd0, vt0 as Uint64
@@ -17,8 +17,10 @@ Function InitializePrivate(name String, ticker String, descr String, icon String
 27 IF tmode == 0 && tax != 0 THEN GOTO 900
 28 IF tmode != 0 && tax == 0 THEN GOTO 900
 29 IF fee > 100 || pfee > 10000 THEN GOTO 900
-30 LET t = ADDRESS_RAW(treasury)
-31 IF IS_ADDRESS_VALID(t) == 0 THEN GOTO 900
+30 IF STRLEN(quote) != 32 THEN GOTO 900
+31 LET t = ADDRESS_RAW(treasury)
+32 IF IS_ADDRESS_VALID(t) == 0 THEN GOTO 900
+33 STORE("qt", quote)
 40 LET alloc = bps(supply, cbps)
 41 LET rest = supply - alloc
 42 LET lq = rest / 5
@@ -31,7 +33,7 @@ Function InitializePrivate(name String, ticker String, descr String, icon String
 53 STORE("tagsHdr", tags)
 54 STORE("typeHdr", "Token")
 55 STORE("kind", "launch")
-56 STORE("v", 1)
+56 STORE("v", 2)
 57 STORE("ticker", ticker)
 58 STORE("dec", dec)
 59 STORE("S", supply)
@@ -92,7 +94,10 @@ End Function
 
 Function buyto(s String, min_out Uint64, publish Uint64) Uint64
 10 DIM d, fee, pf, tx, deff, rd, ra, out, rem, cost, real, used as Uint64
-22 LET d = DEROVALUE()
+11 DIM q as String
+20 LET q = LOAD("qt")
+21 IF q != DERO() && DEROVALUE() != 0 THEN GOTO 900
+22 LET d = ASSETVALUE(q)
 23 IF d == 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 900
 24 LET rd = LOAD("rd")
 25 LET ra = LOAD("ra")
@@ -121,7 +126,7 @@ Function buyto(s String, min_out Uint64, publish Uint64) Uint64
 56 IF deff >= cost THEN GOTO 58
 57 GOTO 900
 58 IF used == d THEN GOTO 60
-59 SEND_DERO_TO_ADDRESS(s, d - used)
+59 SEND_ASSET_TO_ADDRESS(s, d - used, q)
 60 IF out == 0 || out < min_out THEN GOTO 900
 61 tick(rd, ra)
 62 STORE("real", real + deff)
@@ -174,8 +179,13 @@ Function SwapAssetForDeroTo(dest String, min_out Uint64, publish Uint64) Uint64
 End Function
 
 Function refundto(s String) Uint64
-10 IF DEROVALUE() == 0 THEN GOTO 20
-11 SEND_DERO_TO_ADDRESS(s, DEROVALUE())
+5 DIM q as String
+6 LET q = LOAD("qt")
+7 IF q == DERO() THEN GOTO 10
+8 IF DEROVALUE() == 0 THEN GOTO 10
+9 SEND_DERO_TO_ADDRESS(s, DEROVALUE())
+10 IF ASSETVALUE(q) == 0 THEN GOTO 20
+11 SEND_ASSET_TO_ADDRESS(s, ASSETVALUE(q), q)
 20 IF ASSETVALUE(SCID()) == 0 THEN GOTO 30
 21 SEND_ASSET_TO_ADDRESS(s, ASSETVALUE(SCID()), SCID())
 30 STORE("rf_" + HEX(TXID()), 1)
@@ -184,8 +194,11 @@ End Function
 
 Function sellto(s String, min_out Uint64, publish Uint64) Uint64
 10 DIM a, fee, pf, tx, aeff, rd, ra, dout, out, real as Uint64
+11 DIM q as String
+20 LET q = LOAD("qt")
+21 IF q != DERO() && DEROVALUE() != 0 THEN GOTO 900
 22 LET a = ASSETVALUE(SCID())
-23 IF a == 0 || DEROVALUE() != 0 THEN GOTO 900
+23 IF a == 0 || ASSETVALUE(q) != 0 THEN GOTO 900
 24 LET rd = LOAD("rd")
 25 LET ra = LOAD("ra")
 26 IF LOAD("phase") == 1 THEN GOTO 200
@@ -205,7 +218,7 @@ Function sellto(s String, min_out Uint64, publish Uint64) Uint64
 43 STORE("sold", LOAD("sold") - a)
 44 STORE("fd", LOAD("fd") + fee)
 45 STORE("tacc", LOAD("tacc") + tx)
-46 SEND_DERO_TO_ADDRESS(s, out)
+46 SEND_ASSET_TO_ADDRESS(s, out, q)
 47 post(2, a, out, publish, s)
 48 RETURN 0
 200 IF ra + LOAD("fa") + a < ra + LOAD("fa") THEN GOTO 900
@@ -221,7 +234,7 @@ Function sellto(s String, min_out Uint64, publish Uint64) Uint64
 210 STORE("rd", rd - dout)
 211 STORE("fa", LOAD("fa") + pf)
 212 STORE("tacc", LOAD("tacc") + tx)
-213 SEND_DERO_TO_ADDRESS(s, out)
+213 SEND_ASSET_TO_ADDRESS(s, out, q)
 214 post(2, a, out, publish, s)
 215 RETURN 0
 900 RETURN 1
@@ -231,15 +244,16 @@ End Function
 // fee path that only one key can move stops the moment that key does, and the protocol has no operator to rely on.
 Function ClaimFees() Uint64
 10 DIM fd, fa as Uint64
-11 DIM t as String
+11 DIM t, q as String
 20 LET t = LOAD("treasury")
-21 LET fd = LOAD("fd")
-22 LET fa = LOAD("fa")
-23 IF fd == 0 && fa == 0 THEN GOTO 900
+21 LET q = LOAD("qt")
+22 LET fd = LOAD("fd")
+23 LET fa = LOAD("fa")
+24 IF fd == 0 && fa == 0 THEN GOTO 900
 32 STORE("fd", 0)
 33 STORE("fa", 0)
 34 STORE("fc", LOAD("fc") + fd)
-35 SEND_DERO_TO_ADDRESS(t, fd)
+35 SEND_ASSET_TO_ADDRESS(t, fd, q)
 36 SEND_ASSET_TO_ADDRESS(t, fa, SCID())
 40 RETURN 0
 900 RETURN 1
@@ -247,13 +261,14 @@ End Function
 
 // tmode 1: the creator withdraws the accrued tax.
 Function ClaimTax() Uint64
-10 DIM s as String
+10 DIM s, q as String
 11 DIM x as Uint64
 20 LET s = SIGNER()
 21 IF LOAD("tmode") != 1 || s != LOAD("creator") THEN GOTO 900
 30 LET x = LOAD("tacc")
 31 STORE("tacc", 0)
-32 SEND_DERO_TO_ADDRESS(s, x)
+32 LET q = LOAD("qt")
+33 SEND_ASSET_TO_ADDRESS(s, x, q)
 40 RETURN 0
 900 RETURN 1
 End Function
@@ -299,7 +314,7 @@ Function Stake() Uint64
 20 LET s = SIGNER()
 21 IF IS_ADDRESS_VALID(s) == 0 || LOAD("tmode") != 3 THEN GOTO 900
 22 LET t = ASSETVALUE(SCID())
-23 IF t == 0 || DEROVALUE() != 0 THEN GOTO 900
+23 IF t == 0 || DEROVALUE() != 0 || ASSETVALUE(LOAD("qt")) != 0 THEN GOTO 900
 24 IF LOAD("stot") + t < t THEN GOTO 900
 25 LET a = ADDRESS_STRING(s)
 30 dist()
@@ -320,7 +335,7 @@ Function Unstake(amt Uint64) Uint64
 11 DIM st as Uint64
 20 LET s = SIGNER()
 21 IF IS_ADDRESS_VALID(s) == 0 || LOAD("tmode") != 3 THEN GOTO 900
-22 IF DEROVALUE() != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 900
+22 IF DEROVALUE() != 0 || ASSETVALUE(SCID()) != 0 || ASSETVALUE(LOAD("qt")) != 0 THEN GOTO 900
 23 LET a = ADDRESS_STRING(s)
 24 IF amt == 0 || EXISTS("st_" + a) == 0 THEN GOTO 900
 25 LET st = LOAD("st_" + a)
@@ -375,6 +390,7 @@ End Function
 // Pay the pending reward of a staker and reset its debt. pend = st * (acc - sd) / 2^32.
 Function settle(s String, a String) Uint64
 10 DIM st, sd, acc, pend, e, era as Uint64
+11 DIM q as String
 20 IF EXISTS("st_" + a) == 0 THEN GOTO 100
 21 LET st = LOAD("st_" + a)
 22 LET sd = LOAD("sd_" + a)
@@ -395,7 +411,8 @@ Function settle(s String, a String) Uint64
 45 LET pend = LOAD("rpool")
 46 IF pend == 0 THEN GOTO 100
 50 STORE("rpool", LOAD("rpool") - pend)
-51 SEND_DERO_TO_ADDRESS(s, pend)
+51 LET q = LOAD("qt")
+52 SEND_ASSET_TO_ADDRESS(s, pend, q)
 100 RETURN 0
 End Function
 

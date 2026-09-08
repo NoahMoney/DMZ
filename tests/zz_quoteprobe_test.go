@@ -61,6 +61,7 @@ func TestProbeLaunchMaxMetadataInstallGas(t *testing.T) {
 		harness.S("descr", strings.Repeat("D", 240)),
 		harness.S("icon", strings.Repeat("I", 200)),
 		harness.S("tags", strings.Repeat("G", 100)),
+		harness.H("quote", zeroHash),
 		harness.U("dec", 5), harness.U("supply", 3689348814741910324), harness.U("grad", 1000000000000),
 		harness.U("cbps", 500), harness.U("tax", 1000), harness.U("tmode", 3),
 		harness.S("treasury", treasury.String()), harness.U("fee", 100), harness.U("pfee", 10000),

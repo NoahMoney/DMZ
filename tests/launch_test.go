@@ -29,7 +29,7 @@ type launchParams struct {
 func launchArgs(p launchParams, treasury string) rpc.Arguments {
 	return rpc.Arguments{
 		harness.S("name", "Veil Test Coin"), harness.S("ticker", "VTC"), harness.S("descr", "a test memecoin"),
-		harness.S("icon", "https://example.invalid/icon.png"), harness.S("tags", "#test"),
+		harness.S("icon", "https://example.invalid/icon.png"), harness.S("tags", "#test"), harness.H("quote", zeroHash),
 		harness.U("dec", 5), harness.U("supply", p.supply), harness.U("grad", p.grad), harness.U("cbps", p.cbps),
 		harness.U("tax", p.tax), harness.U("tmode", p.tmode), harness.S("treasury", treasury),
 		harness.U("fee", p.fee), harness.U("pfee", p.pfee),

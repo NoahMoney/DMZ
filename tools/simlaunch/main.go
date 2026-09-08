@@ -62,7 +62,7 @@ func main() {
 	fmt.Println("2. w1 launches VSC: supply 1e9 units, graduation 10 DERO, creator 3%, tax 5% to stakers (tmode 3)")
 	p := struct{ supply, grad, cbps, tax, tmode, fee, pfee uint64 }{1000000000, 1000000, 300, 500, 3, 50, 5000}
 	launch, gas, _ := c.Send(wallet(1), addr[1], read("launch.bas"), "", nil, []rpc.Arg{
-		rpc.S("name", "Veil Sim Coin"), rpc.S("ticker", "VSC"), rpc.S("descr", "simulator run"), rpc.S("icon", ""), rpc.S("tags", "#sim"),
+		rpc.S("name", "Veil Sim Coin"), rpc.S("ticker", "VSC"), rpc.S("descr", "simulator run"), rpc.S("icon", ""), rpc.S("tags", "#sim"), rpc.H("quote", "0000000000000000000000000000000000000000000000000000000000000000"),
 		rpc.U("dec", 3), rpc.U("supply", p.supply), rpc.U("grad", p.grad), rpc.U("cbps", p.cbps), rpc.U("tax", p.tax), rpc.U("tmode", p.tmode),
 		rpc.S("treasury", treasury), rpc.U("fee", p.fee), rpc.U("pfee", p.pfee)})
 	m, _ := ref.NewLaunch(p.supply, p.grad, p.cbps, p.tax, p.tmode, p.fee, p.pfee)

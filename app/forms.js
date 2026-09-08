@@ -34,9 +34,28 @@
     let tmode = 0;
     const modes = U.segmented([{ v: 0, l: "No tax" }, { v: 1, l: "Creator" }, { v: 2, l: "Buyback" }, { v: 3, l: "Stakers" }], 0, (v) => { tmode = v; update(); });
     const unitsNote = h("div", { class: "note" });
+    // Which asset the curve raises. This is the market's quote: pick wXMR and the token is priced in XMR, and
+    // every buy, sell, fee and payout on it is denominated in XMR rather than DERO.
+    const ZEROQ = "0000000000000000000000000000000000000000000000000000000000000000";
+    const quotes = [{ scid: ZEROQ, sym: "DERO", name: "DERO", dec: 5 }].concat(D.vaults());
+    let quote = quotes[0];
+    const quoteChips = h("div", { class: "chips nowrap mt8" }, quotes.map((q) =>
+      h("button", {
+        class: "chip sm" + (q.scid === quote.scid ? " on" : ""), type: "button",
+        onclick: () => {
+          quote = q;
+          [...quoteChips.children].forEach((c, i) => c.classList.toggle("on", quotes[i].scid === q.scid));
+          quoteNote.textContent = q.scid === ZEROQ
+            ? "Priced in DERO. Buyers pay DERO and the AMM opens as a DERO market."
+            : "Priced in " + (q.sym || "wrapped") + ", a claim on " + U.clean(q.chain || "its own chain", 40) + " held by a federation. " +
+              "Buyers need wrapped " + (q.sym || "units") + " — they deposit on the Wrap screen first. Fees and payouts are in " + (q.sym || "units") + " too.";
+          update();
+        },
+      }, U.clean(q.sym || q.name || "wrapped", 8))));
+    const quoteNote = h("div", { class: "note" });
     // live preview
     const pv = { av: h("div"), name: h("b", { class: "ellipsis" }), tick: h("div", { class: "sub ellipsis" }), start: h("div", { class: "v" }), end: h("div", { class: "v" }), mcap: h("div", { class: "v" }), tax: h("div", { class: "v" }), curve: h("div"), cost: h("div", { class: "note mt8" }), err: h("div") };
-    const chips = h("div", { class: "chips nowrap mt8" }, [10, 50, 100, 500].map((g) => h("button", { class: "chip sm", type: "button", onclick: () => { f.grad.value = String(g); update(); } }, g + " DERO")));
+    const chips = h("div", { class: "chips nowrap mt8" }, [10, 50, 100, 500].map((g) => h("button", { class: "chip sm", type: "button", onclick: () => { f.grad.value = String(g); update(); } }, g + " " + (quote.sym || "DERO"))));
     // one parser for the preview and the submit, with the limits InitializePrivate enforces: what the preview
     // shows is what the contract receives, and a value the contract would refuse never reaches the wallet
     const readForm = () => {
@@ -48,7 +67,7 @@
       let error = "";
       if (dec === null) error = "Decimals must be a whole number from 0 to 12.";
       else if (!supply || supply < 1000000n || supply >= 9223372036854775808n) error = "Supply must be at least 1 000 000 units and below 2^63.";
-      else if (!grad || grad < 1000000n || grad > 1000000000000n) error = "Graduation target must be between 10 and 10 000 000 DERO.";
+      else if (!grad || grad < 1000000n || grad > 1000000000000n) error = "Graduation target must be between 10 and 10 000 000 " + (quote.sym || "DERO") + ".";
       else if (cbps === null) error = "Creator allocation must be 0 to 5 percent.";
       else if (tax === null) error = "Tax must be 0 to 10 percent.";
       else if ((tmode === 0) !== (tax === Z)) error = "Set a tax rate for a tax mode, or no tax.";
@@ -83,7 +102,9 @@
       pv.err,
       group("Token"),
       h("div", { class: "stack mt8" }, h("div", { class: "row" }, field("Name", f.name), field("Ticker", f.ticker)),
-        h("div", null, field("Graduation target (DERO)", f.grad), chips, h("div", { class: "note mt8" }, "How much DERO the curve raises before the AMM opens.")),
+        h("div", null, h("div", { class: "label" }, "Raised in"), quoteChips, quoteNote,
+          field("Graduation target (" + (quote.sym || "DERO") + ")", f.grad), chips,
+          h("div", { class: "note mt8" }, "How much " + (quote.sym || "DERO") + " the curve raises before the AMM opens.")),
         field("Image", f.icon), field("Description", f.descr)),
       U.details("Advanced: supply, decimals, allocation, tax",
         h("div", { class: "stack", style: "padding-bottom:8px" }, h("div", { class: "row" }, field("Supply (whole tokens)", f.supply), field("Decimals (≤12)", f.dec)), unitsNote,
@@ -98,7 +119,7 @@
         if (!TICK.test(f.ticker.value.toUpperCase())) return toast("Ticker: letters and digits only, up to 10", "err");
         if (badUrl(f.icon.value)) return toast("Image URL must start with https://", "err");
         closeSheet();
-        const scid = await installAndRegister("launch", [["name", "S", f.name.value.trim()], ["ticker", "S", f.ticker.value.toUpperCase()], ["descr", "S", f.descr.value], ["icon", "S", f.icon.value.trim()], ["tags", "S", f.tags.value], ["dec", "U", dec], ["supply", "U", supply], ["grad", "U", grad], ["cbps", "U", cbps], ["tax", "U", tax], ["tmode", "U", BigInt(tmode)], ["treasury", "S", D.registry.treasury], ["fee", "U", BigInt(D.cfg.feeBps)], ["pfee", "U", BigInt(D.cfg.launchPfeeBps)]], "RegisterLaunch");
+        const scid = await installAndRegister("launch", [["name", "S", f.name.value.trim()], ["ticker", "S", f.ticker.value.toUpperCase()], ["descr", "S", f.descr.value], ["icon", "S", f.icon.value.trim()], ["tags", "S", f.tags.value], ["quote", "H", quote.scid], ["dec", "U", dec], ["supply", "U", supply], ["grad", "U", grad], ["cbps", "U", cbps], ["tax", "U", tax], ["tmode", "U", BigInt(tmode)], ["treasury", "S", D.registry.treasury], ["fee", "U", BigInt(D.cfg.feeBps)], ["pfee", "U", BigInt(D.cfg.launchPfeeBps)]], "RegisterLaunch");
         if (scid) { await D.refresh(); router.go("token", scid); }
       }));
     update();
