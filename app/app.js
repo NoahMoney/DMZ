@@ -8,7 +8,7 @@
   const Z = 0n;
   const MAX_SLIP = 1000; // 10%: the app never signs a trade that accepts more than this
 
-  app.settings = Object.assign({ daemon: "", hideBalances: false, indexer: false, slippage: 100, reduceMotion: false, autoConnect: false, images: false, seen: false }, (() => { try { return JSON.parse(localStorage.getItem("veil.settings") || "{}"); } catch (e) { return {}; } })());
+  app.settings = Object.assign({ daemon: "", hideBalances: false, slippage: 100, reduceMotion: false, autoConnect: false, images: false, seen: false }, (() => { try { return JSON.parse(localStorage.getItem("veil.settings") || "{}"); } catch (e) { return {}; } })());
   if (!Number.isInteger(app.settings.slippage) || app.settings.slippage <= 0 || app.settings.slippage > MAX_SLIP) app.settings.slippage = 100;
   if (app.settings.daemon && !V.endpointURL(app.settings.daemon)) app.settings.daemon = ""; // a stored endpoint is validated on read as well as on write
   // a stored remote (wss://) endpoint is used only after this browser session confirmed it in Settings: any page on
@@ -59,7 +59,11 @@
   W.on("connect", async () => { app.saveSettings({ autoConnect: true }); app.walletUI(); app.connectNode(); try { await W.subscribe("new_topoheight"); } catch (e) {} D.loadSocial(W.canon).catch(() => {}); app.loadHoldings(); router.dispatch(); });
   D.onChange(() => { if (W.connected) app.walletUI(); }, true); // keep: not owned by any screen
   W.on("disconnect", () => { app.holdings = null; app.walletUI(); app.connectNode(); D.follows = new Set(); router.dispatch(); });
-  W.on("event", (ev) => { if (ev.event === "new_topoheight" || (ev.result && ev.result.event === "new_topoheight")) app.scheduleRefresh(1500); });
+  // A hidden tab does no per-block work. The safety-net timer in refresh() already backs off to two minutes
+  // when hidden, but both block clocks (the wallet's event and the node poll) cleared it on every block, so a
+  // background tab kept running the full refresh for nobody. The visibilitychange handler in init catches up
+  // the moment the tab is shown again.
+  W.on("event", (ev) => { if (!document.hidden && (ev.event === "new_topoheight" || (ev.result && ev.result.event === "new_topoheight"))) app.scheduleRefresh(1500); });
   // a transfer the wallet answered after the app stopped waiting: say what happened, the wallet history has the rest
   W.on("late", (r) => { toast(r && r.error ? "The wallet refused the transaction it had left waiting: " + short(r.error) : r && isScid(r.txid) ? "The transaction left waiting was sent: " + V.shortAddr(r.txid) + ". Check the wallet history." : "The wallet answered a transaction late: check the wallet history.", r && r.error ? "err" : "", 10000); app.scheduleRefresh(300); });
 
@@ -68,10 +72,10 @@
   app.scheduleRefresh = (ms) => { clearTimeout(timer); timer = setTimeout(() => app.refresh(), ms); };
   app.refresh = async (full) => {
     clearTimeout(timer);
-    try { D.height = L.height || D.height; await D.refresh(full); L.mood(D.active()); } catch (e) { console.warn("refresh", e); }
+    try { D.height = L.height || D.height; await D.refresh(full); } catch (e) { console.warn("refresh", e); }
     timer = setTimeout(() => app.refresh(), document.hidden ? 120000 : 45000); // safety net; blocks drive the real cadence
   };
-  L.onBlock(() => app.scheduleRefresh(200));
+  L.onBlock(() => { if (!document.hidden) app.scheduleRefresh(200); });
 
   // ---- holdings (balances read through the wallet, only for listed launches) ----
   app.holdings = null;
@@ -216,19 +220,19 @@
 
   // ---- P&L (average cost). Two sources: trades made from this device (they carry a txid) and trades the connected
   // address published on chain; a published trade that matches a local one (side, asset, amounts) is the same trade
-  // and is counted once. Cost basis per asset comes out as byAsset[asset].avg (DERO per token).
+  // and is counted once. Every figure in byAsset[asset] (cost, realised, unreal) is atomic units of that market's
+  // own quote, and nothing here is summed across assets: two quotes are two currencies, so the portfolio screen
+  // groups by quote and divides by the quote's decimals there, where the quote is known.
   app.pnl = (rows) => {
     const local = D.localTrades(), me = W.canon, key = (t) => [t.side, t.asset, String(t.in), String(t.out)].join("|"), seen = new Set(local.map(key));
     const chain = me ? D.tradesOf(me).map((t) => ({ side: t.side, asset: t.asset.asset, in: t.in.toString(), out: t.out.toString(), ts: t.ts, onchain: true })).filter((t) => !seen.has(key(t))) : [];
     const trades = [...local, ...chain].sort((x, y) => (x.ts || 0) - (y.ts || 0)); const byAsset = {};
     for (const t of trades) { const b = (byAsset[t.asset] = byAsset[t.asset] || { units: Z, cost: Z, realised: Z, n: 0 }); b.n++; const inn = BigInt(t.in), out = BigInt(t.out); if (t.side === 1) { b.units += out; b.cost += inn; } else { const avg = b.units > Z ? b.cost * inn / b.units : Z; b.realised += out - avg; b.cost -= avg > b.cost ? b.cost : avg; b.units = b.units > inn ? b.units - inn : Z; } }
-    let realised = Z, unrealised = Z;
     for (const [asset, b] of Object.entries(byAsset)) {
-      realised += b.realised; const row = rows.find((r) => r.s.asset === asset), s = row ? row.s : D.list().find((x) => x.asset === asset);
-      b.avg = s && b.units > Z ? (Number(b.cost) / 1e5) / (Number(b.units) / 10 ** Number(s.dec)) : null; b.unreal = Z;
-      if (row && b.units > Z) { b.unreal = row.value * (b.units > row.units ? row.units : b.units) / (b.units || 1n) - b.cost; unrealised += b.unreal; }
+      const row = rows.find((r) => r.s.asset === asset); b.unreal = Z;
+      if (row && b.units > Z) b.unreal = row.value * (b.units > row.units ? row.units : b.units) / (b.units || 1n) - b.cost;
     }
-    return { realised, unrealised, count: trades.length, chainCount: chain.length, byAsset };
+    return { count: trades.length, chainCount: chain.length, byAsset };
   };
   // holdings value over time: for each token, the units actually held at each of its price points (from the trade
   // ledger: device + published trades, in time order) × the price at that point; the per-token series are then merged

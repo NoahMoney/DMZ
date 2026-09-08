@@ -14,7 +14,7 @@
   async function template(kind) { const t = D.cfg.templates[kind]; const r = await fetch(t.file); if (!r.ok) throw new Error("template " + kind + " missing"); const code = await r.text(); if (t.sha256 && (await V.sha256Hex(code)) !== t.sha256) throw new Error("template hash mismatch"); return code; }
   async function installAndRegister(kind, args, registerEntry) {
     const code = await template(kind);
-    const scid = await V.app.tx({ code, args, describe: "Install " + kind, install: true });
+    const scid = await V.app.tx({ code, args, describe: "Install " + kind });
     if (!scid) return null;
     const fee = D.registry ? D.registry.regfee : Z;
     const cnt = registerEntry === "RegisterLaunch" ? "lc" : "pc", pre = registerEntry === "RegisterLaunch" ? "launch_" : "pool_";
@@ -49,13 +49,25 @@
             ? "Priced in DERO. Buyers pay DERO and the AMM opens as a DERO market."
             : "Priced in " + (q.sym || "wrapped") + ", a claim on " + U.clean(q.chain || "its own chain", 40) + " held by a federation. " +
               "Buyers need wrapped " + (q.sym || "units") + " — they deposit on the Wrap screen first. Fees and payouts are in " + (q.sym || "units") + " too.";
-          update();
+          relabel(); update();
         },
       }, U.clean(q.sym || q.name || "wrapped", 8))));
     const quoteNote = h("div", { class: "note" });
+    // Every label that names the quote is a node relabel() rewrites, not a string fixed at open: built once with
+    // quote = DERO, the target field, its chips, the tax field and the AMM note all kept saying "DERO" after the
+    // creator had picked wXMR, on the one screen where that word decides what the contract is installed with.
+    const GRADS = [10, 50, 100, 500];
+    const chips = h("div", { class: "chips nowrap mt8" }, GRADS.map((g) => h("button", { class: "chip sm", type: "button", onclick: () => { f.grad.value = String(g); update(); } })));
+    const gradLabel = h("span"), raiseNote = h("div", { class: "note mt8" }), taxLabel = h("span"), curveNote = h("div", { class: "note mt8" });
+    const relabel = () => {
+      const q = quote.sym || "DERO";
+      gradLabel.textContent = "Graduation target (" + q + ")"; raiseNote.textContent = "How much " + q + " the curve raises before the AMM opens.";
+      taxLabel.textContent = "Tax % of each trade's " + q + " leg (≤10)";
+      curveNote.textContent = "80% of the supply after the creator allocation is sold on the curve; 20% seeds the AMM at graduation with the " + q + " raised, locked forever. " + RING2;
+      [...chips.children].forEach((c, i) => { c.textContent = GRADS[i] + " " + q; });
+    };
     // live preview
     const pv = { av: h("div"), name: h("b", { class: "ellipsis" }), tick: h("div", { class: "sub ellipsis" }), start: h("div", { class: "v" }), end: h("div", { class: "v" }), mcap: h("div", { class: "v" }), tax: h("div", { class: "v" }), curve: h("div"), cost: h("div", { class: "note mt8" }), err: h("div") };
-    const chips = h("div", { class: "chips nowrap mt8" }, [10, 50, 100, 500].map((g) => h("button", { class: "chip sm", type: "button", onclick: () => { f.grad.value = String(g); update(); } }, g + " " + (quote.sym || "DERO"))));
     // one parser for the preview and the submit, with the limits InitializePrivate enforces: what the preview
     // shows is what the contract receives, and a value the contract would refuse never reaches the wallet
     const readForm = () => {
@@ -99,7 +111,7 @@
       pv.cost.textContent = "Two wallet confirmations (install, then register) · fees ≈ " + A.fmtDero(15000n + regfee, 2) + " DERO · " + A.fmtCompact(c, dec) + " " + (t || "tokens") + " on the curve, " + A.fmtCompact(lq, dec) + " reserved for the AMM";
     };
     for (const k of Object.keys(f)) f[k].oninput = update;
-    openSheet(h("h2", null, "Launch a token"), h("div", { class: "sub mt8" }, "Fixed supply on a bonding curve that graduates into a locked AMM. Nothing to run, nothing to rug."),
+    openSheet(h("h2", null, "Launch a token"), h("div", { class: "sub mt8" }, "Fixed supply on a bonding curve that graduates into a locked AMM. Nothing to run. The creator allocation is paid out at install and can be sold at any time, as can anything bought early on the curve."),
       // Level 1: the token you are about to install, priced with the maths the contract itself runs
       h("div", { class: "hero mt" }, h("div", { class: "between" }, h("span", { class: "eyebrow" }, "Preview"), h("span", { class: "net" }, "DR")),
         h("div", { class: "row mt8" }, pv.av, h("div", { class: "grow ellipsis" }, pv.name, pv.tick)),
@@ -110,14 +122,13 @@
       group("Token"),
       h("div", { class: "stack mt8" }, h("div", { class: "row" }, field("Name", f.name), field("Ticker", f.ticker)),
         h("div", null, h("div", { class: "label" }, "Raised in"), quoteChips, quoteNote,
-          field("Graduation target (" + (quote.sym || "DERO") + ")", f.grad), chips,
-          h("div", { class: "note mt8" }, "How much " + (quote.sym || "DERO") + " the curve raises before the AMM opens.")),
+          field(gradLabel, f.grad), chips, raiseNote),
         field("Image", f.icon), field("Description", f.descr)),
       U.details("Advanced: supply, decimals, allocation, tax",
         h("div", { class: "stack", style: "padding-bottom:8px" }, h("div", { class: "row" }, field("Supply (whole tokens)", f.supply), field("Decimals (≤12)", f.dec)), unitsNote,
-          h("div", { class: "row" }, field("Creator allocation % (≤5)", f.cbps), field("Tax % of each trade's DERO leg (≤10)", f.tax)), field("Tax goes to", modes), field("Tags", f.tags))),
+          h("div", { class: "row" }, field("Creator allocation % (≤5)", f.cbps), field(taxLabel, f.tax)), field("Tax goes to", modes), field("Tags", f.tags))),
       h("div", { class: "stack mt", style: "gap:0" }, U.kv("Route", "bonding curve, then a locked AMM"), U.kv("Protocol fee", Number(D.cfg.feeBps) / 100 + "% per trade")),
-      h("div", { class: "note mt8" }, "80% of the supply after the creator allocation is sold on the curve; 20% seeds the AMM at graduation with the DERO raised, locked forever. " + RING2),
+      curveNote,
       button("Launch", "primary wide mt", async () => {
         const r = readForm();
         if (!r.ok) return toast(r.error, "err");
@@ -129,7 +140,7 @@
         const scid = await installAndRegister("launch", [["name", "S", f.name.value.trim()], ["ticker", "S", f.ticker.value.toUpperCase()], ["descr", "S", f.descr.value], ["icon", "S", f.icon.value.trim()], ["tags", "S", f.tags.value], ["quote", "H", quote.scid], ["dec", "U", dec], ["supply", "U", supply], ["grad", "U", grad], ["cbps", "U", cbps], ["tax", "U", tax], ["tmode", "U", BigInt(tmode)], ["treasury", "S", D.registry.treasury], ["fee", "U", BigInt(D.cfg.feeBps)], ["pfee", "U", BigInt(D.cfg.launchPfeeBps)]], "RegisterLaunch");
         if (scid) { await D.refresh(); router.go("token", scid); }
       }));
-    update();
+    relabel(); update();
   };
   F.pool = () => {
     const asset = inp({ placeholder: "Asset SCID (64 hex)", class: "mono" });

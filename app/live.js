@@ -51,15 +51,6 @@
       }
       container.style.setProperty("--tape-dur", Math.max(20, items.length * 4) + "s");
     },
-
-    // ambient glow follows market mood (volume-weighted 24h change of the listed assets)
-    mood(assets) {
-      let w = 0, acc = 0;
-      for (const s of assets) if (s.m && s.m.c24h !== null) { const k = 1 + Math.log1p(s.m.vol24); acc += s.m.c24h * k; w += k; }
-      const m = w ? acc / w : 0; const t = Math.max(-1, Math.min(1, m / 25));
-      const hue = t >= 0 ? 150 + (1 - t) * 90 : 350 + t * 15; // green ← violet → coral
-      document.documentElement.dataset.mood = t > 0.15 ? "up" : t < -0.15 ? "down" : "flat";
-    },
   };
   V.live = live;
 })();

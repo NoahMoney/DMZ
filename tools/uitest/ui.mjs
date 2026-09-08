@@ -99,11 +99,12 @@ try {
       fail("chat with no configured contract should say so: " + ct.slice(0, 160));
     }
   }
-  // the message from the dev outranks every other piece of copy, so it must be present and reachable
+  // the message from the dev outranks every other piece of copy, so it must be present and reachable — and it must
+  // name the federation that holds the foreign coins, because a plaque that says nobody holds anything is the lie
   {
     await page.evaluate(() => { location.hash = "#notice"; }); await sleep(900); await shot("03d-notice");
     const nt = await text();
-    for (const want of [/no support/i, /code is law/i, /space cowboy/i, /revoked/i]) {
+    for (const want of [/no support/i, /code is law/i, /space cowboy/i, /federation/i]) {
       if (!want.test(nt)) fail("the dev message is missing " + want + ": " + nt.slice(0, 200));
     }
     step("notice: " + nt.replace(/\s+/g, " ").slice(0, 90));
@@ -222,6 +223,23 @@ try {
       const over = await n.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       step("1024px horizontal overflow: " + over + "px");
       if (over > 1) fail("page overflows horizontally by " + over + "px at 1024");
+      await n.close();
+    }
+    // 390 is the narrowest phone the design targets and 768 a portrait tablet, the band between the phone bar
+    // and the sidebar shell. Same rule as 1024: nothing may stick out sideways on any screen.
+    for (const width of [390, 768]) {
+      const n = await browser.newPage({ viewport: { width, height: 860 }, bypassCSP: true });
+      await n.goto(url, { waitUntil: "load" }); await n.locator("#introOk").click({ timeout: 8000 }).catch(() => {});
+      await n.waitForFunction(() => window.Veil && window.Veil.data.lastRefresh > 0, null, { timeout: 60000 });
+      let worst = 0;
+      for (const tab of ["home", "markets", "wrap", "notice"]) {
+        await n.evaluate((t) => { location.hash = "#" + t; }, tab); await sleep(1200);
+        const over = await n.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        worst = Math.max(worst, over);
+        if (over > 1) fail("page overflows horizontally by " + over + "px at " + width + " on " + tab);
+      }
+      await n.screenshot({ path: out + "/w" + width + "-notice.png" });
+      step(width + "px horizontal overflow: " + worst + "px (worst of home, markets, wrap, notice)");
       await n.close();
     }
     const bad2 = derr.filter((e) => !/favicon|net::ERR_/.test(e));

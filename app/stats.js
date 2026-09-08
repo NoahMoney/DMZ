@@ -33,6 +33,12 @@
   // twelve, which would have reported 0.431 XMR of liquidity as 4,310,000 XMR. quoteDec is set by nameQuote
   // before enrich runs; the fallback keeps a DERO market on exactly the numbers it had.
   const qunit = (s) => 10 ** (Number.isInteger(s && s.quoteDec) ? s.quoteDec : 5);
+  // How many whole units of the quote stand where one DERO stands in the activity rules below (thin liquidity,
+  // the hot ranking's volume term). Both were written as DERO counts, and a count of XMR is not a count of
+  // DERO: twenty XMR is not a thin pool, and log1p of a third of an XMR ranks a busy Monero market under a
+  // quiet DERO one. The scale belongs beside the quote's decimals in config, copied onto the market the way
+  // quoteDec is; until a vault carries one, 1 keeps every market on exactly the numbers it had.
+  const qscale = (s) => (s && Number.isFinite(s.quoteScale) && s.quoteScale > 0 ? s.quoteScale : 1);
   // net reserve flow per active block inside the window: covers unpublished trades too (netted per block)
   function flow(s, secs) {
     // walked backwards and stopped at the window edge: the sums are order-independent, and the old forward scan
@@ -57,26 +63,29 @@
     const p = price(s);
     const f24 = flow(s, WIN["24h"]), f1 = flow(s, WIN["1h"]), pub24 = published(s, WIN["24h"]), pub1 = published(s, WIN["1h"]);
     const m = {
-      price: p, c5m: change(s, WIN["5m"]), c1h: change(s, WIN["1h"]), c6h: change(s, WIN["6h"]), c24h: change(s, WIN["24h"]), c7d: change(s, WIN["7d"]),
-      flow24: f24, flow1h: f1, pub24, pub1,
-      vol24: f24.vol, blocks24: f24.blocks, buys24: pub24.buys, sells24: pub24.sells, upBlocks24: f24.up, downBlocks24: f24.down,
+      price: p, c5m: change(s, WIN["5m"]), c1h: change(s, WIN["1h"]), c6h: change(s, WIN["6h"]), c24h: change(s, WIN["24h"]),
+      flow1h: f1,
+      vol24: f24.vol, buys24: pub24.buys, sells24: pub24.sells, upBlocks24: f24.up, downBlocks24: f24.down,
       mcap: s.kind === "launch" ? p * (Number(s.supply) / 10 ** Number(s.dec)) : null, // fully diluted: price × total supply (labelled FDV)
       liq: s.kind === "launch" && s.phase === 0n ? Number(s.real) / qunit(s) : (Number(s.rd) / qunit(s)) * 2, // a curve holds only the quote actually raised
       lastTs: s.points.length ? s.points[s.points.length - 1].ts : 0,
       age: s.installHeight && height ? Math.max(0, height - s.installHeight) : null,
       progress: s.kind === "launch" && s.phase === 0n && s.G > 0n ? Number(s.real * 10000n / s.G) / 100 : (s.kind === "launch" ? 100 : null),
-      holders: new Set(s.trades.map((t) => t.addr)).size,
+      // distinct publishers over the whole history. Only the token screen reads it, so it is computed the first
+      // time that screen asks and then kept on this m, rather than rebuilt for every market on every block.
+      get holders() { const n = new Set(s.trades.map((t) => t.addr)).size; Object.defineProperty(this, "holders", { value: n }); return n; },
     };
     // anti-wash: distinct publishers count, not published trades (one account spamming posts gains nothing), and
     // volume enters through a log so a single large reserve move does not own the ranking
-    m.hot = f1.blocks * 4 + pub1.who * 3 + Math.min(50, Math.log1p(f1.vol) * 8);
+    m.hot = f1.blocks * 4 + pub1.who * 3 + Math.min(50, Math.log1p(f1.vol / qscale(s)) * 8);
     m.isNew = m.age !== null && m.age < 400; // ~2 hours of 18 s blocks
+    m.thin = m.liq < 20 * qscale(s); // small orders move the price a lot: twenty DERO, or the quote's equivalent
     s.m = m; s.price = p; s.change24 = m.c24h; s.vol24 = m.vol24;
     return m;
   }
 
   // ---- candles from per-block closes ------------------------------------------------------------------------
-  // interval in seconds; returns [{t, o, h, l, c, v, up}] where v is the reserve flow (DERO) and empty intervals
+  // interval in seconds; returns [{t, o, h, l, c, v, up}] where v is the reserve flow (in the quote) and empty intervals
   // carry the previous close as a flat candle (drawn as a doji), exactly like an exchange with no trades.
   function candles(s, interval, from) {
     const pts = s.points.filter((p) => p.ts >= from - interval); if (!pts.length) return [];
@@ -88,7 +97,7 @@
       while (i < pts.length && pts[i].ts < t) { prevClose = price(s, pts[i]); prevRd = pts[i].rd; prevPt = pts[i]; i++; c.o = prevClose; c.h = prevClose; c.l = prevClose; c.c = prevClose; }
       while (i < pts.length && pts[i].ts < t + interval) {
         const p = pts[i], pr = price(s, p); if (pr > 0) { c.h = Math.max(c.h, pr); c.l = Math.min(c.l, pr); c.c = pr; c.n++; }
-        // reserve flow: DERO in = net buying, DERO out = net selling (per active block)
+        // reserve flow: quote in = net buying, quote out = net selling (per active block)
         if (!lpMove(s, prevPt, p)) { if (p.rd >= prevRd) c.bv += Number(p.rd - prevRd) / qunit(s); else c.sv += Number(prevRd - p.rd) / qunit(s); }
         prevRd = p.rd; prevPt = p; prevClose = pr; i++;
       }
@@ -118,7 +127,13 @@
     if (z < 4) return p.toLocaleString(undefined, { maximumSignificantDigits: 4 });
     return "0.0" + String(z).split("").map((d) => SUB[+d]).join("") + s.slice(z, z + 4);
   }
-  const fmtDeroShort = (x) => (x >= 1e6 ? (x / 1e6).toFixed(2) + "M" : x >= 1e4 ? (x / 1e3).toFixed(1) + "K" : x >= 100 ? x.toFixed(0) : x >= 1 ? x.toFixed(2) : x > 0 ? x.toFixed(4) : "0");
+  // Short amounts in whatever the quote is. Four fixed places were DERO's own scale: a twelve-decimal quote
+  // puts a whole pool below a thousandth, where toFixed(4) printed "0.0000" for every aggregate on the market.
+  // Below that line the number keeps three significant digits instead — toFixed rather than toPrecision,
+  // because toPrecision switches to exponent form under 1e-6 and toFixed never does. From a thousandth up,
+  // everything renders exactly as it did.
+  const fmtTiny = (x) => x.toFixed(Math.min(100, Math.floor(-Math.log10(x)) + 3)).replace(/0+$/, "");
+  const fmtDeroShort = (x) => (x >= 1e6 ? (x / 1e6).toFixed(2) + "M" : x >= 1e4 ? (x / 1e3).toFixed(1) + "K" : x >= 100 ? x.toFixed(0) : x >= 1 ? x.toFixed(2) : x >= 1e-3 ? x.toFixed(4) : x > 0 ? fmtTiny(x) : "0");
   const ageText = (blocks) => { if (blocks === null || blocks === undefined) return "—"; const s = blocks * 18; if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m"; if (s < 86400) return Math.round(s / 3600) + "h"; return Math.round(s / 86400) + "d"; };
 
   // ---- watchlist (per device) ----

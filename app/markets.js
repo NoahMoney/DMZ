@@ -29,10 +29,6 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
   const ID = (x) => (/^[0-9a-f]{64}$/i.test(String(x || "")) ? String(x).toLowerCase() : "");
   // a launch's base asset is its own SCID (feed.js sets `asset: scid`); a pool names its base in `asset`.
   // Anything with no readable base asset is left ungrouped rather than lumped in with the other unreadable ones.
-  // KNOWN GAP, and it belongs to feed.js, not here: loadContract() reads `qt` only in its pool branch, so every
-  // launch arrives with s.quote unset and is grouped as DERO-quoted whatever launch.bas was installed with. The
-  // day a launch raises in wXMR, this would put it in the same group as a DERO pool over the same token. The fix
-  // is one line in feed.js (read `qt` for launches too); until then the grouping is only as right as s.quote is.
   const pairKey = (s) => { const b = ID(s.asset) || ID(s.scid); return b ? b + "/" + (ID(s.quote) || "dero") : ""; };
   // The quote the contract actually holds, in that quote's own units: a curve holds what it raised, an AMM
   // holds its quote reserve. Only ever compared inside one pair, so both sides are the same asset with the same
@@ -132,16 +128,13 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
     }
     const p = r.parts;
     p.rank.textContent = i + 1; p.rank.className = "rank" + (i < 3 ? " r" + (i + 1) : "");
-    // written on every pass: rows are reused across renders, so a warning set once at first render would
-    // freeze there, and a ticker that only later collides with another would never gain one
     // A market quoted in something other than DERO is a PAIR, and the pair is its name. Showing only the base
     // ticker would let a BRW/wXMR market and a BRW/DERO market look like the same row at two different prices.
     // A split pair always shows its full pair, not the bare ticker: the pair is the thing two contracts are
     // fighting over, and the row has to name it before the warning underneath can mean anything.
     const dup = dupOf(s);
-    p.name.textContent = (s.quote || dup ? s.pair : s.ticker) + (dup || s.dupTicker || s.lookalike || s.impersonates ? " \u26a0" : "");
-    // a split pair outranks a look-alike ticker: one costs you the spread, the other only the wrong logo
-    p.name.title = s.impersonates ? "Not real " + s.impersonates + ": a token that named itself after the wrapped asset. Nothing backs it." : dup ? dupTitle(s, dup) : s.dupTicker ? "Another listed market uses a ticker that reads the same. Check the contract id before trading." : s.lookalike ? "This ticker contains characters that look like others (Cyrillic or Greek letters)." : "";
+    p.name.textContent = s.quote || dup ? s.pair : s.ticker;
+    p.name.title = dup ? dupTitle(s, dup) : "";
     // Rewritten on every pass, like the name and the sub line: a market becomes a duplicate the moment someone
     // else installs a contract over its pair, and depth moves on every block. A band written once at first
     // render would freeze at whatever was true then \u2014 rows are reused across draws.
@@ -162,8 +155,16 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
         " \u00b7 ",
         h("span", { class: "mono" }, V.shortAddr(s.scid)));
     }
-    p.sub.textContent = s.name + " · " + D.qsym(s) + " V " + S.fmtDeroShort(s.m.vol24) + " · L " + S.fmtDeroShort(s.m.liq) + (s.m.mcap ? " · FDV " + S.fmtDeroShort(s.m.mcap) : "");
-    p.nm.textContent = s.name; p.vol.textContent = S.fmtDeroShort(s.m.vol24); p.liq.textContent = S.fmtDeroShort(s.m.liq); p.mcap.textContent = s.m.mcap ? S.fmtDeroShort(s.m.mcap) : "—";
+    // Written on every pass, like the split-pair band: rows are reused across draws, and a ticker that only later
+    // collides with another, or a name that turns out to be a copy of the wrapped asset's, must gain its mark
+    // then. The mark is text beside the name it contradicts, not a tooltip — a title is unreachable on a phone,
+    // and one glyph for four conditions of different weight told a reader nothing.
+    const qs = " " + D.qsym(s);
+    render(p.sub, H.mark(s, " · "), s.name + " · " + D.qsym(s) + " V " + S.fmtDeroShort(s.m.vol24) + " · L " + S.fmtDeroShort(s.m.liq) + (s.m.mcap ? " · FDV " + S.fmtDeroShort(s.m.mcap) : ""));
+    render(p.nm, H.mark(s, " · "), s.name);
+    // Each cell carries its symbol. The column head cannot, because the column is sorted across quotes
+    // (docs/TODO.md §1.3): a bare 4.2 above a bare 0.0004 reads as a comparison there is no rate to make.
+    p.vol.textContent = S.fmtDeroShort(s.m.vol24) + qs; p.liq.textContent = S.fmtDeroShort(s.m.liq) + qs; p.mcap.textContent = s.m.mcap ? S.fmtDeroShort(s.m.mcap) + qs : "—";
     // The three expensive children are rebuilt only when their content can actually have changed. draw() runs
     // on every block and on every keystroke in the search box, and the sparkline alone filtered the whole
     // point history and built a fresh SVG with a gradient and two long paths, per row, every time.

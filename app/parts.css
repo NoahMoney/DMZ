@@ -129,7 +129,7 @@ details.more[open] summary .svgi{transform:rotate(180deg)}
 .msg.mine .who{color:var(--fg)}
 .msg .what{font-size:13.5px;line-height:1.5;overflow-wrap:anywhere}
 .msg .what.act{color:var(--fg2);font-style:italic}
-.msg.sending{opacity:.45}
+.msg.sending .who,.msg.sending .what{color:var(--fg3)}
 .composer{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--edge)}
 .composer .prompt{font-size:14px;flex:none}
 .compose{background:transparent;border:0;border-radius:0;padding:6px 0;font-size:13.5px}
@@ -201,4 +201,5 @@ details.more[open] summary .svgi{transform:rotate(180deg)}
 .step.now .sst{color:var(--acc)}
 .step.wait .n{border-style:dashed}
 .step.wait .sst{color:var(--fg3)}
-.step.todo{opacity:.55}
+/* a step not reached yet is stated in the tertiary ink, not faded: opacity multiplies contrast away */
+.step.todo .t{color:var(--fg3)}

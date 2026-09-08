@@ -29,7 +29,9 @@ type VaultAsset struct {
 
 // VaultRec is one wrapped asset: its vault contract and what that vault wraps. There is one per foreign chain,
 // because a vault holds exactly one asset — a network that can wrap Monero and Zcash runs two of them, and a
-// single `vault` field could never say so.
+// single `vault` field could never say so. `vaults` is the only place a vault's metadata is recorded: the file
+// used to carry a second copy under `vaultAsset`, and the two copies drifted (5 decimals against 12 for the same
+// contract), so that key is gone and anything still in the file under it is ignored.
 type VaultRec struct {
 	Scid string `json:"scid"`
 	VaultAsset
@@ -40,22 +42,27 @@ type Network struct {
 	Factory       string              `json:"factory"`
 	Social        string              `json:"social"`
 	Founders      string              `json:"founders"`
-	Vault         string              `json:"vault"`
-	VaultAsset    VaultAsset          `json:"vaultAsset"`
+	Vault         string              `json:"vault"` // the first wrapped asset, for the app's older readers; its record is in Vaults
 	Vaults        []VaultRec          `json:"vaults"`
 	Chat          string              `json:"chat"`
 	FeeBps        uint64              `json:"feeBps"`
 	PfeeBps       uint64              `json:"pfeeBps"`
 	LaunchPfeeBps uint64              `json:"launchPfeeBps"`
 	Templates     map[string]Template `json:"templates"`
-	Indexer       struct {
-		Enabled bool   `json:"enabled"`
-		URL     string `json:"url"`
-	} `json:"indexer"`
-	Tela struct {
+	Tela          struct {
 		Index string `json:"index"`
 		Durl  string `json:"durl"`
 	} `json:"tela"`
+}
+
+// hasVault says whether scid has a record in Vaults.
+func (n *Network) hasVault(scid string) bool {
+	for _, r := range n.Vaults {
+		if r.Scid == scid {
+			return true
+		}
+	}
+	return false
 }
 
 type File struct {
@@ -84,6 +91,11 @@ func Load(path string) (*File, error) {
 		n := &Network{Templates: map[string]Template{}}
 		if err := json.Unmarshal(v, n); err != nil {
 			return nil, fmt.Errorf("%s: %w", k, err)
+		}
+		// A vault named without its record has no decimals and no chain name to render, and there is no second
+		// place to look for them any more: the file refuses to load rather than let config.js drop the vault.
+		if len(n.Vault) == 64 && !n.hasVault(n.Vault) {
+			return nil, fmt.Errorf("%s: vault %s has no record in vaults: add it there, with its name, sym, chain, dec and conf", k, n.Vault)
 		}
 		f.Networks[k] = n
 	}
@@ -126,20 +138,10 @@ func ConfigJS(name string, n *Network, generator string) string {
 	for _, k := range keys {
 		lines = append(lines, fmt.Sprintf("    %-9s %s", k+":", tpl(k)))
 	}
-	// One entry per wrapped asset. The single `vault` field is kept as the first of them so nothing that still
-	// reads it breaks, but `vaults` is the list the app works from: a network wrapping Monero and Zcash has two.
-	recs := append([]VaultRec{}, n.Vaults...)
-	if len(n.Vault) == 64 {
-		has := false
-		for _, r := range recs {
-			if r.Scid == n.Vault {
-				has = true
-			}
-		}
-		if !has {
-			recs = append([]VaultRec{{Scid: n.Vault, VaultAsset: n.VaultAsset}}, recs...)
-		}
-	}
+	// One entry per wrapped asset, from `vaults` alone: a network wrapping Monero and Zcash has two. The single
+	// `vault` / `vaultAsset` pair the app's older readers (feed.js, wrap.js) fall back to is the first record,
+	// derived here rather than stored a second time.
+	recs := n.Vaults
 	vault := ""
 	if len(recs) > 0 {
 		var lines []string
@@ -167,9 +169,8 @@ window.VEIL_CONFIG = {
 %s  feeBps: %d, pfeeBps: %d, launchPfeeBps: %d,
   templates: {
 %s
-  },
-  indexer: { enabled: %v, url: %q }
+  }
 };
 `, generator, time.Now().UTC().Format(time.RFC3339), name, name, n.Daemon, n.Factory, n.Social, n.Founders, vault,
-		n.FeeBps, n.PfeeBps, n.LaunchPfeeBps, strings.Join(lines, ",\n"), n.Indexer.Enabled, n.Indexer.URL)
+		n.FeeBps, n.PfeeBps, n.LaunchPfeeBps, strings.Join(lines, ",\n"))
 }

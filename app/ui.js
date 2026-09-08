@@ -56,14 +56,18 @@
   // ---- widgets ----
   const skeleton = (n = 3, cls = "skel skel-card") => Array.from({ length: n }, () => h("div", { class: cls }));
   const timeAgo = (ts) => { const d = Math.max(0, Math.floor(Date.now() / 1000) - ts); if (d < 60) return d + "s"; if (d < 3600) return Math.floor(d / 60) + "m"; if (d < 86400) return Math.floor(d / 3600) + "h"; return Math.floor(d / 86400) + "d"; };
-  // identity avatar: two hues from a hash of the id → gradient; images only when allowed, https only, no referrer
-  const hash = (s) => { let x = 2166136261; for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619); } return x >>> 0; };
+  // network grammar (docs/DESIGN_SYSTEM.md §Networks): a two-letter mono code and the .net class for a vault
+  // record. The chain is read from the record that ships with the app, never guessed from a ticker anyone can type.
+  const netOf = (a) => { const s = (String(a && a.sym || "") + " " + String(a && a.chain || "")).toUpperCase(); if (/XMR|MONERO/.test(s)) return ["XM", "net xmr"]; if (/ZEC|ZCASH/.test(s)) return ["ZC", "net zec"]; return [(String(a && a.sym || "").toUpperCase().replace(/[^A-Z0-9]/g, "") + "??").slice(0, 2), "net"]; };
+  // identity avatar: a plate carrying the ticker and, on its leading edge, the tint of the chain the market
+  // settles on — a wrapped asset's own vault or the vault its quote comes from. Images only when allowed, https
+  // only, no referrer. Nothing here is a colour the system did not already name.
   function avatar(x, size = "") {
     const isAsset = typeof x === "object", id = isAsset ? x.scid || x.ticker || "" : String(x || "");
     const src = safeUrl(isAsset ? x.icon : (V.data.profile(id).avatar || ""));
     const label = clean(isAsset ? (x.ticker || "?").slice(0, 3) : V.data.displayName(id).slice(0, 2).toUpperCase(), 3);
-    const hh = hash(id), h1 = hh % 360, h2 = (h1 + 40 + (hh >> 8) % 60) % 360;
-    const el = h("div", { class: "avatar " + size, "aria-hidden": "true", style: `background:linear-gradient(135deg,hsl(${h1} 62% 52%),hsl(${h2} 70% 34%))` }, label);
+    const v = isAsset ? V.data.vaultOf(x) : null;
+    const el = h("div", { class: "avatar " + size + (v ? " " + netOf(v)[1].slice(4) : ""), "aria-hidden": "true" }, label);
     if (src && V.settings && V.settings.images) { const img = h("img", { src, alt: "", loading: "lazy", referrerpolicy: "no-referrer", decoding: "async" }); img.onerror = () => img.remove(); el.prepend(img); }
     return el;
   }
@@ -108,18 +112,24 @@
   // section head with an icon, and an illustrated empty state
   const sectionHead = (ic, title, sub, action) => h("div", { class: "sh" }, h("span", { class: "ico" }, icon(ic)), h("div", { class: "grow" }, h("h2", null, title), sub ? h("div", { class: "sub tiny" }, sub) : null), action || null);
   const emptyState = (ic, title, hint, action) => h("div", { class: "empty" }, h("div", { class: "ico" }, icon(ic)), title ? h("b", null, title) : null, hint ? h("div", null, hint) : null, action ? h("div", { class: "mt" }, action) : null);
+  // The third state a list can be in: it did not load. A skeleton that never resolves reads as slow, not broken,
+  // so the failure is named and the two recoveries the app can offer are on the row: try again, or change the
+  // node, which is the usual cause.
+  const errorState = (message, onRetry) => emptyState("warn", "Could not load", message, [button("Retry", "small primary", onRetry), button("Node settings", "small ghost", () => router.go("settings"))]);
   // staggered entrance for freshly rendered lists
   const rise = (el, i) => { el.classList.add("rise"); el.style.animationDelay = Math.min(i, 12) * 45 + "ms"; return el; };
   function details(label, ...kids) { return h("details", { class: "more" }, h("summary", null, h("span", null, label), icon("chevron")), ...kids); }
 
   // ---- sparkline ----
   const NS = "http://www.w3.org/2000/svg";
-  let sparkN = 0;
   const svg = (tag, a) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(a || {})) e.setAttribute(k, v); return e; };
   // Takes the market so the quote's decimals travel with it; the shape is relative, but a mis-scaled series
   // still disagreed with every number beside it.
   function sparkline(points, mkt, up) {
-    const s = points.map((p) => ({ x: p.ts, y: A.priceOf(mkt, p) })).filter((p) => p.y > 0); const w = 120, hgt = 34; const el = svg("svg", { viewBox: `0 0 ${w} ${hgt}`, preserveAspectRatio: "none" });
+    let s = points.map((p) => ({ x: p.ts, y: A.priceOf(mkt, p) })).filter((p) => p.y > 0); const w = 120, hgt = 34; const el = svg("svg", { viewBox: `0 0 ${w} ${hgt}`, preserveAspectRatio: "none" });
+    // A day of blocks is thousands of points and the box is 120px wide, so past 160 the path only costs. Every
+    // n-th point is kept, plus the extremes so the scale does not move and the last so the line ends at now.
+    if (s.length > 160) { const step = Math.ceil(s.length / 160); let lo = 0, hi = 0; s.forEach((p, i) => { if (p.y < s[lo].y) lo = i; if (p.y > s[hi].y) hi = i; }); s = s.filter((p, i) => i % step === 0 || i === lo || i === hi || i === s.length - 1); }
     if (s.length < 2) { el.append(svg("line", { x1: 0, y1: hgt / 2, x2: w, y2: hgt / 2, stroke: "var(--fg3)", "stroke-width": 1, "vector-effect": "non-scaling-stroke" })); return h("div", { class: "spark" }, el); }
     const xs = s.map((p) => p.x), ys = s.map((p) => p.y); const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0 + 1, y0 = Math.min(...ys), y1 = Math.max(...ys);
     const X = (x) => ((x - x0) / (x1 - x0 || 1)) * (w - 2) + 1, Y = (y) => hgt - 2 - ((y - y0) / (y1 - y0 || 1)) * (hgt - 4);
@@ -142,10 +152,16 @@
       $$(".tab").forEach((t) => t.classList.toggle("on", t.dataset.tab === n || (n === "token" && t.dataset.tab === "home")));
       const fn = this.handlers[n] || this.handlers.home; const screen = $("#screen"); screen.scrollTop = 0; window.scrollTo(0, 0);
       screen.classList.remove("enter"); void screen.offsetWidth; screen.classList.add("enter");
-      try { fn(screen, param); } catch (e) { console.error(e); render(screen, h("div", { class: "errbox" }, String(e.message || e))); }
+      // Half the handlers are async, so the catch alone saw only the synchronous half; a rejection after the first
+      // await left skeletons on screen for good. The same recovery covers both, and only while this navigation is
+      // still the current one — a late failure must not paint over the screen the user has since moved to.
+      const g = this.gen, fail = (e) => { console.error(e); if (this.gen === g) render(screen, h("div", { class: "errbox" }, String(e.message || e))); };
+      try { const r = fn(screen, param); if (r && typeof r.then === "function") r.then(null, fail); } catch (e) { fail(e); }
     },
   };
   window.addEventListener("hashchange", () => router.dispatch());
+  // A rejection nobody caught is the failure the user would otherwise never hear about: the console is closed.
+  window.addEventListener("unhandledrejection", (e) => { const r = e.reason; toast("Something failed: " + clean(String(r && r.message || r), 200), "err", 8000); });
 
-  V.ui = { $, $$, h, clear, render, clean, safeUrl, icon, toast, openSheet, closeSheet, skeleton, timeAgo, avatar, pill, changePill, toggle, kv, segmented, button, verified, warnings, tickerKey, hasHomoglyph, sectionHead, emptyState, rise, details, sparkline, router };
+  V.ui = { $, $$, h, clear, render, clean, safeUrl, icon, toast, openSheet, closeSheet, skeleton, timeAgo, avatar, pill, changePill, toggle, kv, segmented, button, verified, warnings, tickerKey, hasHomoglyph, sectionHead, emptyState, errorState, rise, details, sparkline, netOf, router };
 })();

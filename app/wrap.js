@@ -117,6 +117,10 @@
   const sym = () => U.clean((D.vault && D.vault.asset && D.vault.asset.sym) || "units", 12);
   // base units are exact; the pretty form is a courtesy. When no decimals were recorded, show the exact integer.
   const amt = (u, places) => (dec() === 0 ? String(u) + " base units" : A.fmtUnits(u, dec(), places === undefined ? 6 : places) + " " + sym());
+  // A protocol constant (minimum deposit, minimum burn, the fee) is a rule, and a rule is printed to the last
+  // digit: the "<0.00000001" fmtUnits gives a swallowed balance is honest for a balance and wrong for a threshold
+  // someone has to meet exactly — on a 12-decimal vault the shipped minimum burn sits at the ninth place.
+  const exact = (u) => amt(u, dec());
   // DERO blocks are about 18 seconds; say "about" and never round a wait down
   const blocksAway = (n) => {
     if (n <= 0) return "now";
@@ -264,7 +268,7 @@
         // connected and before an address exists. A deposit below it can never be minted and no operator exists
         // to send it back: someone deciding whether to use this vault at all has to be able to see that first.
         h("div", { class: "warnbox mt8" },
-          h("b", null, "Minimum deposit: " + amt(w.mindep, 8)),
+          h("b", null, "Minimum deposit: " + exact(w.mindep)),
           h("div", { class: "sub" }, "Anything smaller cannot be minted, and there is nobody who can return it. Check the amount before you send.")),
 
         h("div", { class: "mt" }, panel(c, c.foreign(), c.dero(), "the federation holds the reserve on " + chain, depStatus)),
@@ -279,8 +283,8 @@
               detail: !connected
                 ? "A deposit address belongs to one index of one wallet. Connect a wallet to claim one."
                 : registered
-                  ? "Index " + (dep ? dep.j : (my && my.dep ? my.dep.j : "?")) + ". Registering again gives you a fresh index, so two deposits of yours are not linked on chain."
-                  : "Costs " + A.fmtDero(w.regfee, 5) + " DERO to the treasury. This is a ring-size-2 call, so your address is public in that transaction.",
+                  ? "Index " + (dep ? dep.j : (my && my.dep ? my.dep.j : "?")) + ". Registering again gives you a fresh index and a fresh deposit address, but not a fresh identity: the vault stores which DERO address owns every index and the foreign address attested to it, in the clear, so anyone reading the contract can link all of yours together."
+                  : "Costs " + A.fmtDero(w.regfee, 5) + " DERO to the treasury. This is a ring-size-2 call, so your address is public in that transaction, and it is stored against the index where anyone can read it.",
               body: h("div", { class: "mt8" }, !connected
                 ? button("Connect wallet", "primary", () => V.app.connectWallet())
                 : button(registered ? "Register another index (" + A.fmtDero(w.regfee, 5) + " DERO)" : "Register a deposit index",
@@ -297,7 +301,7 @@
             },
             {
               state: live ? "now" : "todo",
-              title: "Send at least " + amt(w.mindep, 8) + " to that address",
+              title: "Send at least " + exact(w.mindep) + " to that address",
               detail: live
                 ? "Send from your own " + name + " wallet. Less than the minimum can never be minted and cannot be returned."
                 : "The address appears here once the signers have published it.",
@@ -341,8 +345,8 @@
             ? "The vault is sealed: the deployer has no power over it and nobody can add a signer without a quorum."
             : "The vault is NOT sealed. The deployer can still change the signer set. Do not deposit."),
           h("div", { class: "note" },
-            "There is no operator and no override. A burn is paid by " + w.k + " signers, or returned by " + w.k + " signers, or — if no signer has " +
-            "marked it as being paid within " + (Number(w.wdelay) + 20000) + " blocks of the burn — returned to you by the contract itself when you ask. " +
+            "There is no operator and no override, and nothing here pays by itself: a burn is paid by " + w.k + " signers recording the foreign transaction, or returned by " +
+            w.k + " signers voting to, or — " + RECLAIM_AFTER + " blocks after it became payable, if no signer has marked it as being paid — returned to you by the contract when you ask. " +
             "Only a burn a signer has marked as being paid waits on the quorum, because its coins may already have left.")),
         full("Vault contract", w.scid, "Vault contract id copied"));
     };
@@ -358,11 +362,11 @@
       const restate = () => {
         const units = A.parseUnits(amount.value, dec());
         if (units === null || units <= Z) { out.textContent = ""; return; }
-        if (units < w.minburn) { out.textContent = "Below the minimum burn of " + amt(w.minburn, 8) + "."; return; }
+        if (units < w.minburn) { out.textContent = "Below the minimum burn of " + exact(w.minburn) + "."; return; }
         const net = units > w.wfee ? units - w.wfee : Z;
         const big = w.bigbps !== Z && units > w.bigAt;
         const waitBlocks = Number(w.wdelay) + (big ? Number(w.bigdelay) : 0);
-        out.textContent = "You receive " + amt(net, 8) + " after a " + amt(w.wfee, 8) + " fee" +
+        out.textContent = "You receive " + amt(net, 8) + " after a " + exact(w.wfee) + " fee" +
           (big ? ". This is larger than " + amt(w.bigAt, 4) + " (" + (Number(w.bigbps) / 100) + "% of claims), so it waits " + waitBlocks + " blocks — " + blocksAway(waitBlocks) + " — instead of " + w.wdelay + "."
                : ". It becomes payable " + w.wdelay + " blocks after the burn, " + blocksAway(Number(w.wdelay)) + ".");
       };
@@ -380,7 +384,7 @@
 
     // ---- one withdrawal, read as a settlement ----
     // Not a card and not a badge: a hairline, then what is moving, by what mechanism, who is holding it, and the
-    // height at which doing nothing pays it. The destination and the foreign txid are printed in full because
+    // height from which it may be paid. The destination and the foreign txid are printed in full because
     // they are the parts a person can check against their own wallet.
     const wrow = (w, x, c) => {
       const away = x.rel - tip;
@@ -391,14 +395,14 @@
       const status = x.st === 1
         ? "settled on " + c.chain
         : x.st === 2
-          ? "the units and the fee were returned to you — vetoed by the quorum, or reclaimed after the window"
+          ? "the units and the fee were returned to you — " + w.k + " signers voted to return it (the contract records no reason), or you reclaimed it after the window"
           : canReclaim
             ? "no signer has marked this as being paid and the window has passed: you can take the units back yourself"
             : away > 0
               ? "awaiting settlement, payable at block " + x.rel + " — " + blocksAway(away) + " away"
               : x.marked
                 ? "a signer marked it as being paid at block " + x.marked + "; the payment is in flight and only " + w.k + " signers can settle it now"
-                : "payable now, since block " + x.rel + ". The signers pay it without anyone asking; if none marks it by block " + reclaimAt + " you can reclaim it.";
+                : "payable now, since block " + x.rel + ". The signer daemons pay it unasked, but only " + w.k + " votes settle it; from block " + reclaimAt + " you can reclaim it yourself as long as no signer has marked it.";
       return h("div", { class: "mt", style: "padding-top:12px;border-top:1px solid var(--edge)" },
         h("div", { class: "between", style: "padding-bottom:6px" },
           h("span", { class: "row tight" }, h("span", { class: "mono dim2" }, "#" + x.j), h("b", { class: "num" }, amt(x.units, 8))),
@@ -421,7 +425,7 @@
               ? "Not completed: the quorum returned it, or nobody acted and you reclaimed it."
               : x.marked
                 ? "A signer marked it as being paid at block " + x.marked + ". It pays, checks its own payment on " + c.chain + ", and " + w.k + " signers vote."
-                : "Each signer pays, checks its own payment on " + c.chain + ", and votes. If no signer marks it by block " + reclaimAt + ", the units are yours to reclaim.",
+                : "Each signer pays, checks its own payment on " + c.chain + ", and votes. From block " + reclaimAt + ", if no signer has marked it, the units are yours to reclaim.",
           },
           {
             state: x.st === 1 ? "done" : x.st === 2 ? "done" : canReclaim ? "now" : "todo",
@@ -430,7 +434,7 @@
             detail: x.st === 1
               ? "Recorded on DERO against the foreign transaction below."
               : x.st === 2
-                ? "The quorum returned the units and the fee to the address that burned them."
+                ? "Back with the address that burned them: returned by " + w.k + " signers' votes, which record no reason, or by the contract when you reclaimed."
                 : "Recorded on DERO once " + w.k + " signers agree on the transaction that paid you.",
           },
         ]),
@@ -463,7 +467,7 @@
       const units = A.parseUnits(amountEl.value, dec());
       const dst = String(destEl.value || "").trim();
       if (units === null || units <= Z) return toast("Enter an amount", "err");
-      if (units < w.minburn) return toast("Below the minimum burn of " + amt(w.minburn, 8), "err");
+      if (units < w.minburn) return toast("Below the minimum burn of " + exact(w.minburn), "err");
       // the contract enforces these; refusing here saves the fee of a transaction that would revert
       if (dst.length < 16 || dst.length > 200) return toast("That destination is not a plausible address", "err");
       if (/[\s\u0000-\u001f\u007f]/.test(dst)) return toast("The destination contains whitespace or control characters", "err");

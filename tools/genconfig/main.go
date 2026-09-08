@@ -89,17 +89,37 @@ func docSize(b []byte) int {
 	return (buf.Len() + 2) / 3 * 4
 }
 
-func bundle(name string, n *netcfg.Network) error {
+func bundle(name string, n *netcfg.Network) (err error) {
 	out := filepath.Join(*distDir, name)
+	// A bundle is on disk only if it was built whole. Whatever was there before goes first, the template record
+	// is checked before a byte is written, and a failure anywhere below takes the directory with it. The earlier
+	// order wrote all 31 files, then failed the hash check, and left dist/testnet/ looking installable with a
+	// config.js that verified none of it — a stale bundle is not a fallback, it is the thing this guards against.
 	if err := os.RemoveAll(out); err != nil {
 		return err
+	}
+	defer func() {
+		if err != nil {
+			os.RemoveAll(out)
+		}
+	}()
+	// the template hashes the bundle ships must be the hashes the network's config verifies against
+	for k, t := range n.Templates {
+		b, err := os.ReadFile(filepath.Join(*appDir, "templates", k+".bas"))
+		if err != nil {
+			return fmt.Errorf("template %s missing from app/templates: %w", k, err)
+		}
+		h := sha256.Sum256(b)
+		if hex.EncodeToString(h[:]) != t.Sha256 {
+			return fmt.Errorf("template %s: app/templates hash %x differs from networks.json %s (redeploy or update the record)", k, h[:8], t.Sha256[:16])
+		}
 	}
 	if err := os.MkdirAll(filepath.Join(out, "templates"), 0o755); err != nil {
 		return err
 	}
 	manifest := map[string]entry{}
 	var files []string
-	err := filepath.Walk(*appDir, func(p string, info os.FileInfo, err error) error {
+	err = filepath.Walk(*appDir, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return err
 		}
@@ -146,17 +166,6 @@ func bundle(name string, n *netcfg.Network) error {
 	}
 	if err := add("config.js", []byte(netcfg.ConfigJS(name, n, "tools/genconfig -dist"))); err != nil {
 		return err
-	}
-	// the template hashes the bundle ships must be the hashes the network's config verifies against
-	for k, t := range n.Templates {
-		b, err := os.ReadFile(filepath.Join(out, "templates", k+".bas"))
-		if err != nil {
-			return fmt.Errorf("template %s missing from app/templates: %w", k, err)
-		}
-		h := sha256.Sum256(b)
-		if hex.EncodeToString(h[:]) != t.Sha256 {
-			return fmt.Errorf("template %s: app/templates hash %x differs from networks.json %s (redeploy or update the record)", k, h[:8], t.Sha256[:16])
-		}
 	}
 	mb, _ := json.MarshalIndent(map[string]interface{}{"network": name, "daemon": n.Daemon, "factory": n.Factory, "social": n.Social, "founders": n.Founders, "vault": n.Vault, "files": manifest}, "", "  ")
 	if err := os.WriteFile(filepath.Join(out, "manifest.json"), mb, 0o644); err != nil {

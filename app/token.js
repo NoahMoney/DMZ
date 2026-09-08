@@ -46,7 +46,9 @@
         h("div", { class: "note mt8" }, "Exact at block resolution: candles come from the closing reserves the contract writes every active block.", markers.length ? " Triangles: trades by you and accounts you follow." : ""));
     };
     const drawHead = () => {
-      const m = s.m, launch = s.kind === "launch", curve = launch && s.phase === Z;
+      // the Market band's amounts are in the quote and say so: the price eyebrow names it, and a bare number
+      // under that eyebrow would still be read as DERO by anyone who did not look up
+      const m = s.m, launch = s.kind === "launch", curve = launch && s.phase === Z, qs = " " + D.qsym(s);
       // Level 1 — the instrument: what this market is, and the one number the screen is about
       render(headEl,
         h("div", { class: "row" }, avatar(s, "big"), h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, h("h1", { class: "ellipsis" }, s.ticker), H.star(s), U.warnings(s)), h("div", { class: "sub ellipsis" }, s.name), h("div", { class: "row tight mt8" }, U.verified(s), H.badges(s))),
@@ -66,7 +68,7 @@
       // Level 3 — two readings, in two voices: what the market is worth, and what was said in public about it
       render(statsEl,
         head("Market"),
-        band(mini("FDV", m.mcap ? S.fmtDeroShort(m.mcap) : "—"), mini("Liquidity", S.fmtDeroShort(m.liq)), mini("Volume 24h", S.fmtDeroShort(m.vol24)), mini("Age", S.ageText(m.age))),
+        band(mini("FDV", m.mcap ? S.fmtDeroShort(m.mcap) + qs : "—"), mini("Liquidity", S.fmtDeroShort(m.liq) + qs), mini("Volume 24h", S.fmtDeroShort(m.vol24) + qs), mini("Age", S.ageText(m.age))),
         head("Published activity"),
         band(mini("Trades 24h", String(m.buys24 + m.sells24)),
           mini("Buys / sells", h("span", null, h("span", { class: "up" }, String(m.buys24)), " / ", h("span", { class: "down" }, String(m.sells24)))),
@@ -104,14 +106,14 @@
         const unsure = s.unlisted || (s.kind === "pool" && !s.assetVerified);
         const items = [kv("Fee", fee + "% per trade"), kv(D.qsym(s) + " reserve", A.fmtUnits(s.rd, D.qdec(s), 2)), kv("Token reserve", A.fmtCompact(s.ra, s.dec)), kv("Price points", String(s.pc)), kv("Published trades", String(s.tc))];
         if (launch) items.push(kv("Supply", A.fmtCompact(s.supply, s.dec)), kv("Creator allocation", H.allocation(s) > Z ? A.fmtCompact(H.allocation(s), s.dec) + " (" + (H.allocBps(s) / 100).toFixed(2) + "% at launch)" : "none"), kv("Creator", button("View profile", "ghost small", () => router.go("profile", s.creator))), kv("Tax", s.tax > Z ? Number(s.tax) / 100 + "% → " + ["none", "creator", "buyback & lock", "stakers"][Number(s.tmode)] : "none"), kv("Locked by buyback", A.fmtCompact(s.locked, s.dec)), kv("Staked", A.fmtCompact(s.stot, s.dec)), kv("Liquidity", s.phase === Z ? "curve (virtual)" : "contract-owned, locked forever"));
-        else items.push(kv("LP supply", A.fmtUnits(s.lp, 5, 2)));
+        else items.push(kv("LP supply", A.fmtUnits(s.lp, D.qdec(s), 2))); // LP is minted one unit per quote unit deposited, so it carries the quote's decimals
         items.unshift(h("div", { class: "row tight mb", style: "align-items:flex-start" }, icon("shield", unsure ? "svgi warn" : "svgi up"),
           h("div", { class: "note" }, (s.unlisted ? "Matches the shipped “" + s.kind + "” template but is not in the DMZ registry." : "Matches the shipped “" + s.kind + "” template and pays the protocol treasury.") + (s.kind === "pool" && !s.assetVerified ? " The asset is not a DMZ launch: verify its id yourself." : ""))));
         if (s.descr) items.unshift(h("div", { class: "sub mb", style: "line-height:1.5" }, s.descr));
         const actions = [];
         if (launch && s.tmode === 3n) actions.push(button("Stake / rewards", "wide", () => V.sheets.stake(s)));
         if (launch && s.tmode === 2n && s.phase === 1n && s.tacc > Z) actions.push(button("Trigger buyback (" + A.fmtUnits(s.tacc, D.qdec(s), 2) + " " + D.qsym(s) + ")", "wide", () => V.app.tx({ scid: s.scid, entry: "Buyback", args: [], describe: "Buyback" })));
-        if (launch && s.tmode === 1n && me() === s.creator && s.tacc > Z) actions.push(button("Claim creator tax (" + A.fmtDero(s.tacc, 2) + ")", "wide", () => V.app.tx({ scid: s.scid, entry: "ClaimTax", args: [], describe: "Claim tax" })));
+        if (launch && s.tmode === 1n && me() === s.creator && s.tacc > Z) actions.push(button("Claim creator tax (" + A.fmtUnits(s.tacc, D.qdec(s), 2) + " " + D.qsym(s) + ")", "wide", () => V.app.tx({ scid: s.scid, entry: "ClaimTax", args: [], describe: "Claim tax" })));
         if (!launch) actions.push(button("Add / remove liquidity", "wide", () => V.sheets.liquidity(s)));
         if (me() && me() === s.treasury && (s.fd > Z || s.fa > Z)) actions.push(button("Claim protocol fees", "wide", () => V.app.tx({ scid: s.scid, entry: "ClaimFees", args: [], describe: "Claim fees" })));
         render(bodyEl, h("div", { class: "mt8" }, items), actions.length ? h("div", { class: "stack mt" }, actions) : null);
@@ -216,7 +218,7 @@
     destIn.oninput = () => quote();
     // switch to another market without leaving the sheet (same side); the route row says which maths applies
     const pick = () => openSheet(h("h2", null, "Choose a market"), h("div", { class: "sub mt8" }, "Same side, same sheet."),
-      h("div", { class: "list mt" }, D.active().sort((a, b) => b.m.hot - a.m.hot).slice(0, 30).map((x) => h("button", { class: "feed-item", type: "button", onclick: () => T.tradeSheet(x, side) }, avatar(x, "sm"), h("div", { class: "body ellipsis" }, h("b", null, x.ticker), h("div", { class: "sub ellipsis" }, x.name)), h("div", { style: "text-align:right" }, h("div", { class: "num" }, S.fmtPriceSub(x.price)), changePill(x.m.c24h))))));
+      h("div", { class: "list mt" }, D.active().sort((a, b) => b.m.hot - a.m.hot).slice(0, 30).map((x) => h("button", { class: "feed-item", type: "button", onclick: () => T.tradeSheet(x, side) }, avatar(x, "sm"), h("div", { class: "body ellipsis" }, h("b", null, H.rowName(x)), h("div", { class: "sub ellipsis" }, H.mark(x, " \u00b7 "), x.name)), h("div", { style: "text-align:right" }, h("div", { class: "num" }, S.fmtPriceSub(x.price) + " " + D.qsym(x)), changePill(x.m.c24h))))));
     openSheet(
       h("div", { class: "row" }, avatar(s, "sm"), h("div", { class: "grow" }, h("button", { class: "row tight", type: "button", onclick: pick, "aria-label": "switch market", title: "Switch market" }, h("h2", null, (buy ? "Buy " : "Sell ") + s.ticker), icon("chevron", "svgi dim2")), h("div", { class: "sub num" }, S.fmtPriceSub(s.price) + " " + qsym, " ", changePill(s.m.c24h))), h("div", { class: "badges col" }, U.verified(s), pill(curve ? "curve" : "AMM"))),
       h("div", { class: "row tight mt8", style: "flex-wrap:wrap" }, h("span", { class: "sub tiny mono" }, "Contract " + V.shortAddr(s.scid)), U.warnings(s)),

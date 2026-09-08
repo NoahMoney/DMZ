@@ -92,22 +92,46 @@ func main() {
 	}
 
 	// the factory listing is what the app reads; without it the market exists but is invisible
-	regfee := c.GetSC(*factory, false).U("regfee")
-	fmt.Printf("registering on the factory (fee %d)\n", regfee)
+	// The factory stores pool_<i> = HEX(scid) — hex of the ASCII scid string — and never deduplicates, so a
+	// second registration of the same pool lists it twice. Look before registering: a re-run after a refused
+	// AddLiquidity (the 100,000-unit first-deposit floor, say) must not manufacture a duplicate listing.
+	fst := c.GetSC(*factory, false)
+	already := false
+	for i := uint64(0); i < fst.U("pc"); i++ {
+		if fst.Str("pool_"+strconv.FormatUint(i, 10)) == *pool { // Str hex-decodes the stored HEX(scid) back to the plain scid
+			already = true
+			break
+		}
+	}
+	regfee := fst.U("regfee")
+	if already {
+		fmt.Println("already registered on the factory; not registering again")
+	} else {
+		fmt.Printf("registering on the factory (fee %d)\n", regfee)
+	}
 	var xf []rpc.Transfer
 	if regfee > 0 {
 		xf = []rpc.Transfer{{Destination: c.RandomAddress(), Burn: regfee}}
 	}
-	c.Send(*holder, me, "", *factory, xf, []rpc.Arg{rpc.S("entrypoint", "RegisterPool"), rpc.H("scid", *pool)})
-
-	fmt.Printf("seeding %d DERO units and %d wrapped units\n", *dero, *units)
-	q := rpc.Transfer{Destination: c.RandomAddress(), Burn: *dero}
-	if quoteA != zero {
-		q = rpc.Transfer{SCID: quoteA, Burn: *dero}
+	if !already {
+		c.Send(*holder, me, "", *factory, xf, []rpc.Arg{rpc.S("entrypoint", "RegisterPool"), rpc.H("scid", *pool)})
 	}
-	c.Send(*holder, me, "", *pool, []rpc.Transfer{q, {SCID: baseA, Burn: *units}},
-		[]rpc.Arg{rpc.S("entrypoint", "AddLiquidity"), rpc.U("min_lp", 0)})
+
 	st := c.GetSC(*pool, false)
+	if st.U("lp") > 0 {
+		// A re-run with -pool after a failed trade loop must not add a second seed on top of the first: the
+		// pool's ratio is the market's price, and doubling the reserves silently is not what anyone asked for.
+		fmt.Printf("already seeded (lp %d); not adding liquidity again\n", st.U("lp"))
+	} else {
+		fmt.Printf("seeding %d DERO units and %d wrapped units\n", *dero, *units)
+		q := rpc.Transfer{Destination: c.RandomAddress(), Burn: *dero}
+		if quoteA != zero {
+			q = rpc.Transfer{SCID: quoteA, Burn: *dero}
+		}
+		c.Send(*holder, me, "", *pool, []rpc.Transfer{q, {SCID: baseA, Burn: *units}},
+			[]rpc.Arg{rpc.S("entrypoint", "AddLiquidity"), rpc.U("min_lp", 0)})
+		st = c.GetSC(*pool, false)
+	}
 	fmt.Printf("  reserves: %d DERO / %d wrapped, lp %d\n", st.U("rd"), st.U("ra"), st.U("lp"))
 
 	// a market with no history has no chart, so give it one: buys from other wallets, sells from the holder
@@ -126,6 +150,11 @@ func main() {
 		}
 		w := buyers[rng.Intn(len(buyers))]
 		amt := uint64(2000 + rng.Intn(9000))
+		// a drained buyer is skipped, not fatal: the point of the loop is a chart, not this particular wallet
+		if quoteA == zero && rpc.Balance(w, "") < amt+20000 {
+			fmt.Printf("  buyer %s cannot afford %d + fee; skipping\n", w[len(w)-5:], amt)
+			continue
+		}
 		// a non-DERO quote must be paid by whoever holds it, so the holder does the buying too
 		if quoteA != zero {
 			w = *holder

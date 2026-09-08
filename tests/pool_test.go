@@ -365,6 +365,10 @@ func TestPoolFuzz(t *testing.T) {
 	e := newPoolEnv(t, 50, 5000)
 	users := []*rpc.Address{e.alice, e.bob}
 	var lpHeld uint64 // total LP in circulation (alice + bob), tracked from model
+	// The first steps also print VECTOR lines — the reserves a swap saw, what went in, and what the contract
+	// actually sent back — for tests/js/vectors.json, so the app's BigInt mirror is asserted against the chain
+	// and not against itself:  bash tests/run.sh -run TestPoolFuzz -v 2>&1 | grep VECTOR
+	const vectorSteps = 60
 	for i := 0; i < n; i++ {
 		if r.Intn(3) == 0 {
 			e.c.NextBlock()
@@ -424,7 +428,11 @@ func TestPoolFuzz(t *testing.T) {
 			if r.Intn(50) == 0 {
 				stray = 1
 			}
-			e.buy(t, who, d, stray, 0, minOut, uint64(r.Intn(2)))
+			rd, ra := e.model.RD, e.model.RA
+			res, ok := e.buy(t, who, d, stray, 0, minOut, uint64(r.Intn(2)))
+			if i < vectorSteps && stray == 0 {
+				t.Logf(`VECTOR {"op":"poolBuy","fee":%d,"rd":"%d","ra":"%d","in":"%d","minOut":"%d","ok":%v,"out":"%d"}`, e.fee, rd, ra, d, minOut, ok, res.Sent(e.asset, who))
+			}
 		default:
 			a := amount(r, 1<<62)
 			var minOut uint64
@@ -435,7 +443,11 @@ func TestPoolFuzz(t *testing.T) {
 			if r.Intn(50) == 0 {
 				stray = 1
 			}
-			e.sell(t, who, stray, a, 0, minOut, uint64(r.Intn(2)))
+			rd, ra := e.model.RD, e.model.RA
+			res, ok := e.sell(t, who, stray, a, 0, minOut, uint64(r.Intn(2)))
+			if i < vectorSteps && stray == 0 {
+				t.Logf(`VECTOR {"op":"poolSell","fee":%d,"rd":"%d","ra":"%d","in":"%d","minOut":"%d","ok":%v,"out":"%d"}`, e.fee, rd, ra, a, minOut, ok, res.Sent(zero, who))
+			}
 		}
 		if i%1000 == 0 && e.model.FD > 0 && r.Intn(2) == 0 {
 			res := e.c.Call(e.pool, "ClaimFees", nil, nil, e.treasury)

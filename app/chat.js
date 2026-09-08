@@ -173,7 +173,7 @@
             h("div", { class: "composer" },
               h("span", { class: "mono dim2 prompt" }, ">"),
               input,
-              button("Send", "small primary", send, !V.wallet.connected)),
+              button("Send", "small primary", send, V.wallet.connected ? null : { disabled: true })),
             h("div", { class: "note chan-foot" },
               "Posting is a ring-size-2 call, so this address is public in that transaction. A message is " +
               "permanent: nobody, including whoever deployed DMZ, can edit or remove it. Muting hides a sender " +

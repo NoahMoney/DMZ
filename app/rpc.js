@@ -123,7 +123,6 @@
   // ---- Node facade: daemon WS first, XSWD DERO.* proxy second --------------------------------------------
   const node = {
     endpoint: null, ws: null, proxy: null, // proxy = function(method, params) provided by xswd.js
-    cache: new Map(),
     setEndpoint(ep) { if (this.ws) this.ws.close(); const u = endpointURL(ep); this.endpoint = u ? u.url : null; this.ws = u ? new WSRPC(u.url) : null; },
     async call(method, params) {
       if (this.ws) { try { return await this.ws.call(method, params); } catch (e) { if (!this.proxy) throw e; } }

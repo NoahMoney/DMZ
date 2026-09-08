@@ -20,12 +20,20 @@
     // one means the market is not that thing at all, and the vault holds nothing for it.
     if (s.impersonates) out.push({ k: "fake", t: "This is not " + s.impersonates + ". It is a token whose ticker copies the wrapped asset. No vault holds any " + s.impersonates + " for it, and it cannot be withdrawn to " + s.impersonates + " on any chain. The real one is on the Wrap screen." });
     if (s.kind === "launch" && H.allocBps(s) >= 100) out.push({ k: "alloc", t: "The creator received " + (H.allocBps(s) / 100).toFixed(2) + "% of the supply at launch (" + A.fmtCompact(H.allocation(s), s.dec) + " " + s.ticker + "), sellable at any time." });
-    if (s.kind === "launch" && s.tax > 500n) out.push({ k: "tax", t: "High tax: " + Number(s.tax) / 100 + "% of every trade's DERO leg goes to " + ["nobody", "the creator", "buybacks", "stakers"][Number(s.tmode)] + "." });
+    if (s.kind === "launch" && s.tax > 500n) out.push({ k: "tax", t: "High tax: " + Number(s.tax) / 100 + "% of every trade's " + D.qsym(s) + " leg goes to " + ["nobody", "the creator", "buybacks", "stakers"][Number(s.tmode)] + "." });
     if (s.m.liq < 20) out.push({ k: "thin", t: "Thin market: about " + S.fmtDeroShort(s.m.liq) + " " + D.qsym(s) + " of liquidity. Small orders move the price a lot." });
     if (s.m.isNew) out.push({ k: "new", t: "Launched " + S.ageText(s.m.age) + " ago. New markets are the most volatile." });
     return out;
   };
   H.star = (s) => { const on = S.watch.has(s.scid); return h("button", { class: "star " + (on ? "on" : ""), type: "button", "aria-label": on ? "remove from watchlist" : "add to watchlist", onclick: (e) => { e.stopPropagation(); S.watch.toggle(s.scid); D.changed(); } }, icon("star", "")); };
+  // A market quoted in anything but DERO is named by its pair: a BRW / wXMR row and a BRW / DERO row are two
+  // markets at two prices, and a bare ticker would make them one row shown twice. The Markets table's rule.
+  H.rowName = (s) => (s.quote && s.pair) || s.ticker;
+  // The strongest identity warning as a few words of text, for every row that lists a market. The words and
+  // the tooltip are U.warnings', so a row, the token page and the trade sheet say the same thing about the
+  // same flag; a row has room for one, and the token page says the rest. It is text and not a title because a
+  // title cannot be reached on a phone. `after` is the separator to what follows, outside the coloured span.
+  H.mark = (s, after) => { const w = U.warnings(s)[0]; if (!w) return null; const el = h("span", { class: "warn", title: w.title }, "\u26a0 " + w.textContent); return after ? [el, after] : el; };
 
   // ---- shared composition ----
   // Level 3: a label above a number, no background and no border (docs/DESIGN_SYSTEM.md § Surfaces).
@@ -43,7 +51,7 @@
   const TROW = "grid-template-columns:22px minmax(0,1fr) auto auto;gap:10px;padding:9px 2px";
   const PROW = "grid-template-columns:22px minmax(0,1fr) auto;gap:10px;padding:12px 2px;margin-top:26px;border-top:1px solid var(--edge)";
   const CROW = "grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:12px 2px";
-  const named = (s) => h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, h("b", { class: "ellipsis" }, s.ticker), h("div", { class: "badges" }, H.badges(s).filter(Boolean).slice(0, 1))), h("div", { class: "sub tiny ellipsis" }, s.name));
+  const named = (s) => h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, h("b", { class: "ellipsis" }, H.rowName(s)), h("div", { class: "badges" }, H.badges(s).filter(Boolean).slice(0, 1))), h("div", { class: "sub tiny ellipsis" }, H.mark(s, " \u00b7 "), s.name));
   // one ranked market row: the reading order of the Markets table, at rail width
   H.marketRow = (s, i, w) => h("button", { class: "mrow", style: MROW(w = w || 62), type: "button", onclick: () => router.go("token", s.scid) },
     h("span", { class: "rank" + (i < 3 ? " r" + (i + 1) : "") }, i + 1), avatar(s, "sm"), named(s),
@@ -52,9 +60,13 @@
   // a launch reads by how far its curve has filled: the bar is the value, the DERO pair is the detail
   const launchRow = (s) => h("button", { class: "mrow", style: LROW, type: "button", onclick: () => router.go("token", s.scid) },
     avatar(s, "sm"),
-    h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, h("b", { class: "ellipsis" }, s.ticker), h("span", { class: "sub tiny ellipsis" }, s.name)), h("div", { class: "progress data", style: "margin-top:7px" }, h("i", { style: "width:" + Math.min(100, s.m.progress) + "%" }))),
+    h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, h("b", { class: "ellipsis" }, H.rowName(s)), h("span", { class: "sub tiny ellipsis" }, H.mark(s, " \u00b7 "), s.name)), h("div", { class: "progress data", style: "margin-top:7px" }, h("i", { style: "width:" + Math.min(100, s.m.progress) + "%" }))),
     h("div", { class: "right" }, h("span", { class: "num price" }, s.phase === 0n ? s.m.progress.toFixed(0) + "%" : "AMM"),
       h("span", { class: "sub tiny" }, s.phase === 0n ? A.fmtUnits(s.real, D.qdec(s), 1) + " / " + A.fmtUnits(s.G, D.qdec(s), 0) + " " + D.qsym(s) : "locked · " + S.ageText(s.m.age) + " old")));
+  // 24h flow per quote asset, largest first. There is no rate between two quotes and there must not be one, so
+  // a volume is only ever added to a volume in the same quote, and the quotes are listed rather than summed.
+  // The hero and the Trade hub both read this, so neither can print a figure that adds XMR to DERO.
+  const flowsOf = (list) => { const byQuote = new Map(); for (const s of list) byQuote.set(D.qsym(s), (byQuote.get(D.qsym(s)) || 0) + s.m.vol24); return [...byQuote.entries()].sort((a, b) => b[1] - a[1]); };
   // the rail's first head sits flush with the top of the main column; stacked below 1180 it keeps its air
   const head = (ic, t, sub, action, flush) => { const el = U.sectionHead(ic, t, sub, action); if (flush) el.style.marginTop = "0"; return el; };
 
@@ -75,7 +87,7 @@
           h("button", { class: "ellipsis", type: "button", style: "font-weight:700", onclick: () => router.go("profile", t.addr) }, D.displayName(t.addr)),
           h("span", { class: "amt num" }, (() => { const m = D.assets.get(t.asset) || D.assets.get(t.scid); return A.fmtUnits(buy ? t.in : t.out, D.qdec(m), 3) + " " + D.qsym(m); })())),
         h("div", { class: "meta" }, (buy ? "Bought " : "Sold ") + A.fmtCompact(buy ? t.out : t.in, s.dec) + " ",
-          h("button", { type: "button", style: "font:inherit;letter-spacing:.06em;color:var(--fg2)", onclick: () => router.go("token", s.scid) }, s.ticker),
+          h("button", { type: "button", style: "font:inherit;letter-spacing:.06em;color:var(--fg2)", onclick: () => router.go("token", s.scid) }, s.ticker), " ", H.mark(s),
           " · block " + t.height + (s.kind === "launch" && s.gh > 0n && t.height < Number(s.gh) ? " · on the curve" : "") + " · ",
           h("span", { "data-ts": t.ts }, U.timeAgo(t.ts) + " ago"))),
       opts.noFollow ? null : H.followBtn(t.addr, true, "small"));
@@ -98,11 +110,8 @@
       const pipe = [...new Map([...D.graduating(4), ...D.newest(4)].map((s) => [s.scid, s])).values()].slice(0, 4);
       const feed = D.feed(feedFilter, me());
       const act = D.active(); const blocks1h = act.reduce((a, s) => a + s.m.flow1h.blocks, 0);
-      // 24h flow per quote asset. There is no rate between them and there must not be one, so they are listed
-      // rather than summed; the largest leads because that is the market this deployment actually is.
-      const byQuote = new Map();
-      for (const s of act) byQuote.set(D.qsym(s), (byQuote.get(D.qsym(s)) || 0) + s.m.vol24);
-      const flows = [...byQuote.entries()].sort((a, b) => b[1] - a[1]);
+      // the largest quote leads because that is the market this deployment actually is
+      const flows = flowsOf(act);
       const vol = flows.length ? flows[0][1] : 0, leadSym = flows.length ? flows[0][0] : "DERO";
       const hold = V.app.holdings;
       const buys = act.reduce((a, s) => a + s.m.upBlocks24, 0), sells = act.reduce((a, s) => a + s.m.downBlocks24, 0), bp = Math.round((buys / (buys + sells || 1)) * 100);
@@ -176,7 +185,7 @@
   router.on("trade", (el) => {
     const draw = () => {
       const list = D.active().sort((a, b) => b.m.hot - a.m.hot);
-      const vol = list.reduce((a, s) => a + s.m.vol24, 0);
+      const flows = flowsOf(list);
       const create = (t, d, fn) => h("button", { class: "mrow", style: CROW, type: "button", onclick: fn }, h("div", { class: "grow" }, h("b", null, t), h("div", { class: "sub tiny" }, d)), icon("arrow", "svgi dim2"));
       const row = (s) => h("div", { class: "mrow", style: TROW },
         avatar(s, "sm"),
@@ -194,7 +203,9 @@
           h("div", { class: "sub", style: "max-width:62ch" }, "A market settles against DERO or against a wrapped asset — trade a token straight against XMR or ZEC without touching DERO beyond gas. Balances stay encrypted. An ordinary swap is a ring-size-2 call, so the address that pays is public in that transaction; private mode raises the ring to 16 and pays a named address instead."),
           h("div", { class: "mt", style: RULE() },
             mini("Markets", String(list.length)),
-            mini("Flow 24h", S.fmtDeroShort(vol) + " DERO"),
+            // one figure per quote, the largest first and the rest beneath it — never one total, which would be
+            // XMR added to DERO and printed in a currency neither of them is
+            mini("Flow 24h", flows.length ? S.fmtDeroShort(flows[0][1]) + " " + flows[0][0] : "\u2014", "", flows.length > 1 ? h("span", { class: "sub tiny num" }, flows.slice(1).map(([sym, v]) => S.fmtDeroShort(v) + " " + sym).join(" \u00b7 ")) : null),
             mini("Ordinary swap", "Ring 2"),
             mini("Private mode", "Ring 16"))),
         head("bolt", "Markets", "Ordered by activity · pick a side to open the trade sheet", list.length > 12 ? h("button", { class: "linkbtn", type: "button", onclick: () => router.go("markets") }, "All markets") : null),

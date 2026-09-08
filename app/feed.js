@@ -12,6 +12,10 @@
   const VERIFY_N = 4; // newest cached points and trades re-read from the chain before a localStorage copy is trusted
   const sigOf = (vals) => PROBE.map((k) => vals[k] || "").join("|");
   const isNum = (v) => typeof v === "string" && /^\d+$/.test(v);
+  // The side a contract writes into t_<n> (pool.bas and launch.bas post()): 1 bought the asset, 2 sold it. Both
+  // validators read this one list, because two hand-written copies once said 0|1 and dropped every sell from
+  // the cache and from this device's own ledger.
+  const SIDES = [1, 2], isSide = (v) => SIDES.includes(v);
 
   const data = {
     cfg: window.VEIL_CONFIG, registry: null, assets: new Map(), nfts: new Map(), profiles: new Map(), follows: new Set(), followers: new Map(), following: new Map(),
@@ -60,9 +64,13 @@
     // Give a market its quote's display name. Safe to call more than once and on a market with no quote.
     nameQuote(s) {
       if (!s) return s;
-      const v = s.quote ? this.vaults().find((x) => x.scid === s.quote) : null;
+      const v = s.quote ? this.vaults().find((x) => x.scid === s.quote) : null, known = !!(v && Number.isInteger(v.dec));
       s.quoteSym = !s.quote ? "DERO" : v ? V.ui.clean(v.sym || v.name || "wrapped", 10) : s.quote.slice(0, 6);
-      s.quoteDec = !s.quote ? 5 : v && Number.isInteger(v.dec) ? v.dec : 5;
+      s.quoteDec = !s.quote ? 5 : known ? v.dec : 5;
+      // A quote nobody names has no known scale. The 5 above is a placeholder that keeps the maths finite, not a
+      // reading, and a screen that scales an amount by it must say so rather than print a figure that is off by
+      // whatever the real scale is.
+      s.quoteDecUnknown = !!s.quote && !known;
       s.pair = (s.ticker || "?") + " / " + s.quoteSym;
       return s;
     },
@@ -84,6 +92,14 @@
       const list = (p, c) => { const out = []; for (let i = 0n; i < c; i++) { const v = V.hexToStr(vals[p + i] || ""); if (/^[0-9a-f]{64}$/.test(v)) out.push(v); } return out; };
       const reg = { treasury: V.hexToStr(r0.vals.tstr || ""), regfee: n("regfee"), pools: list("pool_", n("pc")), launches: list("launch_", n("lc")), nfts: list("nft_", n("nc")) };
       reg.treasuryCanon = V.canonAddress(reg.treasury);
+      // A market's treasury is fixed at its install, so the factory's live pointer is a hint, not the rule: one
+      // SetTreasury would delist every market ever made. A bundle that ships an accepted set (current + legacy,
+      // the shape the template hashes take) makes that set the rule and reads the factory only for regfee.
+      const shipped = (cfg.treasuries || []).map((a) => V.canonAddress(a)).filter(Boolean);
+      reg.treasuries = new Set(shipped.length ? shipped : reg.treasuryCanon ? [reg.treasuryCanon] : []);
+      // A treasury that cannot be read must not switch the check off in silence, and must not empty the list
+      // either: the flag rides on every record instead, so the badge can say what was not checked.
+      reg.treasuryUnverified = !reg.treasuries.size;
       this.registry = reg; return reg;
     },
     // fetch many string keys in chunks; returns {key: hexvalue}
@@ -124,21 +140,38 @@
       const int = (x) => Number.isInteger(x) && x >= 0, dec = (x) => typeof x === "string" && /^\d{1,20}$/.test(x);
       if (!c || c.v !== 4 || !int(c.tc) || !int(c.pc) || !int(c.p0) || !int(c.t0) || !Array.isArray(c.points) || !Array.isArray(c.trades)) return false;
       if (c.p0 + c.points.length !== c.pc || c.t0 + c.trades.length !== c.tc || c.points.length > CACHE_P || c.trades.length > CACHE_T) return false;
-      if (c.pc === 0 && c.tc > 0) return false; // a published trade always leaves a price point
+      // No pc/tc invariant: a contract writes a block's price point only when a LATER block trades, and none at
+      // all before the first (pool.bas: IF LOAD("lh") == 0), so any number of published trades can stand at pc = 0.
       let h = 0;
       for (const p of c.points) { if (!Array.isArray(p) || p.length !== 4 || !int(p[0]) || p[0] < h || !int(p[1]) || !dec(p[2]) || !dec(p[3])) return false; h = p[0]; }
       let n = c.t0;
-      for (const t of c.trades) { if (!Array.isArray(t) || t.length !== 7 || t[0] !== n++ || (t[1] !== 0 && t[1] !== 1) || !V.canonAddress(t[2]) || !dec(t[3]) || !dec(t[4]) || !int(t[5]) || !int(t[6])) return false; }
+      for (const t of c.trades) { if (!Array.isArray(t) || t.length !== 7 || t[0] !== n++ || !isSide(t[1]) || !V.canonAddress(t[2]) || !dec(t[3]) || !dec(t[4]) || !int(t[5]) || !int(t[6])) return false; }
       return true;
     },
     saveCache(s, force) {
       if (!force && Date.now() - (s._saved || 0) < SAVE_EVERY) { s._dirty = true; return; }
       s._saved = Date.now(); s._dirty = false;
+      const key = this.cacheKey(s.scid); let body;
       try {
         const pts = s.points.filter((p) => !p.live).slice(-CACHE_P), tr = s.trades.slice(-CACHE_T);
-        localStorage.setItem(this.cacheKey(s.scid), JSON.stringify({ v: 4, tc: Number(s.tc), pc: Number(s.pc), p0: Number(s.pc) - pts.length, t0: Number(s.tc) - tr.length,
-          points: pts.map((p) => [p.height, p.ts, p.rd.toString(), p.ra.toString()]), trades: tr.map((t) => [t.n, t.side, t.addr, t.in.toString(), t.out.toString(), t.height, t.ts]) }));
-      } catch (e) {}
+        body = JSON.stringify({ v: 4, tc: Number(s.tc), pc: Number(s.pc), p0: Number(s.pc) - pts.length, t0: Number(s.tc) - tr.length,
+          points: pts.map((p) => [p.height, p.ts, p.rd.toString(), p.ra.toString()]), trades: tr.map((t) => [t.n, t.side, t.addr, t.in.toString(), t.out.toString(), t.height, t.ts]) });
+        localStorage.setItem(key, body);
+      } catch (e) {
+        // The origin's quota is shared with every page on it and nothing else ever evicts, so a refused write
+        // first drops the copies of markets the registry no longer lists and tries once more; refused again,
+        // this market goes without a copy until something frees room.
+        if (body && this.sweepCache()) try { localStorage.setItem(key, body); } catch (e2) {}
+      }
+    },
+    // Removes the cached copy of every market the registry does not list (delisted, or another network's) and
+    // says whether anything went. Judged by the registry, not this.assets: on a cold start the assets map is
+    // empty while the copies are exactly what the first load is about to read.
+    sweepCache() {
+      const reg = this.registry; if (!reg) return false;
+      const keep = new Set([...reg.launches, ...reg.pools]); let n = 0;
+      try { for (const k of Object.keys(localStorage)) if (k.startsWith("veil.m.") && !keep.has(k.slice(7))) { localStorage.removeItem(k); n++; } } catch (e) {}
+      return n > 0;
     },
 
     // Reads one pool/launch/nft contract (incrementally when a previous record or cache exists).
@@ -147,9 +180,9 @@
       if (!kind) return { scid, untrusted: "code does not match a shipped template" };
       const r = await V.node.getSC(scid, { keys: [...NUMKEYS, ...STRKEYS] });
       const num = (k) => (isNum(r.vals[k]) ? B(r.vals[k]) : 0n), str = (k, n) => clean(V.hexToStr(r.vals[k] || ""), n), hex = (k) => (r.vals[k] || "");
-      const tCanon = hex("treasury") ? this.rawToAddr(hex("treasury")) : null;
-      if (this.registry && this.registry.treasuryCanon && tCanon !== this.registry.treasuryCanon) return { scid, untrusted: "treasury differs from the factory" };
-      const s = { scid, kind, fee: num("fee"), pfee: num("pfee"), treasury: tCanon, trades: [], points: [], sig: sigOf(r.vals), installHeight: await this.installHeight(scid) };
+      const tCanon = hex("treasury") ? this.rawToAddr(hex("treasury")) : null, reg = this.registry;
+      if (reg && !reg.treasuryUnverified && !reg.treasuries.has(tCanon)) return { scid, untrusted: tCanon ? "treasury differs from the factory" : "treasury could not be read" };
+      const s = { scid, kind, fee: num("fee"), pfee: num("pfee"), treasury: tCanon, treasuryUnverified: !reg || reg.treasuryUnverified, trades: [], points: [], sig: sigOf(r.vals), installHeight: await this.installHeight(scid) };
       // the template fixes the code, not its install parameters: a market with the right code and treasury but a
       // fee of 0 (or 1%) would pay the protocol nothing (or overcharge) and still look Verified without this check
       const std = kind === "launch" ? [B(this.cfg.feeBps), B(this.cfg.launchPfeeBps)] : kind === "pool" ? [B(this.cfg.feeBps), B(this.cfg.pfeeBps)] : kind === "nft" ? [B(this.cfg.feeBps), null] : null;
@@ -197,15 +230,21 @@
       const c = this.loadCache(scid); if (!c) return null;
       return { tc: c.tc, pc: c.pc, points: c.points.map((p) => ({ height: p[0], ts: p[1], rd: B(p[2]), ra: B(p[3]) })), trades: c.trades.map((t) => ({ n: t[0], side: t[1], addr: t[2], in: B(t[3]), out: B(t[4]), height: t[5], ts: t[6], scid })) };
     },
+    // Name a pool's base asset. A launch names it; a wrapped asset is not a launch, so its vault's deployment
+    // record names it, or its market would show a contract id where a symbol belongs. Anything else keeps the
+    // placeholder 5 decimals from loadContract and is marked decUnknown: that 5 is not a reading, and a screen
+    // that scales an amount by it must say so. Safe to call more than once and on an unlisted pool.
+    nameBase(s) {
+      if (!s || s.kind !== "pool") return s;
+      const l = this.assets.get(s.asset), bv = this.vaults().find((x) => x.scid === s.asset);
+      s.assetVerified = !!(l && l.kind === "launch"); s.icon = "";
+      if (s.assetVerified) { s.name = l.name + " pool"; s.ticker = l.ticker; s.dec = l.dec; s.icon = l.icon; }
+      else if (bv) { s.ticker = V.ui.clean(bv.sym || bv.name || "wrapped", 10); s.name = V.ui.clean(bv.name || "wrapped asset", 40); s.dec = B(Number.isInteger(bv.dec) ? bv.dec : 5); s.wrappedBase = true; s.vaultRec = bv; }
+      s.decUnknown = !s.assetVerified && !bv;
+      return s;
+    },
     decorate() {
-      for (const s of this.assets.values()) if (s.kind === "pool") { const l = this.assets.get(s.asset); s.assetVerified = !!(l && l.kind === "launch"); if (s.assetVerified) { s.name = l.name + " pool"; s.ticker = l.ticker; s.dec = l.dec; s.icon = l.icon; } else { s.icon = ""; } }
-      // A wrapped asset is not a launch, so nothing else names it. Take its ticker and decimals from the
-      // deployment record, or its market shows a contract id where a symbol belongs.
-      for (const s of this.assets.values()) {
-        if (s.kind !== "pool") continue;
-        const bv = this.vaults().find((x) => x.scid === s.asset);
-        if (bv) { s.ticker = V.ui.clean(bv.sym || bv.name || "wrapped", 10); s.name = V.ui.clean(bv.name || "wrapped asset", 40); s.dec = B(Number.isInteger(bv.dec) ? bv.dec : 5); s.wrappedBase = true; s.vaultRec = bv; }
-      }
+      for (const s of this.assets.values()) this.nameBase(s);
       // Name the quote so a market can be read as a pair. A wrapped quote is named by its vault record; anything
       // else is shown by its contract id rather than guessed at.
       for (const s of this.assets.values()) this.nameQuote(s);
@@ -219,28 +258,34 @@
       for (const g of groups.values()) if (g.length > 1 && g.every((s) => s.wrappedBase)) for (const s of g) s.dupTicker = false;
       for (const s of this.assets.values()) if (s.kind === "pool" && s.assetVerified) { const l = this.assets.get(s.asset); if (!l) continue; s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; s.impersonates = l.impersonates || null; } // a launch and its own pool share a ticker by design
       for (const s of this.assets.values()) S.enrich(s, this.height);
-      for (const n of this.nfts.values()) { const t = this.assets.get(n.token); n.tokenTicker = t ? t.ticker : V.shortAddr(n.token); n.tokenDec = t ? t.dec : 5n; }
+      for (const n of this.nfts.values()) { const t = this.assets.get(n.token); n.tokenTicker = t ? t.ticker : V.shortAddr(n.token); n.tokenDec = t ? t.dec : 5n; n.tokenDecUnknown = !t; }
     },
 
     async refresh(full) {
       if (this.refreshing) return this.refreshing;
       this.refreshing = (async () => {
-        const reg = await this.registry_();
-        const ids = [...reg.launches, ...reg.pools]; const next = new Map(), nfts = new Map();
-        await pmap(ids, 4, async (id) => {
-          const cached = this.assets.get(id);
-          try {
-            if (cached && !full) { const sig = await this.probe(id); if (sig === cached.sig) { next.set(id, cached); return; } }
-            const s = await this.loadContract(id, cached); if (s && !s.untrusted) next.set(id, s); else if (s) console.warn("skipping", id, s.untrusted);
-          } catch (e) { console.warn("load", id, e); if (cached) next.set(id, cached); }
-        });
-        await pmap(reg.nfts, 4, async (id) => { const cached = this.nfts.get(id); try { if (cached && !full) { const sig = await this.probe(id); if (sig === cached.sig) { nfts.set(id, cached); return; } } const s = await this.loadContract(id, cached); if (s && !s.untrusted && s.kind === "nft") nfts.set(id, s); } catch (e) { if (cached) nfts.set(id, cached); } });
-        try { this.founders = await this.loadFounders(this.founders); } catch (e) { console.warn("founders", e); }
-        this.assets = next; this.nfts = nfts; this.decorate(); this.lastRefresh = Date.now();
-        this.changed();
+        this.lastAttempt = Date.now();
+        try {
+          const reg = await this.registry_();
+          const ids = [...reg.launches, ...reg.pools]; const next = new Map(), nfts = new Map();
+          await pmap(ids, 4, async (id) => {
+            const cached = this.assets.get(id);
+            try {
+              if (cached && !full) { const sig = await this.probe(id); if (sig === cached.sig) { cached.lastError = null; next.set(id, cached); return; } }
+              const s = await this.loadContract(id, cached); if (s && !s.untrusted) next.set(id, s); else if (s) console.warn("skipping", id, s.untrusted);
+            } catch (e) { console.warn("load", id, e); if (cached) { this.failed(cached, e); next.set(id, cached); } }
+          });
+          await pmap(reg.nfts, 4, async (id) => { const cached = this.nfts.get(id); try { if (cached && !full) { const sig = await this.probe(id); if (sig === cached.sig) { cached.lastError = null; nfts.set(id, cached); return; } } const s = await this.loadContract(id, cached); if (s && !s.untrusted && s.kind === "nft") nfts.set(id, s); } catch (e) { if (cached) { this.failed(cached, e); nfts.set(id, cached); } } });
+          try { this.founders = await this.loadFounders(this.founders); } catch (e) { console.warn("founders", e); }
+          this.assets = next; this.nfts = nfts; this.decorate(); this.lastRefresh = Date.now(); this.lastError = null;
+        } catch (e) { this.failed(this, e); throw e; } finally { this.changed(); }
       })().finally(() => { this.refreshing = null; });
       return this.refreshing;
     },
+    // A failed read keeps the last good record on screen, which is right, but not in silence: the error and the
+    // time of the attempt ride on the record — and on the data layer itself when the registry read fails — so a
+    // screen can stop animating a skeleton and mark a row stale instead of waiting for a refresh that never lands.
+    failed(rec, e) { rec.lastError = String((e && e.message) || e); rec.lastAttempt = Date.now(); },
     // per-user keys read on demand (stake, NFT lock) — never enumerated
     async myKeys(scid, addr, prefixes) { if (!addr) return {}; const got = await this.fetchKeys(scid, prefixes.map((p) => p + addr)); const out = {}; for (const p of prefixes) { const v = got[p + addr]; out[p.replace(/_$/, "")] = isNum(v) ? B(v) : (v === undefined ? null : v); } return out; },
 
@@ -287,7 +332,7 @@
   };
   const HEX64 = /^[0-9a-f]{64}$/, DEC = /^\d{1,20}$/;
   function validLocalTrade(t) {
-    return !!t && typeof t === "object" && HEX64.test(String(t.scid)) && HEX64.test(String(t.asset)) && (t.side === 0 || t.side === 1) && DEC.test(String(t.in)) && DEC.test(String(t.out)) && Number.isInteger(t.ts) && t.ts >= 0 && HEX64.test(String(t.txid)) && /^\d{1,2}$/.test(String(t.dec)) && typeof t.published === "boolean";
+    return !!t && typeof t === "object" && HEX64.test(String(t.scid)) && HEX64.test(String(t.asset)) && isSide(t.side) && DEC.test(String(t.in)) && DEC.test(String(t.out)) && Number.isInteger(t.ts) && t.ts >= 0 && HEX64.test(String(t.txid)) && /^\d{1,2}$/.test(String(t.dec)) && typeof t.published === "boolean";
   }
   async function pmap(items, n, fn) { let i = 0; const w = Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) await fn(items[i++]); }); await Promise.all(w); }
   window.addEventListener("pagehide", () => data.flushCache());

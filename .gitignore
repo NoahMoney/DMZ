@@ -30,3 +30,4 @@ research/xmr-btc-swap/
 tools/vaultsigner-*.json
 # built binaries
 tools/*.exe
+research/crosschain/poc/sim-*.json
