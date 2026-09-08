@@ -34,6 +34,15 @@
     // The vault whose wrapped asset this market trades, or null when the market is a native DERO one.
     // The symbol a market's prices, reserves and fees are denominated in. Never assume DERO: a market quoted in
     // wrapped XMR shows XMR amounts, and labelling them DERO would misstate the price by whatever the rate is.
+    // Give a market its quote's display name. Safe to call more than once and on a market with no quote.
+    nameQuote(s) {
+      if (!s) return s;
+      const v = s.quote ? this.vaults().find((x) => x.scid === s.quote) : null;
+      s.quoteSym = !s.quote ? "DERO" : v ? V.ui.clean(v.sym || v.name || "wrapped", 10) : s.quote.slice(0, 6);
+      s.quoteDec = !s.quote ? 5 : v && Number.isInteger(v.dec) ? v.dec : 5;
+      s.pair = (s.ticker || "?") + " / " + s.quoteSym;
+      return s;
+    },
     qsym(s) { return (s && s.quoteSym) || "DERO"; },
     qdec(s) { return BigInt(Number.isInteger(s && s.quoteDec) ? s.quoteDec : 5); },
     vaultOf(s) {
@@ -90,7 +99,7 @@
     },
     validCache(c) {
       const int = (x) => Number.isInteger(x) && x >= 0, dec = (x) => typeof x === "string" && /^\d{1,20}$/.test(x);
-      if (!c || c.v !== 3 || !int(c.tc) || !int(c.pc) || !int(c.p0) || !int(c.t0) || !Array.isArray(c.points) || !Array.isArray(c.trades)) return false;
+      if (!c || c.v !== 4 || !int(c.tc) || !int(c.pc) || !int(c.p0) || !int(c.t0) || !Array.isArray(c.points) || !Array.isArray(c.trades)) return false;
       if (c.p0 + c.points.length !== c.pc || c.t0 + c.trades.length !== c.tc || c.points.length > CACHE_P || c.trades.length > CACHE_T) return false;
       if (c.pc === 0 && c.tc > 0) return false; // a published trade always leaves a price point
       let h = 0;
@@ -104,7 +113,7 @@
       s._saved = Date.now(); s._dirty = false;
       try {
         const pts = s.points.filter((p) => !p.live).slice(-CACHE_P), tr = s.trades.slice(-CACHE_T);
-        localStorage.setItem(this.cacheKey(s.scid), JSON.stringify({ v: 3, tc: Number(s.tc), pc: Number(s.pc), p0: Number(s.pc) - pts.length, t0: Number(s.tc) - tr.length,
+        localStorage.setItem(this.cacheKey(s.scid), JSON.stringify({ v: 4, tc: Number(s.tc), pc: Number(s.pc), p0: Number(s.pc) - pts.length, t0: Number(s.tc) - tr.length,
           points: pts.map((p) => [p.height, p.ts, p.rd.toString(), p.ra.toString()]), trades: tr.map((t) => [t.n, t.side, t.addr, t.in.toString(), t.out.toString(), t.height, t.ts]) }));
       } catch (e) {}
     },
@@ -176,12 +185,7 @@
       }
       // Name the quote so a market can be read as a pair. A wrapped quote is named by its vault record; anything
       // else is shown by its contract id rather than guessed at.
-      for (const s of this.assets.values()) {
-        const v = s.quote ? this.vaults().find((x) => x.scid === s.quote) : null;
-        s.quoteSym = !s.quote ? "DERO" : v ? V.ui.clean(v.sym || v.name || "wrapped", 10) : s.quote.slice(0, 6);
-        s.quoteDec = !s.quote ? 5 : v && Number.isInteger(v.dec) ? v.dec : 5;
-        s.pair = (s.ticker || "?") + " / " + s.quoteSym;
-      }
+      for (const s of this.assets.values()) this.nameQuote(s);
       // impersonation: markets whose tickers read alike (look-alikes folded) are all marked, so the copy never looks safer than the original
       const groups = new Map();
       for (const s of this.assets.values()) { if (s.kind === "nft" || (s.kind === "pool" && s.assetVerified)) continue; const k = V.ui.tickerKey(s.ticker); s.lookalike = V.ui.hasHomoglyph(s.ticker); (groups.get(k) || groups.set(k, []).get(k)).push(s); }

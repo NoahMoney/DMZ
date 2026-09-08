@@ -22,7 +22,13 @@
     if (!/^[0-9a-f]{64}$/.test(String(scid || ""))) return render(el, h("div", { class: "errbox mt" }, "Not a contract id"));
     let s = D.assets.get(scid);
     // a contract reached by id that the registry does not list is shown, marked, and kept out of every list
-    if (!s) { render(el, h("div", { class: "list mt" }, U.skeleton(3))); try { s = await D.loadContract(scid); } catch (e) { return render(el, h("div", { class: "errbox mt" }, "Cannot load " + scid + ": " + e.message)); } if (!s || s.untrusted) return render(el, h("div", { class: "errbox mt" }, "Not listed: " + (s ? s.untrusted : "unknown"))); s.unlisted = true; if (s.kind === "pool") { const l = D.assets.get(s.asset); s.assetVerified = !!(l && l.kind === "launch"); } if (s.kind === "pool" && s.assetVerified) { const l = D.assets.get(s.asset); s.ticker = l.ticker; s.name = l.name + " pool"; s.dec = l.dec; s.icon = l.icon; s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; } else { const k = U.tickerKey(s.ticker); s.lookalike = U.hasHomoglyph(s.ticker); s.dupTicker = !!k && D.list().some((x) => x.scid !== s.scid && !(x.kind === "pool" && x.assetVerified) && U.tickerKey(x.ticker) === k); } S.enrich(s, D.height); }
+    if (!s) {
+      render(el, h("div", { class: "list mt" }, U.skeleton(3)));
+      // A link opened directly lands here before the node connection exists, so the first read fails with
+      // "no node connection" and the page gives up — on the one route a shared link always takes. Wait for the
+      // app to reach the chain instead, then read. Bounded, so a genuinely offline node still reports itself.
+      for (let i = 0; i < 60 && !D.lastRefresh; i++) await new Promise((r) => setTimeout(r, 250));
+      try { s = D.assets.get(scid) || (await D.loadContract(scid)); } catch (e) { return render(el, h("div", { class: "errbox mt" }, "Cannot load " + scid + ": " + e.message)); } if (!s || s.untrusted) return render(el, h("div", { class: "errbox mt" }, "Not listed: " + (s ? s.untrusted : "unknown"))); s.unlisted = true; if (s.kind === "pool") { const l = D.assets.get(s.asset); s.assetVerified = !!(l && l.kind === "launch"); } if (s.kind === "pool" && s.assetVerified) { const l = D.assets.get(s.asset); s.ticker = l.ticker; s.name = l.name + " pool"; s.dec = l.dec; s.icon = l.icon; s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; } else { const k = U.tickerKey(s.ticker); s.lookalike = U.hasHomoglyph(s.ticker); s.dupTicker = !!k && D.list().some((x) => x.scid !== s.scid && !(x.kind === "pool" && x.assetVerified) && U.tickerKey(x.ticker) === k); } D.nameQuote(s); S.enrich(s, D.height); }
     let tab = "trades", lastSig = null;
     const chartBox = h("div"), priceEl = h("div", { class: "big num" }), statsEl = h("div"), pressEl = h("div"), techEl = h("div"), bodyEl = h("div", { class: "mt" }), headEl = h("div", { class: "hero card mt" }), gradEl = h("div"), riskEl = h("div");
     const drawChart = () => {
@@ -183,7 +189,7 @@
       const note = U.$("#balNote");
       if (!V.wallet.connected) { if (note) note.textContent = "Connect the wallet for balances"; return; }
       // a pool sells its asset, not its own LP token
-      try { const b = await V.wallet.getBalance(buy ? "" : s.asset); balance = V.toBig(b && b.balance) || Z; if (note) note.textContent = "Balance: " + A.fmtUnits(balance, dec, 4) + " " + unit; quote(); } catch (e) { if (note) note.textContent = "Balance unavailable"; }
+      try { const b = await V.wallet.getBalance(buy ? (s.quote || "") : s.asset); balance = V.toBig(b && b.balance) || Z; if (note) note.textContent = "Balance: " + A.fmtUnits(balance, dec, 4) + " " + unit; quote(); } catch (e) { if (note) note.textContent = "Balance unavailable"; }
     })();
   };
 })();

@@ -1,5 +1,5 @@
 {
-  "_doc": "Source of truth for per-network deployment. tools/simdeploy writes the block it deployed; tools/genconfig turns a block into app/config.js or a dist/\u003cnetwork\u003e/ bundle. Empty scids mean 'not deployed on this network yet'.",
+  "_doc": "Source of truth for per-network deployment. tools/simdeploy writes the block it deployed; tools/genconfig turns a block into app/config.js or a dist/<network>/ bundle. Empty scids mean 'not deployed on this network yet'.",
   "mainnet": {
     "daemon": "127.0.0.1:10102",
     "factory": "",
@@ -35,13 +35,22 @@
     "founders": "aee674633edab4c12fe5007765629f06852d1e379847da5553de6a1a4928dde2",
     "vault": "d69c933fa6bd98c083c2298a2ac364125b23ac88c6839e7d3b8b7d2cd123c689",
     "vaultAsset": {
-      "name": "Simulated coin",
-      "sym": "SIM",
-      "chain": "the vault simulator",
+      "name": "Monero",
+      "sym": "XMR",
+      "chain": "Monero — simulated on this network",
       "dec": 5,
-      "conf": 2
+      "conf": 10
     },
-    "vaults": null,
+    "vaults": [
+      {
+        "scid": "d69c933fa6bd98c083c2298a2ac364125b23ac88c6839e7d3b8b7d2cd123c689",
+        "name": "Monero",
+        "sym": "XMR",
+        "chain": "Monero — simulated on this network",
+        "dec": 5,
+        "conf": 10
+      }
+    ],
     "chat": "eb1f6b36cd836d5da80c2fc0d464ff4d52003318e2c08603a6ad5c6f985aa9da",
     "feeBps": 50,
     "pfeeBps": 5000,

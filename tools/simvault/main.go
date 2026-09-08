@@ -47,6 +47,8 @@ var (
 	capratio = flag.Uint64("capratio", 3, "foreign base units of cap each DERO atomic unit of bond supports")
 	vout     = flag.Uint64("vout", 0, "output index of the simulated deposit within its transaction")
 	halt     = flag.String("halt", "", "operator: two signer wallets vote Halt(want), 1 to stop the vault or 0 to resume it")
+	bondNow  = flag.Bool("bond", false, "every signer wallet bonds minbond into -vault (repairs a half-finished install)")
+	sealNow  = flag.Bool("seal", false, "owner seals -vault")
 	setcap   = flag.Uint64("setcap", 0, "k signer wallets vote SetCap to this value (the contract bounds it by capratio x bondtot)")
 	fund     = flag.String("fund", "", "send this many DERO units from the funder wallet to owner, user and signers")
 )
@@ -101,6 +103,25 @@ func main() {
 			fmt.Printf("Halt(%d) from %s…, tx %s…\n", want, a[:16], txid[:8])
 		}
 		fmt.Printf("halted = %d\n", c.GetSC(*vault, false).U("halted"))
+	case *bondNow:
+		if len(*vault) != 64 {
+			log.Fatal("-vault required")
+		}
+		mb := c.GetSC(*vault, false).U("minbond")
+		for _, w := range signers {
+			a := rpc.Address(w)
+			txid, _, _ := c.Send(w, a, "", *vault, []rpc.Transfer{{Destination: c.RandomAddress(), Burn: mb}}, []rpc.Arg{rpc.S("entrypoint", "Bond")})
+			fmt.Printf("bond %d from %s, tx %s\n", mb, a[:16], txid[:8])
+		}
+		fmt.Printf("bondtot = %d\n", c.GetSC(*vault, false).U("bondtot"))
+	case *sealNow:
+		if len(*vault) != 64 {
+			log.Fatal("-vault required")
+		}
+		own := rpc.Address(owner)
+		txid, _, _ := c.Send(owner, own, "", *vault, nil, []rpc.Arg{rpc.S("entrypoint", "Seal")})
+		st := c.GetSC(*vault, false)
+		fmt.Printf("seal tx %s: sealed=%d na=%d bondtot=%d\n", txid[:8], st.U("sealed"), st.U("na"), st.U("bondtot"))
 	case *setcap > 0:
 		// k signers raise the mint cap. The contract still refuses anything above capratio x bondtot, so this
 		// cannot lift the bound that ties what may be minted to what is actually at stake.

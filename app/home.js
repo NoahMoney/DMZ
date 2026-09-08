@@ -94,7 +94,13 @@
       // a new launch and a graduating one are usually the same contract: one pipeline, closest to the AMM first
       const pipe = [...new Map([...D.graduating(4), ...D.newest(4)].map((s) => [s.scid, s])).values()].slice(0, 4);
       const feed = D.feed(feedFilter, me());
-      const act = D.active(); const vol = act.reduce((a, s) => a + s.m.vol24, 0), blocks1h = act.reduce((a, s) => a + s.m.flow1h.blocks, 0);
+      const act = D.active(); const blocks1h = act.reduce((a, s) => a + s.m.flow1h.blocks, 0);
+      // 24h flow per quote asset. There is no rate between them and there must not be one, so they are listed
+      // rather than summed; the largest leads because that is the market this deployment actually is.
+      const byQuote = new Map();
+      for (const s of act) byQuote.set(D.qsym(s), (byQuote.get(D.qsym(s)) || 0) + s.m.vol24);
+      const flows = [...byQuote.entries()].sort((a, b) => b[1] - a[1]);
+      const vol = flows.length ? flows[0][1] : 0, leadSym = flows.length ? flows[0][0] : "DERO";
       const hold = V.app.holdings;
       const buys = act.reduce((a, s) => a + s.m.upBlocks24, 0), sells = act.reduce((a, s) => a + s.m.downBlocks24, 0), bp = Math.round((buys / (buys + sells || 1)) * 100);
       const day = feed.reduce((n, t) => n + (t.ts >= S.now() - 86400 ? 1 : 0), 0);
@@ -108,7 +114,9 @@
       // Level 1 — the state of the market: one labelled number, one caption, then the read-outs that qualify it.
       const hero = h("div", { class: "hero" },
         h("div", { class: "between" }, h("span", { class: "eyebrow" }, "Flow · last 24 hours"), h("span", { class: "pill live" }, h("i", { class: "dot" }), "LIVE")),
-        h("div", { class: "pulse-row mt8", style: "gap:9px" }, flowEl, h("span", { class: "dim", style: "font-weight:650;letter-spacing:-.02em;padding-bottom:5px" }, "DERO")),
+        h("div", { class: "pulse-row mt8", style: "gap:9px" }, flowEl, h("span", { class: "dim", style: "font-weight:650;letter-spacing:-.02em;padding-bottom:5px" }, leadSym)),
+        flows.length > 1 ? h("div", { class: "row tight mt8", style: "flex-wrap:wrap;gap:4px 14px" },
+          flows.slice(1).map(([sym, v]) => h("span", { class: "sub num" }, S.fmtDeroShort(v) + " " + sym))) : null,
         h("div", { class: "sub" }, act.length ? "Settled through " + act.length + " market" + (act.length === 1 ? "" : "s") + " on this deployment." : "No market has traded on this deployment yet."),
         h("div", { class: "mt", style: RULE() },
           mini("Trades / h", String(blocks1h)),
@@ -174,7 +182,7 @@
         h("div", { class: "hero mt" },
           h("div", { class: "between" }, h("span", { class: "eyebrow" }, "Execution"), h("span", { class: "pill live" }, h("i", { class: "dot" }), "LIVE")),
           h("h1", { class: "mt8" }, "Trade"),
-          h("div", { class: "sub", style: "max-width:62ch" }, "Every market settles against DERO and balances stay encrypted. An ordinary swap is a ring-size-2 call, so the address that pays is public in that transaction; private mode raises the ring to 16 and pays a named address instead."),
+          h("div", { class: "sub", style: "max-width:62ch" }, "A market settles against DERO or against a wrapped asset — trade a token straight against XMR or ZEC without touching DERO beyond gas. Balances stay encrypted. An ordinary swap is a ring-size-2 call, so the address that pays is public in that transaction; private mode raises the ring to 16 and pays a named address instead."),
           h("div", { class: "mt", style: RULE() },
             mini("Markets", String(list.length)),
             mini("Flow 24h", S.fmtDeroShort(vol) + " DERO"),
