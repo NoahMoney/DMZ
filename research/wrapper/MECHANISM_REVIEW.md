@@ -123,8 +123,16 @@ Ordered by "will actually work on mainnet, without the operator hosting anything
    who does, what they bonded, and that `n ≥ 2k` is the only configuration in which a colluding quorum can be
    slashed (`PROTO·BC-4`). The app names them (`app/notice.js` now does). Never "trustless".
 4. **The trustless Monero path**: integrate the prototyped proof into an escrow with a gate secret, build the
-   companion, run stagenet. Months, not weeks; but it is the only way an XMR holder ever trades on DMZ without
-   trusting a quorum.
+   companion, run stagenet. It is the only way an XMR holder ever trades on DMZ without trusting a quorum.
+
+**Operator's ruling, 2026-09-08 evening: "we want it trustless."** Item 4 is therefore not "later" — it is the
+active track, and the federation is the fallback nobody is asked to trust by default. The build specification is
+`docs/XMR_SWAP_BUILD.md` (protocol, ownership, interfaces, invariants, tests); the build began the same evening.
+What "trustless" means here, and why the word is justified for the swap and not for the vault: no party — the
+operator, a signer set, or the counterparty once both sides have locked — can take or freeze either side's
+coins. What *is* trusted is the cryptography (the preimage-to-key-share proof, hashlocks, height timelocks) and
+each person's own wallet. The one weakness is economic, not custodial: the second locker holds a free option on
+the price for one lock window (§7 of the build spec).
 
 ## 7. What would change this verdict
 
