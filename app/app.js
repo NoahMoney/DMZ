@@ -193,7 +193,12 @@
       args: [...(dest ? [["dest", "S", dest]] : []), ["min_out", "U", minOut], ["publish", "U", publish]],
       describe: (side === 1 ? "Buy " : "Sell ") + s.ticker + (dest && !toMe ? " → " + V.shortAddr(dest) : ""), holdings: toMe, ring: dest ? 16 : 2 };
     if (toMe) opts.outcome = { scid: s.asset, expect: side === 1 ? "up" : "down" }; // the asset balance must move, or the swap reverted
-    if (side === 1) opts.dero = amount; else opts.asset = { scid: s.asset, amount };
+    // A buy pays the market's QUOTE. It used to always send native DERO, so on a wXMR or wZEC market the
+    // contract's own stray-DERO guard rejected the call and the trade reverted every time — the user filled in
+    // an amount, saw a quote, signed, paid gas and got nothing back but a revert. The sell leg already branched
+    // on the asset; the buy leg has to branch on the quote the same way.
+    if (side === 1) { if (s.quote) opts.asset = { scid: s.quote, amount }; else opts.dero = amount; }
+    else opts.asset = { scid: s.asset, amount };
     const txid = await app.tx(opts);
     if (txid && toMe) D.addLocalTrade({ scid: s.scid, asset: s.asset, side, in: amount.toString(), out: q.out.toString(), ts: S.now(), txid, published: !!publish, dec: s.dec.toString() });
   };

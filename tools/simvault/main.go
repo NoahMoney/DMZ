@@ -49,6 +49,7 @@ var (
 	halt     = flag.String("halt", "", "operator: two signer wallets vote Halt(want), 1 to stop the vault or 0 to resume it")
 	bondNow  = flag.Bool("bond", false, "every signer wallet bonds minbond into -vault (repairs a half-finished install)")
 	sealNow  = flag.Bool("seal", false, "owner seals -vault")
+	regNow   = flag.Bool("register", false, "the user wallet registers a deposit index on -vault")
 	setcap   = flag.Uint64("setcap", 0, "k signer wallets vote SetCap to this value (the contract bounds it by capratio x bondtot)")
 	fund     = flag.String("fund", "", "send this many DERO units from the funder wallet to owner, user and signers")
 )
@@ -122,6 +123,20 @@ func main() {
 		txid, _, _ := c.Send(owner, own, "", *vault, nil, []rpc.Arg{rpc.S("entrypoint", "Seal")})
 		st := c.GetSC(*vault, false)
 		fmt.Printf("seal tx %s: sealed=%d na=%d bondtot=%d\n", txid[:8], st.U("sealed"), st.U("na"), st.U("bondtot"))
+	case *regNow:
+		// Register allocates a fresh index; the signers then attest an address for it. It costs exactly regfee,
+		// which the contract forwards to the treasury.
+		if len(*vault) != 64 {
+			log.Fatal("-vault required")
+		}
+		me := rpc.Address(user)
+		fee := c.GetSC(*vault, false).U("regfee")
+		var xf []rpc.Transfer
+		if fee > 0 {
+			xf = []rpc.Transfer{{Destination: c.RandomAddress(), Burn: fee}}
+		}
+		txid, _, _ := c.Send(user, me, "", *vault, xf, []rpc.Arg{rpc.S("entrypoint", "Register")})
+		fmt.Printf("registered, tx %s; indexes = %d\n", txid[:8], c.GetSC(*vault, false).U("un"))
 	case *setcap > 0:
 		// k signers raise the mint cap. The contract still refuses anything above capratio x bondtot, so this
 		// cannot lift the bound that ties what may be minted to what is actually at stake.

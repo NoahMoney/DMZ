@@ -132,15 +132,15 @@
       const std = kind === "launch" ? [B(this.cfg.feeBps), B(this.cfg.launchPfeeBps)] : kind === "pool" ? [B(this.cfg.feeBps), B(this.cfg.pfeeBps)] : kind === "nft" ? [B(this.cfg.feeBps), null] : null;
       if (std && (s.fee !== std[0] || (std[1] !== null && s.pfee !== std[1]))) return { scid, untrusted: "fee differs from the protocol's (" + s.fee + " / " + s.pfee + " bps)" };
       for (const k of ["rd", "ra", "lp", "fd", "fa", "tc", "pc", "lh", "lt"]) s[k] = num(k);
+      // The quote side, for launches and pools alike. The zero hash means DERO, and a v1 pool has no key at all.
+      const qt = hex("qt");
+      s.quote = qt && !/^0+$/.test(qt) ? qt : null;
       if (kind === "launch") {
         Object.assign(s, { name: str("nameHdr", 32) || "?", ticker: str("ticker", 10) || "?", descr: str("descrHdr", 240), icon: str("iconURLHdr", 200), tags: str("tagsHdr", 100),
           dec: num("dec"), supply: num("S"), tax: num("tax"), tmode: num("tmode"), cs: num("cs"), Lq: num("Lq"), G: num("G"), vd0: num("vd0"), phase: num("phase"), sold: num("sold"), real: num("real"),
           tacc: num("tacc"), rpool: num("rpool"), locked: num("locked"), stot: num("stot"), sacc: num("sacc"), gh: num("gh"), creator: this.rawToAddr(hex("creator")), asset: scid });
       } else if (kind === "pool") {
         s.asset = hex("asset"); s.dec = 5n; s.name = "Asset " + s.asset.slice(0, 6); s.ticker = s.asset.slice(0, 4).toUpperCase();
-        // The quote side. v1 pools have no qt key at all and are DERO-quoted; the zero hash means DERO too.
-        const qt = hex("qt");
-        s.quote = qt && !/^0+$/.test(qt) ? qt : null;
       } else if (kind === "nft") {
         Object.assign(s, { name: str("nameHdr", 64) || "?", descr: str("descrHdr", 240), icon: str("iconURLHdr", 200), file: str("fileURL", 200), tags: str("tagsHdr", 100), collection: str("collection", 64),
           token: hex("token"), minhold: num("minhold"), holdblocks: num("holdblocks"), maxsupply: num("maxsupply"), price: num("price"), minted: num("minted"), cacc: num("cacc"), fd: num("fd"), fee: num("fee"), creator: this.rawToAddr(hex("creator")) });
