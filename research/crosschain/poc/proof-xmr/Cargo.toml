@@ -3,6 +3,8 @@ name = "proof-xmr"
 version = "0.1.0"
 edition = "2021"
 
+# The output JSON is a fixed shape of hex strings and is formatted by hand in main.rs, so serde_json is not
+# needed; the dependency set is the measured prototype's (docs/XMR_SWAP_BUILD.md §3.B).
 [dependencies]
 bulletproofs = { version = "5", features = ["yoloproofs"] }
 curve25519-dalek = { version = "4", features = ["rand_core", "digest"] }
@@ -13,6 +15,11 @@ rand_core = "0.6"
 hex = "0.4"
 
 [profile.release]
+opt-level = 3
+
+# A plain `cargo test` would otherwise prove in debug code, where the 37,460-gate circuit takes minutes; the
+# gate in §6 runs `test --release`, this keeps an unflagged run usable too.
+[profile.dev]
 opt-level = 3
 
 [patch.crates-io]

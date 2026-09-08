@@ -21,6 +21,7 @@ func TestContractsParse(t *testing.T) {
 		"nft.bas":      {"InitializePrivate", "Lock", "Mint", "Unlock", "ClaimCreator", "ClaimFees"},
 		"founders.bas": {"InitializePrivate", "Mint", "Register", "Withdraw", "Claim", "Deposit", "Distribute", "PayBatch", "List", "Unlist", "Buy"},
 		"swap.bas":     {"Initialize", "Lock", "Claim", "Refund"},
+		"htlc.bas":     {"Initialize", "Lock", "Claim", "Refund", "Punish"},
 		"board.bas":    {"Initialize", "Post", "Accept", "Cancel"},
 		"vault.bas":    {"InitializePrivate", "SetLimits", "Tighten", "SetViewKey", "AddSigner", "AddSigner2", "Bond", "Unbond", "Seal", "Register", "Attest", "Mint", "Refunded", "Burn", "Released", "Paying", "Reclaim", "Veto", "ClaimFees", "Halt", "SetCap", "Slash"},
 	}
