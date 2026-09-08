@@ -1,8 +1,12 @@
 // DMZ vault v3: k-of-n bonded federation wrapping a foreign asset (XMR, ZEC) one for one. Every state change
 // needs k signer votes checked by SIGNER(), real only at ring size 2. Invariant: foreign reserve >= sup, always.
 // Keys, rules, trust model and deployment rules: contracts/README.md (vault).
-// LIVENESS BY CONSTRUCTION: after Seal no privileged party exists or is needed. Every limit empties by itself or
-// expires into a payment; doing nothing pays the user. No per-deposit maximum, no override. See README (vault).
+// LIVENESS BY CONSTRUCTION: after Seal no privileged party exists or is needed, and no state needs a human to
+// leave it. A halt is a lease that lapses unless k signers renew it, and it never blocks the exit: Burn and
+// Released work while halted; only Register, Attest and Mint — the operations that ADD exposure — wait. A burn
+// that no signer marks as being paid returns its units by itself (Reclaim) once the federation has had its
+// window; one a signer HAS marked can only be settled by k votes, because the coins may already have left, and
+// paying twice is worse than waiting. No per-deposit maximum, no override. See README (vault).
 
 // One k-of-n vote. 1 = quorum reached (caller acts once), 0 = counted, 2 = refuse. A signer may move a vote.
 // <f>d_<kb> closes a scope; <f>v_<kb>_<ADDRESS_STRING> holds the choice, so a daemon reads back its own vote.
@@ -31,6 +35,14 @@ Function votek(f String, kb String, ch String, s String) Uint64
 End Function
 
 // 1 when s is an active signer. SIGNER() is 33 zero bytes above ring size 2, which is never a signer.
+// halted holds the height the halt lapses at (0: not halted). A halt is renewed by another k-vote for Halt(1)
+// and otherwise expires on its own, so a federation that stops answering cannot leave the vault halted for ever.
+Function ishalted() Uint64
+10 IF LOAD("halted") > BLOCK_HEIGHT() THEN GOTO 20
+11 RETURN 0
+20 RETURN 1
+End Function
+
 Function issigner(s String) Uint64
 10 IF EXISTS("isg_" + s) == 0 THEN GOTO 900
 20 IF LOAD("isg_" + s) == 0 THEN GOTO 900
@@ -254,7 +266,7 @@ Function Register() Uint64
 11 DIM j, c as Uint64
 20 LET s = SIGNER()
 21 IF IS_ADDRESS_VALID(s) == 0 THEN GOTO 900
-22 IF LOAD("sealed") == 0 || LOAD("halted") != 0 THEN GOTO 900
+22 IF LOAD("sealed") == 0 || ishalted() != 0 THEN GOTO 900
 23 IF DEROVALUE() != LOAD("regfee") THEN GOTO 900
 24 LET j = LOAD("un")
 25 LET c = 0
@@ -278,7 +290,7 @@ Function Attest(j Uint64, addr String) Uint64
 11 DIM r, ver as Uint64
 20 LET s = SIGNER()
 21 IF issigner(s) == 0 || DEROVALUE() != 0 THEN GOTO 900
-22 IF EXISTS("ua_" + j) == 0 || LOAD("halted") != 0 THEN GOTO 900
+22 IF EXISTS("ua_" + j) == 0 || ishalted() != 0 THEN GOTO 900
 23 IF STRLEN(addr) == 0 || STRLEN(addr) > 200 THEN GOTO 900
 24 LET ver = 0
 25 IF EXISTS("dver_" + j) == 0 THEN GOTO 30
@@ -303,7 +315,7 @@ Function Mint(j Uint64, txid String, vout Uint64, amount Uint64) Uint64
 11 DIM r, sup, wm, pm as Uint64
 20 LET s = SIGNER()
 21 IF issigner(s) == 0 || DEROVALUE() != 0 THEN GOTO 900
-22 IF LOAD("sealed") == 0 || LOAD("halted") != 0 THEN GOTO 900
+22 IF LOAD("sealed") == 0 || ishalted() != 0 THEN GOTO 900
 23 IF STRLEN(txid) != 32 THEN GOTO 900
 24 IF amount < LOAD("mindep") THEN GOTO 900
 25 IF EXISTS("ua_" + j) == 0 THEN GOTO 900
@@ -365,7 +377,7 @@ Function Burn(dest String, refund String) Uint64
 11 DIM v, j, f, d, big as Uint64
 20 LET s = ADDRESS_RAW(refund)
 21 IF IS_ADDRESS_VALID(s) == 0 THEN GOTO 900
-22 IF LOAD("halted") != 0 || LOAD("sealed") == 0 THEN GOTO 900
+22 IF LOAD("sealed") == 0 THEN GOTO 900
 23 LET v = ASSETVALUE(SCID())
 24 IF v < LOAD("minburn") || DEROVALUE() != 0 THEN GOTO 900
 25 IF STRLEN(dest) < 16 || STRLEN(dest) > 200 THEN GOTO 900
@@ -395,7 +407,7 @@ Function Released(j Uint64, ftx String) Uint64
 10 DIM s, kb as String
 11 DIM r as Uint64
 20 LET s = SIGNER()
-21 IF issigner(s) == 0 || DEROVALUE() != 0 || LOAD("halted") != 0 THEN GOTO 900
+21 IF issigner(s) == 0 || DEROVALUE() != 0 THEN GOTO 900
 22 IF EXISTS("w_" + j + "_st") == 0 THEN GOTO 900
 23 IF LOAD("w_" + j + "_st") != 0 THEN GOTO 900
 24 IF BLOCK_HEIGHT() < LOAD("w_" + j + "_rel") THEN GOTO 900
@@ -456,6 +468,22 @@ Function Veto(j Uint64) Uint64
 End Function
 
 // The treasury takes the fee units released withdrawals left behind; they are counted in sup throughout.
+// A burn the federation neither pays nor vetoes returns its units by itself, 20000 blocks (about four days)
+// after it became releasable — but only if no signer ever marked it as being paid. A marked withdrawal may
+// already have had its coins sent, and refunding it automatically would pay it twice; that one waits for k
+// votes (Veto once the mark has lapsed, or Released). Anyone may call this; it pays only w_<j>_by.
+Function Reclaim(j Uint64) Uint64
+10 IF DEROVALUE() != 0 THEN GOTO 900
+11 IF EXISTS("w_" + j + "_st") == 0 THEN GOTO 900
+12 IF LOAD("w_" + j + "_st") != 0 THEN GOTO 900
+13 IF EXISTS("w_" + j + "_p") != 0 THEN GOTO 900
+14 IF BLOCK_HEIGHT() < LOAD("w_" + j + "_rel") + 20000 THEN GOTO 900
+20 STORE("w_" + j + "_st", 2)
+21 SEND_ASSET_TO_ADDRESS(LOAD("w_" + j + "_by"), LOAD("w_" + j + "_v") + LOAD("w_" + j + "_f"), SCID())
+100 RETURN 0
+900 RETURN 1
+End Function
+
 Function ClaimFees() Uint64
 10 DIM s as String
 11 DIM f as Uint64
@@ -469,20 +497,25 @@ Function ClaimFees() Uint64
 900 RETURN 1
 End Function
 
-// k votes for one target state inside one 2000-block bucket flip halted; each flip opens a new epoch.
+// k votes for one target state inside one 2000-block bucket set or lift the halt; each success opens a new
+// epoch. Halt(1) stores the height the lease lapses at and may be voted again to renew it; Halt(0) is refused
+// only when the vault is not halted, so a lapsed halt needs no resume vote.
 Function Halt(want Uint64) Uint64
 10 DIM s, kb as String
 11 DIM r, e as Uint64
 20 LET s = SIGNER()
 21 IF issigner(s) == 0 || DEROVALUE() != 0 || want > 1 || LOAD("sealed") == 0 THEN GOTO 900
-22 IF want == LOAD("halted") THEN GOTO 900
+22 IF want == 0 && ishalted() == 0 THEN GOTO 900
 23 LET e = LOAD("he")
 30 LET kb = "" + LOAD("se") + "_" + e + "_" + (BLOCK_HEIGHT() / 2000)
 31 LET r = votek("h", kb, "" + want, s)
 32 IF r == 2 THEN GOTO 900
 33 IF r == 0 THEN GOTO 100
-40 STORE("halted", want)
-41 STORE("he", e + 1)
+40 IF want == 0 THEN GOTO 43
+41 STORE("halted", BLOCK_HEIGHT() + 20000)
+42 GOTO 44
+43 STORE("halted", 0)
+44 STORE("he", e + 1)
 100 RETURN 0
 900 RETURN 1
 End Function

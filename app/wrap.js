@@ -11,6 +11,8 @@
 //   - amounts are foreign base units. The decimals come from the deployment record (vaultAsset.dec), never from
 //     a guess, and when the record is missing the raw base units are shown as-is.
 (function () {
+  // vault.bas Reclaim: an unmarked burn may be taken back this many blocks after its release height
+  const RECLAIM_AFTER = 20000;
   const V = window.Veil, U = V.ui, A = V.amm, D = V.data, B = BigInt;
   const { h, render, button, kv, icon, router, toast } = U;
   const me = () => V.wallet.canon;
@@ -90,7 +92,7 @@
       for (let j = from; j < wn; j++) if (V.hexToStr(by["w_" + j + "_by"] || "") === addr) mine.push(j);
       if (!mine.length) return [];
       const want = [];
-      for (const j of mine) want.push("w_" + j + "_v", "w_" + j + "_f", "w_" + j + "_to", "w_" + j + "_h", "w_" + j + "_rel", "w_" + j + "_st", "w_" + j + "_ftx");
+      for (const j of mine) want.push("w_" + j + "_v", "w_" + j + "_f", "w_" + j + "_to", "w_" + j + "_h", "w_" + j + "_rel", "w_" + j + "_st", "w_" + j + "_ftx", "w_" + j + "_p");
       const got = await this.fetchKeys(w.scid, want);
       const g = (j, s) => got["w_" + j + "_" + s];
       return mine.reverse().map((j) => ({
@@ -102,6 +104,9 @@
         rel: isNum(g(j, "rel")) ? Number(g(j, "rel")) : 0,
         st: isNum(g(j, "st")) ? Number(g(j, "st")) : 0,
         ftx: U.clean(V.hexToStr(g(j, "ftx") || ""), 128),
+        // a signer has marked this withdrawal as being paid: only k votes can settle it after that, because the
+        // coins may already have left. Unmarked, the burner may Reclaim it once the window has passed.
+        marked: isNum(g(j, "p")) ? Number(g(j, "p")) : 0,
       }));
     },
   });
@@ -192,7 +197,8 @@
           "This build of DMZ was published without a wrapped-asset vault, or the configured contract is not a v3 vault. Nothing to show, and nothing to sign."));
 
       const a = w.asset || {}, name = U.clean(a.name || "the foreign asset", 40), chain = U.clean(a.chain || "its own chain", 40);
-      const halted = w.halted !== Z;
+      // halted is the height the lease lapses at (0: not halted); a halt nobody renews expires on its own
+      const halted = w.halted > BigInt(D.height || 0);
       const mine = my && my.withdrawals ? my.withdrawals : [];
       const dep = my && my.dep && my.dep.addr ? my.dep : null;
       const nc = netOf(a);
@@ -247,9 +253,10 @@
 
         halted ? h("div", { class: "warnbox mt" },
           h("b", null, "This vault is halted."),
-          h("div", { class: "sub" }, "Minting, registering and burning are refused while the signers report a problem. " +
-            "A halt is a condition, not a decision: each signer votes it on and off from public state, so it clears by itself " +
-            "when the condition does. Withdrawals already burned are unaffected and stay payable.")) : null,
+          h("div", { class: "sub" }, "Registering and minting are refused while the signers report a problem, and no new payment starts. " +
+            "Burning still works and queues behind the usual delay; a withdrawal already paid still gets recorded. " +
+            "A halt is a lease: it lapses at block " + w.halted + " (" + blocksAway(Number(w.halted - BigInt(D.height || 0))) + ") unless the signers renew it, " +
+            "so a federation that stops answering cannot leave it halted.")) : null,
 
         // ---- deposit ----
         h("h3", { class: "mt" }, "Deposit"),
@@ -313,7 +320,7 @@
 
         // ---- withdraw ----
         h("h3", { class: "mt" }, "Withdraw"),
-        h("div", { class: "stack mt8" }, burnForm(w, halted)),
+        h("div", { class: "stack mt8" }, burnForm(w)),
 
         // ---- your withdrawals, each read as a settlement ----
         mine.length ? h("h3", { class: "mt" }, "Your withdrawals") : null,
@@ -334,8 +341,9 @@
             ? "The vault is sealed: the deployer has no power over it and nobody can add a signer without a quorum."
             : "The vault is NOT sealed. The deployer can still change the signer set. Do not deposit."),
           h("div", { class: "note" },
-            "There is no operator and no override. Every limit either empties by itself or expires into a payment: " +
-            "doing nothing releases a withdrawal, it never cancels one. Stopping one takes " + w.k + " signers voting to veto or halt.")),
+            "There is no operator and no override. A burn is paid by " + w.k + " signers, or returned by " + w.k + " signers, or — if no signer has " +
+            "marked it as being paid within " + (Number(w.wdelay) + 20000) + " blocks of the burn — returned to you by the contract itself when you ask. " +
+            "Only a burn a signer has marked as being paid waits on the quorum, because its coins may already have left.")),
         full("Vault contract", w.scid, "Vault contract id copied"));
     };
 
@@ -343,7 +351,7 @@
       icon(ok ? "check" : "x", "svgi " + (ok ? "up" : "down")), h("span", { class: "sub" }, txt));
 
     // ---- burn form ----
-    const burnForm = (w, halted) => {
+    const burnForm = (w) => {
       const amount = h("input", { inputmode: "decimal", placeholder: "0.0", autocomplete: "off", spellcheck: "false" });
       const dest = h("input", { placeholder: "Your address on " + U.clean((w.asset && w.asset.chain) || "the foreign chain", 40), autocomplete: "off", spellcheck: "false" });
       const out = h("div", { class: "note" });
@@ -366,7 +374,7 @@
         h("div", { class: "note" },
           "Burn is a ring-size-2 call: the contract must record who burned, so this address is public in that transaction. " +
           "The destination you type is stored on DERO in the clear — anyone can read it. Use an address you are willing to publish."),
-        button("Burn and withdraw", "primary", () => doBurn(w, amount, dest), halted),
+        button("Burn and withdraw", "primary", () => doBurn(w, amount, dest)),
       ];
     };
 
@@ -376,14 +384,21 @@
     // they are the parts a person can check against their own wallet.
     const wrow = (w, x, c) => {
       const away = x.rel - tip;
-      const st = x.st === 1 ? ["up", "Settled"] : x.st === 2 ? ["warn", "Returned"] : away > 0 ? ["fg3", "Awaiting settlement"] : ["acc", "Payable now"];
+      // Reclaim: the burner's own exit when no signer has acted. Open from RECLAIM_AFTER blocks past the release
+      // height, and only for a withdrawal no signer has ever marked as being paid.
+      const reclaimAt = x.rel + RECLAIM_AFTER, canReclaim = x.st === 0 && !x.marked && tip >= reclaimAt;
+      const st = x.st === 1 ? ["up", "Settled"] : x.st === 2 ? ["warn", "Returned"] : canReclaim ? ["warn", "Reclaimable"] : away > 0 ? ["fg3", "Awaiting settlement"] : ["acc", "Payable now"];
       const status = x.st === 1
         ? "settled on " + c.chain
         : x.st === 2
-          ? "the destination could not be paid, so the units were returned to you"
-          : away > 0
-            ? "awaiting settlement, payable at block " + x.rel + " — " + blocksAway(away) + " away"
-            : "payable now, since block " + x.rel + ". The signers pay it without anyone asking; nothing here needs a person.";
+          ? "the units and the fee were returned to you — vetoed by the quorum, or reclaimed after the window"
+          : canReclaim
+            ? "no signer has marked this as being paid and the window has passed: you can take the units back yourself"
+            : away > 0
+              ? "awaiting settlement, payable at block " + x.rel + " — " + blocksAway(away) + " away"
+              : x.marked
+                ? "a signer marked it as being paid at block " + x.marked + "; the payment is in flight and only " + w.k + " signers can settle it now"
+                : "payable now, since block " + x.rel + ". The signers pay it without anyone asking; if none marks it by block " + reclaimAt + " you can reclaim it.";
       return h("div", { class: "mt", style: "padding-top:12px;border-top:1px solid var(--edge)" },
         h("div", { class: "between", style: "padding-bottom:6px" },
           h("span", { class: "row tight" }, h("span", { class: "mono dim2" }, "#" + x.j), h("b", { class: "num" }, amt(x.units, 8))),
@@ -397,18 +412,21 @@
             title: "Release delay",
             detail: x.st !== 0 || away <= 0
               ? "Payable since block " + x.rel + "."
-              : "Payable at block " + x.rel + ", " + blocksAway(away) + " away. A larger withdrawal waits longer; the wait always ends, and doing nothing pays you.",
+              : "Payable at block " + x.rel + ", " + blocksAway(away) + " away. A larger withdrawal waits longer; the wait always ends.",
           },
           {
             state: x.st === 1 ? "done" : x.st === 2 ? "todo" : away > 0 ? "todo" : "wait",
             title: "The federation pays you on " + c.chain,
             detail: x.st === 2
-              ? "Not attempted: the destination could not be paid."
-              : "Each signer pays, checks its own payment on " + c.chain + ", and votes. Nothing here needs a person.",
+              ? "Not completed: the quorum returned it, or nobody acted and you reclaimed it."
+              : x.marked
+                ? "A signer marked it as being paid at block " + x.marked + ". It pays, checks its own payment on " + c.chain + ", and " + w.k + " signers vote."
+                : "Each signer pays, checks its own payment on " + c.chain + ", and votes. If no signer marks it by block " + reclaimAt + ", the units are yours to reclaim.",
           },
           {
-            state: x.st === 1 ? "done" : x.st === 2 ? "done" : "todo",
-            title: x.st === 2 ? "Units returned to you" : "Settled",
+            state: x.st === 1 ? "done" : x.st === 2 ? "done" : canReclaim ? "now" : "todo",
+            title: x.st === 2 ? "Units returned to you" : canReclaim ? "Reclaim your units" : "Settled",
+            body: canReclaim ? button("Reclaim " + amt(x.units + x.fee, 8), "primary", () => doReclaim(w, x)) : null,
             detail: x.st === 1
               ? "Recorded on DERO against the foreign transaction below."
               : x.st === 2
@@ -431,6 +449,16 @@
       if (ok) { toast("Index registered. Signers must attest it before it can receive.", "ok"); reload(true); }
     };
 
+    // The contract pays only w_<j>_by, so this is safe to send from any wallet; sending it from the burner's is
+    // simply the natural place. Nothing is attached and SIGNER() is not read, so ring 16 is fine.
+    const doReclaim = async (w, x) => {
+      const ok = await V.app.tx({
+        scid: w.scid, entry: "Reclaim", args: [["j", "U", BigInt(x.j)]], ring: 16,
+        describe: "Reclaim withdrawal #" + x.j + " — " + amt(x.units + x.fee, 8) + " back to you",
+        probe: { scid: w.scid, keys: ["w_" + x.j + "_st"] },
+      });
+      if (ok) { toast("Reclaimed. The units and the fee are back in your wallet.", "ok"); reload(true); }
+    };
     const doBurn = async (w, amountEl, destEl) => {
       const units = A.parseUnits(amountEl.value, dec());
       const dst = String(destEl.value || "").trim();

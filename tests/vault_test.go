@@ -201,14 +201,15 @@ func TestVaultFederation(t *testing.T) {
 		t.Fatal("halted below the quorum")
 	}
 	c.Call(scid, "Halt", rpc.Arguments{harness.U("want", 1)}, nil, sg[2])
-	if c.U(scid, "halted") != 1 || c.U(scid, "he") != 1 {
+	if c.U(scid, "halted") <= c.Height || c.U(scid, "he") != 1 {
 		t.Fatal("halt failed")
 	}
 	if r := mint(sg[0], 0, 3, 0, 10); r.OK() {
 		t.Fatal("minted while halted")
 	}
-	if r := burn(100, "4AxmrDestinationAddr"); r.OK() {
-		t.Fatal("burned while halted")
+	// a halt stops what adds exposure; it never blocks the exit (vault_statemachine_test.go has the matrix)
+	if r := burn(100, "4AxmrDestinationAddr"); !r.OK() {
+		t.Fatalf("burn refused while halted: %v", r.Err)
 	}
 	for i := 0; i < 3; i++ {
 		c.Call(scid, "Halt", rpc.Arguments{harness.U("want", 0)}, nil, sg[i])

@@ -389,6 +389,12 @@ func processWithdrawal(mem *memory, be Backend, j uint64, dest string, amount ui
 				}
 				return fmt.Errorf("withdrawal %d: the foreign chain does not show %s paying %d to %s (attempt %d of %d); not voting Released", j, it.FTx, it.Amount, it.Dest, it.Tries, *verifyTries)
 			}
+			// Re-asking the backend is only safe while the on-chain mark still blocks a Veto. If the mark has
+			// lapsed, keep the intent as "paid" and keep verifying: the coins may well be there, and a second
+			// payment is the one outcome worse than a slow one.
+			if !markPaying(j) {
+				return fmt.Errorf("withdrawal %d: %s is still not visible after %d attempts and the Paying mark has lapsed; keeping the record and verifying again next pass rather than paying twice", j, it.FTx, *verifyTries)
+			}
 			stale := it.FTx
 			it.FTx, it.State, it.Tries = "", "paying", 0
 			if e := mem.save(); e != nil {
@@ -634,6 +640,9 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 		}
 		fmt.Printf("%s; voting Halt(%d)\n", reason, want)
 		if vote(c, me, "Halt", []rpc.Arg{rpc.U("want", want)}, 0, func(h int64) string { return "hv_" + scope(h) + "_" + dvmMe }, strconv.FormatUint(want, 10)) {
+			// If that vote completed the quorum the contract has opened a new epoch, and every vote this pass
+			// still casts must be keyed by it: scope closes over he, so refresh it here.
+			he = strconv.FormatUint(c.GetSC(*vault, false).U("he"), 10)
 			mem.Halted[bucket] = true
 			if err := mem.save(); err != nil {
 				die("%v", err)
@@ -664,34 +673,42 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 	sup := st.U("sup")
 	inflight := inflightUnits(st)
 	owed := owedUnits(sup, inflight)
+	tip, stable := c.Height(), c.StableHeight()
+	// halted is the height the lease lapses at (0: not halted); a halt nobody renews expires on its own
+	isHalted := st.U("halted") > uint64(tip)
+	// A halt stops what ADDS exposure — attesting, minting, and this signer starting a new payment. It must not
+	// stop the truthful recording of a payment already made: Released is votable while halted (it was not, and
+	// that let a paid withdrawal be refunded on chain once its Paying mark lapsed), and a paid intent that is
+	// never voted keeps sup from falling, so the shortfall could never clear.
+	halted := false
 	if reserve < owed {
-		if st.U("halted") == 0 {
+		if !isHalted {
 			haltVote(1, fmt.Sprintf("RESERVE SHORTFALL: foreign reserve %d < supply %d less %d in flight", reserve, sup, inflight))
 		}
-		vetoPass(c, be, me, dvmMe, mem, st, scope) // returning funds is the one thing a halted vault must still do
-		return
-	}
-	if st.U("halted") != 0 {
+		halted = true
+	} else if isHalted {
 		// the shortfall that halted this vault has cleared: resume, so no human is needed to restart it
 		haltVote(0, fmt.Sprintf("reserve %d now covers the %d that is owed", reserve, owed))
-		vetoPass(c, be, me, dvmMe, mem, st, scope)
-		fmt.Println("vault halted: no mints, no releases until the resume votes reach the quorum")
-		return
+		halted = true
+	}
+	if halted {
+		fmt.Println("vault halted: no attest, no mint, no new payment; withdrawals already paid still get their Released vote")
 	}
 
-	fh, err := be.Height()
-	if err != nil {
-		log.Printf("foreign height: %v", err)
-		return
-	}
-	final, err := be.Finalized()
-	if err != nil {
-		log.Printf("foreign finality: %v", err)
-		return
+	var fh, final int64
+	if !halted {
+		if fh, err = be.Height(); err != nil {
+			log.Printf("foreign height: %v", err)
+			return
+		}
+		if final, err = be.Finalized(); err != nil {
+			log.Printf("foreign finality: %v", err)
+			return
+		}
 	}
 
 	// 1. attest deposit addresses for new indexes, and remember the foreign height each address went live at
-	for j := uint64(0); j < st.U("un"); j++ {
+	for j := uint64(0); !halted && j < st.U("un"); j++ {
 		js := strconv.FormatUint(j, 10)
 		if st.Has("da_" + js) {
 			if _, seen := mem.LiveAt[js]; !seen { // first time we see this address published
@@ -720,10 +737,12 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 	}
 
 	// 2. mint deposits that are confirmed, final, and no older than the address they were paid to
-	deps, err := be.Deposits()
-	if err != nil {
-		log.Printf("deposits: %v", err)
-		return
+	var deps []Deposit
+	if !halted {
+		if deps, err = be.Deposits(); err != nil {
+			log.Printf("deposits: %v", err)
+			return
+		}
 	}
 	for _, d := range deps {
 		if len(d.TxID) != 64 || d.Amount == 0 {
@@ -786,13 +805,19 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 
 	// 3. withdrawals
 	vetoPass(c, be, me, dvmMe, mem, st, scope)
-	tip, stable := c.Height(), c.StableHeight()
 	// Paying is not a vote — one signer's mark protects the withdrawal for every signer — so it is confirmed by
 	// reading the mark back rather than a vote key. A mark a co-signer already set is just as good as our own.
 	markPaying := func(j uint64) bool {
 		k := "w_" + strconv.FormatUint(j, 10) + "_p"
-		if c.GetSC(*vault, false).Has(k) {
-			return true
+		if cur := c.GetSC(*vault, false); cur.Has(k) {
+			// The mark is one-shot and lapses after 2000 blocks (vault.bas Veto line 25). A lapsed mark is not
+			// protection: Veto can land on the withdrawal again, so paying under it is the double payment the
+			// mark exists to prevent. Fail closed; the quorum settles it by Veto or by our Released vote.
+			fresh := uint64(c.Height()) < cur.U(k)+2000
+			if !fresh {
+				fmt.Printf("withdrawal %d: its Paying mark at %d has lapsed; not paying under it\n", j, cur.U(k))
+			}
+			return fresh
 		}
 		if _, _, ok := send(c, me, "Paying", []rpc.Arg{rpc.U("j", j)}, 0); !ok {
 			return false
@@ -808,7 +833,26 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 	for j := uint64(0); j < st.U("wn"); j++ {
 		js := strconv.FormatUint(j, 10)
 		it := mem.Intents[js]
-		if it != nil && it.State == "voted" {
+		if it != nil && it.State == "voted" && st.U("w_"+js+"_st") == 0 {
+			// "voted" is not final until the chain closes the withdrawal. Every vote is scoped by the halt epoch
+			// and the 2000-block bucket, so a Halt flip — or two signers whose passes straddle a bucket boundary
+			// — leaves this signer's vote in a dead scope while the co-signers vote in the live one, and the
+			// quorum never forms. Reproduced on the simulator: two Released votes per signer, none counted.
+			// If our vote does not stand in the live scope, cast it again; the record and the txid are kept.
+			if st.Has(voteKey("r", js)(tip)) {
+				continue // our vote stands in the current scope: nothing to do until a co-signer completes it
+			}
+			fmt.Printf("withdrawal %d: our Released vote is in a superseded scope; voting again\n", j)
+			it.State = "paid"
+		} else if it != nil && it.State == "voted" {
+			continue
+		}
+		// No NEW payment while halted. A payment is new when nobody has marked the withdrawal: if a signer has
+		// (w_<j>_p exists), our Release is the idempotent lookup of that signer's payment — Release must find an
+		// earlier payment for j and return its txid, which is already the contract every backend is held to —
+		// and the Released vote that follows is exactly what a halt must not block. markPaying still refuses a
+		// lapsed mark, so a withdrawal whose window has passed is left to the quorum.
+		if halted && (it == nil || it.State != "paid") && !st.Has("w_"+js+"_p") {
 			continue
 		}
 		if st.U("w_"+js+"_st") != 0 { // released or vetoed by the quorum: close our intent and never judge it again
@@ -859,8 +903,8 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 	after := c.GetSC(*vault, false)
 	// print the in-flight total next to the reserve: without it a correct vault looks short of its own supply
 	// during every ordinary withdrawal, which is precisely the misreading that hid the halt deadlock
-	fmt.Printf("%s vault: indexes %d, supply %d / cap %d, withdrawals %d, halted %d, reserve %d (in flight %d)\n", time.Now().Format("15:04:05"),
-		after.U("un"), after.U("sup"), after.U("cap"), after.U("wn"), after.U("halted"), reserve, inflightUnits(after))
+	fmt.Printf("%s vault: indexes %d, supply %d / cap %d, withdrawals %d, halted %v (lapses %d), reserve %d (in flight %d)\n", time.Now().Format("15:04:05"),
+		after.U("un"), after.U("sup"), after.U("cap"), after.U("wn"), after.U("halted") > uint64(tip), after.U("halted"), reserve, inflightUnits(after))
 }
 
 // vetoPass votes to return withdrawals the foreign chain cannot accept. It NEVER vetoes one this signer has

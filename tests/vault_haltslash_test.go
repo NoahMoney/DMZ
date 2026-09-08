@@ -35,7 +35,7 @@ func TestHaltVoteDoesNotSurviveSlash(t *testing.T) {
 	}
 	// halt with A and B
 	halt(A, 1)
-	if r := halt(B, 1); !r.OK() || c.U(scid, "halted") != 1 || c.U(scid, "he") != 1 {
+	if r := halt(B, 1); !r.OK() || c.U(scid, "halted") <= c.Height || c.U(scid, "he") != 1 {
 		t.Fatalf("halt: %v halted=%d he=%d", r.Err, c.U(scid, "halted"), c.U(scid, "he"))
 	}
 	// rogue C votes to resume
@@ -52,7 +52,7 @@ func TestHaltVoteDoesNotSurviveSlash(t *testing.T) {
 	// A alone votes to resume
 	r := halt(A, 0)
 	t.Logf("after A's single vote: ok=%v halted=%d he=%d", r.OK(), c.U(scid, "halted"), c.U(scid, "he"))
-	if c.U(scid, "halted") == 0 {
+	if c.U(scid, "halted") <= c.Height {
 		t.Fatalf("DEFECT CONFIRMED: vault resumed on one live signer's vote (k=2, na=2); slashed C's stale Halt(0) vote counted")
 	}
 }

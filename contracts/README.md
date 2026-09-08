@@ -212,8 +212,11 @@ away. So no state may exist that needs a human to leave it. Every limit either e
 window slides; a deposit it turned away mints later untouched) or expires into a payment (the withdrawal delay,
 which is longer for a large withdrawal but always finite). There is deliberately **no per-deposit maximum**,
 because a deposit above one could never be minted at all and nobody is guaranteed to exist who could send it back.
-Stopping a withdrawal takes a k-of-n `Veto` or `Halt` that signer daemons cast from public state and clear the
-same way; doing nothing pays the user. There is no manual override anywhere in the contract or the daemon.
+Stopping a withdrawal takes a k-of-n `Veto`. A `Halt` stops what adds exposure — `Register`, `Attest`, `Mint` and the
+daemon starting a new payment — and never the exit: `Burn` and `Released` work while halted. A halt is a lease of
+20000 blocks that `Halt(1)` renews and that otherwise lapses on its own. A burn no signer marks as being paid returns
+its units through `Reclaim` 20000 blocks after it became releasable; one a signer has marked waits for k votes, because
+its coins may already have left. There is no manual override anywhere in the contract or the daemon.
 
 **The invariant everything serves:** `foreign reserve >= sup`, checkable by anyone from the published
 `viewkey`. `sup` counts every unit that is a claim on the reserve, including units held by the contract
@@ -322,8 +325,17 @@ it may be released: `wdelay` blocks, plus `bigdelay` when it is larger than `big
 withdrawal (`fu_<ftx>`). On execution `sup` drops by the net amount and `feepool` gains the fee.
 
 `Veto(j)` — k votes return the units and the fee to whoever burned them, so a user is never left with neither the
-units nor the coins (a destination the foreign chain rejects, a burn the federation will not honour). Allowed
-while halted, which is when it is needed most. Released and vetoed are mutually exclusive and final.
+units nor the coins (a destination the foreign chain rejects, a burn the federation will not honour). Refused while a
+`Paying` mark on `j` is fresh (2000 blocks), allowed while halted. Released and vetoed are mutually exclusive and final.
+
+`Reclaim(j)` — anyone; pays only `w_<j>_by`. Returns an open withdrawal's units and fee once
+`BLOCK_HEIGHT() >= w_<j>_rel + 20000`, **unless a signer has ever marked it `Paying`** — a marked withdrawal may already
+have had its coins sent, so it is the quorum's to settle (`Released`, or `Veto` once the mark lapses). Needs no
+`SIGNER()`, so it works at any ring size.
+
+`Halt(want)` — k votes inside one 2000-block bucket. `Halt(1)` stores `halted = BLOCK_HEIGHT() + 20000` and may be
+voted again to renew; `Halt(0)` sets it to 0 and is refused when the vault is not halted. `halted > BLOCK_HEIGHT()` is
+the only test of "halted" anywhere — the daemon and the app compare the same way.
 
 `ClaimFees()` — the treasury takes the fee units; they were counted in `sup` throughout, and the treasury
 withdraws the coins behind them by burning like any other holder. Unlike the markets' `ClaimFees`, the vault's
@@ -333,7 +345,7 @@ claim on the foreign reserve and stay counted in `sup` until the treasury burns 
 ### Storage keys
 
 ```
-kind v k n na se ce he te ve sealed halted owner treasury cap capratio sup un wn bondtot
+kind v k n na se ce he te ve sealed halted(lapse height, 0 = open) owner treasury cap capratio sup un wn bondtot
 minbond minburn wfee mindep regfee feepool bigbps bigdelay winmax wdelay viewkey
 signers   sg_<i>   isg_<raw> 1 active 0 removed   bond_<raw>
 users     ua_<j>   uc_<raw>   ul_<raw>_<i>   da_<j>   dver_<j>   dh_<j>

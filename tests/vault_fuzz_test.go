@@ -138,12 +138,12 @@ func TestVaultConservation(t *testing.T) {
 				burns++
 			} else {
 				refusedBurns++
-				if v >= minburn && !halted {
+				if v >= minburn {
 					t.Fatalf("step %d: a valid burn of %d was refused: %v", step, v, r.Err)
 				}
 			}
 		case 7: // signers release a pending withdrawal
-			if j := pending(); j >= 0 && !halted {
+			if j := pending(); j >= 0 {
 				_, b := vote2("Released", rpc.Arguments{harness.U("j", uint64(j)), harness.S("ftx", fmt.Sprintf("ftx-%d-%d", step, j))})
 				if b.OK() && c.U(scid, fmt.Sprintf("w_%d_st", j)) == 1 {
 					ws[j].st = 1
@@ -167,7 +167,7 @@ func TestVaultConservation(t *testing.T) {
 				want = 0
 			}
 			_, b := vote2("Halt", rpc.Arguments{harness.U("want", want)})
-			if b.OK() && c.U(scid, "halted") == want {
+			if b.OK() && (c.U(scid, "halted") > c.Height) == (want == 1) {
 				halted = want == 1
 				halts++
 			}

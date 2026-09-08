@@ -52,6 +52,7 @@ var (
 	vout     = flag.Uint64("vout", 0, "output index of the simulated deposit within its transaction")
 	paying   = flag.Int("paying", -1, "one signer wallet marks withdrawal j as being paid abroad (Paying)")
 	veto     = flag.Int("veto", -1, "k signer wallets vote Veto on withdrawal j")
+	reclaim  = flag.Int("reclaim", -1, "the user wallet reclaims withdrawal j (unmarked, past its window); anyone may, it pays only the burner")
 	halt     = flag.String("halt", "", "operator: two signer wallets vote Halt(want), 1 to stop the vault or 0 to resume it")
 	bondNow  = flag.Bool("bond", false, "every signer wallet bonds minbond into -vault (repairs a half-finished install)")
 	sealNow  = flag.Bool("seal", false, "owner seals -vault")
@@ -108,6 +109,18 @@ func main() {
 		txid, _, _ := c.Send(signers[0], a, "", *vault, nil, []rpc.Arg{rpc.S("entrypoint", "Paying"), rpc.U("j", j)})
 		st := c.GetSC(*vault, false)
 		fmt.Printf("Paying(%d) from %s, tx %s; w_%d_p = %d (tip %d)\n", j, a[:16], txid[:8], j, st.U("w_"+strconv.FormatUint(j, 10)+"_p"), c.Height())
+	case *reclaim >= 0:
+		// Permissionless and pays only w_<j>_by, so it is sent from the user wallet as the natural place rather
+		// than a required one. Refused by the contract while a Paying mark exists or before rel + 20000.
+		if len(*vault) != 64 {
+			log.Fatal("-vault required")
+		}
+		j := uint64(*reclaim)
+		js := strconv.FormatUint(j, 10)
+		me := rpc.Address(user)
+		txid, _, _ := c.Send(user, me, "", *vault, nil, []rpc.Arg{rpc.S("entrypoint", "Reclaim"), rpc.U("j", j)})
+		st := c.GetSC(*vault, false)
+		fmt.Printf("Reclaim(%d) from %s, tx %s; w_%d_st = %d (2 = returned), rel %d, marked %v, tip %d\n", j, me[:16], txid[:8], j, st.U("w_"+js+"_st"), st.U("w_"+js+"_rel"), st.Has("w_"+js+"_p"), c.Height())
 	case *veto >= 0:
 		if len(*vault) != 64 {
 			log.Fatal("-vault required")
@@ -133,7 +146,7 @@ func main() {
 			txid, _, _ := c.Send(w, a, "", *vault, nil, []rpc.Arg{rpc.S("entrypoint", "Halt"), rpc.U("want", want)})
 			fmt.Printf("Halt(%d) from %s…, tx %s…\n", want, a[:16], txid[:8])
 		}
-		fmt.Printf("halted = %d\n", c.GetSC(*vault, false).U("halted"))
+		fmt.Printf("halted = %d (0 = open; otherwise the height the lease lapses at; tip %d)\n", c.GetSC(*vault, false).U("halted"), c.Height())
 	case *bondNow:
 		if len(*vault) != 64 {
 			log.Fatal("-vault required")

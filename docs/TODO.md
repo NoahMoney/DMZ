@@ -132,6 +132,58 @@ all of which are in that chain's base units and all of which are wrong by 10⁷ 
 
 ---
 
+## 0e. The vault state machine — no state needs a human to leave it. DONE 2026-09-08.
+
+The audit reproduced three failures on the DVM, all contradicting `vault.bas`'s own header: a halt was a
+boolean with no lease that blocked `Burn` (still frozen at +2,000,000 blocks); `Released` was refused while
+halted but `Veto` was not, so a withdrawal already paid abroad could be refunded on chain once its `Paying`
+mark lapsed; and a burn that never reached quorum had no way out. One change, designed as a machine rather than
+three patches:
+
+- **A halt is a lease.** `halted` now holds the height the lease lapses at (0 = open), 20 000 blocks from a
+  `Halt(1)` quorum, renewable by voting again. A federation that stops answering cannot leave the vault halted.
+  `halted > BLOCK_HEIGHT()` is the only test of "halted" — the contract (`ishalted()`), the daemon and the app
+  all compare the same way, with no constant to mirror.
+- **A halt never blocks the exit.** `Burn` and `Released` work while halted; only `Register`, `Attest` and
+  `Mint` — the operations that add exposure — wait. The daemon starts no new payment while halted, but a
+  payment already made still gets its `Released` vote, and a co-signer's idempotent lookup of a marked payment
+  proceeds (the on-chain `Paying` mark is the signal that a `Release` call is a lookup, not a new payment).
+- **`Reclaim(j)`** — an open burn no signer has ever marked returns its units and fee to the burner 20 000
+  blocks after it became releasable. Permissionless, pays only `w_<j>_by`, reads no `SIGNER()` so it works at
+  ring 16. A **marked** burn can never self-reclaim: its coins may already have left, and paying twice is worse
+  than waiting for k votes.
+- **The halt matrix is a test** (`TestHaltMatrix`), not eleven guard lines that could disagree.
+
+Proven in the harness (`tests/vault_statemachine_test.go`, the real DVM): the lease is stored and lapses; a
+renewal moves it; `Burn` and `Released` succeed while halted; `Reclaim` refuses too-early, refuses a marked
+withdrawal, pays only the burner, refuses twice, and works above ring 2. Install gas **16 368 of 20 000** on a
+real transaction. Proven live on vault `ab32063f`: halt stored as lapse height 35 533 at tip 15 534; a burn
+accepted while halted (50 000 → 47 000); `Released` votes recorded by the contract while halted (heights 15 539,
+15 541); and both withdrawals settled to `sup 43 200 = reserve 43 200`, in flight 0.
+
+**Two pre-existing daemon liveness defects surfaced by that live run, both fixed:**
+
+1. *A stranded vote.* Every vote is scoped by the halt epoch and the 2 000-block bucket. A `Halt` flip — or two
+   signers whose passes straddle a bucket boundary — left one signer's `Released` vote in a dead scope while the
+   co-signer voted in the live one, and the daemon treated "voted" as terminal so it never re-voted. Reproduced:
+   two votes per signer on the same withdrawal, none counted. Now "voted" is re-examined every pass until the
+   chain closes the withdrawal, and re-cast if the signer's key is absent from the live scope.
+2. *A stale epoch.* After its own `Halt` vote completed a quorum, the daemon kept keying that pass's remaining
+   votes with the epoch it had read at the start. It now refreshes `he` when a halt vote lands.
+
+Also: `markPaying` refuses a lapsed mark (fail closed), and the verify-retry path no longer resets a "paid"
+intent to "paying" under a lapsed mark — it keeps the record and keeps verifying, since a second payment is the
+one outcome worse than a slow one (`TestALapsedMarkKeepsTheIntentPaidRatherThanPayingAgain`).
+
+*Not unit-tested, verified live only:* the daemon's stranded-vote re-cast and epoch refresh live inside
+`pass()`, which needs a chain. The live run above is the evidence.
+
+*Still open from this cluster:* per-signer `Paying` marks (`SEC·RT-09`) — deliberately not done. A renewable
+mark lets one signer freeze a withdrawal for ever; the one-shot mark plus `Released`-while-halted closes the
+double-pay without that cost. `PROTO·BC-4` (`n ≥ 2k` at Seal) remains a decision for the operator.
+
+---
+
 ## 1. Correctness blockers — the things that are wrong *now*
 
 **1.1 The revenue chain is DERO-only, so fees on XMR/ZEC markets are lost or miscounted. HALF DONE.**
