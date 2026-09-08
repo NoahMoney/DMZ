@@ -70,7 +70,7 @@
       h("div", { class: "body" },
         h("div", { class: "between" },
           h("button", { class: "ellipsis", type: "button", style: "font-weight:700", onclick: () => router.go("profile", t.addr) }, D.displayName(t.addr)),
-          h("span", { class: "amt num" }, A.fmtDero(buy ? t.in : t.out, 3) + " DERO")),
+          h("span", { class: "amt num" }, (() => { const m = D.assets.get(t.asset) || D.assets.get(t.scid); return A.fmtUnits(buy ? t.in : t.out, D.qdec(m), 3) + " " + D.qsym(m); })())),
         h("div", { class: "meta" }, (buy ? "Bought " : "Sold ") + A.fmtCompact(buy ? t.out : t.in, s.dec) + " ",
           h("button", { type: "button", style: "font:inherit;letter-spacing:.06em;color:var(--fg2)", onclick: () => router.go("token", s.scid) }, s.ticker),
           " · block " + t.height + (s.kind === "launch" && s.gh > 0n && t.height < Number(s.gh) ? " · on the curve" : "") + " · ",
@@ -130,7 +130,13 @@
       const posn = V.wallet.connected && hold ? h("div", { class: "between", style: "gap:14px;flex-wrap:wrap;border-bottom:1px solid var(--edge);padding:14px 0" },
         h("div", { class: "grow" }, h("span", { class: "eyebrow" }, "Your private balance"),
           h("div", { class: "row", style: "align-items:baseline;gap:10px;margin-top:4px" },
-            (() => { const e = h("span", { class: "display num" }); e._v = shown.get("__pf"); L.num(e, hold.total, (v) => v.toFixed(3) + " DERO"); shown.set("__pf", hold.total); return e; })(), changePill(hold.change24)),
+            (() => {
+              // one line per quote held, largest first — never one number, because there is no rate to make one
+              const ts = [...(hold.totals || new Map())].filter(([, t]) => t.units > 0n).sort((a, b) => (a[1].units < b[1].units ? 1 : -1));
+              if (!ts.length) return h("span", { class: "display num" }, "0");
+              return h("span", { class: "row tight", style: "flex-wrap:wrap;gap:4px 12px" },
+                ts.map(([sym, t], i) => h("span", { class: i ? "sub num" : "display num" }, A.fmtUnits(t.units, BigInt(t.dec), 3) + " " + sym)));
+            })(), changePill(hold.change24)),
           h("div", { class: "sub tiny" }, hold.rows.length + " token" + (hold.rows.length === 1 ? "" : "s") + " · " + A.fmtDero(hold.dero, 2) + " DERO free · valued on this device")),
         h("div", { class: "row tight" }, button("Portfolio", "small", () => router.go("portfolio")), button("Trade", "small primary", () => router.go("trade")))) : null;
       const f = D.founders;

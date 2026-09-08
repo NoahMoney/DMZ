@@ -82,7 +82,15 @@
       const rows = []; let total = dero, prev = Number(dero) / 1e5;
       for (const s of D.list()) { if (s.kind !== "launch") continue; const b = await W.getBalance(s.scid, true).catch(() => null); const units = b ? V.toBig(b.balance) : null; if (!units) continue; const q = A.launchSell(s, units) || { out: Z }; total += q.out; rows.push({ s, units, value: q.out }); const p0 = S.priceAt(s, S.now() - 86400); if (p0) prev += (Number(units) / 10 ** Number(s.dec)) * p0; }
       const tot = Number(total) / 1e5;
-      app.holdings = { dero, rows, total: tot, change24: prev > 0 ? ((tot - prev) / prev) * 100 : null, at: Date.now() };
+      // Per quote, never summed across. q.out is atomic units of THAT market's quote asset; adding wrapped XMR
+      // to DERO and dividing by DERO's decimals produced a scalar that was never a quantity of anything.
+      const totals = new Map();
+      for (const r of rows) {
+        const k = D.qsym(r.s), cur = totals.get(k) || { units: Z, dec: D.qdec(r.s) };
+        cur.units += r.value;
+        totals.set(k, cur);
+      }
+      app.holdings = { dero, rows, totals, total: tot, change24: prev > 0 ? ((tot - prev) / prev) * 100 : null, at: Date.now() };
       D.changed();
     } finally { app.loadingHold = false; }
   };

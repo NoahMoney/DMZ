@@ -204,8 +204,15 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
       const extra = pairs.size || filter === "split" ? [["split", "Split pairs"]] : [];
       render(chips, netFilters().concat(extra).concat(FILTERS).map(([v, l]) => h("button", { class: "chip " + (filter === v ? "on" : ""), type: "button", onclick: () => { filter = v; draw(); } }, l)));
       const items = select(all);
-      const act = D.active(); const vol = act.reduce((a, s) => a + s.m.vol24, 0);
-      render(summary, h("span", null, items.length + " markets · 24h flow " + S.fmtDeroShort(vol) + " DERO",
+      const act = D.active();
+    // 24h flow per quote. Adding a market's volume to another market's volume is only meaningful when both are
+    // denominated in the same asset, and there is no rate between them. Wrapped assets lead: they are the venue.
+    const byQuote = new Map();
+    for (const s of act) byQuote.set(D.qsym(s), (byQuote.get(D.qsym(s)) || 0) + s.m.vol24);
+    const wrapped = new Set(D.vaults().map((v) => U.clean(v.sym || v.name || "wrapped", 10)));
+    const flowText = [...byQuote].sort((a, b) => (wrapped.has(b[0]) ? 1 : 0) - (wrapped.has(a[0]) ? 1 : 0) || b[1] - a[1])
+      .map(([sym, v]) => S.fmtDeroShort(v) + " " + sym).join(" · ");
+      render(summary, h("span", null, items.length + " markets · 24h flow " + flowText,
         pairs.size ? h("span", { class: "warn", title: "A split pair is one traded by more than one contract. They do not share liquidity, so the thinner one prices worse and can be drained. Every row of a split pair says how much its own contract holds." },
           " · " + pairs.size + " split " + (pairs.size === 1 ? "pair" : "pairs")) : null),
         h("span", null, h("i", { class: "dot" }), " block " + (L.height || "…") + " · ", h("span", { "data-block-age": 1 }, "—")));
