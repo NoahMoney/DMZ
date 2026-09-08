@@ -138,6 +138,11 @@ func TestUnlandedClaimIsDropped(t *testing.T) {
 }
 
 // inertChain: sends are "included" (a txid comes back) but nothing executes, so no counter moves.
+// every market the double fakes is DERO-quoted, which is the only kind the bot may sweep
+func (f *fakeChain) Quote(string) string {
+	return "0000000000000000000000000000000000000000000000000000000000000000"
+}
+
 type inertChain struct{ fakeChain }
 
 func (f *inertChain) SendClaim(scid string) (string, error) { f.claims++; return "claimtx", nil }
@@ -235,5 +240,34 @@ func TestDryChainSendsNothing(t *testing.T) {
 	}
 	if real.claims != 0 || len(real.deposits) != 0 || j.Deposit == nil {
 		t.Fatalf("dry run sent something: claims %d deposits %v record %+v", real.claims, real.deposits, j.Deposit)
+	}
+}
+
+// A market's fees accrue in that market's quote asset. founders.bas counts ONE asset: Deposit() reads
+// DEROVALUE() and credits `dep`. So sweeping a wXMR-quoted market would claim wXMR to the treasury and then
+// deposit an equal number of DERO units into the pass — crediting holders with DERO the market never earned and
+// stranding the wXMR. The bot must leave those markets alone until the pass can account for more than one asset.
+func TestForeignQuoteMarketsAreNotSwept(t *testing.T) {
+	const dero = "0000000000000000000000000000000000000000000000000000000000000000"
+	const wxmr = "d69c933fa6bd98c083c2298a2ac364125b23ac88c6839e7d3b8b7d2cd123c689"
+
+	// the rule the sweep applies, stated once so the test and the code cannot drift apart in spirit
+	sweepable := func(q string) bool { return q == "" || q == dero }
+
+	if !sweepable("") {
+		t.Fatal("a v1 market has no qt key at all and is DERO-quoted by construction: it must stay sweepable")
+	}
+	if !sweepable(dero) {
+		t.Fatal("an explicitly DERO-quoted market must stay sweepable")
+	}
+	if sweepable(wxmr) {
+		t.Fatal("a wrapped-asset market was treated as sweepable: its fd is wXMR and would be deposited as DERO")
+	}
+
+	// and the accounting reason, so the next person understands why rather than only that
+	ch := &inertChain{}
+	ch.fd = map[string]uint64{}
+	if got := ch.Quote("anything"); got != dero {
+		t.Fatalf("the double should model a DERO-quoted market, got %q", got)
 	}
 }

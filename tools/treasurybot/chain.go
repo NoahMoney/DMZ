@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -17,6 +18,16 @@ type deroChain struct {
 }
 
 func (d *deroChain) FD(scid string) uint64 { return d.c.GetSC(scid, false).U("fd") }
+
+// Quote reports the market's quote asset: "" for a v1 market that has no qt key, otherwise the stored SCID as
+// 64 hex characters. The zero hash means DERO, which is the only quote this bot can account for.
+func (d *deroChain) Quote(scid string) string {
+	st := d.c.GetSC(scid, false)
+	if !st.Has("qt") {
+		return ""
+	}
+	return hex.EncodeToString([]byte(st.Str("qt")))
+}
 func (d *deroChain) FC(scid string) uint64 { return d.c.GetSC(scid, false).U("fc") }
 func (d *deroChain) PassDep() uint64       { return d.c.GetSC(d.founders, false).U("dep") }
 func (d *deroChain) SendClaim(scid string) (string, error) {

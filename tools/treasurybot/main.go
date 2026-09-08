@@ -119,11 +119,28 @@ func main() {
 func sweep(c *rpc.Client, factory, founders, me string, share, minUnits uint64, jn *journal, ch chain) {
 	reg := c.GetSC(factory, false)
 	var markets []string
+	const deroQuote = "0000000000000000000000000000000000000000000000000000000000000000"
+	var foreign []string
 	for _, p := range []struct{ prefix, count string }{{"pool_", "pc"}, {"launch_", "lc"}} {
 		for i := uint64(0); i < reg.U(p.count); i++ {
-			if s := reg.Str(p.prefix + strconv.FormatUint(i, 10)); len(s) == 64 {
-				markets = append(markets, s)
+			s := reg.Str(p.prefix + strconv.FormatUint(i, 10))
+			if len(s) != 64 {
+				continue
 			}
+			// A market quoted in a wrapped asset accrues its fees in that asset. founders.bas counts one asset
+			// and Deposit() reads DEROVALUE(), so depositing here would credit holders with DERO this market
+			// never earned. Leave those fees where they are and say so.
+			if q := ch.Quote(s); q != "" && q != deroQuote {
+				foreign = append(foreign, s)
+				continue
+			}
+			markets = append(markets, s)
+		}
+	}
+	if len(foreign) > 0 {
+		fmt.Printf("skipping %d market(s) whose fees are not DERO: founders.bas accounts for one asset, so these are owed but not sweepable\n", len(foreign))
+		for _, s := range foreign {
+			fmt.Printf("  %s fd %d in its own quote\n", s[:8], ch.FD(s))
 		}
 	}
 	if dry {

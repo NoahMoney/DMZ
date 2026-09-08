@@ -84,9 +84,10 @@ func (j *journal) save() error {
 
 // chain is what reconcile needs from the DERO side, narrowed so a test can fake it.
 type chain interface {
-	FD(scid string) uint64 // a market's unclaimed fee balance
-	FC(scid string) uint64 // a market's cumulative claimed-fee counter (only ClaimFees moves it, only upward)
-	PassDep() uint64       // the pass's cumulative dep counter
+	FD(scid string) uint64
+	Quote(scid string) string // a market's unclaimed fee balance
+	FC(scid string) uint64    // a market's cumulative claimed-fee counter (only ClaimFees moves it, only upward)
+	PassDep() uint64          // the pass's cumulative dep counter
 	SendClaim(scid string) (string, error)
 	SendDeposit(units uint64) (string, error)
 }
