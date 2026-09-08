@@ -105,7 +105,7 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
 
   // The trend cell is a reading, not a picture: a hairline in the direction colour, nothing filled under it.
   function trend(s, up) {
-    const box = sparkline(s.points.filter((x) => x.ts >= S.now() - 86400), s.dec, up);
+    const box = sparkline(s.points.filter((x) => x.ts >= S.now() - 86400), s, up);
     const g = box.firstChild;
     if (g) {
       g.querySelectorAll("defs,path[fill^='url']").forEach((n) => n.remove());

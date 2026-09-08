@@ -47,7 +47,7 @@
   // one ranked market row: the reading order of the Markets table, at rail width
   H.marketRow = (s, i, w) => h("button", { class: "mrow", style: MROW(w = w || 62), type: "button", onclick: () => router.go("token", s.scid) },
     h("span", { class: "rank" + (i < 3 ? " r" + (i + 1) : "") }, i + 1), avatar(s, "sm"), named(s),
-    h("div", { class: "sp", style: "width:" + w + "px;height:24px" }, sparkline(s.points.filter((p) => p.ts >= S.now() - 86400), s.dec, (s.m.c24h || 0) >= 0)),
+    h("div", { class: "sp", style: "width:" + w + "px;height:24px" }, sparkline(s.points.filter((p) => p.ts >= S.now() - 86400), s, (s.m.c24h || 0) >= 0)),
     h("div", { class: "right" }, H.priceEl(s, "num price"), changePill(s.m.c24h)));
   // a launch reads by how far its curve has filled: the bar is the value, the DERO pair is the detail
   const launchRow = (s) => h("button", { class: "mrow", style: LROW, type: "button", onclick: () => router.go("token", s.scid) },

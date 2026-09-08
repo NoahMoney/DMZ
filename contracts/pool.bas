@@ -46,7 +46,7 @@ End Function
 // Deposit quote and asset in the current ratio. Excess on one side is refunded. Mints LP (this SCID) to the signer.
 // First deposit: LP minted = quote deposited, 1000 units stay locked forever (MIN_LIQ), first deposit >= 100000 units.
 Function AddLiquidity(min_lp Uint64) Uint64
-10 DIM d, a, rd, ra, lp, l, ld, la, need as Uint64
+10 DIM d, a, rd, ra, lp, l, ld, la, need, bq, ba as Uint64
 11 DIM s, asset, q as String
 20 LET s = SIGNER()
 30 IF IS_ADDRESS_VALID(s) == 0 THEN GOTO 900
@@ -61,6 +61,8 @@ Function AddLiquidity(min_lp Uint64) Uint64
 100 LET ra = LOAD("ra")
 110 LET lp = LOAD("lp")
 115 IF rd + LOAD("fd") + d < rd + LOAD("fd") || ra + LOAD("fa") + a < ra + LOAD("fa") THEN GOTO 900
+116 LET bq = 0
+117 LET ba = 0
 120 tick(rd, ra)
 130 IF lp > 0 THEN GOTO 300
 140 IF d < 100000 THEN GOTO 900
@@ -78,14 +80,14 @@ Function AddLiquidity(min_lp Uint64) Uint64
 340 LET need = muldivup(l, rd, lp)
 350 IF need > d THEN GOTO 900
 360 IF d == need THEN GOTO 380
-370 SEND_ASSET_TO_ADDRESS(s, d - need, q)
+370 LET bq = d - need
 380 LET d = need
 390 GOTO 500
 400 LET l = ld
 410 LET need = muldivup(l, ra, lp)
 420 IF need > a THEN GOTO 900
 430 IF a == need THEN GOTO 450
-440 SEND_ASSET_TO_ADDRESS(s, a - need, asset)
+440 LET ba = a - need
 450 LET a = need
 500 IF l == 0 || l < min_lp THEN GOTO 900
 510 IF lp + l < lp THEN GOTO 900
@@ -93,6 +95,10 @@ Function AddLiquidity(min_lp Uint64) Uint64
 530 STORE("ra", ra + a)
 540 STORE("lp", lp + l)
 550 SEND_ASSET_TO_ADDRESS(s, l, SCID())
+551 IF bq == 0 THEN GOTO 553
+552 SEND_ASSET_TO_ADDRESS(s, bq, q)
+553 IF ba == 0 THEN GOTO 560
+554 SEND_ASSET_TO_ADDRESS(s, ba, asset)
 560 RETURN 0
 900 RETURN 1
 End Function

@@ -60,14 +60,18 @@
     // shows is what the contract receives, and a value the contract would refuse never reaches the wallet
     const readForm = () => {
       const int = (v, lo, hi) => { const n = Number(String(v).trim()); return Number.isInteger(n) && n >= lo && n <= hi ? n : null; };
-      const dec = int(f.dec.value || "0", 0, 12), supply = dec === null ? null : A.parseUnits(f.supply.value, BigInt(dec)), grad = A.parseUnits(f.grad.value, 5n);
+      // The graduation target is in the QUOTE's base units, not DERO's. Parsing "100" at DERO's five decimals
+      // while the creator had picked wXMR installed a target of 0.00001 XMR — the curve then graduated on a
+      // dust buy, and grad is immutable after install.
+      const qd = Number.isInteger(quote.dec) ? quote.dec : 5;
+      const dec = int(f.dec.value || "0", 0, 12), supply = dec === null ? null : A.parseUnits(f.supply.value, BigInt(dec)), grad = A.parseUnits(f.grad.value, BigInt(qd));
       const cbpsN = Number(String(f.cbps.value || "0").trim()), taxN = Number(String(f.tax.value || "0").trim());
       const cbps = Number.isFinite(cbpsN) && cbpsN >= 0 && cbpsN <= 5 ? BigInt(Math.round(cbpsN * 100)) : null, tax = Number.isFinite(taxN) && taxN >= 0 && taxN <= 10 ? BigInt(Math.round(taxN * 100)) : null;
       const t = (f.ticker.value || "").toUpperCase().slice(0, 10), name = f.name.value.trim();
       let error = "";
       if (dec === null) error = "Decimals must be a whole number from 0 to 12.";
       else if (!supply || supply < 1000000n || supply >= 9223372036854775808n) error = "Supply must be at least 1 000 000 units and below 2^63.";
-      else if (!grad || grad < 1000000n || grad > 1000000000000n) error = "Graduation target must be between 10 and 10 000 000 " + (quote.sym || "DERO") + ".";
+      else if (!grad || grad < 1000000n || grad > 1000000000000000n) error = "Graduation target must be between " + A.fmtUnits(1000000n, BigInt(qd), 6) + " and " + A.fmtUnits(1000000000000000n, BigInt(qd), 0) + " " + (quote.sym || "DERO") + ".";
       else if (cbps === null) error = "Creator allocation must be 0 to 5 percent.";
       else if (tax === null) error = "Tax must be 0 to 10 percent.";
       else if ((tmode === 0) !== (tax === Z)) error = "Set a tax rate for a tax mode, or no tax.";
@@ -83,11 +87,14 @@
       if (!r.ok) { pv.start.textContent = pv.end.textContent = pv.mcap.textContent = pv.tax.textContent = "—"; render(pv.curve); pv.cost.textContent = ""; render(pv.err, h("div", { class: "errbox mt" }, r.error)); return; }
       render(pv.err);
       const alloc = (supply / 10000n) * cbps + ((supply % 10000n) * cbps) / 10000n, rest = supply - alloc, lq = rest / 5n, c = rest - lq, vd0 = grad / 3n, vt0 = ((grad + vd0) * c) / grad;
-      const k = vd0 * vt0, p0 = A.price({ rd: vd0, ra: vt0 }, dec), p1 = p0 * 16, pts = [];
+      // priced through the same helper every screen uses, with the chosen quote's decimals — the preview used
+      // to be computed at DERO's five and labelled "DERO" whichever quote the creator had picked
+      const qsym = quote.sym || "DERO", qd = Number.isInteger(quote.dec) ? quote.dec : 5, mkt = { dec, quoteDec: qd };
+      const k = vd0 * vt0, p0 = A.priceOf(mkt, { rd: vd0, ra: vt0 }), p1 = p0 * 16, pts = [];
       for (let i = 0; i <= 40; i++) { const d = (grad * BigInt(i)) / 40n; pts.push({ ts: i, rd: vd0 + d, ra: k / (vd0 + d) }); }
-      pv.start.textContent = S.fmtPriceSub(p0) + " DERO"; pv.end.textContent = S.fmtPriceSub(p1) + " DERO"; pv.mcap.textContent = S.fmtDeroShort(p1 * (Number(supply) / 10 ** Number(dec))) + " DERO";
+      pv.start.textContent = S.fmtPriceSub(p0) + " " + qsym; pv.end.textContent = S.fmtPriceSub(p1) + " " + qsym; pv.mcap.textContent = S.fmtDeroShort(p1 * (Number(supply) / 10 ** Number(dec))) + " " + qsym;
       pv.tax.textContent = tmode === 0 ? "none" : tax + "% → " + ["", "creator", "buyback & lock", "stakers"][tmode];
-      const sp = U.sparkline(pts, dec, true); sp.style.height = "64px"; render(pv.curve, sp);
+      const sp = U.sparkline(pts, mkt, true); sp.style.height = "64px"; render(pv.curve, sp);
       const regfee = D.registry ? D.registry.regfee : 10000n;
       pv.cost.textContent = "Two wallet confirmations (install, then register) · fees ≈ " + A.fmtDero(15000n + regfee, 2) + " DERO · " + A.fmtCompact(c, dec) + " " + (t || "tokens") + " on the curve, " + A.fmtCompact(lq, dec) + " reserved for the AMM";
     };
@@ -135,7 +142,7 @@
         const a = asset.value.trim().toLowerCase(); if (!/^[0-9a-f]{64}$/.test(a)) return toast("Enter a 64-hex SCID", "err");
         try { const sc = await V.node.getSC(a, { code: true }); if (!sc.code) throw new Error(); } catch (e) { return toast("No contract at that SCID", "err"); }
         closeSheet();
-        const scid = await installAndRegister("pool", [["asset", "H", a], ["treasury", "S", D.registry.treasury], ["fee", "U", BigInt(D.cfg.feeBps)], ["pfee", "U", BigInt(D.cfg.pfeeBps)]], "RegisterPool");
+        const scid = await installAndRegister("pool", [["asset", "H", a], ["quote", "H", "0000000000000000000000000000000000000000000000000000000000000000"], ["treasury", "S", D.registry.treasury], ["fee", "U", BigInt(D.cfg.feeBps)], ["pfee", "U", BigInt(D.cfg.pfeeBps)]], "RegisterPool");
         if (scid) { await D.refresh(); router.go("token", scid); }
       }));
   };

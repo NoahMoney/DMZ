@@ -259,7 +259,7 @@ func TestLaunchInstallValidation(t *testing.T) {
 		{supply: 999999, grad: 500 * 100000, fee: 50},
 		{supply: 1 << 63, grad: 500 * 100000, fee: 50},
 		{supply: 1e14, grad: 999999, fee: 50},
-		{supply: 1e14, grad: 1000000000001, fee: 50},
+		{supply: 1e14, grad: 1000000000000001, fee: 50}, // one above the ceiling, which spans DERO, XMR and ZEC base units
 		{supply: 1e14, grad: 500 * 100000, cbps: 501, fee: 50},
 		{supply: 1e14, grad: 500 * 100000, tax: 1001, tmode: 1, fee: 50},
 		{supply: 1e14, grad: 500 * 100000, tax: 100, tmode: 0, fee: 50},

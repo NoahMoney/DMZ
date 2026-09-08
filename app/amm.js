@@ -91,14 +91,21 @@
     let [i, f = ""] = str.split("."); dec = Number(dec); if (f.length > dec) f = f.slice(0, dec);
     return B((i || "0") + f.padEnd(dec, "0"));
   }
-  // Price of one whole token in the market's QUOTE (float, display only). qdec is the quote's decimals: DERO's
-  // five were hard-coded here, so every price on a wrapped market was wrong by 10^(5 - quote decimals) and
-  // screens.js carried a correction factor to undo it at the display end. Correcting downstream means every new
-  // caller inherits the fault and has to remember; this is the one place that knows the units. Omitted qdec
-  // still means DERO, so a call that has no market to ask is unchanged.
-  const price = (s, dec, qdec) => (s.ra === Z ? 0 : Number(s.rd) / 10 ** (Number.isInteger(qdec) ? qdec : 5) / (Number(s.ra) / 10 ** Number(dec)));
+  // Price of one whole token in the market's QUOTE (float, display only).
+  //
+  // priceOf takes the MARKET and reads both decimals off it, so a caller cannot forget the quote side. The
+  // earlier shape, price(pt, dec, qdec), defaulted a missing qdec to DERO's 5 — which meant "I forgot" and
+  // "I meant DERO" were the same call, and four of six call sites forgot. On a 12-decimal market that made
+  // every change window read about -100% (one side scaled, the other not) and drew the chart 10^7 away from
+  // the price printed above it. A default that makes forgetting indistinguishable from meaning it is not a
+  // convenience; pt defaults to the market itself because a market carries its own current reserves.
+  const qdecOf = (m) => { const q = Number(m && m.quoteDec); return Number.isFinite(q) ? q : 5; };
+  const priceOf = (m, pt) => { const p = pt || m; return p.ra === Z ? 0 : Number(p.rd) / 10 ** qdecOf(m) / (Number(p.ra) / 10 ** Number(m.dec)); };
+  // Kept for the launch wizard, which prices a curve that does not exist yet and so has no market to ask.
+  // Everything with a market must call priceOf.
+  const price = (s, dec, qdec) => (s.ra === Z ? 0 : Number(s.rd) / 10 ** (Number.isFinite(Number(qdec)) ? Number(qdec) : 5) / (Number(s.ra) / 10 ** Number(dec)));
   const fmtPrice = (p) => (p === 0 ? "—" : p >= 1 ? p.toLocaleString(undefined, { maximumFractionDigits: 4 }) : p.toLocaleString(undefined, { maximumSignificantDigits: 4 }));
   const pct = (x) => (x === null || x === undefined || !isFinite(x) ? "—" : (x > 0 ? "+" : "") + x.toFixed(2) + "%");
 
-  V.amm = { bps, bpsUp, mulDiv, mulDivUp, poolBuy, poolSell, poolAdd, poolRemove, poolAssetFor, launchBuy, launchSell, minOut, fmtUnits, fmtCompact, fmtDero, parseUnits, price, fmtPrice, pct, Z, B };
+  V.amm = { bps, bpsUp, mulDiv, mulDivUp, poolBuy, poolSell, poolAdd, poolRemove, poolAssetFor, launchBuy, launchSell, minOut, fmtUnits, fmtCompact, fmtDero, parseUnits, price, priceOf, fmtPrice, pct, Z, B };
 })();

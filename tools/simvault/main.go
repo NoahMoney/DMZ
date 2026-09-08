@@ -37,6 +37,9 @@ var (
 	simPath  = flag.String("sim", "../research/crosschain/poc/sim-foreign.json", "sim foreign chain file")
 	contract = flag.String("contract", "../contracts/vault.bas", "vault source")
 	cap      = flag.Uint64("cap", 100_000, "initial cap in foreign base units (must be <= 3 x total bonds)")
+	// The simulator's 22 wallets hold 8 DERO each and the genesis wallet that collects mining rewards has no RPC,
+	// so the fleet's DERO is finite and a long demo run drains whichever wallet this was hardcoded to.
+	funder   = flag.String("funder", funderDefault, "wallet that -fund sends from")
 	minbond  = flag.Uint64("minbond", 20000, "minimum bond per signer (DERO atomic units)")
 	minburn  = flag.Uint64("minburn", 1000, "minimum withdrawal in foreign base units")
 	wfee     = flag.Uint64("wfee", 100, "withdrawal fee kept by the federation, in foreign base units")
@@ -58,10 +61,10 @@ var (
 )
 
 const (
-	owner    = "127.0.0.1:30007"
-	treasury = "127.0.0.1:30002"
-	user     = "127.0.0.1:30006"
-	funder   = "127.0.0.1:30001" // the richest simulator wallet
+	owner         = "127.0.0.1:30007"
+	treasury      = "127.0.0.1:30002"
+	user          = "127.0.0.1:30006"
+	funderDefault = "127.0.0.1:30001"
 )
 
 var signers = []string{"127.0.0.1:30003", "127.0.0.1:30004", "127.0.0.1:30005"}
@@ -186,8 +189,8 @@ func main() {
 		var r struct {
 			TXID string `json:"txid"`
 		}
-		rpc.Must(rpc.Call(funder, "transfer", map[string]interface{}{"transfers": xf, "ringsize": 2}, &r))
-		c.WaitTx(r.TXID, funder, owner, user, signers[0], signers[1], signers[2])
+		rpc.Must(rpc.Call(*funder, "transfer", map[string]interface{}{"transfers": xf, "ringsize": 2}, &r))
+		c.WaitTx(r.TXID, *funder, owner, user, signers[0], signers[1], signers[2])
 		fmt.Printf("funded %d wallets with %d units each, tx %s\n", len(xf), amt, r.TXID)
 	case *install:
 		doInstall(c)

@@ -110,7 +110,7 @@
     if (!opts.code && !isScid(opts.scid)) { toast("Refusing: bad contract id", "err"); return null; }
     if (opts.asset && !isScid(opts.asset.scid)) { toast("Refusing: bad asset id", "err"); return null; }
     const ring = opts.ring === 16 ? 16 : 2; // 16 only for entrypoints that pay a named address (SIGNER() is blank above 2)
-    if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid) || (D.cfg.vault && opts.scid === D.cfg.vault) || (D.cfg.chat && opts.scid === D.cfg.chat))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
+    if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid) || D.vaults().some((v) => v.scid === opts.scid) || (D.cfg.chat && opts.scid === D.cfg.chat))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
     const transfers = [];
     if (opts.dero && opts.dero > Z) {
       let dst; try { dst = await V.node.randomAddress(); } catch (e) { toast("No node answers for a burn destination: " + short(e.message), "err", 6000); return null; }
@@ -245,7 +245,7 @@
       const lg = (ledger[r.s.asset] || []).sort((x, y) => x.ts - y.ts); let held = Z, li = 0; const out = [];
       for (const p of r.s.points) {
         if (lg.length) { while (li < lg.length && lg[li].ts <= p.ts) { held += lg[li].d; li++; } if (held < Z) held = Z; } else held = r.units;
-        out.push({ ts: p.ts, v: p.ra > Z && held > Z ? (Number(held) / 10 ** Number(r.s.dec)) * A.price(p, r.s.dec, r.s.quoteDec) : 0 }); stamps.add(p.ts);
+        out.push({ ts: p.ts, v: p.ra > Z && held > Z ? (Number(held) / 10 ** Number(r.s.dec)) * A.priceOf(r.s, p) : 0 }); stamps.add(p.ts);
       }
       series.push(out);
     }

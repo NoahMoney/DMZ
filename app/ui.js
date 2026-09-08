@@ -116,8 +116,10 @@
   const NS = "http://www.w3.org/2000/svg";
   let sparkN = 0;
   const svg = (tag, a) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(a || {})) e.setAttribute(k, v); return e; };
-  function sparkline(points, dec, up) {
-    const s = points.map((p) => ({ x: p.ts, y: A.price(p, dec) })).filter((p) => p.y > 0); const w = 120, hgt = 34; const el = svg("svg", { viewBox: `0 0 ${w} ${hgt}`, preserveAspectRatio: "none" });
+  // Takes the market so the quote's decimals travel with it; the shape is relative, but a mis-scaled series
+  // still disagreed with every number beside it.
+  function sparkline(points, mkt, up) {
+    const s = points.map((p) => ({ x: p.ts, y: A.priceOf(mkt, p) })).filter((p) => p.y > 0); const w = 120, hgt = 34; const el = svg("svg", { viewBox: `0 0 ${w} ${hgt}`, preserveAspectRatio: "none" });
     if (s.length < 2) { el.append(svg("line", { x1: 0, y1: hgt / 2, x2: w, y2: hgt / 2, stroke: "var(--fg3)", "stroke-width": 1, "vector-effect": "non-scaling-stroke" })); return h("div", { class: "spark" }, el); }
     const xs = s.map((p) => p.x), ys = s.map((p) => p.y); const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0 + 1, y0 = Math.min(...ys), y1 = Math.max(...ys);
     const X = (x) => ((x - x0) / (x1 - x0 || 1)) * (w - 2) + 1, Y = (y) => hgt - 2 - ((y - y0) / (y1 - y0 || 1)) * (hgt - 4);

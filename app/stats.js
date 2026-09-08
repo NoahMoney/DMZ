@@ -3,7 +3,7 @@
 (function () {
   const V = window.Veil, A = V.amm;
   const WIN = { "5m": 300, "1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800 };
-  const price = (p, dec, qdec) => A.price(p, dec, qdec);
+  const price = (s, pt) => A.priceOf(s, pt);
   const now = () => Math.floor(Date.now() / 1000);
 
   // last recorded price at or before ts; falls back to the first point when the token is younger than the window.
@@ -13,10 +13,10 @@
     const pts = s.points; if (!pts.length) return null;
     let lo = 0, hi = pts.length - 1, r = -1;
     while (lo <= hi) { const mid = (lo + hi) >> 1; if (pts[mid].ts <= ts) { r = mid; lo = mid + 1; } else hi = mid - 1; }
-    return price(pts[r < 0 ? 0 : r], s.dec);
+    return price(s, pts[r < 0 ? 0 : r]);
   }
   function change(s, secs) {
-    const p1 = price(s, s.dec, s.quoteDec), p0 = priceAt(s, now() - secs);
+    const p1 = price(s), p0 = priceAt(s, now() - secs);
     return p0 > 0 && p1 > 0 ? ((p1 - p0) / p0) * 100 : null;
   }
   // liquidity added or removed on a pool is not a trade: both reserves move in proportion (price unchanged), and the
@@ -54,7 +54,7 @@
     return { buys, sells, who: who.size, buyVol: Number(bv) / qunit(s), sellVol: Number(sv) / qunit(s), last };
   }
   function enrich(s, height) {
-    const p = price(s, s.dec, s.quoteDec);
+    const p = price(s);
     const f24 = flow(s, WIN["24h"]), f1 = flow(s, WIN["1h"]), pub24 = published(s, WIN["24h"]), pub1 = published(s, WIN["1h"]);
     const m = {
       price: p, c5m: change(s, WIN["5m"]), c1h: change(s, WIN["1h"]), c6h: change(s, WIN["6h"]), c24h: change(s, WIN["24h"]), c7d: change(s, WIN["7d"]),
@@ -80,14 +80,14 @@
   // carry the previous close as a flat candle (drawn as a doji), exactly like an exchange with no trades.
   function candles(s, interval, from) {
     const pts = s.points.filter((p) => p.ts >= from - interval); if (!pts.length) return [];
-    const dec = s.dec; const out = []; let prevClose = price(pts[0], dec), prevRd = pts[0].rd, prevPt = pts[0];
+    const out = []; let prevClose = price(s, pts[0]), prevRd = pts[0].rd, prevPt = pts[0];
     const t0 = Math.floor(Math.max(from, pts[0].ts) / interval) * interval, tEnd = now();
     let i = 0;
     for (let t = t0; t <= tEnd; t += interval) {
       const c = { t, o: prevClose, h: prevClose, l: prevClose, c: prevClose, v: 0, bv: 0, sv: 0, up: true, n: 0 };
-      while (i < pts.length && pts[i].ts < t) { prevClose = price(pts[i], dec); prevRd = pts[i].rd; prevPt = pts[i]; i++; c.o = prevClose; c.h = prevClose; c.l = prevClose; c.c = prevClose; }
+      while (i < pts.length && pts[i].ts < t) { prevClose = price(s, pts[i]); prevRd = pts[i].rd; prevPt = pts[i]; i++; c.o = prevClose; c.h = prevClose; c.l = prevClose; c.c = prevClose; }
       while (i < pts.length && pts[i].ts < t + interval) {
-        const p = pts[i], pr = price(p, dec); if (pr > 0) { c.h = Math.max(c.h, pr); c.l = Math.min(c.l, pr); c.c = pr; c.n++; }
+        const p = pts[i], pr = price(s, p); if (pr > 0) { c.h = Math.max(c.h, pr); c.l = Math.min(c.l, pr); c.c = pr; c.n++; }
         // reserve flow: DERO in = net buying, DERO out = net selling (per active block)
         if (!lpMove(s, prevPt, p)) { if (p.rd >= prevRd) c.bv += Number(p.rd - prevRd) / qunit(s); else c.sv += Number(prevRd - p.rd) / qunit(s); }
         prevRd = p.rd; prevPt = p; prevClose = pr; i++;

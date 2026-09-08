@@ -12,7 +12,7 @@ Function InitializePrivate(name String, ticker String, descr String, icon String
 22 IF STRLEN(name) == 0 || STRLEN(name) > 32 || STRLEN(ticker) == 0 || STRLEN(ticker) > 10 THEN GOTO 900
 23 IF STRLEN(descr) > 240 || STRLEN(icon) > 200 || STRLEN(tags) > 100 THEN GOTO 900
 24 IF dec > 12 || supply < 1000000 || supply >= 9223372036854775808 THEN GOTO 900
-25 IF grad < 1000000 || grad > 1000000000000 THEN GOTO 900
+25 IF grad < 1000000 || grad > 1000000000000000 THEN GOTO 900
 26 IF cbps > 500 || tax > 1000 || tmode > 3 THEN GOTO 900
 27 IF tmode == 0 && tax != 0 THEN GOTO 900
 28 IF tmode != 0 && tax == 0 THEN GOTO 900
@@ -93,7 +93,7 @@ Function SwapDeroForAssetTo(dest String, min_out Uint64, publish Uint64) Uint64
 End Function
 
 Function buyto(s String, min_out Uint64, publish Uint64) Uint64
-10 DIM d, fee, pf, tx, deff, rd, ra, out, rem, cost, real, used as Uint64
+10 DIM d, fee, pf, tx, deff, rd, ra, out, rem, cost, real, used, rf as Uint64
 11 DIM q as String
 20 LET q = LOAD("qt")
 21 IF q != DERO() && DEROVALUE() != 0 THEN GOTO 900
@@ -107,6 +107,7 @@ Function buyto(s String, min_out Uint64, publish Uint64) Uint64
 29 LET deff = d - fee - tx
 30 IF LOAD("phase") == 1 THEN GOTO 200
 31 LET used = d
+32 LET rf = 0
 40 LET real = LOAD("real")
 41 IF real + LOAD("fd") + LOAD("tacc") + LOAD("rpool") + d < real THEN GOTO 900
 42 LET rem = LOAD("cs") - LOAD("sold")
@@ -126,7 +127,7 @@ Function buyto(s String, min_out Uint64, publish Uint64) Uint64
 56 IF deff >= cost THEN GOTO 58
 57 GOTO 900
 58 IF used == d THEN GOTO 60
-59 SEND_ASSET_TO_ADDRESS(s, d - used, q)
+59 LET rf = d - used
 60 IF out == 0 || out < min_out THEN GOTO 900
 61 tick(rd, ra)
 62 STORE("real", real + deff)
@@ -142,6 +143,8 @@ Function buyto(s String, min_out Uint64, publish Uint64) Uint64
 72 STORE("rd", real + deff)
 73 STORE("ra", LOAD("Lq"))
 74 STORE("gh", BLOCK_HEIGHT())
+75 IF rf == 0 THEN GOTO 100
+76 SEND_ASSET_TO_ADDRESS(s, rf, q)
 100 RETURN 0
 200 IF rd + LOAD("fd") + LOAD("tacc") + LOAD("rpool") + d < rd THEN GOTO 900
 201 LET pf = bps(fee, LOAD("pfee"))

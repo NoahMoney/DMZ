@@ -58,7 +58,7 @@ func main() {
 	}
 
 	fmt.Println("3. install pool.bas (fee 50 bps, protocol share 50%)")
-	poolSCID, gas, _ := c.Send(*w0, a0, pool, "", nil, []rpc.Arg{rpc.H("asset", assetSCID), rpc.S("treasury", a2), rpc.U("fee", 50), rpc.U("pfee", 5000)})
+	poolSCID, gas, _ := c.Send(*w0, a0, pool, "", nil, []rpc.Arg{rpc.H("asset", assetSCID), rpc.H("quote", "0000000000000000000000000000000000000000000000000000000000000000"), rpc.S("treasury", a2), rpc.U("fee", 50), rpc.U("pfee", 5000)})
 	fmt.Printf("  pool scid %s (gas %d/%d, code %d bytes)\n", poolSCID, gas.GasCompute, gas.GasStorage, len(pool))
 	st := c.GetSC(poolSCID, true)
 	if st.Str("kind") != "pool" || hex.EncodeToString([]byte(st.Str("asset"))) != assetSCID {
