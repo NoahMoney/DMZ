@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	ref "veil/reference"
 
@@ -24,6 +25,7 @@ func main() {
 	contracts := flag.String("contracts", "../contracts", "contracts dir")
 	wa := flag.String("a", "127.0.0.1:30003", "maker wallet rpc (locks)")
 	wb := flag.String("b", "127.0.0.1:30004", "taker wallet rpc (claims)")
+	board := flag.Bool("board", true, "also run the board.bas v2 scenario: post, accept, early cancel refused, cancel after expiry")
 	flag.Parse()
 	c := &rpc.Client{Daemon: *daemon, Timeout: 180 * time.Second}
 	codeRaw, err := os.ReadFile(filepath.Join(*contracts, "swap.bas"))
@@ -77,6 +79,49 @@ func main() {
 	st = c.GetSC(scid, false)
 	fmt.Printf("[%5.1fs] REFUND by maker: tx %s height %d; maker balance %d → %d; st_1=%d\n", time.Since(t0).Seconds(), txid, hh, beforeA, afterA, st.U("st_1"))
 	fmt.Printf("contract DERO balance now %d (expect 0)\n", st.Balance)
+	if *board {
+		runBoard(c, t0, *contracts, *wa, a, *wb, b)
+	}
 }
 
 func readRand(b []byte) error { _, err := rand.Read(b); return err }
+
+// runBoard exercises contracts/board.bas v2 (docs/ZEC_SWAP.md §4) on the live simulator: the maker posts an offer
+// under a hash of a secret only the maker holds, the taker accepts with a refund key hash and a refund height, a
+// live accepted offer cannot be cancelled, and once the offer has expired the maker cancels it — the exit v1
+// lacked, so that a taker who accepted and walked leaves nothing that needs anyone else.
+func runBoard(c *rpc.Client, t0 time.Time, contracts, wa, a, wb, b string) {
+	raw, err := os.ReadFile(filepath.Join(contracts, "board.bas"))
+	rpc.Must(err)
+	code := ref.Canon(string(raw))
+	scid, gas, h := c.Send(wa, a, code, "", nil, nil)
+	fmt.Printf("[%5.1fs] INSTALL board.bas scid %s storage-gas %d height %d\n", time.Since(t0).Seconds(), scid, gas.GasStorage, h)
+	var secret [32]byte
+	rand.Read(secret[:])
+	sum := sha256.Sum256(secret[:])
+	hash := hex.EncodeToString(sum[:])
+	exp := uint64(c.Height()) + 6
+	txid, _, h := c.Send(wa, a, "", scid, nil, []rpc.Arg{rpc.S("entrypoint", "Post"), rpc.S("chain", "zcash-t"), rpc.S("giveAsset", ""), rpc.U("giveAmount", 100000), rpc.U("wantAmount", 25000000), rpc.S("wantAddr", "t1SimulatorMakerTransparentAddr"), rpc.S("hash", hash), rpc.U("expiry", exp)})
+	fmt.Printf("[%5.1fs] POST offer 0: 1 DERO for 0.25 ZEC under %s… expiry %d: tx %s height %d\n", time.Since(t0).Seconds(), hash[:16], exp, txid, h)
+	pkh := strings.Repeat("cd", 20)
+	txid, _, h = c.Send(wb, b, "", scid, nil, []rpc.Arg{rpc.S("entrypoint", "Accept"), rpc.U("id", 0), rpc.S("refundPkh", pkh), rpc.U("cltv", 2500000)})
+	st := c.GetSC(scid, false)
+	fmt.Printf("[%5.1fs] ACCEPT by taker: tx %s height %d; st_0=%d cl_0=%d\n", time.Since(t0).Seconds(), txid, h, st.U("st_0"), st.U("cl_0"))
+	if _, err := c.Estimate(a, "", scid, nil, []rpc.Arg{rpc.S("entrypoint", "Cancel"), rpc.U("id", 0)}); err == nil {
+		fmt.Println("cancel of a live accepted offer accepted at estimate: wrong")
+		os.Exit(1)
+	} else {
+		fmt.Printf("[%5.1fs] cancel of the live accepted offer refused at estimate: %.60s\n", time.Since(t0).Seconds(), err.Error())
+	}
+	for uint64(c.Height()) < exp {
+		c.WaitBlocks(1)
+	}
+	txid, _, h = c.Send(wa, a, "", scid, nil, []rpc.Arg{rpc.S("entrypoint", "Cancel"), rpc.U("id", 0)})
+	st = c.GetSC(scid, false)
+	fmt.Printf("[%5.1fs] CANCEL by maker after expiry: tx %s height %d; st_0=%d (2 = cancelled)\n", time.Since(t0).Seconds(), txid, h, st.U("st_0"))
+	if st.U("st_0") != 2 {
+		fmt.Println("the expired accepted offer did not cancel")
+		os.Exit(1)
+	}
+	fmt.Println("board: post, accept, early cancel refused, cancel after expiry — OK")
+}
