@@ -2757,3 +2757,115 @@ stop, or eat money, with nobody able to intervene.
 - Founders Pass per-asset accounting.
 - The Monero backend for `vaultsigner` against recorded wallet-rpc fixtures — subaddresses, not payment ids.
 - `deploy/federation.md`: who runs the signers if the operator does not, and the `n ≥ 2k` disclosure.
+
+## 2026-09-09 — the trustless Monero swap, built and run three ways; the NFA contract and its screen
+
+### SHIPPED
+
+- **`contracts/htlc.bas`** (`2e798d0`): the three-exit escrow the trustless DERO↔XMR swap rests on — `Lock(ha, hk,
+  hb, taker, t1, t2, asset)`, `Claim(id, sa, kb)`, `Refund(id, sb)`, `Punish(id)`. 3,561 canonical bytes, 3,598
+  storage gas on a real install. Six DVM tests: claim, refund, punish, every lock refusal, `Initialize` not
+  callable, an asset (not DERO) round trip.
+- **`poc/proof-xmr` as a tool**: `keygen` / `prove <secret>` / `verify <h> <s> <proof>` with a fixed byte layout
+  and a worked vector; `prove` refuses an unreduced scalar. 37,460 gates, prove 8.5 s / verify 0.74 s, 1,601 B.
+- **`tools/xmrswap`**, the companion (`2e798d0`): both state machines, the directory rendezvous channel, a
+  Monero wallet-RPC client with digest auth and an in-process fake that emits locked and burnt outputs, Monero
+  keys and addresses against published vectors, the prover CLI adapter, private state files. 49 tests. Every one
+  of the thirteen invariants of `docs/XMR_SWAP_BUILD.md` is asserted by name: Bob never locks without π_a,
+  Alice never locks XMR without π_b or before every field of Bob's lock checks, the gate waits for confirmations
+  and refuses a time-locked or burnt output, the claim cutoff at `t1 − 8 − margin`, Bob sweeps only once the
+  Claim block is stable, a reused secret is refused, terms below policy are refused, the state file is private,
+  and `TestCrashFuzz` kills both companions at random points and always completes.
+- **`tools/simhtlc`**: drives all three exits on the simulator, with `-fund` so Alice can fund Bob from a drained
+  fleet. **The run** (`ecf3b137…`, 3,598 storage gas): happy path — lock `1eb0b89e…`, XMR lock `5a9c42b6…`, Claim
+  `124194b6…`, Bob's sweep `e28fa0ec…` only after the Claim went stable; refund path — lock `cd5f7215…`, XMR lock
+  `332af10d…`, Refund `a6401824…` at t1, Alice recovering her XMR `753f3edc…` from `s_b` on the chain; punish
+  path — lock `a54abd70…`, XMR lock `c927eee2…`, Bob silent past t2, Punish `27c6d452…` taking the DERO for Alice. After the three exits the contract holds 0 (expected 0); Bob 23,167 → 14,593 and Alice 290,501 → 288,199 atomic DERO across the three, gas included.
+- **`docs/XMR_SWAP.md`**: the user-facing protocol, 24 adversarial cases (R1–R24) and the trust statement — what
+  is trustless, and the two things that are not (the liveness of one's own companion, and Monero's own finality).
+- **`contracts/nfa.bas`** (`2e798d0`): ART-NFA-MS1 v1.1.1 kept exact — headers, `ClaimOwnership`, the listing
+  state machine, the royalty and artificerFee split — extended with `quote` (zero hash = DERO, so a DERO-quoted
+  DMZ NFA is byte-for-byte the standard's behaviour), `protoFee` and `treasury`. About 14,800 storage gas,
+  measured against the 20,000 cap by `TestNFAInstall`. Eight DVM tests: install, claim ownership, sale, expired
+  sale, a three-bidder auction with every outbid refunded in the same call, cancel inside and outside the
+  buffer, stray DERO on a wrapped-quote call refused, the amount bound. `factory.bas RegisterNFA` shares the one
+  counter with `nft_<i>`. Template shipped and hashed; `docs/NFA.md` with the compatibility statement and the
+  adversarial review; `docs/NFA_BUILD.md`.
+- **`simdeploy -migrate-from <old factory>`**: a factory cannot be upgraded in place, so `RegisterNFA` meant a new
+  factory with an empty registry — and the simulator had ten pools (three duplicate registrations), eight launches
+  and a holder-NFT on the old one. The flag re-registers every unique listing on the new factory from the owner
+  wallet; the fee lands in the treasury wallet. Run against `921e1beb…` → the new simulator factory.
+- **The NFA screen** (`a7c3742`): `app/nfas.js`, the first section of the NFTs tab (no tab of its own — the phone
+  grid has seven columns) grouped by collection, and a page per asset at `#nfa/<scid>` with the headers, the file
+  and its filesign hashes marked unverified by this app, the owner, the listing with its times as the block's, and
+  the one action the visitor's role allows, read from `nfa.bas` line by line: Buy now and Bid with the split
+  (royalty, protocol fee, charity, owner) in the quote's symbol before the button; Start with the contract's clamps;
+  Close; Cancel only inside the buffer, saying how long is left; Claim ownership when the wallet holds the unit;
+  Settle for the top bidder of an ended auction. Every call at ring 2, because every entrypoint reads `SIGNER()`.
+  `V.forms.nfa()`, the mint form: quote first (XMR and ZEC before DERO), the node's install estimate, the
+  registration fee and what every sale will pay, before the button; it installs exactly the deployment's
+  `protoFee` and treasury, which the feed would otherwise refuse. `tools/simnfa` installs, registers and lists
+  one and fails closed on a factory without `RegisterNFA` — which is how the old simulator factory was found
+  wanting. Built by two agents on disjoint files and verified by a third on the rendered app: two live NFAs
+  (DERO-quoted `fa06a61a…` on sale at 1 DERO, XMR-quoted `c1a54ead…` later on sale at 1.5 XMR), the UI pass green,
+  cold and warm deep links, 390/768/1024/1280, no overflow, no console error, every argument list checked against
+  the contract's.
+
+### ALSO FIXED
+
+- `tests/parse_test.go` expected the factory's entrypoints without `RegisterNFA` and failed the whole parse test.
+- The NFA-screen agent had registered a tab and a script for a screen that did not exist: eight tabs on a phone
+  and a click timeout in the UI pass (`7839c04`). The tab bar is a seven-column grid; NFAs live in the NFTs tab.
+- `simhtlc -fund 6000` was not enough for Bob's lock plus fees on the drained fleet; `-fund 12000` is, and the
+  RESUME note says so.
+
+### VERIFIED (this cycle's evidence for the five standing requirements)
+
+1. *XMR/ZEC first*: the NFTs tab's section reads "Assets priced in XMR, ZEC or DERO"; the mint form's quote chips
+   are XMR · ZEC · DERO with XMR on by default and a note that a wrapped quote is a federation's claim; the XMR
+   asset's page opens with "NFA · priced in XMR" (PNGs in `.sim/ui-nfa-r1/`).
+2. *Balances*: the Buy sheet shows the wallet's balance in the quote and nothing else ("In your wallet:
+   0.55517 DERO"); the asset's prices are never added to anything.
+3. *Fees before the button*: the Buy sheet lists where the price goes before the button — royalty 5 % to the
+   creator 0.05 DERO, protocol fee 0.5 % to the treasury 0.005 DERO, the owner receives 0.945 DERO — with gas
+   named as DERO; the mint form shows the install estimate (0.146 DERO from the node), the registration fee
+   (0.1 DERO) and "every sale pays 0.5 % protocol + 5 % royalty, in XMR". The swap's fixed Refund/Punish fee (2,000) is printed by the driver
+   before either call.
+4. *Nobody extracts more than deposited*: the three-exit run above, on the real DVM, with the companion's own
+   checks — the gate never opened without a spendable output, no Claim was attempted past the cutoff, no sweep
+   before stability. `TestNFAAmountBound` and `TestNFAStrayDero` on the NFA. The vault did not change this cycle.
+5. *No overlapping markets*: unchanged; an NFA is one asset in one contract and forms no pair.
+
+The tip merged to `main` (`e2c5250`) was validated as a whole in a clean worktree against the vendored derohe: DVM
+suite green in 57 s; `go test ./xmrswap` 82 s and `TestCrashFuzz -count=3` 132 s green, `./vaultsigner` green;
+`genconfig -dist` 32 files; `tests/js` 6/6; every app file under the DOC cap (feed.js the largest at 16,144 of
+18,432); the UI pass green at `7839c04` with seven tabs on a phone. A bare checkout cannot run the DVM suite or
+build the tools: `vendor/` is ignored and holds the derohe copy both resolve against — a junction to it is the
+workaround, recorded in the backlog.
+
+### UNCONSIDERED
+
+- The Buy sheet offers "Buy for 1.5 XMR" to a wallet holding 0 XMR; the wallet refuses to build the transfer,
+  so no funds are at risk, but a holder should see a disabled button and the reason, not a refusal after the tap.
+- The rendezvous channel is a directory. spore as the channel between strangers is designed
+  (`research/wrapper/MECHANISM_REVIEW.md`) and not built; today two companions must share a folder or a
+  transport of their own, so the swap is runnable by a pair who already know each other and by no one else.
+- The Monero leg has only ever run against the in-process fake, which mines a block per round. The real
+  wallet-RPC backend is written and tested for request shapes and auth, never against `monerod` — not even
+  stagenet. Until it is, nothing here proves the Monero side against Monero's consensus.
+- The mainnet timing policy (t1 = 400 blocks, t2 = t1 + 400; 20 Monero confirmations before the gate) is argued
+  from block times and the 10-block unlock, not measured against either chain's real reorg statistics.
+- After `Punish`, Alice holds Bob's DERO and her XMR stays in the joint address unless Bob ever reveals `s_b`.
+  The docs say so; there is no swap screen yet to say it to a user.
+- An NFA's `collection` is a free string set at install; two creators can share one. Nothing owns a collection
+  name, and the screen groups by it.
+- The simulator's wallet fleet is nearly drained; every live run now begins with funding. A fresh simulator
+  snapshot with rich wallets would remove that tax from every future cycle.
+
+### NEXT
+
+First: the Buy button disabled with its reason when the wallet cannot pay (the observation above), and the XMR
+asset's sale closed by its owner after it ends. Then: The transparent-ZEC swap market on `board.bas` + `swap.bas` with spore as the rendezvous (a design note and a
+simulator run of the DERO leg first); Founders Pass fees earned in a wrapped asset; the `vaultsigner` Monero
+backend against recorded wallet-rpc fixtures (subaddresses); `deploy/federation.md` and the `na < 2k`
+disclosure; the deferred items in `docs/audit/DMZ_FABLE_5_1_FOLLOWUP.md`; the loop back up.
