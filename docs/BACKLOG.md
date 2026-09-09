@@ -141,7 +141,7 @@ transparent (t-addresses), so the ZEC amount and address are public on the Zcash
 - **BL-41 (A) — run 2026-09-09 (HISTORY), the driver as built.** **The DERO leg on the simulator.** `board.bas` + `swap.bas` (or `htlc.bas` with a ZEC-shaped
   hash lock) driven end to end by a `simswap` run with the three exits, like `simhtlc`.
 - **BL-40a (A) — DONE 2026-09-10.** **`board.bas` v2** per the note §4: the hash moves to `Post` (the maker holds the secret so the Zcash holder never bears the free option), `Accept(id, refundPkh, cltv)`, `Cancel` after expiry regardless of state; tests; `simswap` updated; the template shipped.
-- **BL-40b (A) — script layer DONE 2026-09-10 (`tools/zecswap`: script, address, spends, tested against the PoC vector); the watcher and the transactions remain.** **`tools/zecswap`** per the note §7: the taker's and the maker's Zcash side against `zcashd`/`zebrad` RPC (light-client mode names its server as trusted), crash-fuzz discipline as in `xmrswap`.
+- **BL-40b (A) — script layer and transaction layer DONE 2026-09-10 (`tools/zecswap`: script, address, spends; secp256k1 signing; ZIP 225/244 serialization and digests against Zcash's vectors); the watcher, the ZIP 317 fee and broadcast remain.** **`tools/zecswap`** per the note §7: the taker's and the maker's Zcash side against `zcashd`/`zebrad` RPC (light-client mode names its server as trusted), crash-fuzz discipline as in `xmrswap`.
 - **BL-42 (A)** **The Zcash leg on testnet.** The `zec-t-htlc` script against a Zcash testnet node: fund, redeem
   with the preimage, refund after CLTV. Record txids.
 - **BL-43 (A)** **The privacy disclosure in the app.** Before a ZEC holder commits: "this trade is visible on the

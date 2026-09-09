@@ -3116,3 +3116,52 @@ cases as its test vectors; then the watcher against `zcashd`/`zebrad` RPC.
 
 BL-40b continued: the transaction builder (funding output, claim and refund spends with ZIP 244 sighash and
 secp256k1 signing, the dependency question answered in writing) and the watcher against `zcashd`/`zebrad` RPC.
+
+## 2026-09-10, third cycle — signing and the ZIP 244 digests, against Zcash's own vectors
+
+### SHIPPED
+
+- **`tools/zecswap`, the transaction layer** (BL-40b, second part): ECDSA over secp256k1 through decred's pure-Go
+  module (v4.3.0, pinned; the written reason in `docs/ZEC_SWAP.md` §7 — constant-time arithmetic and RFC 6979
+  nonces no hand-written curve could be trusted for), keys parsed with refusal of zero and out-of-range scalars
+  rather than silent reduction; ZIP 225 serialization and parsing of v5 transactions with transparent parts and an
+  Orchard bundle (read, never built; Sapling refused by name); ZIP 244 transaction ids and SIGHASH_ALL signature
+  digests; BLAKE2b with personalization written in-tree because `x/crypto` cannot set the parameter block.
+- **Vectors**: Zcash's `zip_0244.json` (commit `113b3914`) vendored under `testdata/` with its provenance; the four
+  transactions the package can read reproduce their transaction ids to the byte, and the three with a named
+  transparent input reproduce its SIGHASH_ALL digest; RFC 7693's BLAKE2b-512("abc"); the well-known key 1's
+  compressed public key and HASH160; a swap claim built, signed, verified, serialized and parsed back with the
+  secret readable in its scriptSig. Nine tests in the package.
+- Sources: ZIP 244, ZIP 225, the vector file, RFC 7693 and the secp256k1 module in `SOURCES.md`.
+
+### ALSO FIXED
+
+- Nothing else this cycle. (The first attempt used `x/crypto/blake2b` with a `Config` it does not have; the
+  in-tree hash replaced it within the cycle and the vectors decided it was right.)
+
+### VERIFIED (this cycle's evidence for the five standing requirements)
+
+- `go test ./zecswap` 9/9 including the ZIP 244 vectors; `go vet` and `go build` of the tools list. No contract
+  and no app file changed; the DVM suite, JS tests, DOC cap and UI pass stand from the earlier cycles.
+- Requirement 4 in this layer: a signature commits to the amount and script being spent (ZIP 244's amounts and
+  scripts digests), so a claim or refund cannot be redirected to a different output than the one the signer saw.
+- Requirements 1, 2, 3 and 5: unchanged this cycle.
+
+### UNCONSIDERED
+
+- A Sapling bundle in a maker's claim (an older wallet's shielded change) is refused by the parser, so the taker
+  would not read the secret from it through this package; the node's raw transaction still shows the scriptSig,
+  and the watcher should fall back to that rather than fail closed on a valid claim.
+- The consensus branch id after the next network upgrade: constants for NU5 and NU6 only; the node's answer is
+  authoritative, and the companion must refuse to sign under an id it does not recognise the epoch of.
+- The fee: ZIP 317's conventional fee is not yet computed by the builder; the design note names the floor, the
+  builder must count logical actions.
+- The funding transaction is the taker's wallet's, not the companion's — a P2SH address paid like any other; the
+  companion only needs to see it. That is simpler and was not written down before.
+
+### NEXT
+
+The operator's directive of 2026-09-10: the full protocol, real-world transaction, security and mainnet-launch
+audit, run as a multi-agent workflow over the whole repository with primary sources, findings verified
+adversarially, safe fixes applied, and the deliverable in `docs/audit/`. The loop's cron is down for its
+duration. Then BL-40b's watcher and broadcast.

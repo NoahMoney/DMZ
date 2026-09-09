@@ -182,6 +182,25 @@ key the user gives it for that purpose only, and the docs say so in those words.
 The Monero companion's crash-fuzz discipline applies: durable state before every irreversible step, a `status`
 command that says what happens if it stops now, a `resume` that reads both chains and continues.
 
+**Signing and digests — the dependency decision (2026-09-10).** Three things the Zcash leg needs and how each is
+provided, with the answer to "what does this provide that a smaller primitive cannot":
+
+- **ECDSA over secp256k1**: `github.com/decred/dcrd/dcrec/secp256k1/v4` v4.3.0, pinned by sum in `tools/go.sum`;
+  pure Go, no cgo, no transitive dependency beyond the standard library, no network. It provides constant-time
+  field and scalar arithmetic and RFC 6979 deterministic nonces, verified upstream against published vectors. A
+  hand-written curve would leak the key through timing or a bad nonce, and no test in this repository could
+  detect either. It sees one key: the one the user hands the companion for one spend, zeroed after.
+- **BLAKE2b with a personalization string**, which every ZIP 244 digest uses: written in-tree
+  (`tools/zecswap/blake2.go`, a hundred lines) because `golang.org/x/crypto/blake2b` cannot set the parameter
+  block. A hash has no secret and no timing surface, so no library is needed; it is pinned by RFC 7693's vector
+  and by every ZIP 244 vector the package can read.
+- **ZIP 244 digests and ZIP 225 serialization** for v5 transactions: transparent parts built and read, an
+  Orchard bundle read (a maker's wallet may add Orchard change to the claim that reveals the secret) but never
+  built, a Sapling bundle refused by name. The transaction id and the SIGHASH_ALL digest match Zcash's own test
+  vectors (`tools/zecswap/testdata/zip_0244.json`, four transactions with transparent inputs and Orchard
+  bundles). The consensus branch id is read from the node (`getblockchaininfo`), never fixed at signing: a wrong
+  id makes a signature invalid, never a loss.
+
 ## 8. The screen
 
 - **Market list** — the board, read from `board.bas`: for each open offer the asset, the amount, the price in
