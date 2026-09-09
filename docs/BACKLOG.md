@@ -135,11 +135,13 @@ left is everything between "works for two people who share a folder" and "works 
 The one trustless pair that works on mainnet DERO today with no host. Its privacy cost is real: the ZEC leg is
 transparent (t-addresses), so the ZEC amount and address are public on the Zcash chain.
 
-- **BL-40 (A)** **The design note.** Roles, messages, deadlines, fees, and the privacy statement for the ZEC leg
+- **BL-40 (A) — DONE 2026-09-09, `docs/ZEC_SWAP.md`.** **The design note.** Roles, messages, deadlines, fees, and the privacy statement for the ZEC leg
   in plain words; which side locks first; what the app shows; what the companion is (the `xmrswap` binary with a
   Zcash backend, or a separate tool). One page, reviewed adversarially before code.
-- **BL-41 (A)** **The DERO leg on the simulator.** `board.bas` + `swap.bas` (or `htlc.bas` with a ZEC-shaped
+- **BL-41 (A) — run 2026-09-09 (HISTORY), the driver as built.** **The DERO leg on the simulator.** `board.bas` + `swap.bas` (or `htlc.bas` with a ZEC-shaped
   hash lock) driven end to end by a `simswap` run with the three exits, like `simhtlc`.
+- **BL-40a (A)** **`board.bas` v2** per the note §4: the hash moves to `Post` (the maker holds the secret so the Zcash holder never bears the free option), `Accept(id, refundPkh, cltv)`, `Cancel` after expiry regardless of state; tests; `simswap` updated; the template shipped.
+- **BL-40b (A)** **`tools/zecswap`** per the note §7: the taker's and the maker's Zcash side against `zcashd`/`zebrad` RPC (light-client mode names its server as trusted), crash-fuzz discipline as in `xmrswap`.
 - **BL-42 (A)** **The Zcash leg on testnet.** The `zec-t-htlc` script against a Zcash testnet node: fund, redeem
   with the preimage, refund after CLTV. Record txids.
 - **BL-43 (A)** **The privacy disclosure in the app.** Before a ZEC holder commits: "this trade is visible on the
