@@ -11,11 +11,16 @@
 //       40 hex) cl_<i> the counter-chain height after which the taker may refund
 // An offer dies by itself at e_<i>: Accept refuses it, and the maker may Cancel it whatever its state — an
 // accepted offer that went nowhere is not a row that needs a human to leave it.
+// Initialize is an ordinary exported function to the DVM, so a second call after install would reset n and
+// overwrite every offer: the initd key refuses it (tests/reentry_test.go).
 Function Initialize() Uint64
+5 IF EXISTS("initd") != 0 THEN GOTO 900
 10 STORE("kind", "board")
 11 STORE("v", 2)
 12 STORE("n", 0)
+13 STORE("initd", 1)
 20 RETURN 0
+900 RETURN 1
 End Function
 
 // The maker's offer. hash is SHA256 of a 32-byte secret the maker keeps until the counter-chain claim.
