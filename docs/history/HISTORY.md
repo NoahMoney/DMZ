@@ -2904,3 +2904,50 @@ disclosure; the deferred items in `docs/audit/DMZ_FABLE_5_1_FOLLOWUP.md`; the lo
 ### NEXT
 
 The same gate audit on `sheets.js` and `wrap.js`; then BL-40, the transparent-ZEC swap market design note.
+
+## 2026-09-09, second evening cycle — every amount button refuses before the tap; the wrap screen stops redrawing under a holder's hands
+
+### SHIPPED
+
+- **`15bced9`**: the trade sheet's button, which already shut above the balance, now also shuts while a connected
+  wallet has not answered (it used to open on "Balance unavailable"), and names the shortfall in the asset charged.
+  The liquidity sheet (Add against both sides, Remove against the LP units) and the stake sheet (Stake against the
+  wallet's tokens, Unstake against the stake the contract records) had no gate at all; one `gate()` in `sheets.js`
+  now serves them with the NFA sheet's words.
+- **`860260c`**: the wrap screen's burn button shuts above the wallet's wrapped units or on an unreadable balance —
+  and rendering that found the older defect: the screen redrew on every data change with no key, rebuilding both
+  forms and wiping an amount or a destination address mid-typing, a block being eighteen seconds. While any field
+  on the screen holds text, the redraw waits.
+
+### ALSO FIXED
+
+- Nothing else this cycle.
+
+### VERIFIED (this cycle's evidence for the five standing requirements)
+
+3. *Fees before the button*: rendered with the test wallet (0.5551 DERO, 0 XMR-old, 49,011 BRW) and amounts far
+   above it — buy and sell on a DERO pool, a wrapped-quote pool and a launch curve ("Not enough DERO: 999,998.4448
+   short", "Not enough XMR-old: 999,999 short", "Not enough BRW: 999,950,987.187 short"), Add liquidity ("Not enough
+   DERO"), Stake and Unstake ("Not enough BRW" / "Not enough staked BRW"), Burn ("Not enough in your wallet:
+   999,999 XMR short") — every button disabled, every shortfall in its own asset (`.sim/ui-gates/*.txt` and the
+   PNGs). The burn amount and its shut button held across a block for 24 s. UI pass green at 390/768/1024; DVM
+   suite 57 s; `tests/js` 6/6; `genconfig -dist` 33 files; `token.js` 13,400 · `sheets.js` 6,624 · `wrap.js`
+   15,028 of 18,432. Requirements 1, 2, 4 and 5 unchanged; their evidence is the day's first entry.
+
+### UNCONSIDERED
+
+- Remove liquidity above what the pool can release shuts on the pool's own limit before the LP gate speaks, so
+  the button reads "Remove liquidity" (disabled) with the reason in the estimate line, not on the button. Two
+  different refusals, two different places; acceptable, but worth one wording.
+- The redraw hold on the wrap screen means the vault's live figures (claims outstanding, headroom, the block
+  countdowns) freeze while a form holds text. A holder typing slowly sees numbers up to a few blocks old; the
+  forms clear after a burn or a register, so it never sticks. A key-based redraw that keeps the inputs would be
+  the full answer (BL-120's screen audit).
+- Other screens with inline inputs were not audited for the same wipe: the profile editor, the chat composer,
+  the launch and pool forms are sheets (safe), but anything drawn by `D.onChange` with a field in it is suspect.
+- The gate reads the wallet once per sheet; a balance that changes while the sheet is open is not seen (as noted
+  for the NFA sheet).
+
+### NEXT
+
+BL-40, the transparent-ZEC swap market design note, then the simulator run of its DERO leg.
