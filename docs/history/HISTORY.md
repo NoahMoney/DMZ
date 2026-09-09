@@ -3025,6 +3025,10 @@ BL-40a, `board.bas` v2 with its tests and `simswap` updated; then BL-40b.
 
 ### ALSO FIXED
 
+- The driver asked the gas estimator about the cancel after expiry; the estimator runs at height 0, so a call
+  gated on the expiry height is refused there whatever the chain would do — the escrow's Refund was already
+  sent fee-fixed for that reason. Both cancels now go to the chain fee-fixed and the state is read back
+  (`cfce264`).
 - The v2 rewrite started from the Phase 1 copy under `research/` rather than from `contracts/`, and so dropped the
   `initd` guard that stops `Initialize` being called again after install (a second call would reset `n` and let
   every offer be overwritten). `TestInitializeNotCallable` caught it within the hour; the guard is back, in the
@@ -3037,8 +3041,11 @@ BL-40a, `board.bas` v2 with its tests and `simswap` updated; then BL-40b.
 - The simulator run (maker wallet 3 topped up 0.6 DERO from the treasury wallet, taker wallet 4): `swap.bas`
   installed at `abd9369f…`; `Lock` `1fcda2c9…`; wrong secret refused at estimate; `Claim` `8086731f…` with the
   secret `c7c31ebd…` then on chain; open lock `154e1cf8…`; late `Claim` `7d669e47…` refused by the contract; `Refund`
-  `11762aea…`; escrow balance 0. `board.bas` installed at `87a15cc1…` (2,144 storage gas); its post, accept, refused
-  early cancel and cancel after expiry are pasted below when the run reports.
+  `11762aea…`; escrow balance 0. `board.bas` installed at `87a15cc1…` (2,144 storage gas) with `Post` `03d3868e…` and `Accept` `18682910…`
+  on chain before the driver died at its own last step (below); rerun with maker wallet 16: `board.bas` at
+  `df4b942e…`, `Post` `beeef45a…` (1 DERO for 0.25 ZEC under the maker's hash, expiry 23642), `Accept` `027fff6e…`
+  (`st_0 = 1`, `cl_0 = 2500000`), the early `Cancel` `eb8aa9ec…` sent fee-fixed and refused by the contract
+  (`st_0` still 1), the `Cancel` after expiry `63904d14…` at height 23643 (`st_0 = 2`). Exit 0 at 255 s.
 - Requirement 4 for the board: it holds no value; `Post`, `Accept` and `Cancel` refuse any attached DERO.
   Requirements 1–3 and 5 on the app: unchanged this cycle; the earlier renders stand. No template changed, so no
   `simdeploy` rerun: the board is not a factory-registered kind and is installed on its own.
