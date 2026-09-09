@@ -3066,3 +3066,53 @@ BL-40a, `board.bas` v2 with its tests and `simswap` updated; then BL-40b.
 
 BL-40b, `tools/zecswap` (§7 of the note): the script builder and address derivation first, with the PoC's seven
 cases as its test vectors; then the watcher against `zcashd`/`zebrad` RPC.
+
+## 2026-09-10, second cycle — the Zcash script, byte for byte
+
+### SHIPPED
+
+- **`tools/zecswap`, the script layer** (BL-40b, first part): the hash-time-locked script of the design note's
+  step 4 as Go — `HTLC.RedeemScript`, its HASH160, the P2SH `scriptPubKey`, the address on mainnet (`t3…`) and
+  testnet (`t2…`), transparent-address encoding and parsing for all four prefixes with a shielded address refused
+  by name ("the swap script needs a transparent one"), minimal script numbers for the CLTV height, and the two
+  spend layouts (`<sig> <pub> <secret> TRUE <redeem>`, `<sig> <pub> FALSE <redeem>`) with the `nLockTime` a refund
+  must carry. `zecswap script …` and `zecswap address …` on the command line; nothing holds a key or talks to a
+  node. RIPEMD-160 comes from `golang.org/x/crypto`, already in the module: no new dependency.
+- **Tested against the PoC's bytes**: the redeem script, `scriptPubKey` and `t2CznzyM1SiyHb5CLc46GkAgoiMPnBLvuQ2`
+  from `research/crosschain/poc/zec-t-htlc/run.log` reproduced exactly — the script Zcash's consensus interpreter
+  accepted for the claim and the refund and refused for the five wrong ways; the mainnet form round-trips; a
+  P2PKH address round-trips on both networks; twelve script-number cases; both spend layouts; Base58Check round
+  trips and a checksum failure. The command line reproduces the same three lines from the same inputs.
+- Sources: the protocol specification's address prefixes (§5.6.1.1) and BIP 62 in `SOURCES.md`; the loop's build
+  and test lists gained `zecswap` and `simswap`.
+
+### ALSO FIXED
+
+- Nothing else this cycle.
+
+### VERIFIED (this cycle's evidence for the five standing requirements)
+
+- `go test ./zecswap` 5/5; `go vet` and `go build` of the whole tools list including the new package; the
+  vector above. No contract and no app file changed, so the DVM suite, the JS tests, the DOC cap and the UI
+  pass stand from the previous cycle; no template changed, so no `simdeploy` rerun.
+- Requirement 3, carried forward into code: the address parser gives the post and accept screens the exact
+  sentence to show when a holder pastes a shielded address, before any button.
+- Requirements 1, 2, 4 and 5: unchanged this cycle.
+
+### UNCONSIDERED
+
+- The PoC's stand-in signatures were checked by a callback, not by secp256k1 over a real sighash. The next part
+  of `zecswap` needs Zcash's transparent sighash (ZIP 244 for v5 transactions) and a secp256k1 signer — a real
+  dependency question the module has not yet answered (`golang.org/x/crypto` has no secp256k1).
+- `push` panics above 255 bytes; nothing in a swap pushes that much, but a panic is not a refusal. A returned
+  error would be the fail-closed form.
+- Zcash's script interpreter enforces minimal pushes and clean stacks under standardness rules that the
+  consensus interpreter in the PoC may not have exercised with these exact flags; the spend layouts are the
+  canonical ones, but a testnet spend (BL-42) is the only proof that matters.
+- The address parser accepts any two-byte prefix in its table; a future Zcash upgrade that retires transparent
+  prefixes would make the table wrong silently. BL-47 tracks the roadmap.
+
+### NEXT
+
+BL-40b continued: the transaction builder (funding output, claim and refund spends with ZIP 244 sighash and
+secp256k1 signing, the dependency question answered in writing) and the watcher against `zcashd`/`zebrad` RPC.

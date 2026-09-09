@@ -244,7 +244,10 @@ Zcash's consensus interpreter (`poc/zec-t-htlc`, all seven cases); the DERO leg 
 lock, a late claim refused by the chain, refund; `research/crosschain/poc/simswap-run.log`, and this cycle's rerun
 in the HISTORY entry).
 
-Built 2026-09-10: `board.bas` v2 (§4) with its DVM test and the driver's board scenario. Not built: `tools/zecswap` (§7); the Zcash testnet run (BL-42); the screens (§8); the
+Built 2026-09-10: `board.bas` v2 (§4) with its DVM test and the driver's board scenario; the script layer of
+`tools/zecswap` (§7) — the redeem script, its P2SH address on both networks, transparent-address parsing that
+refuses shielded forms with the reason, the two spend layouts — tested byte for byte against the PoC's vector.
+Not built: the rest of `tools/zecswap` (the watcher against a node, the funding and spending transactions); the Zcash testnet run (BL-42); the screens (§8); the
 measurement behind §5 (BL-30). In that order, each its own cycle, each verified before the next.
 
 ## 12. Sources
