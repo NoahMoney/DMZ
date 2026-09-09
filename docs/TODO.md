@@ -12,7 +12,10 @@ on something named.
 
 ## RESUME HERE — updated 2026-09-09 evening (third resume)
 
-`main` is green at `0e91b6a`. Branch **`wip/2026-09-09-swap-nfa`** is the working state at `7839c04`; its
+**The full follow-up list — everything known, ordered by the XMR/ZEC-holder test — is `docs/BACKLOG.md`.**
+
+`main` is pushed at `e2c5250` (the swap + NFA-contract tip, validated as a whole in a clean worktree). Branch
+**`wip/2026-09-09-swap-nfa`** carries the uncommitted NFA screen on top of it; its earlier
 checkpoint `2e798d0` was **verified as a whole** on 2026-09-09: DVM suite 59 s green, `tests/js` 6/6, companion
 `go test ./xmrswap` green and `TestCrashFuzz -count=3` green, every app file under the DOC cap, UI pass green.
 `9e92aa8` is the snapshot taken at the second disconnect; `7839c04` removes the NFAs tab and script it had
