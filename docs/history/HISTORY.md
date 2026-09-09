@@ -2869,3 +2869,38 @@ asset's sale closed by its owner after it ends. Then: The transparent-ZEC swap m
 simulator run of the DERO leg first); Founders Pass fees earned in a wrapped asset; the `vaultsigner` Monero
 backend against recorded wallet-rpc fixtures (subaddresses); `deploy/federation.md` and the `na < 2k`
 disclosure; the deferred items in `docs/audit/DMZ_FABLE_5_1_FOLLOWUP.md`; the loop back up.
+
+## 2026-09-09, evening cycle — the Buy and Bid buttons refuse before the tap
+
+### SHIPPED
+
+- **`6bbfef5`**: the NFA Buy and Bid buttons start disabled while the wallet's balance in the quote is read, and
+  open only for an amount the wallet holds; otherwise the button itself says how much is short, or that the
+  balance could not be read, which counts as not enough. The verifier of the screen build had observed the old
+  behaviour (a "Buy for 1.5 XMR" offered to a wallet with 0 XMR, refused by the wallet after the tap).
+
+### ALSO FIXED
+
+- Nothing else this cycle.
+
+### VERIFIED (this cycle's evidence for the five standing requirements)
+
+3. *Fees before the button*: the sheets rendered against the live sales with the test wallet (0.55517 DERO,
+   0 XMR) read "Not enough DERO: 0.44483 DERO short" and "Not enough XMR: 1.5 XMR short" under the full split
+   (`.sim/ui-buygate/41-sheet-*.png`); UI pass green at 390/768/1024, no console error; `nfas.js` 11,948 of
+   18,432 after gzip+base64. Requirements 1, 2, 4 and 5 are unchanged by this cycle; their evidence is the
+   day's entry above.
+
+### UNCONSIDERED
+
+- The gate reads the balance once, when the sheet opens; a deposit that lands while the sheet is open is not
+  seen until it is reopened. Cheap to fix with a re-read on each block; not done.
+- "Balance unreadable" does not distinguish a wallet that refused the query (an XSWD permission for that asset)
+  from a node that did not answer; both block the button, which is the right side to fail on, but the text could
+  say which.
+- The trade sheet (`sheets.js`) and the wrap screen (`wrap.js`) were not audited for the same shape — an amount
+  above the wallet's balance offered as a button. Next.
+
+### NEXT
+
+The same gate audit on `sheets.js` and `wrap.js`; then BL-40, the transparent-ZEC swap market design note.

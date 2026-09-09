@@ -36,8 +36,8 @@ tip** (this commit and everything before it) and pushed. WIP and main are equal;
 ends ~19:22 local on 2026-09-09; after that its owner (wallet 16) must `CloseListing` to get the unit back (the
 app's Close button, or `simnfa`). Wallet fleet: 0.02–2.9 DERO each; 30006/30007 are the swap's.
 
-**Then, in order (the loop is up from `docs/LOOP_PROMPT.md`):** the Buy button disabled with its reason when the
-wallet cannot pay (HISTORY 2026-09-09 UNCONSIDERED) → the transparent-ZEC swap market design note (BL-40) →
+**Then, in order (the loop is up from `docs/LOOP_PROMPT.md`):** the Buy/Bid gate (DONE `6bbfef5`) → the same audit on the
+trade and wrap sheets → the transparent-ZEC swap market design note (BL-40) →
 Founders per-asset fees (BL-90) → the spore rendezvous channel (BL-10) → the Monero backend on stagenet (BL-11)
 → `deploy/federation.md` (BL-80) → the rest of `docs/BACKLOG.md` by priority.
 
