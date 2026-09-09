@@ -359,10 +359,18 @@
       const amount = h("input", { inputmode: "decimal", placeholder: "0.0", autocomplete: "off", spellcheck: "false" });
       const dest = h("input", { placeholder: "Your address on " + U.clean((w.asset && w.asset.chain) || "the foreign chain", 40), autocomplete: "off", spellcheck: "false" });
       const out = h("div", { class: "note" });
+      const btn = button("Burn and withdraw", "primary", () => doBurn(w, amount, dest));
+      // what the wallet holds of the wrapped asset, read for this form: null while being read, undefined when the
+      // wallet did not answer — an amount it would refuse is never offered, and unread counts as not enough
+      let have = null;
+      if (V.wallet.connected) V.wallet.getBalance(w.scid, true).then((b) => { have = V.toBig(b && b.balance) || Z; restate(); }, () => { have = undefined; restate(); });
       const restate = () => {
         const units = A.parseUnits(amount.value, dec());
+        btn.disabled = false; btn.textContent = "Burn and withdraw";
         if (units === null || units <= Z) { out.textContent = ""; return; }
         if (units < w.minburn) { out.textContent = "Below the minimum burn of " + exact(w.minburn) + "."; return; }
+        if (V.wallet.connected && have === null) { btn.disabled = true; btn.textContent = "Reading your balance…"; }
+        else if (V.wallet.connected && (have === undefined || units > have)) { btn.disabled = true; btn.textContent = have === undefined ? "Balance unreadable" : "Not enough in your wallet: " + amt(units - have, 8) + " short"; }
         const net = units > w.wfee ? units - w.wfee : Z;
         const big = w.bigbps !== Z && units > w.bigAt;
         const waitBlocks = Number(w.wdelay) + (big ? Number(w.bigdelay) : 0);
@@ -378,7 +386,7 @@
         h("div", { class: "note" },
           "Burn is a ring-size-2 call: the contract must record who burned, so this address is public in that transaction. " +
           "The destination you type is stored on DERO in the clear — anyone can read it. Use an address you are willing to publish."),
-        button("Burn and withdraw", "primary", () => doBurn(w, amount, dest)),
+        btn,
       ];
     };
 
@@ -497,6 +505,10 @@
     render(el, h("h1", { class: "mt" }, "Wrapped assets"), h("div", { class: "list mt" }, U.skeleton(3)));
     reload(false);
     // redraw on each new block so the countdown to a release height actually counts down
-    D.onChange(() => { if (router.current && router.current.name === "wrap" && D.vault) { tip = (V.live && V.live.height) || tip; draw(D.vault, lastMine); } });
+    // Every block changes the data, and a redraw rebuilds the deposit and burn forms from scratch — which wiped an
+    // amount or a destination address mid-typing (it took the render pass to notice). While any field on this
+    // screen holds text, the screen is the user's: the redraw waits until the forms are empty again.
+    const busy = () => [...el.querySelectorAll("input")].some((i) => i.value && i.value.trim());
+    D.onChange(() => { if (router.current && router.current.name === "wrap" && D.vault && !busy()) { tip = (V.live && V.live.height) || tip; draw(D.vault, lastMine); } });
   });
 })();
