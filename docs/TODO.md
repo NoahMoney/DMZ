@@ -26,24 +26,20 @@ result stands.
 **DONE since the first note:** all six companion fixes are wired and tested (invariants 8–13); the NFA contract
 phase is complete (`nfa.bas`, eight DVM tests, `RegisterNFA`, template + config, `docs/NFA.md`).
 
-**RUNNING at this note** (both in the background of one session — if the session is gone, rerun):
-- The **three-exit simulator run**: `cd tools && go run ./simhtlc -fake-monero -fund 12000 -prover "wsl.exe -e
-  /home/wilma/target/proof-xmr/release/proof-xmr"`. `-fund 6000` was not enough (Bob at 7,741 atomic needs
-  12,000); `-fund 12000` funded him to 23,167. `htlc.bas` installed at `ecf3b137…` (3,561 canonical bytes, 3,598
-  storage gas). The happy path completed; the refund path had Alice's XMR locked and Bob offline until t1 = 20509
-  (his lock tx `cd5f7215…`). Its log is the session scratchpad's `simhtlc.log`. **It is the gate for merging the
-  WIP branch into `main`.** Paste the txids of all three exits into HISTORY.
-- The **NFA app screen** (spec §3.C — now with the no-ninth-tab decision written into it): a workflow of two
-  builders (screen: `app/nfas.js`, `nfts.js`, `screens.js`, `index.html`; mint: `app/forms.js` `V.forms.nfa()`,
-  `tools/simnfa`) and a verifier that installs two NFAs on the simulator (DERO- and wXMR-quoted), runs the UI
-  pass to `.sim/ui-nfa-r<n>` and reads the PNGs, with up to two fix rounds. If it was cut: `git status` shows
-  what landed; `node --check` and the UI pass say whether it is whole; a half-built screen is not merged — it
-  stays on the WIP branch.
+**DONE 2026-09-09 evening:** the three-exit swap run GREEN (txids in HISTORY); the NFA screen built by two agents
+on disjoint files and verified by a third on the rendered app (`a7c3742`); the simulator factory redeployed with
+`simdeploy -migrate-from` (new factory `83ae27eb…`: 7 pools, 20 launches, nft_0, nfa_1 `fa06a61a…` DERO-quoted,
+nfa_2 `c1a54ead…` XMR-quoted); `docs/BACKLOG.md` written; HISTORY entry appended; **main fast-forwarded to the WIP
+tip** (this commit and everything before it) and pushed. WIP and main are equal; work continues on main.
 
-**Then, in order:** the swap run green → commit the NFA screen if its verifier was green → `bash tests/run.sh` and
-the full VALIDATE list from `docs/LOOP_PROMPT.md` on the WIP tip → merge WIP → main (fast-forward, push) →
-HISTORY.md entry (SHIPPED / ALSO FIXED / VERIFIED / UNCONSIDERED / NEXT) → the loop back up from
-`docs/LOOP_PROMPT.md` (end the turn after each cycle).
+**Simulator state to know:** the XMR NFA `c1a54ead…` had a 1.5 XMR sale started by the verifier from wallet 16 that
+ends ~19:22 local on 2026-09-09; after that its owner (wallet 16) must `CloseListing` to get the unit back (the
+app's Close button, or `simnfa`). Wallet fleet: 0.02–2.9 DERO each; 30006/30007 are the swap's.
+
+**Then, in order (the loop is up from `docs/LOOP_PROMPT.md`):** the Buy button disabled with its reason when the
+wallet cannot pay (HISTORY 2026-09-09 UNCONSIDERED) → the transparent-ZEC swap market design note (BL-40) →
+Founders per-asset fees (BL-90) → the spore rendezvous channel (BL-10) → the Monero backend on stagenet (BL-11)
+→ `deploy/federation.md` (BL-80) → the rest of `docs/BACKLOG.md` by priority.
 
 **Operator rulings 2026-09-08:** "we want it trustless" — the DERO↔XMR atomic swap is the active track; the
 operator hosts nothing 24/7; NFA (ART-NFA-MS1) replaces `nft.bas`; spore is the rendezvous channel only.
