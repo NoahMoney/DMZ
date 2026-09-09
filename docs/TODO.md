@@ -10,10 +10,27 @@ on something named.
 
 ---
 
-## RESUME HERE — session ended 2026-09-09 ~00:30 with two builds mid-flight
+## RESUME HERE — updated 2026-09-09 ~13:40 (second disconnect)
 
-`main` is green at `0e91b6a`. Everything on disk at session end is on branch **`wip/2026-09-09-swap-nfa`**,
-**unverified as a whole**: check it out, run the validators in `docs/LOOP_PROMPT.md`, keep what passes.
+`main` is green at `0e91b6a`. Branch **`wip/2026-09-09-swap-nfa`** is the working state; its checkpoint
+`2e798d0` was **verified as a whole** on 2026-09-09: DVM suite 59 s green, `tests/js` 6/6, companion
+`go test ./xmrswap` green and `TestCrashFuzz -count=3` green, every app file under the DOC cap, UI pass green.
+Whatever was committed after that is a snapshot taken at the disconnect and is unverified — `git log` says which.
+
+**What is DONE since the first note:** all six companion fixes are wired and tested (invariants 8–13); the NFA
+contract phase is complete (`nfa.bas`, eight DVM tests, `RegisterNFA`, template + config, `docs/NFA.md`).
+
+**What is IN PROGRESS at the cut:**
+- The NFA **app screen** (spec §3.C + a `tools/simnfa` install driver): an agent was mid-way; partial files may be
+  on disk under `app/` and `tools/simnfa/`. Unverified; the UI pass will say.
+- The **three-exit simulator run** of the swap companion (`tools/simhtlc -fake-monero -fund 6000 -prover
+  "wsl.exe -e /home/wilma/target/proof-xmr/release/proof-xmr"`) had reached the happy path (Bob funded, htlc.bas
+  installed at `f06ebfbc…`) and was stopped. Rerun it — ~25 min of chain time — and paste its txids into
+  HISTORY. **It is the gate for merging the WIP branch into `main`.** (`-fund 6000` makes Alice fund Bob; the
+  wallet fleet is nearly drained.)
+
+**Then:** merge WIP → main, HISTORY.md entry (SHIPPED / ALSO FIXED / VERIFIED / UNCONSIDERED / NEXT), and the loop
+back up from `docs/LOOP_PROMPT.md`.
 
 **Operator rulings 2026-09-08:** "we want it trustless" — the DERO↔XMR atomic swap is the active track; the
 operator hosts nothing 24/7; NFA (ART-NFA-MS1) replaces `nft.bas`; spore is the rendezvous channel only.

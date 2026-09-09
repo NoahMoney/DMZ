@@ -16,9 +16,17 @@
   // validators read this one list, because two hand-written copies once said 0|1 and dropped every sell from
   // the cache and from this device's own ledger.
   const SIDES = [1, 2], isSide = (v) => SIDES.includes(v);
+  // An NFA (contracts/nfa.bas, docs/NFA.md §3) is read by the standard's own key names plus DMZ's quote, protoFee
+  // and treasury. They are kept apart from NUMKEYS / STRKEYS / PROBE so the fixed set every pool and launch is
+  // fetched and synced by does not grow by forty keys none of them has. NFA_PROBE is what a block can change on
+  // one: who owns it, the listing and its bids, and the URLs Update() may rewrite.
+  const NFA_NUM = ["royalty", "artificerFee", "ownerCanUpdate", "protoFee", "active", "scBalance", "cancelBuffer", "startBlockTime", "endBlockTime", "bidCount", "staticBidIncr", "percentBidIncr", "charityDonatePerc", "startPrice", "currBidPrice", "currBidAmt", "previousSalePrice", "previousAuctionPrice"];
+  const NFA_STR = ["nameHdr", "descrHdr", "typeHdr", "iconURLHdr", "tagsHdr", "fileURL", "fileSignURL", "fileCheckC", "fileCheckS", "coverURL", "collection", "version", "listType", "quote", "treasury", "owner", "creatorAddr", "previousOwner", "charityDonateAddr", "currBidAddr"];
+  const NFA_PROBE = ["owner", "scBalance", "listType", "startBlockTime", "endBlockTime", "currBidPrice", "bidCount", "fileURL", "fileSignURL", "iconURLHdr", "tagsHdr"];
+  const nfaSig = (vals) => NFA_PROBE.map((k) => vals[k] || "").join("|");
 
   const data = {
-    cfg: window.VEIL_CONFIG, registry: null, assets: new Map(), nfts: new Map(), profiles: new Map(), follows: new Set(), followers: new Map(), following: new Map(),
+    cfg: window.VEIL_CONFIG, registry: null, assets: new Map(), nfts: new Map(), nfas: new Map(), profiles: new Map(), follows: new Set(), followers: new Map(), following: new Map(),
     heights: new Map(), hashes: {}, verified: new Map(), lastRefresh: 0, refreshing: null, listeners: [], height: 0,
     // Screen handlers subscribe on every dispatch, so a plain push leaks one closure per visit and redraws the
     // screen once per past visit on every block. Tag each subscription with the navigation that created it and
@@ -116,10 +124,12 @@
       const keys = ["pc", "lc", "nc", "regfee", "tstr"]; const r0 = await V.node.getSC(cfg.factory, { keys });
       const n = (k) => (isNum(r0.vals[k]) ? B(r0.vals[k]) : 0n);
       const ids = (p, c) => { const out = []; for (let i = 0n; i < c; i++) out.push(p + i); return out; };
-      const want = [...ids("pool_", n("pc")), ...ids("launch_", n("lc")), ...ids("nft_", n("nc"))];
+      // nft_<i> and nfa_<i> share the one counter nc (factory.bas RegisterNFA): a slot holds exactly one of the
+      // two spellings, so both are asked for over the same range and each list keeps the slots that answer to it.
+      const want = [...ids("pool_", n("pc")), ...ids("launch_", n("lc")), ...ids("nft_", n("nc")), ...ids("nfa_", n("nc"))];
       const vals = await this.fetchKeys(cfg.factory, want);
       const list = (p, c) => { const out = []; for (let i = 0n; i < c; i++) { const v = V.hexToStr(vals[p + i] || ""); if (/^[0-9a-f]{64}$/.test(v)) out.push(v); } return out; };
-      const reg = { treasury: V.hexToStr(r0.vals.tstr || ""), regfee: n("regfee"), pools: list("pool_", n("pc")), launches: list("launch_", n("lc")), nfts: list("nft_", n("nc")) };
+      const reg = { treasury: V.hexToStr(r0.vals.tstr || ""), regfee: n("regfee"), pools: list("pool_", n("pc")), launches: list("launch_", n("lc")), nfts: list("nft_", n("nc")), nfas: list("nfa_", n("nc")) };
       reg.treasuryCanon = V.canonAddress(reg.treasury);
       // A market's treasury is fixed at its install, so the factory's live pointer is a hint, not the rule: one
       // SetTreasury would delist every market ever made. A bundle that ships an accepted set (current + legacy,
@@ -207,6 +217,7 @@
     async loadContract(scid, prev) {
       const kind = await this.verify(scid);
       if (!kind) return { scid, untrusted: "code does not match a shipped template" };
+      if (kind === "nfa") return this.loadNFA(scid);
       const r = await V.node.getSC(scid, { keys: [...NUMKEYS, ...STRKEYS] });
       const num = (k) => (isNum(r.vals[k]) ? B(r.vals[k]) : 0n), str = (k, n) => clean(V.hexToStr(r.vals[k] || ""), n), hex = (k) => (r.vals[k] || "");
       const tCanon = hex("treasury") ? this.rawToAddr(hex("treasury")) : null, reg = this.registry;
@@ -254,6 +265,27 @@
       this.saveCache(s);
       return s;
     },
+    // The NFA branch of loadContract (docs/NFA_BUILD.md §3.C): the code has verified against templates.nfa, legacy
+    // included, by the time this runs. The treasury check is the one every kind passes. The fee check is the
+    // pool's, for the pool's reason: the template fixes the code and not its install parameters, so an NFA whose
+    // protoFee is not the deployment's would verify by code and treasury while paying the Founders Pass nothing.
+    async loadNFA(scid) {
+      const r = await V.node.getSC(scid, { keys: [...NFA_NUM, ...NFA_STR] });
+      const num = (k) => (isNum(r.vals[k]) ? B(r.vals[k]) : 0n), str = (k, n) => clean(V.hexToStr(r.vals[k] || ""), n), addr = (k) => (r.vals[k] ? this.rawToAddr(r.vals[k]) : null);
+      const tCanon = addr("treasury"), reg = this.registry;
+      if (reg && !reg.treasuryUnverified && !reg.treasuries.has(tCanon)) return { scid, untrusted: tCanon ? "treasury differs from the factory" : "treasury could not be read" };
+      const s = { scid, kind: "nfa", treasury: tCanon, treasuryUnverified: !reg || reg.treasuryUnverified, sig: nfaSig(r.vals), installHeight: await this.installHeight(scid) };
+      for (const k of NFA_NUM) s[k] = num(k);
+      if (s.protoFee !== B(this.cfg.feeBps || 0)) return { scid, untrusted: "protocol fee differs from the deployment's (" + s.protoFee + " bps)" };
+      Object.assign(s, { name: str("nameHdr", 64) || "?", descr: str("descrHdr", 240), type: str("typeHdr", 32), icon: str("iconURLHdr", 200), tags: str("tagsHdr", 100), file: str("fileURL", 300), fileSign: str("fileSignURL", 300), checkC: str("fileCheckC", 120), checkS: str("fileCheckS", 120), cover: str("coverURL", 300), collection: str("collection", 64), version: str("version", 8), listType: str("listType", 8),
+        owner: addr("owner"), creator: addr("creatorAddr"), prevOwner: addr("previousOwner"), charityAddr: addr("charityDonateAddr"), bidder: addr("currBidAddr") });
+      // The quote is stored as the raw 32-byte SCID, so its hex is the id the vault list is keyed by and the zero
+      // hash is DERO — the reading a pool's qt gets, so a wXMR-quoted NFA shows XMR prices through nameQuote. The
+      // avatar plate takes the name's first letters for want of a ticker.
+      const q = r.vals.quote || ""; s.quote = q && !/^0+$/.test(q) ? q : null; s.ticker = s.name.slice(0, 3);
+      return this.nameQuote(s);
+    },
+    async probeNFA(scid) { const r = await V.node.getSC(scid, { keys: NFA_PROBE }); return nfaSig(r.vals); },
     flushCache() { for (const s of this.assets.values()) if (s._dirty) this.saveCache(s, true); },
     fromCache(scid) {
       const c = this.loadCache(scid); if (!c) return null;
@@ -314,8 +346,12 @@
             } catch (e) { console.warn("load", id, e); if (cached) { this.failed(cached, e); next.set(id, cached); } }
           });
           await pmap(reg.nfts, 4, async (id) => { const cached = this.nfts.get(id); try { if (cached && !full) { const sig = await this.probe(id); if (sig === cached.sig) { cached.lastError = null; nfts.set(id, cached); return; } } const s = await this.loadContract(id, cached); if (s && !s.untrusted && s.kind === "nft") nfts.set(id, s); } catch (e) { if (cached) { this.failed(cached, e); nfts.set(id, cached); } } });
+          // NFAs sync by their own probe: the fixed PROBE set is pool and launch state, none of which an NFA has,
+          // so a cached record's signature would never change and a sale would never reach the screen.
+          const nfas = new Map();
+          await pmap(reg.nfas, 4, async (id) => { const cached = this.nfas.get(id); try { if (cached && !full) { const sig = await this.probeNFA(id); if (sig === cached.sig) { cached.lastError = null; nfas.set(id, cached); return; } } const s = await this.loadContract(id, cached); if (s && !s.untrusted && s.kind === "nfa") nfas.set(id, s); else if (s) console.warn("skipping", id, s.untrusted); } catch (e) { console.warn("load", id, e); if (cached) { this.failed(cached, e); nfas.set(id, cached); } } });
           try { this.founders = await this.loadFounders(this.founders); } catch (e) { console.warn("founders", e); }
-          this.assets = next; this.nfts = nfts; this.decorate(); this.lastRefresh = Date.now(); this.lastError = null;
+          this.assets = next; this.nfts = nfts; this.nfas = nfas; this.decorate(); this.lastRefresh = Date.now(); this.lastError = null;
         } catch (e) { this.failed(this, e); throw e; } finally { this.changed(); }
       })().finally(() => { this.refreshing = null; });
       return this.refreshing;

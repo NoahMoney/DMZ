@@ -5,7 +5,11 @@
   const stat = (l, v, cls) => h("div", { class: "stat" }, h("div", { class: "l" }, l), h("div", { class: "v num " + (cls || "") }, v));
   V.nft = {
     page: async (el, scid) => {
-      const n = D.nfts.get(scid); if (!n) return render(el, h("div", { class: "errbox mt" }, "Unknown collection"));
+      const n = D.nfts.get(scid);
+      // nft_<i> and nfa_<i> share one counter on the factory, so a link that guessed #nft for an NFA is a
+      // plausible guess: send it to the NFA page rather than to "Unknown collection".
+      if (!n && D.nfas.has(scid)) return V.nfas.page(el, scid);
+      if (!n) return render(el, h("div", { class: "errbox mt" }, "Unknown collection"));
       const tok = D.assets.get(n.token);
       // the caller's own lock is read by key; other holders' locks are never enumerated
       const k = me() ? await D.myKeys(scid, me(), ["lk_", "lh_", "lm_", "mt_"]).catch(() => ({})) : {};
