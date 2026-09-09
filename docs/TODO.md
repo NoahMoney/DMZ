@@ -10,47 +10,48 @@ on something named.
 
 ---
 
-## RESUME HERE — updated 2026-09-09 ~13:40 (second disconnect)
+## RESUME HERE — updated 2026-09-09 evening (third resume)
 
-`main` is green at `0e91b6a`. Branch **`wip/2026-09-09-swap-nfa`** is the working state; its checkpoint
-`2e798d0` was **verified as a whole** on 2026-09-09: DVM suite 59 s green, `tests/js` 6/6, companion
+`main` is green at `0e91b6a`. Branch **`wip/2026-09-09-swap-nfa`** is the working state at `7839c04`; its
+checkpoint `2e798d0` was **verified as a whole** on 2026-09-09: DVM suite 59 s green, `tests/js` 6/6, companion
 `go test ./xmrswap` green and `TestCrashFuzz -count=3` green, every app file under the DOC cap, UI pass green.
-Whatever was committed after that is a snapshot taken at the disconnect and is unverified — `git log` says which.
+`9e92aa8` is the snapshot taken at the second disconnect; `7839c04` removes the NFAs tab and script it had
+registered for a screen that did not exist yet (UI pass green again, seven tabs on a phone). Only `app/` differs
+from the checkpoint (`app.js` allow-list, `feed.js` NFA loading branch, `nft.js` forward), so the contracts
+result stands.
 
-**What is DONE since the first note:** all six companion fixes are wired and tested (invariants 8–13); the NFA
-contract phase is complete (`nfa.bas`, eight DVM tests, `RegisterNFA`, template + config, `docs/NFA.md`).
+**DONE since the first note:** all six companion fixes are wired and tested (invariants 8–13); the NFA contract
+phase is complete (`nfa.bas`, eight DVM tests, `RegisterNFA`, template + config, `docs/NFA.md`).
 
-**What is IN PROGRESS at the cut:**
-- The NFA **app screen** (spec §3.C + a `tools/simnfa` install driver): an agent was mid-way; partial files may be
-  on disk under `app/` and `tools/simnfa/`. Unverified; the UI pass will say.
-- The **three-exit simulator run** of the swap companion (`tools/simhtlc -fake-monero -fund 6000 -prover
-  "wsl.exe -e /home/wilma/target/proof-xmr/release/proof-xmr"`) had reached the happy path (Bob funded, htlc.bas
-  installed at `f06ebfbc…`) and was stopped. Rerun it — ~25 min of chain time — and paste its txids into
-  HISTORY. **It is the gate for merging the WIP branch into `main`.** (`-fund 6000` makes Alice fund Bob; the
-  wallet fleet is nearly drained.)
+**RUNNING at this note** (both in the background of one session — if the session is gone, rerun):
+- The **three-exit simulator run**: `cd tools && go run ./simhtlc -fake-monero -fund 12000 -prover "wsl.exe -e
+  /home/wilma/target/proof-xmr/release/proof-xmr"`. `-fund 6000` was not enough (Bob at 7,741 atomic needs
+  12,000); `-fund 12000` funded him to 23,167. `htlc.bas` installed at `ecf3b137…` (3,561 canonical bytes, 3,598
+  storage gas). The happy path completed; the refund path had Alice's XMR locked and Bob offline until t1 = 20509
+  (his lock tx `cd5f7215…`). Its log is the session scratchpad's `simhtlc.log`. **It is the gate for merging the
+  WIP branch into `main`.** Paste the txids of all three exits into HISTORY.
+- The **NFA app screen** (spec §3.C — now with the no-ninth-tab decision written into it): a workflow of two
+  builders (screen: `app/nfas.js`, `nfts.js`, `screens.js`, `index.html`; mint: `app/forms.js` `V.forms.nfa()`,
+  `tools/simnfa`) and a verifier that installs two NFAs on the simulator (DERO- and wXMR-quoted), runs the UI
+  pass to `.sim/ui-nfa-r<n>` and reads the PNGs, with up to two fix rounds. If it was cut: `git status` shows
+  what landed; `node --check` and the UI pass say whether it is whole; a half-built screen is not merged — it
+  stays on the WIP branch.
 
-**Then:** merge WIP → main, HISTORY.md entry (SHIPPED / ALSO FIXED / VERIFIED / UNCONSIDERED / NEXT), and the loop
-back up from `docs/LOOP_PROMPT.md`.
+**Then, in order:** the swap run green → commit the NFA screen if its verifier was green → `bash tests/run.sh` and
+the full VALIDATE list from `docs/LOOP_PROMPT.md` on the WIP tip → merge WIP → main (fast-forward, push) →
+HISTORY.md entry (SHIPPED / ALSO FIXED / VERIFIED / UNCONSIDERED / NEXT) → the loop back up from
+`docs/LOOP_PROMPT.md` (end the turn after each cycle).
 
 **Operator rulings 2026-09-08:** "we want it trustless" — the DERO↔XMR atomic swap is the active track; the
 operator hosts nothing 24/7; NFA (ART-NFA-MS1) replaces `nft.bas`; spore is the rendezvous channel only.
 
-**Swap (`docs/XMR_SWAP_BUILD.md`)** — committed and verified: `contracts/htlc.bas` + tests, the proof CLI,
-`docs/XMR_SWAP.md`. On the WIP branch, first-verified with all three exits run on the simulator but **failing
-invariants 8–13** (the six added from the adversarial review): `tools/xmrswap`, `tools/simhtlc`. The six fixes
-the verifier named, in order: (1) `swap.go` clear Bob's `LastSent` when the lock leaves the open state
-(TestCrashFuzz flake); (2) inv. 8 — gate only on `Unlocked && UnlockTime == 0` outputs, fake wallet must emit a
-locked one, test; (3) inv. 9/11 — Alice stops claiming at `t1 − 8 − margin`, `StableHeight` + claim height on
-the `Dero` interface, Bob sweeps only when the Claim block ≤ stable; (4) inv. 10 — `DefaultConfirmations = 20`,
-refuse lower unless passed explicitly; (5) inv. 13 — record used secrets, refuse reuse, test; (6) `simhtlc`
-default `-t1 24`, document `-fund`. Then re-run `simhtlc` for all three exits (≈25 min of chain time; fund
-30006/30007 first).
-
-**NFA (`docs/NFA_BUILD.md`)** — build launched 23:24, mid-way at session end: `contracts/nfa.bas` + tests,
-`factory.bas RegisterNFA`, template plumbing, `docs/NFA.md`, then the app screen. Partial files may be on the
-WIP branch; the spec is the source of truth.
-
-**The loop** — cron is session-only and fires only when idle; recreate from `docs/LOOP_PROMPT.md`.
+**Swap (`docs/XMR_SWAP_BUILD.md`)** — `contracts/htlc.bas` + tests, the proof CLI, `docs/XMR_SWAP.md`,
+`tools/xmrswap` with all thirteen invariants asserted by tests, `tools/simhtlc` (`-t1 28` default, `-fund`
+documented). The six fixes from the adversarial review (invariants 8–13) are in: `LastSent` cleared when the
+lock leaves the open state; the gate only on `Unlocked && UnlockTime == 0` outputs; Alice stops claiming at
+`t1 − 8 − margin` and Bob sweeps only once the Claim block is stable; `DefaultConfirmations = 20`; used secrets
+recorded and reuse refused. Simulator wallets 30006/30007 are the swap's; the fleet is nearly drained, so
+`simnfa` funds its creator from the richest wallet.
 
 ---
 

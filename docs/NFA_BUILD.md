@@ -54,7 +54,7 @@ not silently removed.
 |---|---|---|
 | **A `nfa`** | `contracts/nfa.bas`, `tests/nfa_test.go`, one line in `tests/parse_test.go` | the contract (§3.A) and every test in §5.A |
 | **B `registry`** | `contracts/factory.bas`, `tests/registry_test.go` (additions), `tools/simdeploy/main.go`, `tools/genconfig/**`, `tools/netcfg/**`, `deploy/networks.json` (the `nfa` template entry) | `RegisterNFA` on the factory; the `nfa` template shipped and hashed like `pool`/`launch`; legacy-hash sequencing (§3.B) |
-| **C `app`** | `app/nfas.js`, `app/nft.js`, `app/feed.js` (only the NFA loading/verification branch), `app/sheets.js` (NFA actions), `app/forms.js` (the mint form) | the NFA screen: list by collection, headers, quote-aware marketplace actions through XSWD (§3.C). **Starts only after A and B report green** |
+| **C `app`** | `app/nfas.js` (screen and its action sheets), `app/nfts.js` (mounts the section), `app/screens.js` (the `nfa` route), `app/index.html` (the script line, no tab), `app/nft.js`, `app/feed.js` (only the NFA loading/verification branch), `app/forms.js` (the mint form), `tools/simnfa` | the NFA screen: list by collection, headers, quote-aware marketplace actions through XSWD (§3.C). **Starts only after A and B report green** |
 | **D `spec`** | `docs/NFA.md` | the user-facing description, the compatibility statement, the adversarial review (§3.D) |
 | **verify** | nothing | §6 |
 
@@ -93,6 +93,13 @@ before the button: royalty, protocol fee, charity, owner), **Claim ownership** (
 **Start sale / auction**, **Close**, **Cancel** (only inside the buffer, said so). Every amount is in the quote's
 symbol; DERO appears only as gas. Nothing new in the browser holds a key. Keep every touched file under the DOC
 cap (`genconfig -dist -network simulator`).
+
+The screen has no tab of its own: the phone tab bar is a seven-column grid (`styles.css` `.tabs`, profile hidden on
+phones) and an eighth visible tab failed the UI pass. NFAs are the first section of the NFTs tab (`app/nfas.js`
+`V.nfas.section()`, mounted from `app/nfts.js`), and each has its own page at `#nfa/<scid>` (`V.nfas.page`, the route
+in `app/screens.js`); `app/nft.js` forwards a `#nft` link that names an NFA. The market actions are sheets inside
+`nfas.js`, not `sheets.js` (that file is the trade sheet). The mint form is `V.forms.nfa()`; `tools/simnfa` installs one
+on the simulator, DERO- or wrapped-quoted, and can list it.
 
 ### 3.D `docs/NFA.md`
 
