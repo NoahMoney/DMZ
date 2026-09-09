@@ -192,12 +192,15 @@
       } catch (e) { if (my !== gasSeq) return; gasTxt = ""; }
       if (my === gasSeq) paint();
     };
+    let balFail = false;
     const quote = () => {
       amount = A.parseUnits(input.value, dec) || Z;
       q = amount > Z ? (buy ? (launch ? A.launchBuy(s, amount) : A.poolBuy(s, amount)) : (launch ? A.launchSell(s, amount) : A.poolSell(s, amount))) : null;
       const big = q && q.impact > 1500, mid = q && q.impact > 500;
-      confirm.disabled = !q || (big && !ack) || (balance !== null && amount > balance) || (priv && !V.isAddress(destIn.value.trim())) || (priv && q.refund > Z);
-      confirm.textContent = balance !== null && amount > balance ? "Insufficient " + unit : priv && q.refund > Z ? "Overshoots the curve: lower the amount" : (buy ? "Buy " : "Sell ") + s.ticker;
+      // fail closed: a connected wallet whose balance has not been read, or could not be, gets no button
+      const noBal = V.wallet.connected && balance === null;
+      confirm.disabled = !q || noBal || (big && !ack) || (balance !== null && amount > balance) || (priv && !V.isAddress(destIn.value.trim())) || (priv && q.refund > Z);
+      confirm.textContent = noBal ? (balFail ? "Balance unreadable" : "Reading your " + unit + " balance…") : balance !== null && amount > balance ? "Not enough " + unit + ": " + A.fmtUnits(amount - balance, dec, 4) + " short" : priv && q.refund > Z ? "Overshoots the curve: lower the amount" : (buy ? "Buy " : "Sell ") + s.ticker;
       outV.textContent = q ? A.fmtUnits(q.out, outDec, 6) + " " + outUnit : amount > Z ? "—" : "0";
       // the price this order really executes at, next to the price the market quotes: the gap is what size costs
       const exec = q ? (buy ? Number(amount) / 10 ** Number(qdec) / (Number(q.out) / 10 ** Number(s.dec)) : Number(q.out) / 10 ** Number(qdec) / (Number(amount) / 10 ** Number(s.dec))) : 0;
@@ -244,7 +247,7 @@
       const note = U.$("#balNote");
       if (!V.wallet.connected) { if (note) note.textContent = "Connect the wallet for balances"; return; }
       // a pool sells its asset, not its own LP token
-      try { const b = await V.wallet.getBalance(buy ? (s.quote || "") : s.asset); balance = V.toBig(b && b.balance) || Z; if (note) note.textContent = "Balance: " + A.fmtUnits(balance, dec, 4) + " " + unit; quote(); } catch (e) { if (note) note.textContent = "Balance unavailable"; }
+      try { const b = await V.wallet.getBalance(buy ? (s.quote || "") : s.asset); balance = V.toBig(b && b.balance) || Z; if (note) note.textContent = "Balance: " + A.fmtUnits(balance, dec, 4) + " " + unit; quote(); } catch (e) { balFail = true; if (note) note.textContent = "Balance unreadable: the wallet did not answer"; quote(); }
     })();
   };
 })();

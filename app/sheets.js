@@ -15,6 +15,19 @@
   const reading = (label) => { const v = h("div", { class: "v num" }, "0"), n = h("div", { class: "note mt8" }); return { el: h("div", { class: "outline mt" }, h("div", { class: "l" }, label), v, n), v, n }; };
   const rows = () => h("div", { class: "stack", style: "gap:0" });
   const amountBox = (input, unit) => h("div", { class: "amount mt8" }, input, h("span", { class: "unit" }, unit));
+  // The gate every sheet's button passes while a wallet is connected: the wallet must have answered and hold the
+  // amount, or the button stays shut and says why. An amount the wallet would refuse is never offered, and a
+  // balance that cannot be read counts as not enough. need: [{have, amount, sym, dec}] — have is null while the
+  // balance is being read and undefined when the wallet did not answer.
+  const gate = (btn, label, need) => {
+    btn.textContent = label; if (!V.wallet.connected || btn.disabled) return;
+    for (const n of need) {
+      if (n.have === undefined) { btn.disabled = true; btn.textContent = "Balance unreadable"; return; }
+      if (n.have === null) { btn.disabled = true; btn.textContent = "Reading your " + n.sym + " balance…"; return; }
+      if (n.amount > n.have) { btn.disabled = true; btn.textContent = "Not enough " + n.sym + ": " + A.fmtUnits(n.amount - n.have, n.dec, 4) + " short"; return; }
+    }
+  };
+  const held = async (scid) => { try { const b = await V.wallet.getBalance(scid); return V.toBig(b && b.balance) || Z; } catch (e) { return undefined; } };
 
   // ---- the network fee, before the button --------------------------------------------------------------------
   // Gas is DERO on every market, whatever that market trades in, so it is never folded into the trading fee. The
@@ -52,6 +65,7 @@
       if (mode === "add") {
         const dIn = h("input", { inputmode: "decimal", placeholder: "0", autocomplete: "off", "aria-label": qsym + " to deposit" }), aIn = h("input", { inputmode: "decimal", placeholder: "0", autocomplete: "off", "aria-label": s.ticker + " to deposit" }), out = reading("LP units minted (estimated)"); let d = Z, a = Z, q = null;
         const btn = button("Add liquidity", "primary wide mt", () => { closeSheet(); V.app.tx({ scid: s.scid, entry: "AddLiquidity", args: [["min_lp", "U", A.minOut(q.lp, V.app.settings.slippage || 100)]], dero: d, asset: { scid: s.asset, amount: a }, describe: "Add liquidity", holdings: true, probe: { scid: s.scid, keys: ["lp"] } }); }, { disabled: true });
+        let bq = null, ba = null; if (V.wallet.connected) Promise.all([held(s.quote || ""), held(s.asset)]).then(([x, y]) => { bq = x; ba = y; upd(); });
         const paint = () => render(detail, q ? [kv("Minimum LP, or the call reverts", A.fmtUnits(A.minOut(q.lp, slip), qdec, 3)),
           s.lp === Z ? kv("Locked forever, nobody can withdraw it", lockedLp + " LP") : null,
           q.refundA > Z ? kv("Returned to you, the ratio decides", A.fmtUnits(q.refundA, s.dec, 6) + " " + s.ticker) : null,
@@ -62,7 +76,7 @@
           out.v.textContent = q ? A.fmtUnits(q.lp, qdec, 3) : "0";
           out.n.textContent = q ? "Share of the pool after this deposit: " + (Number(q.lp * 10000n / (s.lp + q.lp)) / 100).toFixed(2) + "%" : s.lp === Z ? "Enter both amounts. The first deposit must be at least " + A.fmtUnits(100000n, qdec, Number(qdec)) + " " + qsym + "." : "Enter " + qsym + "; the asset amount follows the pool ratio.";
           clearTimeout(gasTimer); gasSeq++; gasTxt = ""; if (q) gasTimer = setTimeout(estimate, 320);
-          paint(); btn.disabled = !q; };
+          paint(); btn.disabled = !q; gate(btn, "Add liquidity", [{ have: bq, amount: d, sym: qsym, dec: qdec }, { have: ba, amount: a, sym: s.ticker, dec: s.dec }]); };
         dIn.oninput = upd; aIn.oninput = upd;
         render(body, h("div", { class: "eyebrow" }, "You deposit"), amountBox(dIn, qsym), amountBox(aIn, s.ticker),
           s.lp === Z ? h("div", { class: "warnbox mt" }, "This is the first deposit: your two amounts set the opening price, and " + lockedLp + " LP stays locked forever.") : null,
@@ -72,6 +86,7 @@
       } else {
         const lIn = h("input", { inputmode: "decimal", placeholder: "0", autocomplete: "off", "aria-label": "LP units to burn" }), out = reading("You receive (estimated)"); let l = Z, q = null;
         const btn = button("Remove liquidity", "primary wide mt", () => { closeSheet(); V.app.tx({ scid: s.scid, entry: "RemoveLiquidity", args: [["min_dero", "U", A.minOut(q.d, V.app.settings.slippage || 100)], ["min_asset", "U", A.minOut(q.a, V.app.settings.slippage || 100)]], asset: { scid: s.scid, amount: l }, describe: "Remove liquidity", holdings: true, probe: { scid: s.scid, keys: ["lp"] } }); }, { disabled: true });
+        let bl = null; if (V.wallet.connected) held(s.scid).then((x) => { bl = x; upd(); });
         const paint = () => render(detail, q ? [kv("Minimum received, or it reverts", A.fmtUnits(A.minOut(q.d, slip), qdec, 6) + " " + qsym + " · " + A.fmtUnits(A.minOut(q.a, slip), s.dec, 6) + " " + s.ticker),
           Sh.gasRow(gasTxt, true), kv("Route", AMM), kv("Ring size", "2 · the payer is public")] : null);
         const estimate = async () => { const my = ++gasSeq, at = q; try { const t = await Sh.gas({ scid: s.scid, entry: "RemoveLiquidity", args: [["min_dero", "U", A.minOut(at.d, slip)], ["min_asset", "U", A.minOut(at.a, slip)]], send: [{ scid: s.scid, amount: l }] }); if (my !== gasSeq || q !== at) return; gasTxt = t; } catch (e) { if (my !== gasSeq) return; gasTxt = ""; } if (my === gasSeq) paint(); };
@@ -79,7 +94,7 @@
           out.v.textContent = q ? A.fmtUnits(q.d, qdec, 6) + " " + qsym : "0";
           out.n.textContent = q ? "and " + A.fmtUnits(q.a, s.dec, 6) + " " + s.ticker : l > Z ? "More than the pool can release: " + lockedLp + " LP stays locked forever." : "Enter LP units to burn.";
           clearTimeout(gasTimer); gasSeq++; gasTxt = ""; if (q) gasTimer = setTimeout(estimate, 320);
-          paint(); btn.disabled = !q; };
+          paint(); btn.disabled = !q; gate(btn, "Remove liquidity", [{ have: bl, amount: l, sym: "LP", dec: qdec }]); };
         lIn.oninput = upd;
         render(body, h("div", { class: "eyebrow" }, "You withdraw"), amountBox(lIn, "LP"),
           h("div", { class: "note mt8" }, "Your LP balance is the pool's own contract id, held as an asset in your wallet. LP units carry the quote's decimals: " + Number(qdec) + " for " + qsym + "."),
@@ -101,13 +116,18 @@
     let pending = Z;
     if (mine.st) { const acc = s.sacc + (s.stot > Z ? s.tacc * 4294967296n / s.stot : Z); pending = mine.st * (acc - (mine.sd || Z)) / 4294967296n; }
     const inp = h("input", { inputmode: "decimal", placeholder: "0", autocomplete: "off", "aria-label": "amount" });
+    // both buttons pass the gate: Stake against the wallet's tokens, Unstake against the stake the contract records
+    const stakeBtn = button("Stake", "primary grow", () => { const a = A.parseUnits(inp.value, s.dec); if (!a) return toast("Enter an amount"); closeSheet(); V.app.tx({ scid: s.scid, entry: "Stake", args: [], asset: { scid: s.scid, amount: a }, describe: "Stake", holdings: true, probe: { scid: s.scid, keys: ["stot", "st_" + me()] } }); }, { disabled: true });
+    const unBtn = button("Unstake", "grow", () => { const a = A.parseUnits(inp.value, s.dec); if (!a) return toast("Enter an amount"); closeSheet(); V.app.tx({ scid: s.scid, entry: "Unstake", args: [["amt", "U", a]], describe: "Unstake", holdings: true, probe: { scid: s.scid, keys: ["stot", "st_" + me()] } }); }, { disabled: true });
+    let bt = null; if (V.wallet.connected) held(s.scid).then((x) => { bt = x; upd(); });
+    const upd = () => { const a = A.parseUnits(inp.value, s.dec) || Z; stakeBtn.disabled = !a; gate(stakeBtn, "Stake", [{ have: bt, amount: a, sym: s.ticker, dec: s.dec }]); unBtn.disabled = !a; gate(unBtn, "Unstake", [{ have: mine.st || Z, amount: a, sym: "staked " + s.ticker, dec: s.dec }]); };
+    inp.oninput = upd;
     openSheet(h("h2", null, "Stake " + s.ticker), h("div", { class: "sub mt8" }, Number(s.tax) / 100 + "% of every trade's " + qsym + " leg is shared among stakers, pro rata, block by block."),
       h("div", { class: "outline mt" }, h("div", { class: "l" }, "Pending reward"), h("div", { class: "v num" }, A.fmtUnits(pending, qdec, 5) + " " + qsym)),
       h("div", { class: "stack mt", style: "gap:0" }, kv("Your stake", mine.st ? A.fmtUnits(mine.st, s.dec, 4) : "0"), kv("Total staked", A.fmtCompact(s.stot, s.dec)), kv("Undistributed in the contract", A.fmtUnits(s.tacc, qdec, 5) + " " + qsym), kv("Ring size", "2 · the payer is public")),
       h("div", { class: "note mt8" }, RINGNOTE + " Staking, unstaking and claiming are three separate transactions, and each one pays a network fee in DERO" + (s.quote ? ", not in " + qsym : "") + "."),
       h("div", { class: "eyebrow mt" }, "Stake or unstake"), amountBox(inp, s.ticker),
-      h("div", { class: "row mt" }, button("Stake", "primary grow", () => { const a = A.parseUnits(inp.value, s.dec); if (!a) return toast("Enter an amount"); closeSheet(); V.app.tx({ scid: s.scid, entry: "Stake", args: [], asset: { scid: s.scid, amount: a }, describe: "Stake", holdings: true, probe: { scid: s.scid, keys: ["stot", "st_" + me()] } }); }),
-        button("Unstake", "grow", () => { const a = A.parseUnits(inp.value, s.dec); if (!a) return toast("Enter an amount"); closeSheet(); V.app.tx({ scid: s.scid, entry: "Unstake", args: [["amt", "U", a]], describe: "Unstake", holdings: true, probe: { scid: s.scid, keys: ["stot", "st_" + me()] } }); })),
-      button("Claim rewards", "wide mt", () => { closeSheet(); V.app.tx({ scid: s.scid, entry: "Claim", args: [], describe: "Claim rewards", holdings: true }); }), confirmNote());
+      h("div", { class: "row mt" }, stakeBtn, unBtn),
+      button("Claim rewards", "wide mt", () => { closeSheet(); V.app.tx({ scid: s.scid, entry: "Claim", args: [], describe: "Claim rewards", holdings: true }); }), confirmNote()); upd();
   };
 })();
