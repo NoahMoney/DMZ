@@ -1,5 +1,6 @@
 // DMZ nfts.js — the NFTs tab: the Founders Pass (mint, register to earn, rewards, built-in marketplace, public
-// accounting) and the holder-NFT collections. Every number is read from the pass contract; nothing is estimated.
+// accounting), then NFAs (app/nfas.js: assets priced in XMR, ZEC or DERO), then the holder-NFT collections. Every
+// number is read from the pass contract; nothing is estimated.
 (function () {
   const V = window.Veil, U = V.ui, A = V.amm, D = V.data, { h, render, avatar, router, button, kv, openSheet, closeSheet, toast } = U;
   const me = () => V.wallet.canon, Z = 0n;
@@ -123,13 +124,13 @@
     const draw = () => {
       const f = D.founders;
       // re-render only when something on this page changed (the rest of the app refreshes every block)
-      const key = [f ? f.sig : "-", mine ? mine.wallet + ":" + mine.units + ":" + mine.pending : "-", V.wallet.connected, D.nfts.size, D.lastRefresh > 0].join("|");
+      const key = [f ? f.sig : "-", mine ? mine.wallet + ":" + mine.units + ":" + mine.pending : "-", V.wallet.connected, D.nfts.size, D.nfas.size, V.nfas.key(), V.settings.images, D.lastRefresh > 0].join("|");
       if (key === lastKey) return; lastKey = key;
       render(el, h("h1", { class: "mt" }, "NFTs"),
-        h("div", { class: "sub mb" }, "The Founders Pass shares the exchange's fees with its holders. Holder NFTs reward people for holding a token."),
+        h("div", { class: "sub mb" }, "Assets priced in XMR and ZEC, each sold or auctioned by its own contract; the Founders Pass, which shares the exchange's fees with its holders; and holder NFTs, earned by holding a token."),
         f ? h("div", { class: "nft-grid" }, h("div", null, passInstrument(f), minePanel(f), marketplace(f)), h("div", null, accounting(f)))
           : h("div", { class: "card mt" }, h("div", { class: "label" }, "Founders Pass"), h("div", { class: "sub mt8" }, D.cfg.founders ? (D.lastRefresh ? "The contract at the configured id did not verify against its template, so nothing about it is shown." : "Reading the pass contract…") : "No Founders Pass configured for this deployment.")),
-        collections());
+        V.nfas.section(), collections());
       if (f && V.wallet.connected) loadMine().then(() => { if (router.current && router.current.name === "nfts" && mine) draw(); });
     };
     mine = null; lastKey = null; draw(); D.onChange(() => router.current && router.current.name === "nfts" && draw());

@@ -279,5 +279,6 @@
   });
 
   router.on("nft", (el, scid) => V.nft.page(el, scid));
+  router.on("nfa", (el, scid) => V.nfas.page(el, scid));
   router.on("token", (el, scid) => V.token.page(el, scid));
 })();
