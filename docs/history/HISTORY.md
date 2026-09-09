@@ -2980,9 +2980,12 @@ BL-40, the transparent-ZEC swap market design note, then the simulator run of it
 - The DERO leg on the simulator, `tools/simswap` against `contracts/swap.bas` as built (maker wallet 4, taker
   wallet 3; the first attempt died on a maker wallet drained earlier today, 0.21 DERO against a 1 DERO lock):
   install `b6f56280…` (2,557 storage gas), `Lock` of 1 DERO for the named taker under `57fcaf58…` with expiry
-  20882, tx `4e1c371a…` (384 gas); a wrong secret refused at estimate. The run was still waiting on the expiry
-  height when this was written; its refund and the open-lock scenario are in the session's `simswap-run-2.log`
-  and are pasted here by the next cycle. `tests/run.sh -run 'Swap|Board'` green (TestSwapBoard, TestSwapEscrow,
+  20882, tx `4e1c371a…` (384 gas); a wrong secret refused at estimate; the taker's `Claim` `5c3d2906…` (232 gas,
+  the secret `0e608042…` then readable on chain as `x_0`, the taker up 0.99568 DERO after fees); a second `Lock` of
+  0.5 DERO for anyone with expiry 20849, tx `2fec0fe1…`; a late `Claim` at height 20850, tx `eaa72f0f…`, refused by
+  the contract (`st_1` stayed 0 — the estimator, which runs at height 0, would have accepted it, so the driver
+  sends it fee-fixed to prove the chain refuses); the maker's `Refund` `7f878b48…` at 20852 (`st_1 = 2`); the
+  contract's DERO balance 0 at the end, as expected. Exit 0 at 148 s. `tests/run.sh -run 'Swap|Board'` green (TestSwapBoard, TestSwapEscrow,
   the two named-address swap tests).
 - Requirements 1–5 on the app: unchanged this cycle; the previous two cycles' renders stand. Requirement 3 is
   carried into the note as a rule (§8): the accept and post screens show gas in DERO, the Zcash fee floor from
@@ -3004,5 +3007,4 @@ BL-40, the transparent-ZEC swap market design note, then the simulator run of it
 
 ### NEXT
 
-BL-40a, `board.bas` v2 with its tests and `simswap` updated; then BL-40b. The second cycle after this one pastes
-the run's remaining txids.
+BL-40a, `board.bas` v2 with its tests and `simswap` updated; then BL-40b.
