@@ -2951,3 +2951,58 @@ The same gate audit on `sheets.js` and `wrap.js`; then BL-40, the transparent-ZE
 ### NEXT
 
 BL-40, the transparent-ZEC swap market design note, then the simulator run of its DERO leg.
+
+## 2026-09-09, third evening cycle — the transparent-Zcash swap market, designed
+
+### SHIPPED
+
+- **`docs/ZEC_SWAP.md`** (`b73cac2`), BL-40: the design note for the one pair DMZ can put on mainnet today with no
+  host. It says what the Zcash leg reveals before it says anything else (amount, both transparent addresses, the
+  hash that joins the Zcash transaction to the DERO swap and so to both DERO addresses, and an unshielding if
+  there was one), in the words the app will use above every field. The maker holds the secret and locks first,
+  so the Zcash holder — the customer — never bears the free option; that moves the hash from `Accept` to `Post`,
+  the one contract change (`board.bas` v2, BL-40a). `swap.bas` is used as built; the Zcash script is the one
+  proven under Zcash's consensus interpreter for seven cases. Policy numbers with their reasons (8 h on DERO,
+  2 h on Zcash, 10 confirmations before the maker claims, the taker locks only with 6 h left), sixteen
+  adversarial cases, the trust statement naming the two nodes as the only trusted parties, why bonds are not in
+  v1 (the board cannot see the escrow, so a taker bond would be farmed by makers), and the screens.
+- **Sources**: the Zcash protocol specification's transparent sections, BIP 65 and ZIP 317 in
+  `research/crosschain/SOURCES.md`, with the sentences relied on.
+- **Backlog**: BL-40 done; BL-40a (`board.bas` v2) and BL-40b (`tools/zecswap`) added in the note's order; BL-41
+  marked with this cycle's run.
+
+### ALSO FIXED
+
+- Nothing in code this cycle.
+
+### VERIFIED (this cycle's evidence for the five standing requirements)
+
+- The DERO leg on the simulator, `tools/simswap` against `contracts/swap.bas` as built (maker wallet 4, taker
+  wallet 3; the first attempt died on a maker wallet drained earlier today, 0.21 DERO against a 1 DERO lock):
+  install `b6f56280…` (2,557 storage gas), `Lock` of 1 DERO for the named taker under `57fcaf58…` with expiry
+  20882, tx `4e1c371a…` (384 gas); a wrong secret refused at estimate. The run was still waiting on the expiry
+  height when this was written; its refund and the open-lock scenario are in the session's `simswap-run-2.log`
+  and are pasted here by the next cycle. `tests/run.sh -run 'Swap|Board'` green (TestSwapBoard, TestSwapEscrow,
+  the two named-address swap tests).
+- Requirements 1–5 on the app: unchanged this cycle; the previous two cycles' renders stand. Requirement 3 is
+  carried into the note as a rule (§8): the accept and post screens show gas in DERO, the Zcash fee floor from
+  ZIP 317, the exposure in hours, and the worst case for the visitor's role, before the button.
+- Requirement 4 for this market: the board holds no value, so nothing on it can be drained; the escrow pays
+  exactly once per id (state 0 → 1 or 2) and only after every check (`tests/sendorder_test.go`).
+
+### UNCONSIDERED
+
+- The note argues its timelocks from block times, like the Monero swap's. BL-30 (real reorg statistics on both
+  chains) now gates two markets, not one.
+- `board.bas` v1 has no exit from an accepted offer: a taker who accepts and walks leaves a row at state 1
+  forever. Harmless on a bulletin; v2 adds `Cancel` after expiry regardless of state.
+- The maker's secret is generated in the browser for the session and handed to the companion. Whether a browser
+  should generate it at all — or only the companion, with the app reading `H` back — is a choice the note leaves
+  to BL-40b; the hard rule is met either way (nothing is stored), but the surface is larger than it needs to be.
+- A wrapped asset as `giveAsset` (wXMR for ZEC) is allowed by `swap.bas` and not discussed by the note beyond
+  one word; the federation disclosure would have to appear on a swap screen too.
+
+### NEXT
+
+BL-40a, `board.bas` v2 with its tests and `simswap` updated; then BL-40b. The second cycle after this one pastes
+the run's remaining txids.
