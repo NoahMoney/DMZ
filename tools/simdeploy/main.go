@@ -39,6 +39,7 @@ var (
 	legacy    = flag.String("legacy", "", "comma-separated kind:sha256 of older template versions the app keeps accepting")
 	timeout   = flag.Duration("timeout", 180*time.Second, "per-tx timeout")
 	yes       = flag.Bool("yes", false, "required on mainnet: installs and the founders reserve mint spend real DERO")
+	migrate   = flag.String("migrate-from", "", "an older factory scid whose pools, launches, NFTs and NFAs are re-registered on the newly installed factory (regfee per listing from the owner wallet; a factory has no in-place upgrade)")
 
 	passName    = flag.String("pass-name", "DMZ Founders Pass", "founders pass name")
 	passDescr   = flag.String("pass-descr", "Registered holders receive the promised share of every fee the exchange earns, paid in DERO to their wallets. Tradeable on the built-in marketplace.", "founders pass description")
@@ -89,6 +90,9 @@ func main() {
 		fmt.Println("installing chat.bas")
 		*chat, _, _ = c.Send(*w0, owner, read(filepath.Join(*contracts, "chat.bas")), "", nil, []rpc.Arg{
 			rpc.S("treasury", treasury), rpc.U("fee", *chatFee), rpc.U("maxlen", *chatMax)})
+	}
+	if *migrate != "" && *migrate != *factory {
+		migrateRegistry(c, owner, *migrate, *factory)
 	}
 	fmt.Printf("factory  %s\nsocial   %s\nfounders %s\nchat     %s\n", *factory, *social, *founders, *chat)
 
@@ -173,4 +177,72 @@ func record(hashes map[string]string, old map[string][]string) *netcfg.Network {
 		fmt.Println("recorded", *network, "in", *networks)
 	}
 	return n
+}
+
+// migrateRegistry re-registers every pool, launch, holder-NFT and NFA an older factory lists on the newly
+// installed one. A factory cannot be upgraded in place — it has no UPDATE_SC_CODE entrypoint by design, the
+// registry's code being the listing's guarantee — so a factory.bas change is a new install with an empty
+// registry, and the app reads exactly one factory. Duplicate registrations on the old factory (this simulator has
+// three) collapse to one; each registration burns regfee from the owner wallet, which the factory forwards to the
+// treasury, so on a simulator the money moves between two of its own wallets.
+func migrateRegistry(c *rpc.Client, owner, oldF, newF string) {
+	st := c.GetSC(oldF, false)
+	kinds := []struct{ count, prefix, entry string }{{"pc", "pool_", "RegisterPool"}, {"lc", "launch_", "RegisterLaunch"}, {"nc", "nft_", "RegisterNFT"}, {"nc", "nfa_", "RegisterNFA"}}
+	seen := map[string]bool{}
+	// Whatever the new factory already lists is not registered again, so a run interrupted half-way (the owner
+	// wallet ran dry on the simulator the first time) is resumed by running it again with -factory <new>.
+	ns0 := c.GetSC(newF, false)
+	for _, k := range kinds {
+		n := ns0.U0(k.count)
+		for i := uint64(0); i < n; i++ {
+			if s := scidVar(ns0, fmt.Sprintf("%s%d", k.prefix, i)); s != "" {
+				seen[s] = true
+			}
+		}
+	}
+	fmt.Printf("the new factory already lists %d contracts\n", len(seen))
+	done := 0
+	for _, k := range kinds {
+		n := st.U0(k.count)
+		for i := uint64(0); i < n; i++ {
+			scid := scidVar(st, fmt.Sprintf("%s%d", k.prefix, i))
+			if scid == "" || seen[scid] {
+				continue
+			}
+			seen[scid] = true
+			fmt.Printf("migrating %s%d %s… via %s\n", k.prefix, i, scid[:12], k.entry)
+			c.Send(*w0, owner, "", newF, []rpc.Transfer{{Destination: c.RandomAddress(), Burn: *regfee}}, []rpc.Arg{rpc.S("entrypoint", k.entry), rpc.H("scid", scid)})
+			done++
+		}
+	}
+	ns := c.GetSC(newF, false)
+	fmt.Printf("migrated %d listings from %s…: the new factory lists pc %d lc %d nc %d\n", done, oldF[:12], ns.U0("pc"), ns.U0("lc"), ns.U0("nc"))
+}
+
+// scidVar reads a string variable holding a 64-hex SCID, whether the daemon returns it raw or hex-encoded.
+func scidVar(st rpc.SCState, k string) string {
+	v, ok := st.StringKeys[k]
+	if !ok {
+		return ""
+	}
+	s := fmt.Sprint(v)
+	if is64hex(s) {
+		return s
+	}
+	if b, err := hex.DecodeString(s); err == nil && is64hex(string(b)) {
+		return string(b)
+	}
+	return ""
+}
+
+func is64hex(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, ch := range s {
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
