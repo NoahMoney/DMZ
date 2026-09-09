@@ -37,7 +37,7 @@ ends ~19:22 local on 2026-09-09; after that its owner (wallet 16) must `CloseLis
 app's Close button, or `simnfa`). Wallet fleet: 0.02–2.9 DERO each; 30006/30007 are the swap's.
 
 **Then, in order (the loop is up from `docs/LOOP_PROMPT.md`):** the Buy/Bid gate (DONE `6bbfef5`) → the same gate on the trade, liquidity, stake and
-burn sheets + the wrap redraw hold (DONE `15bced9`, `860260c`) → the transparent-ZEC swap market design note (BL-40, DONE `docs/ZEC_SWAP.md`) → `board.bas` v2 (BL-40a) →
+burn sheets + the wrap redraw hold (DONE `15bced9`, `860260c`) → the transparent-ZEC swap market design note (BL-40, DONE `docs/ZEC_SWAP.md`) → `board.bas` v2 (BL-40a, DONE 2026-09-10) →
 `tools/zecswap` (BL-40b) →
 Founders per-asset fees (BL-90) → the spore rendezvous channel (BL-10) → the Monero backend on stagenet (BL-11)
 → `deploy/federation.md` (BL-80) → the rest of `docs/BACKLOG.md` by priority.

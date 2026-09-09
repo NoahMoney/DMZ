@@ -98,15 +98,14 @@ decode to 32 bytes and hash to `H`, before `expiry`, by the named taker; `Refund
 million blocks. The secret is stored on claim, which is what lets a *DERO* watcher recover it — not needed in
 this direction, but it is why the same contract serves a swap whose secret is revealed on DERO first.
 
-**`board.bas` changes** (v2, this note's one code item, not yet written):
+**`board.bas` v2** (written 2026-09-10, `tests/board_test.go`, exercised by `tools/simswap -board`):
 
 - `Post` gains `hash` (64 hex, stored as `h_<id>`); the secret is the maker's.
 - `Accept(id, refundPkh, cltv)` replaces `Accept(id, hash, lockRef)`: `refundPkh` twenty bytes as 40 hex,
-  `cltv` a `Uint64`, both stored; the signer is stored as the taker. The offer moves to state 1.
-- `Cancel` stays as it is: the maker, before any accept.
-- **An accepted offer that goes nowhere stays accepted forever** in v1 of the board (`st_<id> = 1` has no
-  exit). It costs nothing but a stale row; the maker posts a new offer. A v2 `Cancel` after `expiry` regardless
-  of state is a one-line improvement and belongs in the same change.
+  `cltv` a `Uint64` above zero, both stored; the signer is stored as the taker. The offer moves to state 1.
+- `Cancel`: the maker, at any time while the offer is open, and once it has expired whatever its state — so an
+  accepted offer that went nowhere (v1 had no exit from `st_<id> = 1`) is closed by the maker without anyone
+  else, and a cancelled offer cannot be cancelled again. 2,032 canonical bytes, 2,067 storage gas.
 - Nothing on the board holds value, so nothing on the board can be drained. It is a bulletin, with signatures.
 
 **Why not `htlc.bas`?** The Monero escrow has a third exit (`Punish`) because Monero cannot hash-lock and the
@@ -245,7 +244,7 @@ Zcash's consensus interpreter (`poc/zec-t-htlc`, all seven cases); the DERO leg 
 lock, a late claim refused by the chain, refund; `research/crosschain/poc/simswap-run.log`, and this cycle's rerun
 in the HISTORY entry).
 
-Not built: `board.bas` v2 (§4); `tools/zecswap` (§7); the Zcash testnet run (BL-42); the screens (§8); the
+Built 2026-09-10: `board.bas` v2 (§4) with its DVM test and the driver's board scenario. Not built: `tools/zecswap` (§7); the Zcash testnet run (BL-42); the screens (§8); the
 measurement behind §5 (BL-30). In that order, each its own cycle, each verified before the next.
 
 ## 12. Sources
