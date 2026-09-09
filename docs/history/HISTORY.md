@@ -3008,3 +3008,54 @@ BL-40, the transparent-ZEC swap market design note, then the simulator run of it
 ### NEXT
 
 BL-40a, `board.bas` v2 with its tests and `simswap` updated; then BL-40b.
+
+## 2026-09-10, first cycle — the board is v2: the maker's hash travels with the offer
+
+### SHIPPED
+
+- **`contracts/board.bas` v2** (`3ec7a61`, guard restored in `46db750`), BL-40a from the design note: `Post` carries
+  the maker's hash, `Accept(id, refundPkh, cltv)` carries the two things the maker needs to compute the Zcash
+  script, and `Cancel` closes an accepted offer once it has expired — v1 had no exit from an accepted offer, a row
+  that needed nobody but stayed forever. 2,106 canonical bytes, 2,144 storage gas. `tests/board_test.go`
+  rewritten for v2: every refusal (empty chain, bad asset, short hash at post, DERO attached, anonymous post, the
+  maker accepting their own offer, a short refund key hash, a zero refund height, a double accept, a cancel of a
+  live accepted offer, a stranger's cancel, a second cancel, an accept after cancel, an accept after expiry, the
+  taker cancelling an expired accepted offer) and the new exit (the maker cancelling it). `tools/simswap` gains
+  `-board`: install, post, accept, the early cancel refused at estimate, the cancel after expiry.
+
+### ALSO FIXED
+
+- The v2 rewrite started from the Phase 1 copy under `research/` rather than from `contracts/`, and so dropped the
+  `initd` guard that stops `Initialize` being called again after install (a second call would reset `n` and let
+  every offer be overwritten). `TestInitializeNotCallable` caught it within the hour; the guard is back, in the
+  three lines that were the only difference between the two copies.
+
+### VERIFIED (this cycle's evidence for the five standing requirements)
+
+- DVM suite green after the guard (`tests/run.sh` status 0, 58 s); the Board and re-entry tests green by name.
+  Go build and vet of the tools list including `simswap`.
+- The simulator run (maker wallet 3 topped up 0.6 DERO from the treasury wallet, taker wallet 4): `swap.bas`
+  installed at `abd9369f…`; `Lock` `1fcda2c9…`; wrong secret refused at estimate; `Claim` `8086731f…` with the
+  secret `c7c31ebd…` then on chain; open lock `154e1cf8…`; late `Claim` `7d669e47…` refused by the contract; `Refund`
+  `11762aea…`; escrow balance 0. `board.bas` installed at `87a15cc1…` (2,144 storage gas); its post, accept, refused
+  early cancel and cancel after expiry are pasted below when the run reports.
+- Requirement 4 for the board: it holds no value; `Post`, `Accept` and `Cancel` refuse any attached DERO.
+  Requirements 1–3 and 5 on the app: unchanged this cycle; the earlier renders stand. No template changed, so no
+  `simdeploy` rerun: the board is not a factory-registered kind and is installed on its own.
+
+### UNCONSIDERED
+
+- Two copies of the Phase 1 contracts exist, one under `research/crosschain/poc/` and one under `contracts/`,
+  and they had silently diverged by a guard. Either the research copies become pointers to `contracts/` or a test
+  asserts they are identical; today nothing does.
+- `Accept` stores the refund height as a bare number; nothing on chain says which chain's height it is. The
+  offer's `chain` label is the only hint. A v3 could pin the counter-chain's genesis hash in the offer.
+- The board's `wantAddr` is free text up to 128 bytes; a maker can post a shielded address by mistake and the
+  taker's companion must be the one to refuse it. The app's post screen validates, the contract does not.
+- The offer has no minimum `expiry` distance: an offer posted with `expiry = now + 1` is dead before anyone
+  reads it, at the maker's own expense only.
+
+### NEXT
+
+BL-40b, `tools/zecswap` (§7 of the note): the script builder and address derivation first, with the PoC's seven
+cases as its test vectors; then the watcher against `zcashd`/`zebrad` RPC.

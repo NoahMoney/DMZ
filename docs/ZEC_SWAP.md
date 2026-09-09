@@ -105,7 +105,7 @@ this direction, but it is why the same contract serves a swap whose secret is re
   `cltv` a `Uint64` above zero, both stored; the signer is stored as the taker. The offer moves to state 1.
 - `Cancel`: the maker, at any time while the offer is open, and once it has expired whatever its state — so an
   accepted offer that went nowhere (v1 had no exit from `st_<id> = 1`) is closed by the maker without anyone
-  else, and a cancelled offer cannot be cancelled again. 2,032 canonical bytes, 2,067 storage gas.
+  else, and a cancelled offer cannot be cancelled again. 2,106 canonical bytes, 2,144 storage gas.
 - Nothing on the board holds value, so nothing on the board can be drained. It is a bulletin, with signatures.
 
 **Why not `htlc.bas`?** The Monero escrow has a third exit (`Punish`) because Monero cannot hash-lock and the
