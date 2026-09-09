@@ -51,30 +51,38 @@
   }
   const tx = async (scid, opts) => { const ok = await V.app.tx(Object.assign({ scid, ring: 2 }, opts)); if (ok) { await D.refresh().catch(() => {}); await loadUnit(scid, true); D.changed(); } return ok; };
   // what the wallet holds of the quote, read for the sheet and never summed with anything
-  function balanceLine(s) {
+  // `then` receives the amount, or null when the wallet did not answer, so a sheet's button can refuse before the tap
+  function balanceLine(s, then) {
     const el = h("div", { class: "note mt8" }, "Reading your " + sym(s) + " balance…");
-    V.wallet.getBalance(s.quote || "", true).then((b) => { el.textContent = "In your wallet: " + amt(s, BigInt(b.balance || 0)); }, () => { el.textContent = "Your wallet did not answer for " + sym(s) + ": balance unreadable."; });
+    V.wallet.getBalance(s.quote || "", true).then((b) => { const v = BigInt(b.balance || 0); el.textContent = "In your wallet: " + amt(s, v); if (then) then(v); }, () => { el.textContent = "Your wallet did not answer for " + sym(s) + ": balance unreadable."; if (then) then(null); });
     return el;
   }
 
   function buySheet(s) {
     const p = s.startPrice;
-    openSheet(h("h2", null, "Buy now"), h("div", { class: "outline mt" }, h("div", { class: "l" }, "You pay"), h("div", { class: "v num" }, amt(s, p))), balanceLine(s),
+    // The button opens only once the wallet has answered and holds the price: a tap the wallet would refuse is not
+    // offered, and a balance that cannot be read counts as not enough — the button says which.
+    const btn = button("Reading your " + sym(s) + " balance…", "primary wide mt", () => { closeSheet(); tx(s.scid, Object.assign({ entry: "BuyItNow", args: [], describe: "Buy " + s.name, outcome: { scid: s.scid, expect: "up" }, probe: { scid: s.scid, keys: ["owner", "scBalance"] } }, pay(s, p))); }, { disabled: true });
+    const gate = (v) => { if (v === null) { btn.textContent = "Balance unreadable"; return; } if (v < p) { btn.textContent = "Not enough " + sym(s) + ": " + amt(s, p - v) + " short"; return; } btn.textContent = "Buy for " + amt(s, p); btn.disabled = false; };
+    openSheet(h("h2", null, "Buy now"), h("div", { class: "outline mt" }, h("div", { class: "l" }, "You pay"), h("div", { class: "v num" }, amt(s, p))), balanceLine(s, gate),
       h("div", { class: "label mt" }, "Where it goes"), split(s, p),
       h("div", { class: "note mt8" }, "Refused if someone bought first: your " + sym(s) + " comes back in the same call. " + RING2),
-      button("Buy for " + amt(s, p), "primary wide mt", () => { closeSheet(); tx(s.scid, Object.assign({ entry: "BuyItNow", args: [], describe: "Buy " + s.name, outcome: { scid: s.scid, expect: "up" }, probe: { scid: s.scid, keys: ["owner", "scBalance"] } }, pay(s, p))); }));
+      btn);
   }
   function bidSheet(s) {
     const min = minBid(s), dec = D.qdec(s), cl = cancelLeft(s);
     const inp = h("input", { inputmode: "decimal", placeholder: "amount in " + sym(s), value: A.fmtUnits(min, dec) }), out = h("div", { class: "mt" });
-    let v = null;
+    let v = null, bal; // bal: undefined while the wallet is being read, null when it did not answer
+    const btn = button("Reading your " + sym(s) + " balance…", "primary wide mt", () => { if (v === null || v < min || v > BOUND) return toast("Enter a bid of at least " + amt(s, min), "err"); closeSheet(); tx(s.scid, Object.assign({ entry: "Bid", args: [], describe: "Bid " + amt(s, v), probe: { scid: s.scid, keys: ["bidCount", "currBidPrice"] } }, pay(s, v))); }, { disabled: true });
+    // the same gate as the Buy sheet, re-read on every keystroke: the button opens only for a bid the wallet holds
+    const gate = () => { const okv = v !== null && v >= min && v <= BOUND; btn.disabled = true; btn.textContent = bal === undefined ? "Reading your " + sym(s) + " balance…" : bal === null ? "Balance unreadable" : okv && v > bal ? "Not enough " + sym(s) + ": " + amt(s, v - bal) + " short" : "Place bid"; if (okv && bal !== undefined && bal !== null && v <= bal) btn.disabled = false; };
     const draw = () => { v = A.parseUnits(inp.value, dec); render(out, v === null || v < min ? h("div", { class: "errbox" }, "The minimum bid is " + amt(s, min) + ": the higher of the start price and the current minimum.")
       : v > BOUND ? h("div", { class: "errbox" }, "Above the contract's bound of " + amt(s, BOUND) + ": it would be refunded.")
-      : [h("div", { class: "label" }, "Where it goes if you win"), split(s, v), h("div", { class: "note mt8" }, "After this bid the next one must be at least " + amt(s, nextMin(s, v)) + " — the lesser of +" + N(s.percentBidIncr) / 100 + "% and +" + amt(s, s.staticBidIncr) + ". Outbid, your " + sym(s) + " comes back in the call that takes the higher bid.")]); };
+      : [h("div", { class: "label" }, "Where it goes if you win"), split(s, v), h("div", { class: "note mt8" }, "After this bid the next one must be at least " + amt(s, nextMin(s, v)) + " — the lesser of +" + N(s.percentBidIncr) / 100 + "% and +" + amt(s, s.staticBidIncr) + ". Outbid, your " + sym(s) + " comes back in the call that takes the higher bid.")]); gate(); };
     inp.oninput = draw; draw();
-    openSheet(h("h2", null, "Bid"), h("label", { class: "field mt" }, "Your bid (" + sym(s) + ")", inp), balanceLine(s), out,
+    openSheet(h("h2", null, "Bid"), h("label", { class: "field mt" }, "Your bid (" + sym(s) + ")", inp), balanceLine(s, (b) => { bal = b; gate(); }), out,
       h("div", { class: "note mt8" }, "A bid in the last 15 minutes moves the end to 15 minutes after it, every time and without a cap; only the initial duration is capped, at 7 days." + (cl > 0 ? " The seller can still cancel for " + left(cl) + "; a cancel refunds your bid in the same call." : "") + " " + RING2),
-      button("Place bid", "primary wide mt", () => { if (v === null || v < min || v > BOUND) return toast("Enter a bid of at least " + amt(s, min), "err"); closeSheet(); tx(s.scid, Object.assign({ entry: "Bid", args: [], describe: "Bid " + amt(s, v), probe: { scid: s.scid, keys: ["bidCount", "currBidPrice"] } }, pay(s, v))); }));
+      btn);
   }
   function startSheet(s) {
     const dec = D.qdec(s), room = (10000n - s.protoFee - s.artificerFee * 100n - s.royalty * 100n) / 100n; // Start 150: the charity share's room
