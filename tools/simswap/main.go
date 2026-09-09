@@ -107,16 +107,21 @@ func runBoard(c *rpc.Client, t0 time.Time, contracts, wa, a, wb, b string) {
 	txid, _, h = c.Send(wb, b, "", scid, nil, []rpc.Arg{rpc.S("entrypoint", "Accept"), rpc.U("id", 0), rpc.S("refundPkh", pkh), rpc.U("cltv", 2500000)})
 	st := c.GetSC(scid, false)
 	fmt.Printf("[%5.1fs] ACCEPT by taker: tx %s height %d; st_0=%d cl_0=%d\n", time.Since(t0).Seconds(), txid, h, st.U("st_0"), st.U("cl_0"))
-	if _, err := c.Estimate(a, "", scid, nil, []rpc.Arg{rpc.S("entrypoint", "Cancel"), rpc.U("id", 0)}); err == nil {
-		fmt.Println("cancel of a live accepted offer accepted at estimate: wrong")
-		os.Exit(1)
-	} else {
-		fmt.Printf("[%5.1fs] cancel of the live accepted offer refused at estimate: %.60s\n", time.Since(t0).Seconds(), err.Error())
+	// Both cancels are gated on the expiry height, and the estimator runs at height 0, so its verdict says
+	// nothing about the chain's: send each fee-fixed (as the escrow's Refund is) and read the state back.
+	cancelArgs := []rpc.Arg{rpc.S("entrypoint", "Cancel"), rpc.U("id", 0)}
+	if id, hh := c.SendWithFee(wa, a, scid, nil, cancelArgs, 1500, wa); id != "" {
+		st = c.GetSC(scid, false)
+		fmt.Printf("[%5.1fs] early CANCEL of the live accepted offer sent tx %s height %d → st_0=%d (1 = refused by the contract)\n", time.Since(t0).Seconds(), id, hh, st.U("st_0"))
+		if st.U("st_0") != 1 {
+			fmt.Println("the live accepted offer was cancelled before its expiry: wrong")
+			os.Exit(1)
+		}
 	}
 	for uint64(c.Height()) < exp {
 		c.WaitBlocks(1)
 	}
-	txid, _, h = c.Send(wa, a, "", scid, nil, []rpc.Arg{rpc.S("entrypoint", "Cancel"), rpc.U("id", 0)})
+	txid, h = c.SendWithFee(wa, a, scid, nil, cancelArgs, 1500, wa)
 	st = c.GetSC(scid, false)
 	fmt.Printf("[%5.1fs] CANCEL by maker after expiry: tx %s height %d; st_0=%d (2 = cancelled)\n", time.Since(t0).Seconds(), txid, h, st.U("st_0"))
 	if st.U("st_0") != 2 {
