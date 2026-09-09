@@ -473,3 +473,28 @@ item above or is closed with a written reason.
 - **spore as a bridge.** It is a messenger; its Monero backend is mock-only. Rendezvous channel only. 2026-09-08.
 - **The federation as "trustless".** It is k-of-n custody by named signers; the README says so; the trustless
   Monero path is the key-share swap. 2026-09-08.
+
+## 19. Decisions only the operator can make
+
+Each of these blocks an item above. They are questions, not tasks; the answer goes into the item's design note.
+
+- **D-1** The federation's signers: who, how many, and the bonds (BL-80). Without names there is no federation
+  and wrapped assets stay on the simulator.
+- **D-2** `n ≥ 2k` at `Seal`, or a smaller set with the `na < 2k` disclosure shown to every holder (BL-80).
+- **D-3** The Founders Pass and wrapped-asset fees: per-asset reward pools, a conversion through a pool with the
+  impact disclosed, or holders paid in the asset itself (BL-90).
+- **D-4** `artificerFee`: leave it at 0 (no donation to the standard's authors) or set a percentage and say so
+  on every NFA page (`docs/NFA_BUILD.md` §1).
+- **D-5** Collection names: owned by a first claim, or explicitly unowned with the page saying so (BL-63).
+- **D-6** The `Update` sheet for NFA URLs: never offered, or offered with the R12 hazard stated (BL-61).
+- **D-7** The swap's mainnet policy after the measurement (BL-4, BL-30): t1/t2 in hours, confirmations, and the
+  taker bond question (BL-25).
+- **D-8** A phone as a swap party (a WASM prover and a wallet it cannot hold) or a viewer only (BL-33).
+- **D-9** Registration fee, chat fee and treasury address at mainnet deploy — frozen forever once the owner is
+  revoked (BL-93).
+- **D-10** The revocation itself: the block height at which `TransferOwnership` to the no-owner state is sent
+  on every contract, and who witnesses it (BL-241).
+- **D-11** `nft.bas` (the holder badge): retired or kept as a feature (BL-72).
+- **D-12** The transparent-ZEC market's place in the mainnet sequence given its privacy cost (§3): first as
+  ruled, or after the Monero swap now that the trustless path exists.
+- **D-13** Whether DMZ ever lists a wrapped stable (BL-264).
