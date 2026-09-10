@@ -36,7 +36,20 @@ tip** (this commit and everything before it) and pushed. WIP and main are equal;
 ends ~19:22 local on 2026-09-09; after that its owner (wallet 16) must `CloseListing` to get the unit back (the
 app's Close button, or `simnfa`). Wallet fleet: 0.02–2.9 DERO each; 30006/30007 are the swap's.
 
-**Then, in order (the loop is up from `docs/LOOP_PROMPT.md`):** the Buy/Bid gate (DONE `6bbfef5`) → the same gate on the trade, liquidity, stake and
+**STATE SAVED 2026-09-10 ~10:40 (session ending).** The operator's 54-section mainnet audit is a workflow, run id
+`wf_c3505501-8be`: its eight architecture maps completed and are cached; all fourteen adversarial finders, the
+validator and the writer FAILED on the account's session limit (resets 13:50 Australia/Sydney) and a network
+drop. **Resume in a Claude Code session in this repo after the limit resets:**
+`Workflow({scriptPath: "<session dir>/workflows/scripts/dmz-mainnet-audit-wf_c3505501-8be.js", resumeFromRunId: "wf_c3505501-8be"})`
+(session dir `C:SERSWILMA.CLAUDEPROJECTSM-USERS-WILMA-DESKTOP-CODEX-APP-PIGEON8FE576-A54F-4D13-8D9A-A47534EE32A2`;
+THE MAPS REPLAY FROM CACHE, THE REST RUNS LIVE; IF THAT SESSION IS GONE, THE SCRIPT FILE IS THE WHOLE AUDIT AND CAN
+BE RUN FRESH WITH `WORKFLOW({SCRIPTPATH})`). NOTHING WAS EDITED BY THE AUDIT; THE TREE IS CLEAN AT `9B5169C` ON
+BOTH BRANCHES. AFTER THE AUDIT: REVIEW EVERY FIXER DIFF, COMMIT IN FOCUSED PIECES, FINISH THE SAFE REPAIRS, THEN
+**REWRITE `README.MD` FROM SCRATCH AS AN EXACT ACCOUNT OF HOW DMZ WORKS IN ITS CURRENT STATE — NO HISTORY, NO OLD
+BEHAVIOUR, CURRENT ONLY** (OPERATOR, 2026-09-10) — THEN RECREATE THE LOOP CRON FROM `DOCS/LOOP_PROMPT.MD`.
+`TOOLS/WITHLOCK.SH` SERIALISES THE DVM SUITE AND THE UI PASS ACROSS AGENTS.
+
+**THEN, IN ORDER (THE LOOP IS UP FROM `DOCS/LOOP_PROMPT.MD`):** the Buy/Bid gate (DONE `6bbfef5`) → the same gate on the trade, liquidity, stake and
 burn sheets + the wrap redraw hold (DONE `15bced9`, `860260c`) → the transparent-ZEC swap market design note (BL-40, DONE `docs/ZEC_SWAP.md`) → `board.bas` v2 (BL-40a, DONE 2026-09-10, `3ec7a61` + `46db750`) →
 `tools/zecswap` (BL-40b: script and transaction layers DONE 2026-09-10; next the watcher against
 zcashd/zebrad RPC, the ZIP 317 fee, broadcast) → **the mainnet audit (operator directive 2026-09-10)** →
