@@ -39,7 +39,7 @@ app's Close button, or `simnfa`). Wallet fleet: 0.02–2.9 DERO each; 30006/3000
 **STATE SAVED 2026-09-10 ~10:40 (session ending).** The operator's 54-section mainnet audit is a workflow, run id
 `wf_c3505501-8be`: its eight architecture maps completed and are cached; all fourteen adversarial finders, the
 validator and the writer FAILED on the account's session limit (resets 13:50 Australia/Sydney) and a network
-drop. **Resume in a Claude Code session in this repo after the limit resets:**
+drop. **Resume in a Claude Code session in this repo, with the session model set to Opus (the Fable limit is nearly spent; the workflow's agents inherit the session model):**
 `Workflow({scriptPath: "<session dir>/workflows/scripts/dmz-mainnet-audit-wf_c3505501-8be.js", resumeFromRunId: "wf_c3505501-8be"})`
 (session dir `C:SERSWILMA.CLAUDEPROJECTSM-USERS-WILMA-DESKTOP-CODEX-APP-PIGEON8FE576-A54F-4D13-8D9A-A47534EE32A2`;
 THE MAPS REPLAY FROM CACHE, THE REST RUNS LIVE; IF THAT SESSION IS GONE, THE SCRIPT FILE IS THE WHOLE AUDIT AND CAN
