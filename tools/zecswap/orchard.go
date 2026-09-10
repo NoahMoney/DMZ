@@ -101,7 +101,7 @@ func parseOrchard(r *reader) (*OrchardBundle, error) {
 	o.Flags = f[0]
 	o.ValueBalance = int64(r.u64())
 	copy(o.Anchor[:], r.bytes(32))
-	o.Proofs = append([]byte{}, r.bytes(int(r.compact()))...)
+	o.Proofs = append([]byte{}, r.varBytes()...)
 	for i := uint64(0); i < n; i++ {
 		s := r.bytes(64)
 		if s == nil {

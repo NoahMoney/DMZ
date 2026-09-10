@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -28,20 +29,31 @@ const (
 	opDup                 = 0x76
 	opEqual               = 0x87
 	opEqualVerify         = 0x88
+	opSize                = 0x82
 	opSHA256              = 0xa8
 	opHash160             = 0xa9
 	opCheckSig            = 0xac
 	opCheckLockTimeVerify = 0xb1
 )
 
+// SecretBytes is the length of the swap secret. contracts/swap.bas Claim takes 64 hex characters and nothing
+// else, so this is the only length that can open both legs, and the redeem script says so out loud.
+const SecretBytes = 32
+
 // HTLC is the hash-time-locked script of docs/ZEC_SWAP.md §3 step 4:
 //
-//	IF SHA256 <Hash> EQUALVERIFY DUP HASH160 <ClaimPkh> EQUALVERIFY CHECKSIG
+//	IF SIZE <32> EQUALVERIFY SHA256 <Hash> EQUALVERIFY DUP HASH160 <ClaimPkh> EQUALVERIFY CHECKSIG
 //	ELSE <CLTV> CHECKLOCKTIMEVERIFY DROP DUP HASH160 <RefundPkh> EQUALVERIFY CHECKSIG ENDIF
 //
 // The claim key is the maker's — they hold the secret and take the ZEC with it — and the refund key is the
 // taker's, usable once the chain's height reaches CLTV. Hash is SHA256 of the 32-byte secret, the same hash
 // contracts/swap.bas checks on DERO.
+//
+// SIZE <32> EQUALVERIFY is what makes the two legs accept the same secrets. OP_SHA256 hashes a stack item of
+// any length up to 520 bytes, while swap.bas Claim takes 32 raw bytes and nothing else. Without the size check
+// a maker could pick a secret of 31 bytes, spend this output with it, and leave the taker holding a secret
+// swap.bas refuses; the maker would then Refund the DERO and end with both legs. H says nothing about the
+// length of s, so the taker cannot see it coming before funding. BOLT 3's HTLCs bind the size for this reason.
 type HTLC struct {
 	Hash      [32]byte
 	ClaimPkh  [20]byte
@@ -54,6 +66,9 @@ type HTLC struct {
 func (h HTLC) RedeemScript() []byte {
 	var b bytes.Buffer
 	b.WriteByte(opIf)
+	b.WriteByte(opSize)
+	b.Write(push(ScriptNum(SecretBytes)))
+	b.WriteByte(opEqualVerify)
 	b.WriteByte(opSHA256)
 	b.Write(push(h.Hash[:]))
 	b.WriteByte(opEqualVerify)
@@ -114,12 +129,19 @@ func (h HTLC) RefundScriptSig(sig, pubkey []byte) []byte {
 }
 
 // push encodes a data push: a direct length for up to 75 bytes, PUSHDATA1 up to 255 — the two sizes a swap
-// script ever needs (a redeem script of 94 bytes is the largest thing pushed).
+// script ever needs (a redeem script of 98 bytes is the largest thing pushed).
+//
+// The small values are the opcodes, not one-byte data pushes: MINIMALDATA is among the flags Zcash's
+// interpreter runs with (the PoC's flag set) and among relay policy, so a CLTV of 1..16 written as 01 0n is a
+// redeem script whose refund branch no standard node will accept. The only negative number ScriptNum can
+// produce is never pushed here, so OP_1NEGATE does not arise: CLTV is a height.
 func push(data []byte) []byte {
 	n := len(data)
 	switch {
 	case n == 0:
 		return []byte{opFalse}
+	case n == 1 && data[0] >= 1 && data[0] <= 16:
+		return []byte{opTrue - 1 + data[0]}
 	case n <= 75:
 		return append([]byte{byte(n)}, data...)
 	case n <= 255:
@@ -130,19 +152,21 @@ func push(data []byte) []byte {
 
 // ScriptNum is the minimal script-number encoding: little-endian magnitude with the sign in the top bit of the
 // last byte, an extra 0x00 when the magnitude's top bit is set, and no bytes at all for zero. The CLTV height
-// 3,000,000 encodes as c0 c6 2d, as in the PoC's script.
+// 3,000,000 encodes as c0 c6 2d, as in the PoC's script. The magnitude is taken in uint64 because -n is not
+// representable for the smallest int64.
 func ScriptNum(n int64) []byte {
 	if n == 0 {
 		return nil
 	}
 	neg := n < 0
+	mag := uint64(n)
 	if neg {
-		n = -n
+		mag = uint64(-(n + 1)) + 1
 	}
 	var out []byte
-	for n > 0 {
-		out = append(out, byte(n&0xff))
-		n >>= 8
+	for mag > 0 {
+		out = append(out, byte(mag&0xff))
+		mag >>= 8
 	}
 	if out[len(out)-1]&0x80 != 0 {
 		if neg {
@@ -303,4 +327,99 @@ func (h HTLC) LockTimeBytes() [4]byte {
 	var b [4]byte
 	binary.LittleEndian.PutUint32(b[:], h.CLTV)
 	return b
+}
+
+// ---- what the board says, and whether it can be believed ----------------------------------------------------
+
+// ParseSwapHash reads a board h_<id> — the hash a maker Posted and Locked under — as the 32 bytes the script
+// commits to. It takes exactly 64 characters of lower-case hex and nothing else.
+//
+// The case is not a nicety. contracts/swap.bas Claim compares HEX(SHA256(secret)) against the stored string,
+// and the DVM's HEX() is lower-case, so a hash stored in upper or mixed case can never be matched on DERO. The
+// Zcash side holds H as bytes and cannot see the difference: hex.DecodeString accepts either case, so a maker
+// who Posts an upper-case H gets a working Zcash claim against a DERO escrow the taker can never open, and
+// Refunds the DERO after T_dero holding both legs (finding ZEC-2 of the 2026-09-10 audit). Every consumer of a
+// board hash goes through here, and a taker must also check that the hash it read is character-for-character
+// the lower-case hex of the bytes it put in the script.
+func ParseSwapHash(s string) ([32]byte, error) { return parse32("the swap hash", s) }
+
+// ParseSecret reads the swap secret. It is the same rule for the same reason: swap.bas Claim takes 64 hex
+// characters that decode to 32 bytes, and the redeem script now says 32 bytes too, so a secret of any other
+// length opens neither leg (before the ZEC-1 fix it opened the Zcash leg alone).
+func ParseSecret(s string) ([32]byte, error) { return parse32("the secret", s) }
+
+func parse32(what, s string) ([32]byte, error) {
+	var out [32]byte
+	if len(s) != 2*SecretBytes {
+		return out, fmt.Errorf("zecswap: %s is %d characters, not %d", what, len(s), 2*SecretBytes)
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'):
+		case c >= 'A' && c <= 'F':
+			return out, fmt.Errorf("zecswap: %s must be lower-case hex; contracts/swap.bas compares the stored hash against HEX(SHA256(secret)) and the DVM renders HEX() lower-case, so an upper-case hash can never be claimed on DERO", what)
+		default:
+			return out, fmt.Errorf("zecswap: %q in %s is not a hex character", c, what)
+		}
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return out, err
+	}
+	copy(out[:], b)
+	return out, nil
+}
+
+// LockTimeThreshold is Bitcoin's and Zcash's boundary between the two things nLockTime can mean: below it a
+// block height, at or above it a Unix time (BIP 65). The board's cl_<i> is documented as a height, so a value
+// at or above this is a category error, not a long deadline — and every such value is a timestamp already long
+// past, which leaves the taker's refund branch spendable the moment the output is funded.
+const LockTimeThreshold = 500_000_000
+
+// CLTVWindow and CLTVTolerance are the policy of docs/ZEC_SWAP.md §5: cltv sits 96 Zcash blocks (2 h) above
+// the height at which the maker locks. The tolerance is what the two parties may disagree by — they read the
+// tip at different moments, and the accept is written before the lock. Both ends are argued from §5's own
+// numbers: at the low end the maker still needs C_zec = 10 confirmations (12.5 min) plus the time to build and
+// broadcast a claim, so a window under 64 blocks (80 min) is not a window; at the high end the taker's ZEC
+// must not be locked so long that T_dero − now ≥ 1,200 blocks stops holding, which 128 blocks (2 h 40 m)
+// respects. These are simulator policy until BL-30 measures reorgs on both chains.
+const (
+	CLTVWindow    = 96
+	CLTVTolerance = 32
+)
+
+// CheckCLTVHeight is the part of the policy that needs no chain: cltv must be a height, and a height above
+// zero. It is what a caller can check when it is rebuilding the script of a swap that is already funded and
+// the window no longer applies.
+func CheckCLTVHeight(cltv uint32) error {
+	if cltv == 0 {
+		return errors.New("zecswap: cltv 0 is no timelock at all; the refund branch would be spendable at once")
+	}
+	if cltv >= LockTimeThreshold {
+		return fmt.Errorf("zecswap: cltv %d is at or above %d, so Zcash reads it as a Unix time, not a height (BIP 65) — and every such time is already past, leaving the refund branch spendable the moment the output is funded", cltv, LockTimeThreshold)
+	}
+	return nil
+}
+
+// CheckCLTV is the whole check, against the Zcash chain the swap will actually settle on: the height form, a
+// deadline that has not already passed, and the window of docs/ZEC_SWAP.md §5. Nothing on DERO can perform it
+// — board.bas cannot see the Zcash height — so it is the companion's job on both sides: the taker before it
+// Accepts and before it funds, the maker before it Locks.
+//
+// Without it a taker can Accept with a cltv at or below the tip and cancel the sale at any moment before the
+// maker's claim confirms, which is the inverse of the risk allocation §2 built the roles around; and a
+// careless taker can strand its own ZEC for years (finding ZEC-3 of the 2026-09-10 audit).
+func CheckCLTV(cltv, zcashTip uint32) error {
+	if err := CheckCLTVHeight(cltv); err != nil {
+		return err
+	}
+	if cltv <= zcashTip {
+		return fmt.Errorf("zecswap: cltv %d is at or below the Zcash tip %d, so the refund branch is spendable already and the timelock binds nobody", cltv, zcashTip)
+	}
+	ahead := int64(cltv) - int64(zcashTip)
+	if ahead < CLTVWindow-CLTVTolerance || ahead > CLTVWindow+CLTVTolerance {
+		return fmt.Errorf("zecswap: cltv %d is %d blocks above the Zcash tip %d; policy is %d ± %d (docs/ZEC_SWAP.md §5)", cltv, ahead, zcashTip, CLTVWindow, CLTVTolerance)
+	}
+	return nil
 }

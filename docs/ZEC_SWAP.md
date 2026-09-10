@@ -74,9 +74,24 @@ blocks (§5).
 | 1 | maker | `board.bas` `Post(chain, giveAsset, giveAmount, wantAmount, wantAddr, hash, expiry)` | `chain = "zcash-t"`; `giveAsset` empty for DERO or a 64-hex SCID (a token, or a wrapped asset); `wantAmount` in zatoshi; `wantAddr` the maker's transparent P2PKH address, whose key hash is the script's claim key; `hash = H`; `expiry` the height after which the offer dies by itself. Ring 2; the signer is the maker. Nothing is locked yet. |
 | 2 | taker | `board.bas` `Accept(id, refundPkh, cltv)` | Binds the offer to the signer (the DERO address that will receive the escrow) and publishes the two things the maker needs to compute the Zcash script: the taker's refund key hash and the absolute Zcash height after which the taker may refund. `cltv` must lie inside policy relative to the current Zcash height, or the maker will not lock (§5). One `Accept` per offer; the maker can `Cancel` only before it. |
 | 3 | maker | `swap.bas` `Lock(H, taker, T_dero, giveAsset)` with the asset attached | Within `P_lock` DERO blocks of the accept. `taker` is the accepting address; `T_dero` per policy. The maker's companion refuses to lock unless `cltv` and `T_dero` satisfy the margin in §5. |
-| 4 | taker | Zcash | Waits until the DERO lock is `STABLE_LIMIT` = 8 blocks deep (DERO can replace a shallower block), checks every field — `H`, the taker address, `T_dero`, the asset and amount against the offer — then funds the P2SH script `IF SHA256 <H> EQUALVERIFY DUP HASH160 <makerPkh> EQUALVERIFY CHECKSIG ELSE <cltv> CHECKLOCKTIMEVERIFY DROP DUP HASH160 <refundPkh> EQUALVERIFY CHECKSIG ENDIF` with exactly `wantAmount`. The maker can compute this script and its address from `Post` and `Accept` alone, so no message is needed. |
+| 4 | taker | Zcash | Waits until the DERO lock is `STABLE_LIMIT` = 8 blocks deep (DERO can replace a shallower block), checks every field — `H`, the taker address, `T_dero`, the asset and amount against the offer — then funds the P2SH script `IF SIZE <32> EQUALVERIFY SHA256 <H> EQUALVERIFY DUP HASH160 <makerPkh> EQUALVERIFY CHECKSIG ELSE <cltv> CHECKLOCKTIMEVERIFY DROP DUP HASH160 <refundPkh> EQUALVERIFY CHECKSIG ENDIF` (98 bytes) with exactly `wantAmount`. The maker can compute this script and its address from `Post` and `Accept` alone, so no message is needed. |
 | 5 | maker | Zcash | Watches the script's address. When the funding output has `C_zec` confirmations (§5) and at least `wantAmount`, claims it with `s` before `cltv`. **`s` is now public on Zcash.** |
 | 6 | taker | `swap.bas` `Claim(id, s)` | Reads `s` from the maker's claim transaction, claims the escrow before `T_dero`. Ring 2; the signer must be the taker `Lock` named. The contract stores `s` as `x_<id>`, so it is public on DERO too. |
+
+"Checks every field" is four equalities and a bound, and the companion performs each of them; a taker who
+skips one funds a script that cannot pay it back.
+
+- `h_<id>` must be **character for character the lower-case hex** of the 32 bytes the taker put in the script
+  (`zecswap.ParseSwapHash`). `swap.bas` `Claim` compares the stored string against `HEX(SHA256(secret))` and the
+  DVM renders `HEX()` lower-case, so an upper-case or mixed-case hash is a DERO escrow that can never be opened
+  while the Zcash claim, which holds `H` as bytes, still works.
+- The redeem script must begin `SIZE <32> EQUALVERIFY`. Without it `OP_SHA256` accepts a preimage of any length
+  up to 520 bytes while `swap.bas` accepts 32 bytes and nothing else, and a maker who picks a 31-byte secret
+  takes the ZEC and leaves a secret the escrow refuses.
+- `cltv` must pass `zecswap.CheckCLTV` against the Zcash tip the taker reads for itself: a height, not a Unix
+  time, above the tip, and inside the window of §5.
+- The claim key hash must be the maker’s `wantAddr` from the offer, and the refund key hash the taker’s own.
+- `T_dero − now ≥ 1,200` DERO blocks, and the lock at least `STABLE_LIMIT` deep.
 
 Exits:
 
@@ -124,7 +139,8 @@ escrow is complete, and `swap.bas` is 3.5 KB against `htlc.bas`'s 5.8 KB of raw 
 | `cltv − Zcash height at lock` | 96 blocks (2 h) | the maker's window to claim; short, so a maker who walks costs the taker two hours, not eight |
 | taker's precondition to lock ZEC | `T_dero − now ≥ 1,200` DERO blocks (6 h) | so that after a claim at the last Zcash block (≤ 2 h + reorg slack) the taker still has ≥ 3.5 h on DERO |
 | `P_lock` | 200 DERO blocks (1 h) after `Accept` | the maker's deadline to lock; after it the taker treats the accept as dead and moves on |
-| secret | 32 bytes | `swap.bas` line 25–27 refuses any other length; the Zcash script hashes whatever is pushed, so the companion enforces the size on both sides, and a push above 520 bytes is invalid in script anyway |
+| secret | 32 bytes | `swap.bas` line 25–27 refuses any other length, and the redeem script says the same in `SIZE <32> EQUALVERIFY`, so the two legs accept the same set of secrets and the companion is not the only guard |
+| `cltv` tolerance | ± 32 blocks (40 min) around the 96 | the two parties read the tip at different moments and the accept is written before the lock. Below 64 blocks there is no window at all — the maker still needs `C_zec` = 10 confirmations (12.5 min) and time to broadcast; above 128 blocks the taker’s precondition `T_dero − now ≥ 1,200` stops holding. `zecswap.CheckCLTV` enforces it; nothing on DERO can, because the DVM cannot see the Zcash height |
 
 The margins are argued from block times, as the Monero swap's are. Measuring them against real reorg statistics
 on both chains is BL-30, and the numbers above are simulator policy until then. On the simulator the driver uses
@@ -198,8 +214,19 @@ provided, with the answer to "what does this provide that a smaller primitive ca
   Orchard bundle read (a maker's wallet may add Orchard change to the claim that reveals the secret) but never
   built, a Sapling bundle refused by name. The transaction id and the SIGHASH_ALL digest match Zcash's own test
   vectors (`tools/zecswap/testdata/zip_0244.json`, four transactions with transparent inputs and Orchard
-  bundles). The consensus branch id is read from the node (`getblockchaininfo`), never fixed at signing: a wrong
-  id makes a signature invalid, never a loss.
+  bundles). The consensus branch id is read from the node, never fixed at signing: `getblockchaininfo`’s
+  `consensus.nextblock` — the epoch of the block the transaction will be **mined** in, not `consensus.chaintip`,
+  which is the epoch of the block already at the tip. The two differ only across an activation boundary, which
+  is the one moment the choice matters. `zecswap.CheckBranchID` takes the node’s answer and refuses to sign when
+  the build does not recognise it (the binary is older than the chain) or when it disagrees with the upgrade
+  schedule the build carries; `zecswap.Upgrades` holds that schedule, NU5 through NU6.3, from ZIPs 252, 253,
+  255, 257 and 258.
+
+  A wrong branch id is not “invalid, never a loss”, which is what this note said until 2026-09-10. The claim
+  branch of the redeem script carries no timelock, so it never expires: a taker who cannot broadcast a valid
+  refund at `cltv` — a stale branch id, a crashed watcher, an absence — faces a maker who has already refunded
+  the DERO after `T_dero` and can still spend the ZEC with `s` at any later time. The six hours between `cltv`
+  and `T_dero` are the taker’s whole margin.
 
 ## 8. The screen
 
@@ -243,6 +270,7 @@ provided, with the answer to "what does this provide that a smaller primitive ca
 | Z14 | The taker's DERO node lies about the lock | the taker locks ZEC against a lock that is not there; refunds after `cltv` | taker: 2 h. The node is a trusted party for that read; the app names it |
 | Z15 | The maker's `lightwalletd` lies about the funding | the maker claims a funding that is not there: the claim fails, nothing is revealed; or the maker misses a real one and the taker refunds | time only; the server is named as trusted |
 | Z16 | Liveness: the maker's companion is off when the funding confirms | the taker refunds after `cltv`; the maker's escrow refunds after `T_dero` | both: time. The companion's `status` says how long it may sleep |
+| Z17 | The taker cannot broadcast a refund at `cltv` — offline, a crashed watcher, a signature under a branch id the chain has left behind | the claim branch of the redeem script carries no timelock, so it never expires. After `T_dero` the maker has refunded the DERO and can still spend the ZEC with `s`, at any later moment | taker: the whole ZEC leg. The margin is the six hours between `cltv` (2 h) and `T_dero` (8 h); the refund must be attempted at `cltv` and retried until it confirms |
 
 ## 10. Trust statement
 

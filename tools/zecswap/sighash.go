@@ -19,12 +19,99 @@ const (
 	V5Version = 0x80000005
 	// V5VersionGroupID is nVersionGroupId for v5 transactions.
 	V5VersionGroupID = 0x26A7270A
-	// BranchNU5 and BranchNU6 are consensus branch ids. The one to sign under is the chain's current epoch,
-	// read from the node (getblockchaininfo → consensus.chaintip); a wrong id makes the signature invalid,
-	// never a loss.
-	BranchNU5 = 0xC2D6D0B4
-	BranchNU6 = 0xC8E71055
+	// MaxExpiryHeight is ZIP 203's ceiling on nExpiryHeight; above it a transaction is invalid, and the value
+	// is also where nLockTime stops meaning a height (BIP 65's LOCKTIME_THRESHOLD, one higher).
+	MaxExpiryHeight = 499_999_999
 )
+
+// Consensus branch ids. The digest tree is personalized with the branch id ("ZcashTxHash_" + the id), so it is
+// signed over: a signature made under the wrong id is invalid on every node, and there is no way to fix it
+// after the fact except to sign again.
+//
+// The id to sign under belongs to the block the transaction will be MINED in, not the one at the tip, so it is
+// getblockchaininfo's consensus.nextblock — never consensus.chaintip. The two differ at exactly one moment, an
+// activation boundary, which is the only moment the choice matters.
+//
+// Do not read these constants as the answer. They are here so a build can tell whether it recognises the epoch
+// the node reports and refuse to sign when it does not: a binary older than the chain it is talking to knows
+// nothing about the id it would need. Ask the node, then CheckBranchID.
+const (
+	BranchNU5  = 0xC2D6D0B4 // ZIP 252
+	BranchNU6  = 0xC8E71055 // ZIP 253
+	BranchNU61 = 0x4DEC4DF0 // ZIP 255
+	BranchNU62 = 0x5437F330 // ZIP 257
+	BranchNU63 = 0x37A5165B // ZIP 258
+)
+
+// Upgrade is one network upgrade and the height it activates at on each network.
+type Upgrade struct {
+	Name     string
+	BranchID uint32
+	Mainnet  uint32
+	Testnet  uint32
+}
+
+// Upgrades are the epochs this build knows, in ascending height order, from NU5 — the first that carries v5
+// transactions, which is all this package builds or reads. Heights and ids are from the ZIPs named above.
+var Upgrades = []Upgrade{
+	{"NU5", BranchNU5, 1_687_104, 1_842_420},
+	{"NU6", BranchNU6, 2_726_400, 2_976_000},
+	{"NU6.1", BranchNU61, 3_146_400, 3_536_500},
+	{"NU6.2", BranchNU62, 3_364_600, 4_052_000},
+	{"NU6.3", BranchNU63, 3_428_143, 4_134_000},
+}
+
+func (u Upgrade) height(net Network) uint32 {
+	if net == Mainnet {
+		return u.Mainnet
+	}
+	return u.Testnet
+}
+
+// BranchIDForHeight is the branch id of the epoch containing the given height, as this build understands the
+// upgrade schedule. A height before NU5 has no answer here: this package neither builds nor reads the
+// transaction versions that came before it.
+func BranchIDForHeight(net Network, height uint32) (uint32, error) {
+	if height < Upgrades[0].height(net) {
+		return 0, fmt.Errorf("zecswap: %s height %d is before NU5 (%d); this package handles v5 transactions only", net, height, Upgrades[0].height(net))
+	}
+	id := Upgrades[0].BranchID
+	for _, u := range Upgrades {
+		if height >= u.height(net) {
+			id = u.BranchID
+		}
+	}
+	return id, nil
+}
+
+// KnownBranchID says whether this build recognises a consensus branch id at all.
+func KnownBranchID(id uint32) bool {
+	for _, u := range Upgrades {
+		if u.BranchID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// CheckBranchID is what a caller runs before it signs: nodeBranchID is getblockchaininfo's consensus.nextblock
+// branch id and nextBlockHeight is the height that block will have (the tip plus one). It fails closed in both
+// directions — an id this build has never heard of means the binary is older than the chain and must not guess,
+// and an id that disagrees with the schedule this build carries means one of the two is wrong and neither can
+// be trusted to sign.
+func CheckBranchID(net Network, nextBlockHeight, nodeBranchID uint32) error {
+	if !KnownBranchID(nodeBranchID) {
+		return fmt.Errorf("zecswap: the node reports consensus branch id %08x for %s height %d and this build does not know it; it is older than the chain — update it rather than sign under a guess", nodeBranchID, net, nextBlockHeight)
+	}
+	want, err := BranchIDForHeight(net, nextBlockHeight)
+	if err != nil {
+		return err
+	}
+	if want != nodeBranchID {
+		return fmt.Errorf("zecswap: the node reports consensus branch id %08x for %s height %d, but this build's upgrade schedule says %08x; one of the two is wrong", nodeBranchID, net, nextBlockHeight, want)
+	}
+	return nil
+}
 
 // OutPoint names a transparent output being spent.
 type OutPoint struct {
@@ -162,6 +249,12 @@ func (t *Tx) SigDigest(i int, hashType byte) ([32]byte, error) {
 	if i < 0 || i >= len(t.In) {
 		return zero, fmt.Errorf("zecswap: input %d of %d", i, len(t.In))
 	}
+	if !KnownBranchID(t.BranchID) {
+		return zero, fmt.Errorf("zecswap: will not sign under consensus branch id %08x, which this build does not know; read it from the node (getblockchaininfo → consensus.nextblock) and check it with CheckBranchID", t.BranchID)
+	}
+	if t.ExpiryHeight > MaxExpiryHeight {
+		return zero, fmt.Errorf("zecswap: nExpiryHeight %d is above ZIP 203's maximum %d, so the transaction is invalid in every block", t.ExpiryHeight, MaxExpiryHeight)
+	}
 	var amounts, scripts bytes.Buffer
 	for _, in := range t.In {
 		if in.ScriptPubKey == nil {
@@ -243,12 +336,18 @@ func ParseV5(raw []byte) (*Tx, error) {
 		return nil, fmt.Errorf("zecswap: version group %08x is not v5", g)
 	}
 	t := &Tx{BranchID: r.u32(), LockTime: r.u32(), ExpiryHeight: r.u32()}
+	if r.err != nil {
+		return nil, r.err
+	}
+	if t.ExpiryHeight > MaxExpiryHeight {
+		return nil, fmt.Errorf("zecswap: nExpiryHeight %d is above ZIP 203's maximum %d", t.ExpiryHeight, MaxExpiryHeight)
+	}
 	nIn := r.compact()
 	for i := uint64(0); i < nIn && r.err == nil; i++ {
 		var in TxIn
 		copy(in.PrevOut.Hash[:], r.bytes(32))
 		in.PrevOut.Index = r.u32()
-		in.ScriptSig = r.bytes(int(r.compact()))
+		in.ScriptSig = r.varBytes()
 		in.Sequence = r.u32()
 		t.In = append(t.In, in)
 	}
@@ -256,7 +355,7 @@ func ParseV5(raw []byte) (*Tx, error) {
 	for i := uint64(0); i < nOut && r.err == nil; i++ {
 		var out TxOut
 		out.Value = r.u64()
-		out.ScriptPubKey = r.bytes(int(r.compact()))
+		out.ScriptPubKey = r.varBytes()
 		t.Out = append(t.Out, out)
 	}
 	if r.err != nil {
@@ -286,17 +385,35 @@ type reader struct {
 	err error
 }
 
+// bytes takes the next n bytes. The bound is written against what is left rather than as r.p+n > len(r.b),
+// because n comes from a length field in a transaction the counterparty chose: a CompactSize near 2^63 makes
+// r.p+n overflow to a negative number, the check pass, and the slice panic — a crash of the watcher at exactly
+// the moment it must act (finding ZEC-5 of the 2026-09-10 audit).
 func (r *reader) bytes(n int) []byte {
 	if r.err != nil {
 		return nil
 	}
-	if n < 0 || r.p+n > len(r.b) {
+	if n < 0 || n > len(r.b)-r.p {
 		r.err = errors.New("zecswap: transaction truncated")
 		return nil
 	}
 	out := r.b[r.p : r.p+n]
 	r.p += n
 	return out
+}
+
+// varBytes reads a CompactSize count and that many bytes. The count is compared with what is left while it is
+// still a uint64, so no conversion to int can wrap.
+func (r *reader) varBytes() []byte {
+	n := r.compact()
+	if r.err != nil {
+		return nil
+	}
+	if n > uint64(len(r.b)-r.p) {
+		r.err = errors.New("zecswap: transaction truncated")
+		return nil
+	}
+	return r.bytes(int(n))
 }
 func (r *reader) u32() uint32 {
 	b := r.bytes(4)

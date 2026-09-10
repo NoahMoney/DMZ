@@ -7,17 +7,22 @@ import (
 )
 
 // The vector is research/crosschain/poc/zec-t-htlc/run.log: the script that Zcash's consensus interpreter
-// accepted for a claim with the secret and a refund after the lock time, and refused for the five wrong ways.
-// The PoC names its claim key "taker" and its refund key "maker"; docs/ZEC_SWAP.md gives the secret to the
-// maker, so the names swap and the bytes do not.
+// accepted for a claim with the secret and a refund after the lock time, and refused for the five wrong ways
+// and for a preimage of 1, 31, 33 or 64 bytes. The PoC names its claim key "taker" and its refund key "maker";
+// docs/ZEC_SWAP.md gives the secret to the maker, so the names swap and the bytes do not.
+//
+// Regenerated 2026-09-10 with the ZEC-1 fix: the claim branch now opens with OP_SIZE <32> OP_EQUALVERIFY, so
+// the script is 98 bytes rather than 94 and every byte downstream of it — the script hash, the scriptPubKey,
+// the address — is new. The four non-32-byte preimages were Ok(true) against the 94-byte script and are
+// rejected against this one; run.log holds both halves of that run.
 const (
-	vecHash      = "9156797605b5272d9b2dc688e5d64d05311ce1768f7044850e75d9b2a9eb7bdb"
-	vecClaimPkh  = "07a60d31b51e41efe6301c676a3179416aea28bb"
-	vecRefundPkh = "e3556bb30898a8b88fcef586864b9e408685eb09"
+	vecHash      = "3d9891e697fcb6e0e772ed5684f02dc06a73e5aead33ac0a1106ded42ac08df2"
+	vecClaimPkh  = "58fa998220c2d04b5bd690078c9477ef7888a9df"
+	vecRefundPkh = "add5b111ec6aa622912560fd01ccb370e43443d1"
 	vecCLTV      = 3_000_000
-	vecRedeem    = "63a8209156797605b5272d9b2dc688e5d64d05311ce1768f7044850e75d9b2a9eb7bdb8876a91407a60d31b51e41efe6301c676a3179416aea28bb88ac6703c0c62db17576a914e3556bb30898a8b88fcef586864b9e408685eb0988ac68"
-	vecSPK       = "a91446bac160b08d5c3529060ea67e2b5bc51168f1d387"
-	vecAddress   = "t2CznzyM1SiyHb5CLc46GkAgoiMPnBLvuQ2"
+	vecRedeem    = "6382012088a8203d9891e697fcb6e0e772ed5684f02dc06a73e5aead33ac0a1106ded42ac08df28876a91458fa998220c2d04b5bd690078c9477ef7888a9df88ac6703c0c62db17576a914add5b111ec6aa622912560fd01ccb370e43443d188ac68"
+	vecSPK       = "a9144e0dfbd32812056a7119b6f32b05c257078d713d87"
+	vecAddress   = "t2DfXS7stSbxn6nQGJBHF7DbozGDPGWGTDH"
 )
 
 func vector(t *testing.T) HTLC {
@@ -50,8 +55,8 @@ func TestVector(t *testing.T) {
 	if got := h.Address(Testnet); got != vecAddress {
 		t.Fatalf("testnet address got %s want %s", got, vecAddress)
 	}
-	if len(h.RedeemScript()) != 94 {
-		t.Fatalf("redeem script is %d bytes, the PoC's is 94", len(h.RedeemScript()))
+	if len(h.RedeemScript()) != 98 {
+		t.Fatalf("redeem script is %d bytes, the PoC's is 98", len(h.RedeemScript()))
 	}
 	// the mainnet form of the same script hash carries the t3 prefix and decodes back to the same hash
 	main := h.Address(Mainnet)
@@ -63,7 +68,7 @@ func TestVector(t *testing.T) {
 
 func TestParseAddress(t *testing.T) {
 	net, kind, hash, err := ParseAddress(vecAddress)
-	if err != nil || net != Testnet || kind != P2SH || hex.EncodeToString(hash[:]) != "46bac160b08d5c3529060ea67e2b5bc51168f1d3" {
+	if err != nil || net != Testnet || kind != P2SH || hex.EncodeToString(hash[:]) != "4e0dfbd32812056a7119b6f32b05c257078d713d" {
 		t.Fatalf("parse %s: %v %v %x %v", vecAddress, net, kind, hash, err)
 	}
 	// a P2PKH address made from a key hash round-trips on both networks, and its prefix reads as documented
@@ -107,13 +112,13 @@ func TestSpendLayouts(t *testing.T) {
 	copy(secret[:], bytes.Repeat([]byte{0xaa}, 32))
 	redeem := h.RedeemScript()
 	claim := h.ClaimScriptSig(sig, pub, secret)
-	// <71 sig> <33 pub> <32 secret> OP_TRUE PUSHDATA1 94 <redeem>
+	// <71 sig> <33 pub> <32 secret> OP_TRUE PUSHDATA1 98 <redeem>
 	want := append([]byte{71}, sig...)
 	want = append(want, 33)
 	want = append(want, pub...)
 	want = append(want, 32)
 	want = append(want, secret[:]...)
-	want = append(want, opTrue, opPushData1, 94)
+	want = append(want, opTrue, opPushData1, 98)
 	want = append(want, redeem...)
 	if !bytes.Equal(claim, want) {
 		t.Fatalf("claim scriptSig layout wrong:\n%x\n%x", claim, want)
@@ -122,7 +127,7 @@ func TestSpendLayouts(t *testing.T) {
 	want = append([]byte{71}, sig...)
 	want = append(want, 33)
 	want = append(want, pub...)
-	want = append(want, opFalse, opPushData1, 94)
+	want = append(want, opFalse, opPushData1, 98)
 	want = append(want, redeem...)
 	if !bytes.Equal(refund, want) {
 		t.Fatalf("refund scriptSig layout wrong:\n%x\n%x", refund, want)

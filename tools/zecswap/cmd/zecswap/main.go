@@ -2,13 +2,15 @@
 // the part that needs no node: the script both parties must agree on, its address, and what each transparent
 // address form means. The watcher and the spends come next (BL-40b).
 //
-//	zecswap script  -hash <64 hex> -claim <t-address or 40-hex key hash> -refund <t-address or 40-hex key hash> -cltv <height> [-net testnet]
+//	zecswap script  {-hash <64 lower-case hex> | -secret <64 lower-case hex>} -claim <t-address or 40-hex key hash>
+//	                -refund <t-address or 40-hex key hash> -cltv <height> -tip <Zcash height> [-net testnet]
 //	zecswap address <t-address>
 //
 // Nothing here holds a key or talks to anything.
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -41,18 +43,39 @@ func main() {
 
 func script(args []string) {
 	fs := flag.NewFlagSet("script", flag.ExitOnError)
-	hashHex := fs.String("hash", "", "SHA256 of the maker's 32-byte secret, 64 hex — the hash on the board and in swap.bas")
+	hashHex := fs.String("hash", "", "the board's h_<id>: SHA256 of the maker's 32-byte secret, 64 lower-case hex")
+	secretHex := fs.String("secret", "", "the maker's own secret, 64 lower-case hex (32 bytes); the hash is derived from it. Use instead of -hash")
 	claim := fs.String("claim", "", "the maker's transparent address (the offer's wantAddr) or its 40-hex key hash")
 	refund := fs.String("refund", "", "the taker's transparent address or its 40-hex key hash (the accept's refundPkh)")
 	cltv := fs.Uint("cltv", 0, "the Zcash height after which the taker may refund (the accept's cltv)")
+	tip := fs.Uint("tip", 0, "the current Zcash height, from the node; -cltv is checked against it and the policy of docs/ZEC_SWAP.md §5. 0 means the swap is already funded and only the form of -cltv is checked")
 	netName := fs.String("net", "testnet", "testnet or mainnet: only the address prefix depends on it")
 	fs.Parse(args)
 	var h zecswap.HTLC
-	must(decodeInto(h.Hash[:], *hashHex), "-hash")
+	switch {
+	case (*hashHex == "") == (*secretHex == ""):
+		must(fmt.Errorf("give exactly one of them"), "-hash/-secret")
+	case *secretHex != "":
+		// The secret's length is not cosmetic: contracts/swap.bas Claim takes 32 bytes and nothing else, so a
+		// secret of any other length opens the Zcash leg and never the DERO one.
+		s, err := zecswap.ParseSecret(*secretHex)
+		must(err, "-secret")
+		h.Hash = sha256.Sum256(s[:])
+		fmt.Printf("hash          %x (SHA256 of the secret; this is what Post and Lock carry)\n", h.Hash[:])
+	default:
+		var err error
+		h.Hash, err = zecswap.ParseSwapHash(*hashHex)
+		must(err, "-hash")
+	}
 	must(keyHash(&h.ClaimPkh, *claim), "-claim")
 	must(keyHash(&h.RefundPkh, *refund), "-refund")
-	if *cltv == 0 || *cltv > 0x7fffffff {
-		must(fmt.Errorf("must be a height above zero"), "-cltv")
+	if *cltv > 0xffffffff || *tip > 0xffffffff {
+		must(fmt.Errorf("a Zcash height is a uint32"), "-cltv/-tip")
+	}
+	if *tip == 0 {
+		must(zecswap.CheckCLTVHeight(uint32(*cltv)), "-cltv")
+	} else {
+		must(zecswap.CheckCLTV(uint32(*cltv), uint32(*tip)), "-cltv")
 	}
 	h.CLTV = uint32(*cltv)
 	net := zecswap.Testnet
@@ -104,6 +127,6 @@ func must(err error, what string) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "zecswap script -hash H -claim <t-addr|pkh> -refund <t-addr|pkh> -cltv N [-net testnet|mainnet]\nzecswap address <t-addr>")
+	fmt.Fprintln(os.Stderr, "zecswap script {-hash H|-secret S} -claim <t-addr|pkh> -refund <t-addr|pkh> -cltv N -tip <Zcash height> [-net testnet|mainnet]\nzecswap address <t-addr>")
 	os.Exit(2)
 }
