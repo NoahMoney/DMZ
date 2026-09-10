@@ -2,3 +2,6 @@
 // patterns, and a bare directory is loaded as a module — this is the module it finds. The tests live in
 // *.test.mjs; `node --test tests/js/*.test.mjs` runs the same files directly.
 import("./amm.test.mjs");
+import("./sanitize.test.mjs");
+import("./registry.test.mjs");
+import("./vaultkeys.test.mjs");

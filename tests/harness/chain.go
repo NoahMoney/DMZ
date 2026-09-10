@@ -254,3 +254,15 @@ func S(name string, v string) rpc.Argument {
 func H(name string, v crypto.Hash) rpc.Argument {
 	return rpc.Argument{Name: name, DataType: rpc.DataHash, Value: v}
 }
+
+// AccountRecord is the raw balance record addr holds in asset's tree ("" when the account has no entry there).
+// Any credit rewrites the record, so a test can tell a delivered transfer from a dropped one without decrypting
+// an ElGamal balance. Written for the cases where ProcessExternal panics part way through the transfer list
+// (an unregistered destination) and the test has to ask which transfers it had already applied.
+func (c *Chain) AccountRecord(asset crypto.Hash, addr *rpc.Address) string {
+	b, err := c.tree(asset).Get(addr.Compressed())
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
