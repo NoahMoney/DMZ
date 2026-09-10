@@ -3165,3 +3165,81 @@ The operator's directive of 2026-09-10: the full protocol, real-world transactio
 audit, run as a multi-agent workflow over the whole repository with primary sources, findings verified
 adversarially, safe fixes applied, and the deliverable in `docs/audit/`. The loop's cron is down for its
 duration. Then BL-40b's watcher and broadcast.
+
+## 2026-09-11 — the atomic-swap study: where to adopt swaps, and what they cost in speed
+
+### SHIPPED
+
+- **`docs/ATOMIC_SWAP_STUDY.md`**, the operator's question of 2026-09-10 — should DMZ use atomic-swap-type
+  upgrades to raise security without giving up much speed — answered as a decision document. It was written by a
+  judge panel: a ground agent that checked every baseline number against the code and against primary sources
+  (Monero's `cryptonote_config.h`, ZIP 208, zcashd's `main.h` and `consensus.h`); five designers working from
+  separate angles (security, speed, the holder's journey, the adversary, what can be built); three judges who
+  checked the designers' claims against the repository and scored every design between 6 and 9; a writer; a
+  critic who found 21 problems and 14 gaps and would not sign the draft; and a reviser who fixed them.
+- **Its answer:** adopt them, and they cost little speed. What sets the speed of a first trade is the foreign
+  chain — twenty Monero confirmations are 2,400 of the Monero swap's ≈2,858 seconds — and every path pays that,
+  the federation included. After the first trade every path trades again in one DERO transaction. So the choice
+  is not speed against security; it is what a holder carries between trades, and who can take it.
+- **What it recommends:** the Monero swap stays the trustless track, and its companion learns to take a token,
+  an NFA unit or wXMR as the DERO-side leg, which `htlc.bas` already allows; five fixes that cost nothing on the
+  happy path; an external audit of the proof; a stagenet run. A gas stipend paid by the maker, on every swap
+  path. The Zcash market gets its missing client, a pre-signed refund anyone may broadcast, a `swap.bas` whose
+  Claim pays the stored taker whoever sends it, and a `board.bas` with an acceptance deadline. The federation is
+  not deployed; if it ever is, it is capped, opt-in, never the default and never called trustless, and only
+  after its signers are named and the operator has chosen who bears the loss in LIV-03. Adaptor signatures,
+  bonds no chain can attribute, watchtowers and relayed claims on the Monero swap, confirmation checks inside a
+  contract, and fewer Monero confirmations for speed are rejected, each with its reason.
+- **What it puts to the operator**, in §5, the central one being that no cross-chain swap meets *liveness by
+  construction* as the ruling is written: the maker must Refund inside `[t1, t2)`; on the Zcash market someone
+  must broadcast the taker's refund between `cltv` and the maker's spend, because a transparent script can say
+  "spend after" but never "spend before"; and on the Monero swap the taker must Punish. The study does not
+  reinterpret the ruling on the operator's behalf.
+
+### Two things no earlier document had
+
+- **A holder who arrives with only XMR or ZEC cannot sign the claim that pays them.** DERO's transaction
+  verifier refuses any transaction with no DERO payload — `vendor/derohe/blockchain/transaction_verify.go`,
+  "we can not deduct fees, if no base" — so every swap path had silently assumed the holder already owned DERO,
+  which today means buying it from an exchange. The recommended answer is a small gas gift from the maker, who
+  is already committed to the swap when he sends it.
+- **LIV-07: a lock past `t2` is frozen for ever if the taker never acts.** Claim closes at `t1`, Refund at `t2`,
+  and Punish checks its signer against the stored taker (`contracts/htlc.bas` Punish, line 25), so after `t2`
+  only the taker can move the lock and nothing moves it if she does not. Closing it needs an `htlc.bas` v2
+  before any mainnet id.
+
+### ALSO FIXED
+
+- The study's Path 4 row and §2.4 listed APP-1 — no look-alike check on NFAs — as an open defect; it was
+  repaired in `099a4b1` the day before, and `tests/js/sanitize.test.mjs` asserts the fold is applied. The agents
+  had read the audit's description rather than the repaired code, so every finding id the study cites was
+  cross-checked against the repaired set: XMR-01 and XMR-2 are described correctly, LIV-04 is used only for the
+  DVM mechanism it names, and the other twelve it cites are genuinely open.
+
+### VERIFIED
+
+- Both new findings against the code, as quoted above; the escrow's windows and its asset leg (`htlc.bas` Lock
+  lines 35–36, the three exits' sends at 87, 114 and 133); the critic's four failures against the operator's
+  rulings, each fixed by the reviser — LIV-07 and the liveness decision now open the document, the vault v4
+  variant is shown to lower the theft threshold from k signers to na − k + 1, and the parties trusted on every
+  path are stated once above the table. The workflow wrote only this one file.
+- No code changed, so the previous cycle's validation stands. The five standing requirements are unchanged this
+  cycle; the study bears on the fourth — nobody extracts more than was deposited — and says so per path.
+
+### UNCONSIDERED
+
+- The stipend's size is estimated from a Claim's gas estimate and has never been measured on a real chain, and
+  the minute or three it adds to a first trade is an estimate too.
+- Every latency in the study is at target block rates. Neither Monero's nor Zcash's real inter-block variance has
+  been measured (BL-30), and a target is a promise neither chain keeps.
+- A remote node can cause a total loss that nothing in the protocol detects, and a newcomer who arrives with a
+  light wallet will not run a full node. The study names that as a decision; it has no design for what such a
+  holder can safely do.
+- Several documents are now stale against the code, which the study lists as its first step: the swap
+  companion's default is twenty Monero confirmations, not ten; its default `t1` is lock + 420, not 400; the
+  proof's wall-clock timings; the comment above `refundBlind`.
+
+### NEXT
+
+The operator's decisions in §5 first. Then the study's step 0 — correcting the stale documents — and, if the
+operator adopts it, `htlc.bas` v2 for LIV-07; then its step 2, the asset leg and the stipend on stagenet.

@@ -22,14 +22,13 @@ on something named.
 binds a 32-byte secret; XMR-1, a vault signer cannot reach the JSON-file backend by omission). The third, LIV-01,
 is in `nfa.bas` and needs a template redeploy, which is the operator's decision.
 
-**Running now: the atomic-swap study** the operator asked for on 2026-09-10 — should DMZ adopt atomic-swap
-constructions to raise security without giving up much speed. Workflow `wf_da05d45f-d6b`: a ground agent, five
-designers (security, speed, product, adversary, buildable), three judges, a writer, a critic and a reviser. Its
-one output is `docs/ATOMIC_SWAP_STUDY.md`, a decision document for the operator to sign off; it changes no code.
-If the session is gone, resume it from the session's workflow scripts with
-`Workflow({scriptPath: ".../workflows/scripts/dmz-atomic-swap-study-wf_da05d45f-d6b.js", resumeFromRunId: "wf_da05d45f-d6b"})`.
-**The 20-minute loop is deleted while it runs** — recreate it from `docs/LOOP_PROMPT.md` once the study is
-reviewed against the code and committed.
+**Done 2026-09-11: the atomic-swap study** the operator asked for on 2026-09-10, `docs/ATOMIC_SWAP_STUDY.md`.
+Its answer: adopt atomic swaps, at little cost in speed, because the foreign chain sets the speed of a first trade
+and every path trades again in one DERO transaction; and do not deploy the federation. It puts seventeen
+decisions to the operator in §5, the central one being that no cross-chain swap meets liveness by construction as
+the ruling is written. It found two things no earlier document had: a holder who arrives with only XMR or ZEC
+cannot sign the claim that pays them, because every DERO transaction pays its fee from a DERO payload; and an
+`htlc.bas` lock past `t2` freezes for ever if the taker never acts (LIV-07). The 20-minute loop is running again.
 
 **Waiting on the operator**, each written up in the findings with its options: LIV-01 / NFA-1 (in `nfa.bas`, a
 stranded bid becomes a free call option on a later listing, and an unregistered payee destroys the seller's
@@ -38,9 +37,10 @@ payout); LIV-03 / SEC-K-01 (one signer's payment mark permanently disables `Recl
 cannot be renounced, so the revocation ceremony is impossible as written); SEC-K-03 (the TELA publisher key);
 FE-1(b) (revoking two legacy launch hashes de-lists a live market holding 145,336 atomic DERO); FEE-01 / FEE-02
 (the Founders anti-sweep floor is void at twenty editions); BL-90 (fees earned in a wrapped asset reach no pass
-holder); and D-1 to D-13 in `docs/BACKLOG.md` §19.
+holder); D-1 to D-13 in `docs/BACKLOG.md` §19; and the seventeen in `docs/ATOMIC_SWAP_STUDY.md` §5.
 
-**Then, in order:** the study committed → the loop back up → BL-40b (the Zcash watcher, fee and broadcast) →
+**Then, in order:** the operator's decisions in the study's §5 → its step 0 (correct the documents that are stale
+against the code) → BL-40b (the Zcash watcher, fee and broadcast) →
 BL-11 (the Monero companion on stagenet) → BL-10 (the spore rendezvous) → BL-80 (`deploy/federation.md`) → the
 backlog by priority.
 
