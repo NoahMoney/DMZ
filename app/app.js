@@ -115,6 +115,12 @@
     if (opts.asset && !isScid(opts.asset.scid)) { toast("Refusing: bad asset id", "err"); return null; }
     const ring = opts.ring === 16 ? 16 : 2; // 16 only for entrypoints that pay a named address (SIGNER() is blank above 2)
     if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || D.nfas.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid) || D.allVaults().some((v) => v.scid === opts.scid) || (D.cfg.chat && opts.scid === D.cfg.chat))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
+    // A contract whose code matched a LEGACY template hash is still listed — its code is immutable and it was
+    // verified when that template was current — but it is not running the code this build ships. One kept launch
+    // version refunds a buy's overshoot before it checks min_out, and the ...To wrappers turn that failure into a
+    // second payout of the whole raise; those wrappers are the only entrypoint this app can fire that reaches it.
+    const rec = opts.code ? null : D.assets.get(opts.scid) || D.nfas.get(opts.scid) || D.nfts.get(opts.scid);
+    if (rec && rec.templateLegacy && /To$/.test(String(opts.entry || ""))) { toast("Refusing: this contract runs an earlier version of the template, and this app does not send private-mode calls to code that is not the current one", "err", 9000); return null; }
     const transfers = [];
     if (opts.dero && opts.dero > Z) {
       let dst; try { dst = await V.node.randomAddress(); } catch (e) { toast("No node answers for a burn destination: " + short(e.message), "err", 6000); return null; }
@@ -265,7 +271,7 @@
     openSheet(h("div", { class: "intro-mark" }), h("h2", { class: "grad", style: "font-size:26px" }, "Welcome to DMZ"), h("div", { class: "sub mt8" }, "A social exchange that runs entirely on the DERO chain."),
       h("div", { class: "intro mt" },
         step("1", "Your node, your wallet, nothing else", "There is no server and no account. Prices, trades and profiles are read from the contracts by your own node."),
-        step("2", "Trading is private by default", "Balances are encrypted. A trade only shows up in the feed if you switch on “Post this trade” for that trade."),
+        step("2", "Trading is pseudonymous, not private", "Balances are encrypted, and a trade only reaches the feed if you switch on “Post this trade”. The contract still records its reserves at the end of every block they move in, so the size of the trade is readable by anyone whether you post it or not, and the address that paid a ring-size-2 call can be computed from the block. Private mode hides the payer, not the trade."),
         step("3", "Every listing is verified", "The app checks each contract's code against the shipped templates before it shows it. Warnings appear on thin or taxed markets before you confirm.")),
       button("Got it", "primary wide mt", () => { app.saveSettings({ seen: true }); closeSheet(); }, { id: "introOk" }));
   };

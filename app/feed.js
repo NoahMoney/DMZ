@@ -22,12 +22,15 @@
   // one: who owns it, the listing and its bids, and the URLs Update() may rewrite.
   const NFA_NUM = ["royalty", "artificerFee", "ownerCanUpdate", "protoFee", "active", "scBalance", "cancelBuffer", "startBlockTime", "endBlockTime", "bidCount", "staticBidIncr", "percentBidIncr", "charityDonatePerc", "startPrice", "currBidPrice", "currBidAmt", "previousSalePrice", "previousAuctionPrice"];
   const NFA_STR = ["nameHdr", "descrHdr", "typeHdr", "iconURLHdr", "tagsHdr", "fileURL", "fileSignURL", "fileCheckC", "fileCheckS", "coverURL", "collection", "version", "listType", "quote", "treasury", "owner", "creatorAddr", "previousOwner", "charityDonateAddr", "currBidAddr"];
-  const NFA_PROBE = ["owner", "scBalance", "listType", "startBlockTime", "endBlockTime", "currBidPrice", "bidCount", "fileURL", "fileSignURL", "iconURLHdr", "tagsHdr"];
+  // currBidAmt and currBidAddr are in the probe because a bid can be left held in the contract with no listing
+  // around it (nfa.bas resetVars does not clear them), and a page that did not watch them would show a stale
+  // holder their bid is still live when it is the only thing that changed.
+  const NFA_PROBE = ["owner", "scBalance", "listType", "startBlockTime", "endBlockTime", "currBidPrice", "currBidAmt", "currBidAddr", "bidCount", "fileURL", "fileSignURL", "iconURLHdr", "tagsHdr"];
   const nfaSig = (vals) => NFA_PROBE.map((k) => vals[k] || "").join("|");
 
   const data = {
     cfg: window.VEIL_CONFIG, registry: null, assets: new Map(), nfts: new Map(), nfas: new Map(), profiles: new Map(), follows: new Set(), followers: new Map(), following: new Map(),
-    heights: new Map(), hashes: {}, verified: new Map(), lastRefresh: 0, refreshing: null, listeners: [], height: 0,
+    heights: new Map(), hashes: {}, verified: new Map(), oldcode: new Map(), lastRefresh: 0, refreshing: null, listeners: [], height: 0,
     // Screen handlers subscribe on every dispatch, so a plain push leaks one closure per visit and redraws the
     // screen once per past visit on every block. Tag each subscription with the navigation that created it and
     // drop the stale ones; keep:true marks the few that must outlive navigation.
@@ -47,6 +50,12 @@
     // here and only here: its markets are still named and scaled by allVaults(), and its units can still be
     // burned, because a holder of them must always have the exit.
     vaults() { return this.allVaults().filter((v) => !v.legacy); },
+    // The short noun for a vault's chain. `chain` in the deployment record is a descriptive clause — "Monero —
+    // simulated on this network (12 decimals, as Monero)" — and it was spliced into running prose and cut at 40
+    // characters, which severed a word and left the parenthesis open on seven lines of the wrap screen, the
+    // destination field's own label among them. The clause still has one right place: shown whole, on its own.
+    // Wherever a sentence needs a noun it gets this instead, and nothing in it depends on the clause's length.
+    chainName(v) { return V.ui.clean(String((v && v.name) || "").split(/[(—–-]/)[0].trim() || (v && v.sym) || "its own chain", 24); },
     // The name of a wrapped asset belongs to its vault, and a vault is named by the shipped config, so its
     // symbol cannot be forged. Anything else wearing that name is claiming to be it. This is the name most
     // worth stealing on DMZ: the product points a Monero holder at a ticker called XMR, so a token that simply
@@ -149,8 +158,8 @@
     },
     async templateHashes() {
       if (this.hashes.ok) return this.hashes;
-      const t = this.cfg.templates; const h = {}; for (const k of Object.keys(t)) { h[t[k].sha256] = k; for (const x of t[k].legacy || []) h[x] = k; }
-      this.hashes = { map: h, ok: true }; return this.hashes;
+      const t = this.cfg.templates; const h = {}, cur = {}; for (const k of Object.keys(t)) { h[t[k].sha256] = k; cur[t[k].sha256] = 1; for (const x of t[k].legacy || []) h[x] = k; }
+      this.hashes = { map: h, cur, ok: true }; return this.hashes;
     },
     async installHeight(scid) {
       if (this.heights.has(scid)) return this.heights.get(scid);
@@ -160,7 +169,12 @@
     // verify the code once per session (contracts are immutable, the app still checks what it lists)
     async verify(scid) {
       if (this.verified.has(scid)) return this.verified.get(scid);
-      const r = await V.node.getSC(scid, { code: true }); const kind = (await this.templateHashes()).map[await V.sha256Hex(r.code)] || null;
+      const r = await V.node.getSC(scid, { code: true }); const t = await this.templateHashes(), hh = await V.sha256Hex(r.code), kind = t.map[hh] || null;
+      // Which tier it matched, kept beside the kind. A legacy hash is an EARLIER version of a template, accepted
+      // so contracts already deployed from it still read — and one of the launch versions on that list refunds a
+      // buy's overshoot before it checks min_out, which the ...To wrapper turns into a second payout of the whole
+      // deposit. "Matches a shipped template" was the only thing the app knew and the only thing it said.
+      this.oldcode.set(scid, !!kind && !t.cur[hh]);
       this.verified.set(scid, kind); return kind;
     },
 
@@ -222,7 +236,7 @@
       const num = (k) => (isNum(r.vals[k]) ? B(r.vals[k]) : 0n), str = (k, n) => clean(V.hexToStr(r.vals[k] || ""), n), hex = (k) => (r.vals[k] || "");
       const tCanon = hex("treasury") ? this.rawToAddr(hex("treasury")) : null, reg = this.registry;
       if (reg && !reg.treasuryUnverified && !reg.treasuries.has(tCanon)) return { scid, untrusted: tCanon ? "treasury differs from the factory" : "treasury could not be read" };
-      const s = { scid, kind, fee: num("fee"), pfee: num("pfee"), treasury: tCanon, treasuryUnverified: !reg || reg.treasuryUnverified, trades: [], points: [], sig: sigOf(r.vals), installHeight: await this.installHeight(scid) };
+      const s = { scid, kind, fee: num("fee"), pfee: num("pfee"), treasury: tCanon, treasuryUnverified: !reg || reg.treasuryUnverified, templateLegacy: !!this.oldcode.get(scid), trades: [], points: [], sig: sigOf(r.vals), installHeight: await this.installHeight(scid) };
       // the template fixes the code, not its install parameters: a market with the right code and treasury but a
       // fee of 0 (or 1%) would pay the protocol nothing (or overcharge) and still look Verified without this check
       const std = kind === "launch" ? [B(this.cfg.feeBps), B(this.cfg.launchPfeeBps)] : kind === "pool" ? [B(this.cfg.feeBps), B(this.cfg.pfeeBps)] : kind === "nft" ? [B(this.cfg.feeBps), null] : null;
@@ -274,7 +288,7 @@
       const num = (k) => (isNum(r.vals[k]) ? B(r.vals[k]) : 0n), str = (k, n) => clean(V.hexToStr(r.vals[k] || ""), n), addr = (k) => (r.vals[k] ? this.rawToAddr(r.vals[k]) : null);
       const tCanon = addr("treasury"), reg = this.registry;
       if (reg && !reg.treasuryUnverified && !reg.treasuries.has(tCanon)) return { scid, untrusted: tCanon ? "treasury differs from the factory" : "treasury could not be read" };
-      const s = { scid, kind: "nfa", treasury: tCanon, treasuryUnverified: !reg || reg.treasuryUnverified, sig: nfaSig(r.vals), installHeight: await this.installHeight(scid) };
+      const s = { scid, kind: "nfa", treasury: tCanon, treasuryUnverified: !reg || reg.treasuryUnverified, templateLegacy: !!this.oldcode.get(scid), sig: nfaSig(r.vals), installHeight: await this.installHeight(scid) };
       for (const k of NFA_NUM) s[k] = num(k);
       if (s.protoFee !== B(this.cfg.feeBps || 0)) return { scid, untrusted: "protocol fee differs from the deployment's (" + s.protoFee + " bps)" };
       Object.assign(s, { name: str("nameHdr", 64) || "?", descr: str("descrHdr", 240), type: str("typeHdr", 32), icon: str("iconURLHdr", 200), tags: str("tagsHdr", 100), file: str("fileURL", 300), fileSign: str("fileSignURL", 300), checkC: str("fileCheckC", 120), checkS: str("fileCheckS", 120), cover: str("coverURL", 300), collection: str("collection", 64), version: str("version", 8), listType: str("listType", 8),
@@ -317,6 +331,12 @@
       // split pair, which markets.js already reports far more usefully, and calling it a shared ticker put a
       // warning on the real asset while a copy of it carried none — the guard pointing the wrong way.
       for (const g of groups.values()) if (g.length > 1 && g.every((s) => s.wrappedBase)) for (const s of g) s.dupTicker = false;
+      // An NFA's name is the whole of what it sells, and the fold above runs over this.assets, which never holds
+      // one. So an NFA calling itself wXMR — the cheapest name to steal here — wore the plain Verified shield
+      // while a pool with that name was caught by this same code. Same three marks, same helpers, over nfas.
+      const ng = new Map();
+      for (const s of this.nfas.values()) { s.lookalike = V.ui.hasHomoglyph(s.name); s.impersonates = this.impersonation({ ticker: s.name, name: s.name, scid: s.scid }); const k = V.ui.tickerKey(s.name); (ng.get(k) || ng.set(k, []).get(k)).push(s); }
+      for (const g of ng.values()) for (const s of g) s.dupTicker = g.length > 1;
       for (const s of this.assets.values()) if (s.kind === "pool" && s.assetVerified) { const l = this.assets.get(s.asset); if (!l) continue; s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; s.impersonates = l.impersonates || null; } // a launch and its own pool share a ticker by design
       // split pairs: ids, deepest first, on every member (ids rather than objects, so a cached record has no cycle)
       const byPair = new Map();
@@ -342,7 +362,14 @@
             const cached = this.assets.get(id);
             try {
               if (cached && !full) { const sig = await this.probe(id); if (sig === cached.sig) { cached.lastError = null; next.set(id, cached); return; } }
-              const s = await this.loadContract(id, cached); if (s && !s.untrusted) next.set(id, s); else if (s) console.warn("skipping", id, s.untrusted);
+              // Registration is permissionless and the factory cannot be pruned, and loadContract dispatches on
+              // the code hash rather than on the list an id came from: an NFA registered with RegisterPool comes
+              // back as an NFA record, which has no price history, and one of those in this map made decorate()
+              // throw — losing every market's metrics and Home, Markets and Trade with them, permanently, for the
+              // price of one registration. Take only what this list is for, as the two loops below always have.
+              const s = await this.loadContract(id, cached);
+              if (s && !s.untrusted && (s.kind === "pool" || s.kind === "launch")) next.set(id, s);
+              else if (s) console.warn("skipping", id, s.untrusted || "registered as a market but its code is a " + s.kind);
             } catch (e) { console.warn("load", id, e); if (cached) { this.failed(cached, e); next.set(id, cached); } }
           });
           await pmap(reg.nfts, 4, async (id) => { const cached = this.nfts.get(id); try { if (cached && !full) { const sig = await this.probe(id); if (sig === cached.sig) { cached.lastError = null; nfts.set(id, cached); return; } } const s = await this.loadContract(id, cached); if (s && !s.untrusted && s.kind === "nft") nfts.set(id, s); } catch (e) { if (cached) { this.failed(cached, e); nfts.set(id, cached); } } });

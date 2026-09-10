@@ -5,15 +5,21 @@
   const WIN = { "5m": 300, "1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800 };
   const price = (s, pt) => A.priceOf(s, pt);
   const now = () => Math.floor(Date.now() / 1000);
+  // A record with no price history is not an error here. Anything the factory lists reaches these functions, and a
+  // contract registered as a market that is not one arrives with neither points nor trades; reading them as empty
+  // keeps one such registration from throwing here and taking every other market's metrics down with it. feed.js
+  // also refuses to file it as a market, which is the other half of the same fix.
+  const pts = (s) => (s && Array.isArray(s.points) ? s.points : []);
+  const trs = (s) => (s && Array.isArray(s.trades) ? s.trades : []);
 
   // last recorded price at or before ts; falls back to the first point when the token is younger than the window.
   // Points are appended in ascending ts, so this is a binary search rather than a prefix scan: enrich() asks for
   // five windows per market on every block, and the 7d window used to walk almost the whole history each time.
   function priceAt(s, ts) {
-    const pts = s.points; if (!pts.length) return null;
-    let lo = 0, hi = pts.length - 1, r = -1;
-    while (lo <= hi) { const mid = (lo + hi) >> 1; if (pts[mid].ts <= ts) { r = mid; lo = mid + 1; } else hi = mid - 1; }
-    return price(s, pts[r < 0 ? 0 : r]);
+    const p = pts(s); if (!p.length) return null;
+    let lo = 0, hi = p.length - 1, r = -1;
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (p[mid].ts <= ts) { r = mid; lo = mid + 1; } else hi = mid - 1; }
+    return price(s, p[r < 0 ? 0 : r]);
   }
   function change(s, secs) {
     const p1 = price(s), p0 = priceAt(s, now() - secs);
@@ -43,20 +49,25 @@
   function flow(s, secs) {
     // walked backwards and stopped at the window edge: the sums are order-independent, and the old forward scan
     // read the whole history to reach a window that is usually the last few points of it
-    const from = now() - secs, pts = s.points; let vol = 0n, up = 0, down = 0, blocks = 0;
-    for (let i = pts.length - 1; i >= 1; i--) {
-      const a = pts[i - 1], b = pts[i];
+    const from = now() - secs, p = pts(s); let vol = 0n, up = 0, down = 0, blocks = 0, big = 0;
+    for (let i = p.length - 1; i >= 1; i--) {
+      const a = p[i - 1], b = p[i];
       if (b.ts < from) break;
       if (b.rd === a.rd) continue;
       if (lpMove(s, a, b)) continue;
       const d = b.rd > a.rd ? b.rd - a.rd : a.rd - b.rd; vol += d; blocks++; if (b.rd > a.rd) up++; else down++;
+      // `big` is `blocks` with a size floor: a move of at least one basis point of the quote reserve. One atomic
+      // unit moves the reserves as surely as a whole coin does, so a count of active blocks is bought with gas
+      // alone — 329 atomic units a block, measured. Only `big` feeds the ranking; blocks, up and down still count
+      // every active block, which is what the block-pressure read-out means.
+      if (d * 10000n >= a.rd) big++;
     }
-    return { vol: Number(vol) / qunit(s), blocks, up, down };
+    return { vol: Number(vol) / qunit(s), blocks, big, up, down };
   }
   function published(s, secs) {
-    const from = now() - secs; let buys = 0, sells = 0, bv = 0n, sv = 0n, last = 0;
+    const from = now() - secs, tr = trs(s); let buys = 0, sells = 0, bv = 0n, sv = 0n, last = 0;
     const who = new Set();
-    for (let i = s.trades.length - 1; i >= 0; i--) { const t = s.trades[i]; if (t.ts < from) break; who.add(t.addr); if (t.side === 1) { buys++; bv += t.in; } else { sells++; sv += t.out; } if (t.ts > last) last = t.ts; }
+    for (let i = tr.length - 1; i >= 0; i--) { const t = tr[i]; if (t.ts < from) break; who.add(t.addr); if (t.side === 1) { buys++; bv += t.in; } else { sells++; sv += t.out; } if (t.ts > last) last = t.ts; }
     return { buys, sells, who: who.size, buyVol: Number(bv) / qunit(s), sellVol: Number(sv) / qunit(s), last };
   }
   function enrich(s, height) {
@@ -68,16 +79,19 @@
       vol24: f24.vol, buys24: pub24.buys, sells24: pub24.sells, upBlocks24: f24.up, downBlocks24: f24.down,
       mcap: s.kind === "launch" ? p * (Number(s.supply) / 10 ** Number(s.dec)) : null, // fully diluted: price × total supply (labelled FDV)
       liq: s.kind === "launch" && s.phase === 0n ? Number(s.real) / qunit(s) : (Number(s.rd) / qunit(s)) * 2, // a curve holds only the quote actually raised
-      lastTs: s.points.length ? s.points[s.points.length - 1].ts : 0,
+      lastTs: pts(s).length ? pts(s)[pts(s).length - 1].ts : 0,
       age: s.installHeight && height ? Math.max(0, height - s.installHeight) : null,
       progress: s.kind === "launch" && s.phase === 0n && s.G > 0n ? Number(s.real * 10000n / s.G) / 100 : (s.kind === "launch" ? 100 : null),
       // distinct publishers over the whole history. Only the token screen reads it, so it is computed the first
       // time that screen asks and then kept on this m, rather than rebuilt for every market on every block.
-      get holders() { const n = new Set(s.trades.map((t) => t.addr)).size; Object.defineProperty(this, "holders", { value: n }); return n; },
+      get holders() { const n = new Set(trs(s).map((t) => t.addr)).size; Object.defineProperty(this, "holders", { value: n }); return n; },
     };
-    // anti-wash: distinct publishers count, not published trades (one account spamming posts gains nothing), and
-    // volume enters through a log so a single large reserve move does not own the ranking
-    m.hot = f1.blocks * 4 + pub1.who * 3 + Math.min(50, Math.log1p(f1.vol / qscale(s)) * 8);
+    // anti-wash, three guards: distinct publishers count, not published trades (one account spamming posts gains
+    // nothing); volume enters through a log so a single large reserve move does not own the ranking; and the
+    // activity term counts only blocks whose move cleared flow()'s size floor, at most 40 of them. That term was
+    // uncapped and floorless, which made it both the largest in the score and the cheapest: one dust swap a block
+    // bought 4 points, up to 800 an hour, for gas.
+    m.hot = Math.min(40, f1.big) * 4 + pub1.who * 3 + Math.min(50, Math.log1p(f1.vol / qscale(s)) * 8);
     m.isNew = m.age !== null && m.age < 400; // ~2 hours of 18 s blocks
     m.thin = m.liq < 20 * qscale(s); // small orders move the price a lot: twenty DERO, or the quote's equivalent
     s.m = m; s.price = p; s.change24 = m.c24h; s.vol24 = m.vol24;
@@ -88,7 +102,7 @@
   // interval in seconds; returns [{t, o, h, l, c, v, up}] where v is the reserve flow (in the quote) and empty intervals
   // carry the previous close as a flat candle (drawn as a doji), exactly like an exchange with no trades.
   function candles(s, interval, from) {
-    const pts = s.points.filter((p) => p.ts >= from - interval); if (!pts.length) return [];
+    const pts = (s.points || []).filter((p) => p.ts >= from - interval); if (!pts.length) return [];
     const out = []; let prevClose = price(s, pts[0]), prevRd = pts[0].rd, prevPt = pts[0];
     const t0 = Math.floor(Math.max(from, pts[0].ts) / interval) * interval, tEnd = now();
     let i = 0;
@@ -110,7 +124,7 @@
   // interval follows the range, but a market younger than the range gets finer candles (~60 across its life)
   function rangeFor(s, key) {
     let [span, iv] = RANGES[key] || RANGES["24h"];
-    const first = s.points.length ? s.points[0].ts : now(), life = Math.max(600, now() - first);
+    const first = pts(s).length ? pts(s)[0].ts : now(), life = Math.max(600, now() - first);
     if (!span) { span = Math.max(3600, life); iv = 0; }
     if (life < span) { span = life; iv = 0; }
     if (!iv) iv = Math.max(60, Math.ceil(span / 60 / 60) * 60);

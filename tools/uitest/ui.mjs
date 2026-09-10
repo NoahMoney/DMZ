@@ -48,6 +48,15 @@ const text = async () => (await page.locator("#screen").innerText()).replace(/\s
 try {
   step("open " + url);
   await page.goto(url, { waitUntil: "load" });
+  await page.locator("#introOk").waitFor({ timeout: 8000 }).catch(() => {});
+  // PRIV-01: the intro used to say trading is private by default. The contract stores its reserves at the end of
+  // every block they move in, so the size of every trade is public whether it was posted or not; the first screen
+  // a user reads has to say so, and this is the assertion that fails if it goes back to claiming otherwise.
+  {
+    const it = await page.locator("#sheet").innerText().catch(() => "");
+    for (const want of [/pseudonymous/i, /the size of the trade/i]) if (!want.test(it)) fail("the intro sheet does not state " + want + ": " + it.replace(/\s+/g, " ").slice(0, 240));
+    step("intro: " + it.replace(/\s+/g, " ").slice(0, 90));
+  }
   await page.locator("#introOk").click({ timeout: 8000 }).catch(() => {}); // first-run intro
   await page.evaluate(() => new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach((n) => console.log("TOAST " + n.textContent)))).observe(document.getElementById("toasts"), { childList: true }));
   await sleep(4000);
@@ -63,12 +72,32 @@ try {
     if (inBar) await page.click(`.tab[data-tab=${tab}]`);
     else await page.evaluate((t) => { location.hash = "#" + t; }, tab);
     await sleep(900); await shot("02-" + tab);
-    step(tab + (inBar ? ": " : " (not in the phone bar): ") + (await text()).slice(0, 90));
+    const tt = await text();
+    // FEE-05: app/notice.js is the app's authoritative page and no screen may say something stronger than it.
+    // The pass earns a share of the DERO fees the treasury claims and deposits; fees earned in a wrapped asset
+    // reach no holder, and no contract obliges the deposit. "Every protocol fee" is the claim that broke that.
+    if (tab === "nfts") {
+      for (const bad of [/every protocol fee/i, /fees claimed from every market/i]) if (bad.test(tt)) fail("the NFTs screen states " + bad + ", which app/notice.js contradicts: " + tt.slice(0, 240));
+      if (!/DERO/.test(tt)) fail("the NFTs screen never names the asset the pass share is paid in: " + tt.slice(0, 240));
+    }
+    step(tab + (inBar ? ": " : " (not in the phone bar): ") + tt.slice(0, 90));
   }
   // a holder-NFT collection page when the simulator has one
   const nftId = await page.evaluate(() => { const n = [...window.Veil.data.nfts.keys()]; return n.length ? n[0] : null; });
   if (nftId) { await page.evaluate((s) => { location.hash = "#nft/" + s; }, nftId); await sleep(1500); await shot("02b-nft"); const nt = await text(); if (!/Public accounting/.test(nt)) fail("nft page missing accounting card: " + nt.slice(0, 160)); step("nft page: " + nt.slice(0, 80)); }
   await page.evaluate(() => { location.hash = "#settings"; }); await sleep(600); await shot("03-settings");
+  {
+    const st = await text();
+    for (const want of [/pseudonymous/i, /the size of the trade/i]) if (!want.test(st)) fail("Settings does not state " + want + ": " + st.slice(0, 240));
+    // The banned phrases, in the source rather than in a render: both were load-bearing claims that the chain
+    // contradicts, and a render only catches the one on screen at the time.
+    const appDir = new URL("../../app/", import.meta.url);
+    for (const f of fs.readdirSync(appDir).filter((n) => n.endsWith(".js"))) {
+      const src = fs.readFileSync(new URL(f, appDir), "utf8");
+      for (const bad of [/private by default/i, /never individual unpublished trades/]) if (bad.test(src)) fail("app/" + f + " contains the banned phrase " + bad);
+    }
+    step("privacy copy: intro and Settings both say pseudonymous; no banned phrase in app/*.js");
+  }
   // the wrapped-asset screen: it must publish the two numbers a user cannot discover any other way — the minimum
   // deposit and the height a withdrawal becomes payable — or it is a trap rather than a screen
   {
@@ -79,6 +108,27 @@ try {
       if (!/minimum deposit/i.test(wt)) fail("wrap screen does not publish the minimum deposit: " + wt.slice(0, 200));
       if (!/what you are trusting/i.test(wt)) fail("wrap screen has no trust panel: " + wt.slice(0, 200));
       if (/\bSAFE\b/.test(wt)) fail("wrap screen shows a SAFE badge; the trust panel must be factual");
+      // UX-01: the ceiling belongs where the floor already is. A vault at its cap does not refuse a deposit, it
+      // strands it, so the headroom has to be stated in the deposit section and not only in the hero.
+      const depFrom = wt.indexOf("Minimum deposit"), depTo = wt.indexOf("Burn and withdraw");
+      const depSlice = depFrom >= 0 && depTo > depFrom ? wt.slice(depFrom, depTo) : wt;
+      if (!/can be minted right now/i.test(depSlice)) fail("the deposit walkthrough does not state the headroom: " + depSlice.slice(0, 240));
+      // UX-06: the deployment record's chain string is a clause, not a noun. Splicing it into prose and cutting it
+      // to fit severed a word and left the parenthesis open seven times on this screen; count them instead.
+      const raw = await page.locator("#screen").innerText();
+      const opens = (raw.match(/\(/g) || []).length, closes = (raw.match(/\)/g) || []).length;
+      if (opens !== closes) fail("the wrap screen has " + opens + " '(' and " + closes + " ')': a config string is being cut mid-clause");
+      // UX-05: the bond deters nobody when a quorum of the others cannot be reached (n < 2k), which is the shape
+      // both simulator vaults are in. The line must not carry the green check there.
+      const bond = await page.evaluate(() => {
+        const w = window.Veil.data.vault; if (!w) return null;
+        const r = [...document.querySelectorAll("#screen .card .row")].find((x) => /bonded|bond is at stake/i.test(x.innerText));
+        return r ? { txt: r.innerText.replace(/\s+/g, " "), ok: !!r.querySelector(".svgi.up"), na: String(w.na), k: String(w.k) } : null;
+      });
+      if (bond) {
+        if (BigInt(bond.na) < 2n * BigInt(bond.k) && bond.ok) fail("the signer bond is shown with a green check on a " + bond.k + "-of-" + bond.na + " vault, where the quorum that can take the reserve is the only quorum that could slash it: " + bond.txt);
+        step("wrap: " + bond.k + "-of-" + bond.na + ", bond line " + (bond.ok ? "affirmed" : "qualified") + "; parens " + opens + "/" + closes);
+      }
     } else if (!/no vault on this network/i.test(wt)) {
       fail("wrap screen with no configured vault should say so: " + wt.slice(0, 200));
     }

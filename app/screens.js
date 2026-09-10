@@ -64,8 +64,9 @@
         h("div", { class: "grow" },
           h("span", { class: cls }, code + " · w" + sym),
           h("div", { class: "note", style: "margin-top:7px" },
-            "Wrapped " + U.clean(v.name || sym, 40) + " — a claim on " + U.clean(v.chain || "its own chain", 44) +
+            "Wrapped " + U.clean(v.name || sym, 40) + " — a claim on " + D.chainName(v) +
             ", held one for one by a k-of-n federation. Backed, not trustless."),
+          v.chain ? h("div", { class: "note tiny", style: "margin-top:5px" }, U.clean(v.chain, 100)) : null,
           h("div", { class: "row tight", style: "margin-top:8px" },
             button("Deposit / withdraw", "small", () => router.go("wrap", v.scid)))),
         h("div", { style: "text-align:right;flex:none" },
@@ -269,7 +270,7 @@
       monoKv("Social", V.shortAddr(D.cfg.social)),
 
       U.sectionHead("eye", "What publishing reveals", "Read this before switching “Post this trade” on"),
-      h("div", { class: "note mt8" }, "Publishing a trade reveals your address and that trade to everyone; it never reveals balances. Contract calls that pay you need ringsize 2, and anyone can compute which address paid a ringsize-2 call, not only the contract. Private mode in the trade sheet sends at ring size 16 and pays a named address instead: the payer is one of 16 accounts, the receiving address is public. Charts are exact at block resolution: the chain records the closing reserves of every active block, never individual unpublished trades."),
+      h("div", { class: "note mt8" }, "Publishing a trade reveals your address and that trade to everyone; it never reveals balances. Contract calls that pay you need ringsize 2, and anyone can compute which address paid a ringsize-2 call, not only the contract. Private mode in the trade sheet sends at ring size 16 and pays a named address instead: the payer is one of 16 accounts, the receiving address is public. Charts are exact at block resolution: the chain records the closing reserves of every active block, and the difference between two of them is the size of the trade that caused it — so every trade is pseudonymous whether or not you post it, and an unpublished trade is unpublished in name only. Posting adds your address to the record; it does not add the amount, which is already there."),
 
       U.sectionHead("wallet", "This device", "Kept in this browser · nothing here is uploaded"),
       h("div", { class: "stack mt8" },

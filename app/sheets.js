@@ -124,7 +124,7 @@
     inp.oninput = upd;
     openSheet(h("h2", null, "Stake " + s.ticker), h("div", { class: "sub mt8" }, Number(s.tax) / 100 + "% of every trade's " + qsym + " leg is shared among stakers, pro rata, block by block."),
       h("div", { class: "outline mt" }, h("div", { class: "l" }, "Pending reward"), h("div", { class: "v num" }, A.fmtUnits(pending, qdec, 5) + " " + qsym)),
-      h("div", { class: "stack mt", style: "gap:0" }, kv("Your stake", mine.st ? A.fmtUnits(mine.st, s.dec, 4) : "0"), kv("Total staked", A.fmtCompact(s.stot, s.dec)), kv("Undistributed in the contract", A.fmtUnits(s.tacc, qdec, 5) + " " + qsym), kv("Ring size", "2 · the payer is public")),
+      h("div", { class: "stack mt", style: "gap:0" }, kv("Your stake", (mine.st ? A.fmtUnits(mine.st, s.dec, 4) : "0") + " " + s.ticker), kv("Total staked", A.fmtCompact(s.stot, s.dec) + " " + s.ticker), kv("Undistributed in the contract", A.fmtUnits(s.tacc, qdec, 5) + " " + qsym), kv("Ring size", "2 · the payer is public")),
       h("div", { class: "note mt8" }, RINGNOTE + " Staking, unstaking and claiming are three separate transactions, and each one pays a network fee in DERO" + (s.quote ? ", not in " + qsym : "") + "."),
       h("div", { class: "eyebrow mt" }, "Stake or unstake"), amountBox(inp, s.ticker),
       h("div", { class: "row mt" }, stakeBtn, unBtn),

@@ -5,3 +5,8 @@ import("./amm.test.mjs");
 import("./sanitize.test.mjs");
 import("./registry.test.mjs");
 import("./vaultkeys.test.mjs");
+// The repair suites of the 2026-09-10 audit. Three fixers each asked for their file to be added here rather
+// than adding it themselves, because three edits to the same four lines would have collided.
+import("./appcore.repair.test.mjs");
+import("./fees.repair.test.mjs");
+import("./nfas.repair.test.mjs");

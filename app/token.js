@@ -74,7 +74,7 @@
           mini("Buys / sells", h("span", null, h("span", { class: "up" }, String(m.buys24)), " / ", h("span", { class: "down" }, String(m.sells24)))),
           mini("Traders", String(m.holders)),
           mini("Last trade", m.lastTs ? h("span", { "data-ts": m.lastTs }, U.timeAgo(m.lastTs) + " ago") : "—")),
-        h("div", { class: "note mt8" }, "Counted from trades whose sender chose to post them. Balances are private on DERO, and a trade nobody posted still moves the price."));
+        h("div", { class: "note mt8" }, "Counted from trades whose sender chose to post them. Balances are private on DERO, and a trade nobody posted still moves the price — the reserve change between two blocks is the size of the trade that caused it, so an unpublished trade hides who, not what."));
       const tot = m.upBlocks24 + m.downBlocks24 || 1, bp = Math.round((m.upBlocks24 / tot) * 100);
       render(pressEl,
         head("Block pressure · 24h", h("span", { class: "num tiny" }, h("span", { class: "up" }, bp + "% buy"), h("span", { class: "dim2" }, " · "), h("span", { class: "down" }, 100 - bp + "% sell"))),
@@ -138,7 +138,7 @@
   // fee, the protocol's share of it, the token tax, price impact and the minimum received are all in the market's
   // own quote (D.qsym / D.qdec — never assume DERO). The network fee is DERO on every market whatever it trades,
   // so it is a row of its own, named as DERO. Nothing that costs money sits behind a disclosure.
-  T.tradeSheet = (s, side) => {
+  T.tradeSheet = (s, side, pre) => {
     const launch = s.kind === "launch", buy = side === 1, curve = launch && s.phase === Z;
     const qsym = D.qsym(s), qdec = D.qdec(s), qv = s.quote ? D.allVaults().find((v) => v.scid === s.quote) : null;
     // the fee is charged on whatever goes in, except on the curve where both legs are priced in the quote
@@ -150,6 +150,7 @@
     let gasTxt = "", gasSeq = 0, gasTimer = null;
     const destIn = h("input", { placeholder: "address that is not linked to you", class: "mono", autocomplete: "off", spellcheck: "false", "aria-label": "receive at" });
     const input = h("input", { inputmode: "decimal", placeholder: "0", "aria-label": "amount", autocomplete: "off" });
+    if (pre) input.value = pre;
     const unit = buy ? qsym : s.ticker, dec = buy ? qdec : s.dec, outUnit = buy ? s.ticker : qsym, outDec = buy ? s.dec : qdec;
     const outV = h("div", { class: "v num" }, "0"), outL = h("div", { class: "l" }, "You receive (estimated)"), rate = h("div", { class: "note mt8" }), costs = h("div", { class: "stack", style: "gap:0" }), riskBox = h("div");
     const confirm = button((buy ? "Buy " : "Sell ") + s.ticker, (buy ? "buy" : "sell") + " wide mt", () => go(), { disabled: true });
@@ -172,6 +173,7 @@
         kv("Ring size", priv ? "16 · the payer is hidden" : "2 · the payer is public"),
         h("div", { class: "note mt8" }, (curve ? "On the bonding curve the whole trading fee goes to the protocol treasury. " : "The rest of the trading fee stays in the pool, for its liquidity providers. ")
           + (priv ? "At ring size 16 the contract never learns who paid, but the address you name below receives in clear. " : "At ring size 2 the contract pays the signer, so anyone can compute which address made this call. ")
+          + "Either way the contract records its reserves at the end of every block they move in, and the difference between two of them is the size of the trade: posting a trade adds your address to the record, never the amount, which is on chain already. "
           + "The network fee is DERO on every market" + (s.quote ? ", so this one needs a little DERO as well as " + qsym : "") + "; your wallet shows the exact amount before you confirm."),
         priv && V.wallet.canon && V.canonAddress(destIn.value.trim()) === V.wallet.canon ? h("div", { class: "warnbox mt8" }, "This is the connected address: the ring hides who paid, but the receiver is you, in clear.") : null,
         q && q.graduates ? h("div", { class: "warnbox mt8" }, "This buy completes the curve: the token graduates to its locked AMM.") : null);
@@ -217,7 +219,24 @@
     input.oninput = quote;
     const presets = h("div", { class: "chips nowrap" }, [25, 50, 75, 100].map((p) => h("button", { class: "chip sm", type: "button", onclick: () => { if (balance === null) return toast("Connect the wallet to use presets"); let v = balance * BigInt(p) / 100n; if (buy && p === 100) v = v > 20000n ? v - 20000n : Z; input.value = A.fmtUnits(v, dec, Number(dec)).replace(/,/g, ""); quote(); } }, p === 100 ? "Max" : p + "%")));
     // a private trade is never published: a public record would name the receiver
-    const go = async () => { if (!q) return; const min = A.minOut(q.out, slip); closeSheet(); await V.app.trade(s, side, amount, min, publish && !priv ? 1 : 0, q, priv ? { dest: destIn.value.trim() } : null); };
+    // The record this sheet closed over is a snapshot: feed.js replaces this.assets wholesale on every refresh,
+    // and no sheet re-reads it. min_out was therefore derived from reserves of unbounded age, which is what the
+    // slippage setting was supposed to bound — a sheet left open across one opposing trade turned a 1% setting
+    // into an 81.9% giveaway. Re-read the market and re-price the same amount here, at the moment of signing:
+    // sign against the fresh quote, and when the market has moved further than the chosen slippage, re-draw the
+    // sheet on the new numbers instead of signing numbers the user never saw.
+    const go = async () => {
+      if (!q) return;
+      const cur = D.assets.get(s.scid);
+      if (!cur || !cur.m) return toast("This market could not be re-read from your node; nothing was signed", "err", 8000);
+      const fresh = buy ? (cur.kind === "launch" ? A.launchBuy(cur, amount) : A.poolBuy(cur, amount))
+        : (cur.kind === "launch" ? A.launchSell(cur, amount) : A.poolSell(cur, amount));
+      if (!fresh || fresh.out <= Z) return toast("This amount can no longer be filled at this market's reserves; nothing was signed", "err", 9000);
+      if (fresh.out < A.minOut(q.out, slip)) { T.tradeSheet(cur, side, input.value); return toast("The price moved while this sheet was open. Re-priced from the market as it is now — check the numbers and confirm again.", "err", 9000); }
+      const min = A.minOut(fresh.out, slip);
+      closeSheet();
+      await V.app.trade(cur, side, amount, min, publish && !priv ? 1 : 0, fresh, priv ? { dest: destIn.value.trim() } : null);
+    };
     destIn.oninput = () => quote();
     // switch to another market without leaving the sheet (same side); the route row says which maths applies
     const pick = () => openSheet(h("h2", null, "Choose a market"), h("div", { class: "sub mt8" }, "Same side, same sheet."),
@@ -225,6 +244,11 @@
     openSheet(
       h("div", { class: "row" }, avatar(s, "sm"), h("div", { class: "grow" }, h("button", { class: "row tight", type: "button", onclick: pick, "aria-label": "switch market", title: "Switch market" }, h("h2", null, (buy ? "Buy " : "Sell ") + s.ticker), icon("chevron", "svgi dim2")), h("div", { class: "sub num" }, S.fmtPriceSub(s.price) + " " + qsym, " ", changePill(s.m.c24h))), h("div", { class: "badges col" }, U.verified(s), pill(curve ? "curve" : "AMM"))),
       h("div", { class: "row tight mt8", style: "flex-wrap:wrap" }, h("span", { class: "sub tiny mono" }, "Contract " + V.shortAddr(s.scid)), U.warnings(s)),
+      // The code hash matched a LEGACY entry: an earlier version of this template, accepted so contracts already
+      // deployed from it still read. One kept launch version refunds a buy's overshoot before it checks min_out,
+      // which is a total drain of the raise, and nothing on this sheet distinguished it from the current code.
+      s.templateLegacy ? h("div", { class: "warnbox mt" }, h("b", null, "Older template — not the current code."),
+        h("div", { class: "mt8" }, "This contract's code matches an earlier version of the shipped template, not the one this build ships. It was verified when that version was current and it cannot be changed now. Some earlier versions have defects that were fixed in later ones; read the contract before you trade it.")) : null,
       // a wrapped quote is stated before the amount box, not discovered when the trade fails
       s.quote ? h("div", { class: "warnbox mt" }, h("b", null, "This market settles in wrapped " + qsym + "."),
         h("div", { class: "mt8" }, (buy ? "You spend wrapped " + qsym + ", held on DERO as an asset" : "You are paid in wrapped " + qsym + ", held on DERO as an asset") + " — not " + qsym + " on " + ((qv && qv.name) || "its own chain") + ", and not DERO. Wrapped units are backed one for one by a k-of-n federation that can fail, so they are not trustless. The network fee is DERO either way."),

@@ -19,6 +19,11 @@
     // First, above every other risk. The others cost a user money on a market that is what it says it is; this
     // one means the market is not that thing at all, and the vault holds nothing for it.
     if (s.impersonates) out.push({ k: "fake", t: "This is not " + s.impersonates + ". It is a token whose ticker copies the wrapped asset. No vault holds any " + s.impersonates + " for it, and it cannot be withdrawn to " + s.impersonates + " on any chain. The real one is on the Wrap screen." });
+    // A retired vault's units are the one thing on a market that cannot be replaced: the federation mints no more
+    // of them, so the only supply is what already exists and the only way out is to burn them back on the Wrap
+    // screen. A market quoted in them is a closing market, and nothing else on the row says so.
+    if (s.quoteLegacy) out.push({ k: "retired", t: "Priced in " + D.qsym(s) + ", a retired vault: no more of it can ever be minted. You can only buy it from someone who already holds it, and the only way out is to burn it back on the Wrap screen. Its replacement is there too." });
+    if (s.baseLegacy) out.push({ k: "retired", t: s.ticker + " is a retired vault's units: no more can be minted, and they leave only by being burned back on the Wrap screen." });
     // Second, and on the trade sheet because H.risks is what it renders: the split pair. The thinner contract is
     // the one a large order empties, and the deepest one is named in full so the reader can go there instead.
     if (s.splitWith && s.splitWith.length > 1) {
@@ -164,7 +169,7 @@
       const pass = f ? h("button", { class: "mrow", style: PROW, type: "button", onclick: () => router.go("nfts") },
         avatar({ icon: f.icon, ticker: "VFP", scid: f.scid }, "sm"),
         h("div", { class: "grow ellipsis" }, h("span", { class: "eyebrow" }, "Founders pass"),
-          h("div", { class: "sub tiny ellipsis" }, f.name + " · " + Number(f.share) / 100 + "% of fees · " + A.fmtDero(f.paid, 1) + " DERO paid to holders · " + (f.maxsupply - f.minted) + " of " + f.maxsupply + " left")),
+          h("div", { class: "sub tiny ellipsis" }, f.name + " · " + Number(f.share) / 100 + "% of claimed DERO fees · " + A.fmtDero(f.paid, 1) + " DERO paid · " + (f.maxsupply - f.minted) + " of " + f.maxsupply + " left")),
         icon("arrow", "svgi dim2")) : null;
       render(el, h("div", { class: "home-grid" }, h("div", { class: "home-main" },
         hero, posn,

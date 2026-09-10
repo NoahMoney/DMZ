@@ -46,30 +46,35 @@ const poolRecord = (scid, asset) => ({
   asset, dec: 5n, quote: null, name: "pool", ticker: scid.slice(0, 4).toUpperCase(), sig: "s", installHeight: 1,
 });
 
-test("stats.enrich throws on a record with no price history (what loadNFA returns)", () => {
+// FE-2, repaired. A registration is permissionless: anyone can pay the fee and file any contract id under
+// pool_<i>. Before the repair a record with no price history — which is exactly what loadNFA returns — reached
+// stats.enrich and threw, and the throw came out of decorate(), so one such registration cost every client its
+// Home, Markets and Trade screens. The metrics now read a missing history as an empty one, and the loop files a
+// record only when its verified kind is the one the list promises. Both halves are asserted.
+test("stats.enrich survives a record with no price history (what loadNFA returns)", () => {
   const V = loadData();
-  assert.throws(() => V.stats.enrich(nfaRecord("c".repeat(64)), 1000), TypeError);
+  const m = V.stats.enrich(nfaRecord("c".repeat(64)), 1000);
+  assert.ok(m && typeof m === "object", "enrich returns metrics rather than throwing");
 });
 
-test("one NFA in the pool_/launch_ list aborts decorate() and breaks every ranking", () => {
+test("an NFA filed under pool_<i> cannot abort decorate() or the ranking", () => {
   const V = loadData(), D = V.data;
   const nfa = nfaRecord("c".repeat(64));
   const p1 = poolRecord("a".repeat(64), "b".repeat(64));
   const p2 = poolRecord("d".repeat(64), "e".repeat(64));
   D.assets = new Map([[nfa.scid, nfa], [p1.scid, p1], [p2.scid, p2]]);
   D.height = 1000;
-  assert.throws(() => D.decorate(), TypeError, "decorate() should abort on the poisoned record");
-  assert.equal(p1.m, undefined, "a healthy market after it never gets its metrics");
-  assert.equal(D.lastRefresh, 0, "refresh() never reaches lastRefresh, so screens stay in the 'reading' state");
-  assert.throws(() => D.trending(5), TypeError, "Home/Markets sort on s.m.hot");
+  D.decorate();
+  assert.ok(p1.m, "a healthy market still gets its metrics");
+  assert.ok(p2.m, "and so does every one after the poisoned record");
+  assert.ok(Array.isArray(D.trending(5)), "Home and Markets can still sort");
 });
 
-test("the pool_/launch_ loop has no kind guard while the nft_ and nfa_ loops do", () => {
+test("every registry loop files a record only when its kind matches the list", () => {
   const feed = readFileSync(join(ROOT, "app", "feed.js"), "utf8");
   const body = feed.slice(feed.indexOf("async refresh("), feed.indexOf("failed(rec, e)"));
   const poolLoop = body.slice(body.indexOf("await pmap(ids,"), body.indexOf("await pmap(reg.nfts,"));
   assert.match(body, /reg\.nfts[\s\S]*?s\.kind === "nft"/, "the nft loop filters on kind");
   assert.match(body, /reg\.nfas[\s\S]*?s\.kind === "nfa"/, "the nfa loop filters on kind");
-  // FINDING (today's behaviour, asserted so the fix flips it): the pool_/launch_ loop accepts any kind.
-  assert.equal(/s\.kind/.test(poolLoop), false, 'the pool_/launch_ loop now checks s.kind — invert this assertion and drop the finding');
+  assert.equal(/s\.kind/.test(poolLoop), true, "the pool_/launch_ loop must filter on kind as the others do");
 });

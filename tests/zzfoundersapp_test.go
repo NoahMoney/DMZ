@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/deroproject/derohe/cryptography/crypto"
@@ -8,13 +9,13 @@ import (
 	"github.com/deroproject/derohe/veil/tests/harness"
 )
 
-// app/founders.js myFounders computes a holder's pending reward as
-//
-//	pend = hu > 0 && acc > hd ? hu * (acc - hd) / 2^32 : 0
-//
-// It reads hu_ and hd_ only. contracts/founders.bas settle() (lines 263-288) also reads he_<addr> and walks
-// every closed era through ea_<e>. Once acc has wrapped 2^64 even once — about 42,950 DERO of deposits per
-// registered unit — the two disagree, and the page under-reports what the contract owes.
+// app/founders.js myFounders computes a holder's pending reward the way contracts/founders.bas settle() pays it:
+// one term per era the holder has not been settled through, read from the accumulator that era closed at
+// (ea_<e>), then the term for the current era, capped at rpool. A single term against the live accumulator is
+// right only until acc first wraps 2^64 — about 42,950 DERO of deposits per registered unit — after which the
+// contract files the pre-wrap value under ea_<era> and restarts at zero, and a page that subtracted an old
+// hd_ snapshot from the new accumulator would under-report what the contract owes. This test rolls the
+// accumulator deliberately and then requires the page's number and the contract's payment to agree exactly.
 //
 // This test measures both numbers against the real DVM.
 func TestFoundersAppPendingAfterEraRoll(t *testing.T) {
@@ -50,17 +51,38 @@ func TestFoundersAppPendingAfterEraRoll(t *testing.T) {
 	acc, rpool := c.U(scid, "acc"), c.U(scid, "rpool")
 	t.Logf("after the roll: era=%d acc=%d ea_0=%d rpool=%d hst=%d", c.U(scid, "era"), acc, c.U(scid, "ea_0"), rpool, c.U(scid, "hst"))
 
-	// what app/founders.js would print, per holder, from exactly the keys it reads
+	// INT-01, repaired. What app/founders.js prints, per holder, from exactly the keys it reads — transcribed
+	// from myFounders() as it stands: one term per era the holder has not been settled through, taken from the
+	// accumulator that era closed at (ea_<n>), then the term for the current era, capped at rpool. The single
+	// term this helper used to compute is right only until the first roll: distribute() restarts acc at 0 when a
+	// deposit would carry it past 2^64 and files the pre-wrap value under ea_<era>, so a hd_ snapshot taken in an
+	// earlier era cannot be subtracted from this era's acc. The roll above is what makes the difference visible.
 	appPending := func(who *rpc.Address) uint64 {
-		hu := c.U(scid, "hu_"+who.String())
-		var hd uint64
-		if c.Exists(scid, "hd_"+who.String()) {
-			hd = c.U(scid, "hd_"+who.String())
-		}
-		if hu == 0 || acc <= hd {
+		hu := c.U(scid, "hu_" + who.String())
+		if hu == 0 {
 			return 0
 		}
-		p := hu * (acc - hd) / 4294967296
+		var hd, he uint64
+		if c.Exists(scid, "hd_" + who.String()) {
+			hd = c.U(scid, "hd_" + who.String())
+		}
+		if c.Exists(scid, "he_" + who.String()) {
+			he = c.U(scid, "he_" + who.String())
+		}
+		var p uint64
+		for e := he; e < c.U(scid, "era"); e++ {
+			var ea uint64
+			if key := "ea_" + strconv.FormatUint(e, 10); c.Exists(scid, key) {
+				ea = c.U(scid, key)
+			}
+			if ea > hd {
+				p += hu * (ea - hd) / 4294967296
+			}
+			hd = 0
+		}
+		if acc > hd {
+			p += hu * (acc - hd) / 4294967296
+		}
 		if p > rpool {
 			p = rpool
 		}

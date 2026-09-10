@@ -17,6 +17,7 @@
       const lock = k.lk ? { amount: k.lk, height: k.lh || 0n, minted: k.lm === 1n || mintedEver } : null;
       const height = V.live.height || (await V.node.height().catch(() => 0));
       const ready = lock && height >= Number(lock.height + n.holdblocks);
+      const soldOut = n.minted >= n.maxsupply; // nft.bas Mint 27: the contract refuses the mint after this
       const left = lock ? Math.max(0, Number(lock.height + n.holdblocks) - height) : 0;
       const img = U.safeUrl(n.file);
       render(el,
@@ -38,15 +39,16 @@
           h("div", null,
             V.wallet.connected ? h("div", { class: "card" }, h("div", { class: "label" }, "Your lock"),
               lock ? [h("div", { class: "row mt8", style: "gap:0" },
-                  stat("Locked", A.fmtCompact(lock.amount, n.tokenDec)),
+                  stat("Locked", A.fmtCompact(lock.amount, n.tokenDec) + " " + n.tokenTicker),
                   stat("Since block", String(lock.height)),
                   stat(lock.minted ? "Edition" : ready ? "Status" : "Ready in", lock.minted ? "minted" : ready ? "ready" : left + " blk", ready || lock.minted ? "up" : "")),
                 !lock.minted && !ready ? h("div", { class: "progress mt8" }, h("i", { style: "width:" + Math.min(100, Math.round(((height - Number(lock.height)) / Math.max(1, Number(n.holdblocks))) * 100)) + "%" })) : null]
                 : h("div", { class: "sub mt8" }, "No lock from this wallet yet. Locking is one transaction and reversible at any time.")) : null,
             h("div", { class: "stack mt" },
-              !lock && mintedEver ? h("div", { class: "note" }, "This address already minted its edition: one per address, locking again earns nothing more.") : null,
-              !lock && !mintedEver ? button("Lock " + A.fmtCompact(n.minhold, n.tokenDec) + " " + n.tokenTicker, "primary wide", () => V.app.tx({ scid, entry: "Lock", args: [], asset: { scid: n.token, amount: n.minhold }, describe: "Lock tokens" })) : null,
-              lock && !lock.minted ? button(ready ? "Mint edition (" + A.fmtDero(n.price, 2) + " DERO)" : "Minting in " + left + " blocks", "primary wide", () => V.app.tx({ scid, entry: "Mint", args: [], dero: n.price, fee: 2000, describe: "Mint NFT" }), { disabled: !ready }) : null,
+              soldOut ? h("div", { class: "note" }, "All " + n.maxsupply + " editions are minted. The contract refuses another, so locking now earns nothing; an existing lock can still be unlocked.") : null,
+              !lock && !soldOut && mintedEver ? h("div", { class: "note" }, "This address already minted its edition: one per address, locking again earns nothing more.") : null,
+              !lock && !soldOut && !mintedEver ? button("Lock " + A.fmtCompact(n.minhold, n.tokenDec) + " " + n.tokenTicker, "primary wide", () => V.app.tx({ scid, entry: "Lock", args: [], asset: { scid: n.token, amount: n.minhold }, describe: "Lock tokens" })) : null,
+              lock && !lock.minted && !soldOut ? button(ready ? "Mint edition (" + A.fmtDero(n.price, 2) + " DERO)" : "Minting in " + left + " blocks", "primary wide", () => V.app.tx({ scid, entry: "Mint", args: [], dero: n.price, fee: 2000, describe: "Mint NFT" }), { disabled: !ready }) : null,
               lock ? button("Unlock tokens", "wide", () => V.app.tx({ scid, entry: "Unlock", args: [], describe: "Unlock" })) : null,
               me() === n.creator ? button("Claim creator revenue", "wide", () => V.app.tx({ scid, entry: "ClaimCreator", args: [], describe: "Claim" })) : null,
               tok ? button("Open " + tok.ticker, "wide", () => U.router.go("token", tok.scid)) : null),

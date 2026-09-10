@@ -288,6 +288,54 @@ func TestLaunchInstallValidation(t *testing.T) {
 	}
 }
 
+// TestLaunchGradBound pins the reference's graduation-target range to the contract's. Every value the
+// contract installs must have a model, or the differential tests below cannot reach it; every value the
+// contract refuses must be refused by the model too. The band above 10^12 is the one the product uses:
+// on a twelve-decimal wrapped quote 10^12 base units is one XMR.
+func TestLaunchGradBound(t *testing.T) {
+	code := readContract(t, "launch.bas")
+	for _, grad := range []uint64{999999, 1000000, 1000000000000, 1000000000001, 1e14, 1000000000000000, 1000000000000001} {
+		c := harness.New()
+		treasury, creator := c.NewAccount(), c.NewAccount()
+		p := launchParams{supply: 1e12, grad: grad, cbps: 0, tax: 0, tmode: 0, fee: 50, pfee: 5000}
+		_, res := c.Install(code, nil, launchArgs(p, treasury.String()), creator, harness.MaxStorageGas)
+		_, modelOK := ref.NewLaunch(p.supply, p.grad, p.cbps, p.tax, p.tmode, p.fee, p.pfee)
+		if res.OK() != modelOK {
+			t.Errorf("grad=%d: contract installs=%v, reference models it=%v", grad, res.OK(), modelOK)
+		}
+	}
+}
+
+// TestLaunchGradBand drives the curve at three targets that no differential test could reach before:
+// one base unit above the old model ceiling, 10^14, and the contract's own ceiling with the largest
+// supply it accepts and the fee and tax at their maxima.
+func TestLaunchGradBand(t *testing.T) {
+	for _, p := range []launchParams{
+		{supply: 1e12, grad: 1000000000001, cbps: 0, tax: 0, tmode: 0, fee: 50, pfee: 5000},
+		{supply: 1000000000 * 100000, grad: 1e14, cbps: 300, tax: 200, tmode: 1, fee: 50, pfee: 10000},
+		{supply: 9223372036854775807, grad: 1000000000000000, cbps: 500, tax: 1000, tmode: 1, fee: 100, pfee: 10000},
+	} {
+		r := rand.New(rand.NewSource(int64(p.grad % 1000003)))
+		e := newLaunchEnv(t, p)
+		if e == nil {
+			t.Fatalf("grad=%d refused by both sides; the contract accepts it", p.grad)
+		}
+		e.buy(t, e.alice, 1, 0, 0, 0) // dust against a 10^15 curve
+		e.buy(t, e.alice, p.grad/1000+1, 0, 0, 1)
+		e.c.NextBlock()
+		e.sell(t, e.alice, e.m.Sold/2+1, 0, 0, 1)
+		n := e.graduate(t, r) // ends on the overshoot-refund path when the last buy overshoots
+		if e.m.Phase != 1 || e.m.Sold != e.m.C || e.m.RA != e.m.Lq || e.m.RD != e.m.Real {
+			t.Fatalf("grad=%d: graduation state phase=%d sold=%d C=%d", p.grad, e.m.Phase, e.m.Sold, e.m.C)
+		}
+		e.c.NextBlock()
+		e.buy(t, e.bob, p.grad/100+1, 0, 0, 1)
+		e.sell(t, e.bob, e.m.RA/1000+1, 0, 0, 1)
+		e.claimFees(t)
+		t.Logf("grad=%d supply=%d: graduated after %d buys; C=%d vt0=%d rd=%d ra=%d", p.grad, p.supply, n, e.m.C, e.m.VT0, e.m.RD, e.m.RA)
+	}
+}
+
 func TestLaunchLifecycleCreatorTax(t *testing.T) {
 	r := rand.New(rand.NewSource(3))
 	e := newLaunchEnv(t, launchParams{supply: 1000000000 * 100000, grad: 500 * 100000, cbps: 300, tax: 200, tmode: 1, fee: 50, pfee: 10000})
@@ -416,6 +464,8 @@ func TestLaunchFuzz(t *testing.T) {
 		{supply: 1000000000 * 100000, grad: 500 * 100000, cbps: 300, tax: 200, tmode: 3, fee: 50, pfee: 5000},
 		{supply: 1000000, grad: 1000000, cbps: 500, tax: 1000, tmode: 2, fee: 100, pfee: 0},
 		{supply: 1 << 62, grad: 1000000000000, cbps: 0, tax: 0, tmode: 0, fee: 50, pfee: 10000},
+		// the contract's own ceiling with the largest supply, fee and tax it accepts: the wrapped-quote band
+		{supply: 9223372036854775807, grad: 1000000000000000, cbps: 500, tax: 1000, tmode: 3, fee: 100, pfee: 10000},
 	} {
 		e := newLaunchEnv(t, p)
 		held := map[string]uint64{} // tokens each user holds according to the model (creator starts with alloc)
@@ -452,7 +502,7 @@ func TestLaunchFuzz(t *testing.T) {
 				if h == 0 {
 					continue
 				}
-				a := uint64(r.Int63n(int64(h%(1<<62)))) + 1
+				a := randHeld(r, h)
 				if r.Intn(10) == 0 {
 					a = h + 1 + uint64(r.Intn(1000)) // more than held: fine for the harness, exercises a > sold
 				}
@@ -504,6 +554,16 @@ func TestLaunchFuzz(t *testing.T) {
 			}
 		}
 	}
+}
+
+// randHeld draws a sell size in [1, h]. Below 2^62 it is the Int63n draw the fuzz has always made, so the
+// existing parameter sets keep their stream; above it the old `h % (1<<62)` handed Int63n a zero whenever h
+// was a multiple of 2^62, which panics, and truncated the range otherwise.
+func randHeld(r *rand.Rand, h uint64) uint64 {
+	if h < 1<<62 {
+		return uint64(r.Int63n(int64(h))) + 1
+	}
+	return r.Uint64()%h + 1
 }
 
 func minU(a, b uint64) uint64 {

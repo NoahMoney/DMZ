@@ -20,7 +20,9 @@
   // Every invisible formatting character is stripped, not only the ones that are easy to type: a bidi
   // override can reverse a displayed address and a word joiner can hide a second word inside a name. The
   // class is written in escape form on purpose, because a raw U+2028 inside a regex literal will not parse.
-  const clean = (s, max = 64) => String(s || "").replace(/[\u0000-\u001f\u007f-\u009f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2028\u2029\u2060-\u2064\u2066-\u2069\ufeff\ufff9-\ufffb]/g, "").slice(0, max);
+  // A truncation says so: without the ellipsis a creator picks a name whose first `max` characters read as
+  // a complete and different sentence, and the screen shows that sentence as if it were the whole of it.
+  const clean = (s, max = 64) => { const t = String(s || "").replace(/[\u0000-\u001f\u007f-\u009f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2028\u2029\u2060-\u2064\u2066-\u2069\ufeff\ufff9-\ufffb]/g, ""); return t.length > max ? t.slice(0, max - 1) + "…" : t; };
   // impersonation guard: NFKC, upper-case, common look-alikes folded (Cyrillic and Greek capitals, 0 to O, 1 to I),
   // then [A-Z0-9] only. Two tickers with one skeleton read the same to a person. The two strings are paired by
   // index, so anything appended to one must be appended to the other.
@@ -109,6 +111,7 @@
     // they cannot do. This one is knowable — the vault that owns the name is in the shipped config — so say it.
     if (s && s.impersonates) w.push(h("span", { class: "pill bad", title: "This is a token that named itself after " + s.impersonates + ". It is not the wrapped asset, it is not backed by anything held in the vault, and it has nothing to do with the " + s.impersonates + " you can deposit and withdraw on the Wrap screen." }, "Not real " + s.impersonates));
     if (s && s.splitWith && !s.splitDeepest) w.push(h("span", { class: "pill warn", title: "Another contract trades this same pair and holds more of it. This one is thinner: the same order moves its price more, and a large one can empty it. Markets shows both, deepest first." }, "Split pair \u00b7 thinner"));
+    if (s && (s.quoteLegacy || s.baseLegacy)) w.push(h("span", { class: "pill warn", title: "This market trades a retired vault's wrapped units. The federation mints no more of them, so the supply is only what already exists; they leave by being burned back on the Wrap screen, where the vault that replaced this one also is." }, "Retired vault"));
     if (s && s.dupTicker) w.push(h("span", { class: "pill warn", title: "Another listed market uses a ticker that reads the same. Check the contract id before trading." }, "Ticker shared"));
     if (s && s.lookalike) w.push(h("span", { class: "pill warn", title: "This ticker contains characters that look like others (Cyrillic or Greek letters, digits for letters)." }, "Look-alike ticker"));
     if (s && s.splitWith && s.splitDeepest) w.push(h("span", { class: "pill dim", title: "Another contract trades this same pair with less liquidity. This is the deeper one." }, "Split pair"));

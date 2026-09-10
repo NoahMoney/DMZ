@@ -29,7 +29,7 @@
         h("div", { class: "between" }, h("span", { class: "eyebrow" }, "Founders Pass"), U.verified()),
         h("div", { class: "row mt8" }, avatar({ icon: f.icon, ticker: "VFP", scid: f.scid }, "big"),
           h("div", { class: "grow" }, h("h2", null, f.name),
-            h("div", { class: "sub" }, N(f.share) / 100 + "% of every protocol fee, split between registered holders"))),
+            h("div", { class: "sub" }, N(f.share) / 100 + "% of the DERO trading fees the treasury claims, split between registered holders"))),
         h("div", { class: "label mt" }, "Paid to holders"),
         h("div", { class: "big num mt8" }, dero(f.paid)),
         h("div", { class: "row mt" }, mintButton(f, soldOut, open)),
@@ -92,8 +92,8 @@
     const waiting = f.und, owed = f.rpool;
     const push = owed > Z && f.hn > Z, release = waiting > Z && f.hst > Z;
     return h("div", { class: "card mt" }, h("div", { class: "between" }, h("b", null, "Public accounting"), h("span", { class: "label" }, "On chain")),
-      h("div", { class: "note mt8 mb" }, "The promise is stored in the contract and cannot be changed: " + N(f.share) / 100 + "% of the protocol fees claimed from every market is deposited here. Deposits, payouts and the registry are all on chain; the treasury cannot pay out less than what it deposited, and anyone can deposit or push payouts."),
-      kv("Promised share of fees", N(f.share) / 100 + "%"), kv("Deposited by the treasury and others", dero(f.dep)), kv("Marketplace fees added", dero(f.mdep)), kv("Paid to holders", dero(f.paid)), kv("Owed, not yet pushed", dero(owed)), kv("Waiting for the first registration", dero(waiting)), kv("Registered passes", f.hst + " of " + f.minted + " minted"),
+      h("div", { class: "note mt8 mb" }, "The share is fixed in the contract and cannot be changed: " + N(f.share) / 100 + "%. What it is a share of is the DERO trading fees the treasury claims from DMZ pools and launches — the treasury's own bot claims them and deposits here, and no contract forces it to. Fees earned in a wrapped asset, and fees from NFA sales, reach no holder. Deposits, payouts and the registry are all on chain: the treasury cannot pay out less than what it deposited, and anyone can deposit or push payouts."),
+      kv("Promised share of claimed DERO fees", N(f.share) / 100 + "%"), kv("Deposited by the treasury and others", dero(f.dep)), kv("Marketplace fees added", dero(f.mdep)), kv("Paid to holders", dero(f.paid)), kv("Owed, not yet pushed", dero(owed)), kv("Waiting for the first registration", dero(waiting)), kv("Registered passes", f.hst + " of " + f.minted + " minted"),
       kv("Contract", h("button", { class: "mono", type: "button", title: "Copy the contract id", onclick: () => { navigator.clipboard && navigator.clipboard.writeText(f.scid).then(() => toast("Contract id copied", "ok")); } }, V.shortAddr(f.scid))),
       push || release ? h("div", { class: "row mt", style: "flex-wrap:wrap" },
         push ? button("Push rewards to holders", "small", () => tx({ scid: f.scid, entry: "PayBatch", args: [["from", "U", 0n], ["n", "U", 15n]], fee: 20000, describe: "Push rewards" })) : null,
@@ -127,7 +127,7 @@
       const key = [f ? f.sig : "-", mine ? mine.wallet + ":" + mine.units + ":" + mine.pending : "-", V.wallet.connected, D.nfts.size, D.nfas.size, V.nfas.key(), V.settings.images, D.lastRefresh > 0].join("|");
       if (key === lastKey) return; lastKey = key;
       render(el, h("h1", { class: "mt" }, "NFTs"),
-        h("div", { class: "sub mb" }, "Assets priced in XMR and ZEC, each sold or auctioned by its own contract; the Founders Pass, which shares the exchange's fees with its holders; and holder NFTs, earned by holding a token."),
+        h("div", { class: "sub mb" }, "Assets priced in XMR and ZEC, each sold or auctioned by its own contract; the Founders Pass, which shares the DERO fees the treasury claims with its holders; and holder NFTs, earned by holding a token."),
         f ? h("div", { class: "nft-grid" }, h("div", null, passInstrument(f), minePanel(f), marketplace(f)), h("div", null, accounting(f)))
           : h("div", { class: "card mt" }, h("div", { class: "label" }, "Founders Pass"), h("div", { class: "sub mt8" }, D.cfg.founders ? (D.lastRefresh ? "The contract at the configured id did not verify against its template, so nothing about it is shown." : "Reading the pass contract…") : "No Founders Pass configured for this deployment.")),
         V.nfas.section(), collections());

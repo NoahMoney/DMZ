@@ -20,6 +20,10 @@
   // checkActive, read off the record: "none" while the unit is not in the contract, "live" until endBlockTime,
   // "ended" after it (111) — the state CloseListing needs and Bid/BuyItNow refund on.
   const state = (s) => (s.scBalance !== 1n || !s.listType ? "none" : s.endBlockTime > BigInt(now()) ? "live" : "ended");
+  // A bid the contract still holds with no bid on the current listing. resetVars (nfa.bas:356) clears listType,
+  // bidCount and startPrice but not currBidAddr/currBidAmt, so a bid outlives the listing that took it;
+  // processHighestBidder (nfa.bas:291) reads those two keys and nothing else.
+  const strand = (s) => s.currBidAmt > Z && !!s.bidder && s.bidCount === Z;
   const minBid = (s) => (s.currBidPrice > s.startPrice ? s.currBidPrice : s.startPrice); // Bid 70–80
   const nextMin = (s, v) => { const p = v + (v * s.percentBidIncr) / 10000n, q = v + s.staticBidIncr; return p < q ? p : q; }; // findLesserIncrease
   const cancelLeft = (s) => N(s.startBlockTime + s.cancelBuffer) - now(); // CancelListing 60
@@ -129,27 +133,32 @@
       if (s.listType === "sale") { if (s.startPrice > BOUND) note("The price is above the contract's settlement bound (" + amt(s, BOUND) + "): this sale cannot complete."); else out.push(button("Buy now · " + amt(s, s.startPrice), "primary wide", () => buySheet(s))); }
       else if (noScale) note("This app does not know the scale of " + sym(s) + ", so no bid can be entered here.");
       else out.push(button((s.bidder === my ? "Raise" : "Bid") + " · from " + amt(s, minBid(s)), "primary wide", () => bidSheet(s)));
-      if (s.listType === "auction" && s.bidder === my) note("You are the top bidder at " + amt(s, s.currBidAmt) + ".");
+      if (s.listType === "auction" && s.bidCount > Z && s.bidder === my) note("You are the top bidder at " + amt(s, s.currBidAmt) + ".");
     }
     if (st === "live" && own) { const cl = cancelLeft(s);
-      if (cl > 0) { out.push(button("Cancel · " + left(cl) + " left", "wide", () => tx(scid, { entry: "CancelListing", args: [], describe: "Cancel listing", probe: { scid, keys: ["scBalance", "listType"] } }))); note("Cancelling refunds the top bidder in the same call and returns the unit to you. " + RING2); }
-      else note("A listing cannot be cancelled after its first " + left(N(s.cancelBuffer)) + ": this one runs to its end" + (s.listType === "auction" && s.bidCount > Z ? ", then closes to the top bidder." : ".")); }
+      if (cl > 0) { out.push(button("Cancel · " + left(cl) + " left", "wide", () => tx(scid, { entry: "CancelListing", args: [], describe: "Cancel listing", probe: { scid, keys: ["scBalance", "listType"] } }))); note("Cancelling refunds the top bidder in the same call and returns the unit to you. " + (strand(s) ? "It also clears the held bid below, and is the only thing that does. " : "") + RING2); }
+      else note("A listing cannot be cancelled after its first " + left(N(s.cancelBuffer)) + ": this one runs to its end" + (s.listType === "auction" && s.bidCount > Z ? ", then closes to the top bidder." : ".") + (strand(s) ? " The held bid below still stands, and the cancel window that would have cleared it has closed." : "")); }
     if (st === "ended") {
       const won = s.listType === "auction" && s.bidCount > Z;
-      if (own) { out.push(button(won ? "Close · settle to the top bidder" : "Close · unit back to you", "primary wide", () => tx(scid, { entry: "CloseListing", args: [], describe: "Close listing", probe: { scid, keys: ["scBalance", "listType"] } }))); note((won ? "Closing pays " + amt(s, s.currBidAmt) + " out by the split below and hands the unit to " + D.displayName(s.bidder) + ". " : "Nothing sold; closing returns the unit to your wallet. ") + RING2); }
+      if (own) { out.push(button(won ? "Close · settle to the top bidder" : "Close · unit back to you", "primary wide", () => tx(scid, { entry: "CloseListing", args: [], describe: "Close listing", probe: { scid, keys: ["scBalance", "listType"] } }))); note((won ? "Closing pays " + amt(s, s.currBidAmt) + " out by the split below and hands the unit to " + D.displayName(s.bidder) + ". " : strand(s) ? "Nothing was bid on this listing, but a held bid stands: any wallet can settle this ended listing to " + D.displayName(s.bidder) + " for " + amt(s, s.currBidAmt) + " before your Close is mined. " : "Nothing sold; closing returns the unit to your wallet. ") + RING2); }
       else if (won && s.bidder === my) { out.push(button("Settle · you won", "primary wide", () => tx(scid, { entry: "Bid", args: [], describe: "Settle auction", outcome: { scid, expect: "up" }, probe: { scid, keys: ["owner", "scBalance"] } }))); note("Bid() with nothing attached on an ended auction settles it: the contract pays your " + amt(s, s.currBidAmt) + " out by the split and sends you the unit. The owner's Close does the same. " + RING2); }
-      else note("Ended. " + (won ? "The owner or the top bidder settles it." : "The owner closes it and takes the unit back."));
+      else note("Ended. " + (won ? "The owner or the top bidder settles it." : strand(s) ? "A held bid stands against this asset: see below." : "The owner closes it and takes the unit back."));
       if (won && (own || s.bidder === my)) out.push(split(s, s.currBidAmt));
     }
     if (!out.length) note(st === "none" ? "Not listed. Only the recorded owner can start a sale or auction." : "");
     return h("div", { class: "card" }, h("div", { class: "label" }, own ? "Your asset" : "Your position"), h("div", { class: "stack mt8" }, out));
   }
+  // A bid left in the contract with no listing: an ended auction closed by an empty BuyItNow (docs/NFA.md §7 R4)
+  // keeps currBidAmt under the bidder's name. It is not a refund waiting. processHighestBidder pays that amount
+  // out and hands the unit to that address, and Bid() with nothing attached reaches it on any listing of this
+  // asset that has ended (nfa.bas Bid 500-540), whatever that listing asked for. So it renders in every state.
+  const heldBid = (s) => [kv("Held bid", h("span", null, amt(s, s.currBidAmt), " · ", who(s.bidder)), "num"),
+    h("div", { class: "warnbox mt8" }, h("b", null, "A held bid stands against this asset."),
+      " Until it is cleared, any wallet can settle the next listing of this asset to " + D.displayName(s.bidder) + " for " + amt(s, s.currBidAmt) + " once that listing has ended, whatever it was listed at. The owner clears it by starting a listing and cancelling inside its first " + left(N(s.cancelBuffer)) + ", which refunds the bidder in the same call.")];
   // Level 3 — the listing and the record, as rows
   function listing(s, st) {
-    // A bid left in the contract with no listing: an ended auction closed by an empty BuyItNow (docs/NFA.md §7 R4)
-    // keeps currBidAmt under the bidder's name; the contract refunds it on the next listing's first bid or cancel.
     if (st === "none") return [kv("Listing", "none"), s.previousSalePrice > Z ? kv("Previous sale", amt(s, s.previousSalePrice), "num") : null, s.previousAuctionPrice > Z ? kv("Previous auction", amt(s, s.previousAuctionPrice), "num") : null,
-      s.currBidAmt > Z && s.bidder ? [kv("Held bid", h("span", null, amt(s, s.currBidAmt), " · ", who(s.bidder)), "num"), h("div", { class: "note mt8" }, "A bid the contract still holds from an auction closed without settling. It is refunded when the owner's next listing takes a bid or is cancelled; nothing else releases it.")] : null];
+      strand(s) ? heldBid(s) : null];
     const auc = s.listType === "auction", cl = cancelLeft(s);
     return [kv("Listing", (auc ? "Auction" : "Sale") + " · " + (st === "live" ? "live" : "ended, not yet closed")),
       kv(auc ? "Start price" : "Price", amt(s, s.startPrice), "num"),
@@ -158,6 +167,7 @@
       kv("Started", when(s.startBlockTime)), kv(st === "live" ? "Ends" : "Ended", when(s.endBlockTime) + (auc && st === "live" ? " · extends while bids arrive" : "")),
       st === "live" ? kv("Seller can cancel", cl > 0 ? "for " + left(cl) + " more" : "no longer: the first " + left(N(s.cancelBuffer)) + " have passed") : null,
       s.charityDonatePerc > Z ? kv("Charity share", s.charityDonatePerc + "% → " + (s.charityAddr ? V.shortAddr(s.charityAddr) : "?")) : null,
+      strand(s) ? heldBid(s) : null,
       h("div", { class: "note mt8" }, "Times are the block's, shown in your local zone.")];
   }
   function record(s) {

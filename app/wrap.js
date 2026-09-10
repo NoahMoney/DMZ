@@ -200,9 +200,14 @@
         U.emptyState("wallet", "No vault on this network",
           "This build of DMZ was published without a wrapped-asset vault, or the configured contract is not a v3 vault. Nothing to show, and nothing to sign."));
 
-      const a = w.asset || {}, name = U.clean(a.name || "the foreign asset", 40), chain = U.clean(a.chain || "its own chain", 40);
+      const a = w.asset || {}, name = D.chainName(a), chain = D.chainName(a);
       // halted is the height the lease lapses at (0: not halted); a halt nobody renews expires on its own
       const halted = w.halted > BigInt(D.height || 0);
+      // Whether a deposit arriving now could be minted at all. The pill read OPEN off `halted` alone, so a vault
+      // at its cap said Open while every Mint vote against a new deposit was refused - and the deposit walkthrough
+      // three sections below invited one anyway. Over the cap is not a refusal: the signers' daemon waits, so the
+      // coins sit in the federation's foreign wallet with no claim and no contract able to return them.
+      const canMint = !halted && w.headroom >= w.mindep && w.headroom > Z;
       const mine = my && my.withdrawals ? my.withdrawals : [];
       const dep = my && my.dep && my.dep.addr ? my.dep : null;
       const nc = netOf(a);
@@ -240,7 +245,7 @@
         h("div", { class: "hero cut mt8" },
           h("div", { class: "between" },
             h("span", { class: "eyebrow" }, "Wrapped-asset vault"),
-            flag(halted ? "down" : "acc", halted ? "Halted" : "Open")),
+            flag(halted ? "down" : canMint ? "acc" : "warn", halted ? "Halted" : canMint ? "Open" : "Deposits paused")),
           h("div", { class: "row tight mt8", style: "flex-wrap:wrap;gap:6px 14px" }, c.foreign(), arrow(), c.dero()),
           h("div", { class: "pulse-row mt" },
             h("div", null, h("div", { class: "eyebrow" }, "Claims outstanding"), h("div", { class: "big num mt8" }, amt(w.sup, 4))),
@@ -251,9 +256,12 @@
 
         // ---- what this is, in the words that are actually true ----
         h("div", { class: "note mt8" },
-          "Send " + name + " on " + chain + " to your own deposit address. When " + w.k + " of the " + w.na +
+          "Send " + name + " to your own deposit address. When " + w.k + " of the " + w.na +
           " active signers have both seen it, the vault mints you the same number of base units as a DERO asset. " +
           "Burn those units with a destination and the same quorum pays you back on " + chain + "."),
+        // The deployment record's own words about this chain, whole and on their own line. Spliced into a
+        // sentence and cut to fit, they read as broken software on the screen where irreversible money is sent.
+        a.chain ? h("div", { class: "sub tiny mt8" }, U.clean(a.chain, 120)) : null,
 
         halted ? h("div", { class: "warnbox mt" },
           h("b", null, "This vault is halted."),
@@ -267,9 +275,15 @@
         // The minimum is a property of the vault, not of the visitor, so it is published before the wallet is
         // connected and before an address exists. A deposit below it can never be minted and no operator exists
         // to send it back: someone deciding whether to use this vault at all has to be able to see that first.
+        // The floor and the ceiling in one box, because they fail the same way: a deposit outside either can
+        // never be minted and nobody can send it back. The ceiling moves with everyone else's deposits, which
+        // the floor does not, so it is the one to read again just before sending.
         h("div", { class: "warnbox mt8" },
           h("b", null, "Minimum deposit: " + exact(w.mindep)),
-          h("div", { class: "sub" }, "Anything smaller cannot be minted, and there is nobody who can return it. Check the amount before you send.")),
+          h("div", { class: "sub" }, "Anything smaller cannot be minted, and there is nobody who can return it. Check the amount before you send."),
+          h("div", { class: "mt8" }, h("b", null, canMint ? "Most that can be minted right now: " + exact(w.headroom) : "No headroom: nothing can be minted right now")),
+          h("div", { class: "sub" }, "The vault will not mint past its cap of " + amt(w.cap, 4) + ". A deposit above the headroom is not refused — it waits in the federation's wallet until enough is burned to make room, and no contract can return it in the meantime." +
+            (w.winmax > Z ? " This vault also mints at most " + amt(w.winmax, 4) + " per window, which can bind before the cap does." : ""))),
 
         h("div", { class: "mt" }, panel(c, c.foreign(), c.dero(), "the federation holds the reserve on " + chain, depStatus)),
 
@@ -288,7 +302,7 @@
               body: h("div", { class: "mt8" }, !connected
                 ? button("Connect wallet", "primary", () => V.app.connectWallet())
                 : button(registered ? "Register another index (" + A.fmtDero(w.regfee, 5) + " DERO)" : "Register a deposit index",
-                    registered ? "small" : "primary", () => doRegister(w), halted ? { disabled: true } : null)),
+                    registered ? "small" : "primary", () => doRegister(w), canMint ? null : { disabled: true })),
             },
             {
               state: live ? "done" : registered ? "wait" : "todo",
@@ -301,10 +315,12 @@
             },
             {
               state: live ? "now" : "todo",
-              title: "Send at least " + exact(w.mindep) + " to that address",
-              detail: live
-                ? "Send from your own " + name + " wallet. Less than the minimum can never be minted and cannot be returned."
-                : "The address appears here once the signers have published it.",
+              title: canMint ? "Send between " + exact(w.mindep) + " and " + exact(w.headroom) + " to that address" : "Nothing can be minted right now — do not send",
+              detail: !canMint
+                ? (halted ? "The vault is halted, so no deposit can be minted while it stays that way." : "The vault is at its mint cap. Anything sent now waits in the federation's wallet until enough is burned to make room, and no contract can return it.")
+                : live
+                  ? "Send from your own " + name + " wallet. Less than the minimum can never be minted; more than the headroom is not returned either, it waits — and the headroom moves with everyone else's deposits, so read it again immediately before you send."
+                  : "The address appears here once the signers have published it.",
               body: live ? full("Your deposit address on " + chain, dep.addr, "Deposit address copied") : null,
             },
             {
@@ -338,9 +354,15 @@
           trustLine(w.viewkey !== "", w.viewkey
             ? "A viewing key is published, so anyone can check the reserve on " + chain + " really covers the claims."
             : "No viewing key is published yet, so the reserve on " + chain + " cannot be checked by an outsider. Until it is, the backing is a claim, not a proof."),
-          trustLine(w.bondtot > Z, w.bondtot > Z
-            ? "Signers have bonded " + A.fmtDero(w.bondtot, 2) + " DERO, slashable by a quorum of the others."
-            : "No signer bond is at stake."),
+          // Slash refuses a self-vote and needs k votes, so with n signers and a quorum of k the k who could take
+          // the reserve are exactly the k needed to slash anybody: below n >= 2k nobody in a colluding quorum can
+          // be slashed at all. This line carried a green tick in precisely that shape, two lines under the red
+          // cross that says those same k can move the whole reserve.
+          trustLine(w.bondtot > Z && w.na >= 2n * w.k, w.bondtot === Z
+            ? "No signer bond is at stake."
+            : w.na >= 2n * w.k
+              ? "Signers have bonded " + A.fmtDero(w.bondtot, 2) + " DERO against a mint cap of " + amt(w.cap, 4) + ". A quorum of the others can slash a signer's bond to the treasury — not to you."
+              : "Signers have bonded " + A.fmtDero(w.bondtot, 2) + " DERO against a mint cap of " + amt(w.cap, 4) + ", but with " + w.na + " signers and a quorum of " + w.k + " the bond deters nobody: a signer cannot vote to slash itself, so the " + w.k + " who could take the reserve are the " + w.k + " needed to slash anyone. A slashed bond goes to the treasury, never to you."),
           trustLine(w.sealed !== Z, w.sealed !== Z
             ? "The vault is sealed: the deployer has no power over it and nobody can add a signer without a quorum."
             : "The vault is NOT sealed. The deployer can still change the signer set. Do not deposit."),
@@ -357,7 +379,7 @@
     // ---- burn form ----
     const burnForm = (w) => {
       const amount = h("input", { inputmode: "decimal", placeholder: "0.0", autocomplete: "off", spellcheck: "false" });
-      const dest = h("input", { placeholder: "Your address on " + U.clean((w.asset && w.asset.chain) || "the foreign chain", 40), autocomplete: "off", spellcheck: "false" });
+      const dest = h("input", { placeholder: "Your address on " + D.chainName(w.asset), autocomplete: "off", spellcheck: "false" });
       const out = h("div", { class: "note" });
       const btn = button("Burn and withdraw", "primary", () => doBurn(w, amount, dest));
       // what the wallet holds of the wrapped asset, read for this form: null while being read, undefined when the
@@ -381,11 +403,16 @@
       amount.oninput = restate;
       return [
         h("label", { class: "field" }, h("span", null, "Amount to unwrap"), amount),
-        h("label", { class: "field" }, h("span", null, "Destination on " + U.clean((w.asset && w.asset.chain) || "the foreign chain", 40)), dest),
+        h("label", { class: "field" }, h("span", null, "Destination on " + D.chainName(w.asset)), dest),
         out,
+        // Burn never calls SIGNER(): it takes the return address as an argument, deliberately, so that a burn can
+        // be made at any ring size. Publishing this wallet beside the destination is therefore this app's choice
+        // - made so a vetoed or reclaimed withdrawal comes back to the wallet that made it - and not a rule of
+        // the contract. Saying it was the contract's rule told the user the alternative did not exist.
         h("div", { class: "note" },
-          "Burn is a ring-size-2 call: the contract must record who burned, so this address is public in that transaction. " +
-          "The destination you type is stored on DERO in the clear — anyone can read it. Use an address you are willing to publish."),
+          "The destination you type is stored on DERO in the clear, and so is the address a vetoed or reclaimed withdrawal comes back to. " +
+          "This app sends the burn at ring size 2 and names your connected wallet as that return address, so a vetoed or reclaimed withdrawal returns to you — which publishes this wallet beside the destination, permanently. " +
+          "The contract does not require it: Burn never reads who signed. Use a destination you are willing to see linked to this wallet."),
         btn,
       ];
     };

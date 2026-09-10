@@ -26,8 +26,11 @@ type Launch struct {
 }
 
 // NewLaunch mirrors InitializePrivate; ok=false when the contract would reject the parameters.
+// The graduation target runs to 10^15, the bound contracts/launch.bas line 25 enforces and app/forms.js
+// offers. A narrower bound here does not make the model safer: it makes every launch above it unmodelled,
+// so the differential tests in tests/launch_test.go abort before the first trade instead of checking it.
 func NewLaunch(supply, grad, cbps, tax, tmode, fee, pfee uint64) (*Launch, bool) {
-	if supply < 1000000 || supply >= 1<<63 || grad < 1000000 || grad > 1000000000000 {
+	if supply < 1000000 || supply >= 1<<63 || grad < 1000000 || grad > 1000000000000000 {
 		return nil, false
 	}
 	if cbps > 500 || tax > 1000 || tmode > 3 || (tmode == 0 && tax != 0) || (tmode != 0 && tax == 0) || fee > 100 || pfee > 10000 {
