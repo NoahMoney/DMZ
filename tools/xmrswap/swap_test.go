@@ -38,6 +38,8 @@ const (
 	// still can, plus a block for the channel
 	testClaimMargin = uint64(2)
 	testGateMargin  = testStableDepth + testClaimMargin + 1
+	// the passes a sweep gives a joint wallet with nothing spendable in it before it takes that for the answer
+	testSweepWaits = uint64(6)
 )
 
 // plan is one fuzz run: the scenario (who goes offline when) and where each side dies.
@@ -132,7 +134,8 @@ func (r *run) config(role string) Config {
 	}
 	return Config{HTLC: testHTLC, AmountDero: testDero, AmountXmr: testXmr, Net: Stagenet, MyDero: addr, MoneroWalletName: name,
 		T1Min: testT1Min, T2Min: testT2Min, T1Delta: testT1Delta, T2Delta: testT2Delta, Confirmations: testConfs, StableBlocks: testStable,
-		ClaimMargin: testClaimMargin, GateMargin: testGateMargin, LockSettleBlocks: 2, Poll: 3 * time.Millisecond, ResendAfter: time.Second, Log: r.logf}
+		ClaimMargin: testClaimMargin, GateMargin: testGateMargin, LockSettleBlocks: 2, SweepWaits: testSweepWaits,
+		Poll: 3 * time.Millisecond, ResendAfter: time.Second, Log: r.logf}
 }
 
 // crashFn is the process death: once at each planned phase, and at random when the plan says so.
@@ -446,6 +449,15 @@ func (r *run) check() {
 		}
 	default:
 		t.Fatalf("%s: the lock is still open (bob %s, alice %s)", r.plan.scenario, bob.Phase, alice.Phase)
+	}
+	// SEC-K-09: whoever swept held s_a + s_b in a wallet the rpc opened, and must have closed it again
+	for _, side := range []struct {
+		st *State
+		w  *countingWallet
+	}{{bob, r.bobW}, {alice, r.aliceW}} {
+		if side.st.Phase == "swept" && side.w.closes == 0 {
+			t.Fatalf("%s: %s swept and left the joint spend wallet open in the wallet-rpc", r.plan.scenario, side.st.Role)
+		}
 	}
 	for _, role := range []string{"bob", "alice"} {
 		if _, err := os.Stat(r.statePath(role) + ".tmp"); err == nil {

@@ -46,12 +46,23 @@ type FakeWallet struct {
 	// are how a test plays a dishonest Alice against Bob's gate.
 	unlockTime uint64
 	burnNext   bool
+
+	// scanLag makes generate_from_keys behave as monero-wallet-rpc's does: on_generate_from_keys sets the
+	// restore height and installs the wallet, and never calls refresh, so the new wallet has scanned nothing
+	// and every balance it reports is zero until `refresh` is called. Off by default, because most drivers do
+	// not want to model the scan; on, it is the real server's first answer to a sweep.
+	scanLag bool
+	// refreshes counts the `refresh` calls, so a test can assert the companion made them.
+	refreshes int
 }
 
 type fakeWalletFile struct {
 	address       string
 	viewOnly      bool
 	restoreHeight uint64
+	// scanned is whether this wallet file has scanned the chain. A wallet made by generate_from_keys under
+	// scanLag has not, and sees nothing at all until refresh.
+	scanned bool
 }
 
 type fakeTx struct {
@@ -122,6 +133,21 @@ func (f *FakeWallet) SetUnlockTime(unlockTime uint64) {
 	f.unlockTime = unlockTime
 }
 
+// SetScanLag decides whether a wallet made by generate_from_keys must be refreshed before it sees anything,
+// as monero-wallet-rpc's is. Off restores the default, where a new wallet sees the whole chain at once.
+func (f *FakeWallet) SetScanLag(lag bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.scanLag = lag
+}
+
+// Refreshes is how many times `refresh` has been called, for a driver that wants to prove the companion scans.
+func (f *FakeWallet) Refreshes() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.refreshes
+}
+
 // BurnNextTransfer makes the next transfer's output a duplicate one-time key. The recipient's wallet lists the
 // payment as get_transfers does, and never credits it: it is the burning bug as seen from the victim's side.
 func (f *FakeWallet) BurnNextTransfer() {
@@ -160,6 +186,15 @@ func (f *FakeWallet) unlocked(tx *fakeTx) bool {
 // debit, pending or not. Change from a partial transfer stays spendable here, where a real wallet would lock
 // it for ten blocks; the swap's own transfers never need the change. A burnt credit counts for nothing, as
 // the wallet's scanner ignores it.
+// walletBalance is what one wallet file reports: its address's balance, or nothing at all while the file has
+// not scanned.
+func (f *FakeWallet) walletBalance(wf *fakeWalletFile) (unlocked, total uint64) {
+	if !wf.scanned {
+		return 0, 0
+	}
+	return f.balance(wf.address)
+}
+
 func (f *FakeWallet) balance(address string) (unlocked, total uint64) {
 	for _, tx := range f.txs {
 		if tx.to == address && !tx.pending && !tx.burnt {
@@ -304,7 +339,7 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 		if rf := f.checkDest(d.Address); rf != nil {
 			return nil, rf
 		}
-		unlocked, total := f.balance(wf.address)
+		unlocked, total := f.walletBalance(wf)
 		if total < d.Amount+FakeFee {
 			return nil, fail(-17, "not enough money") // WALLET_RPC_ERROR_CODE_NOT_ENOUGH_MONEY
 		}
@@ -336,7 +371,7 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 		if rf := f.checkDest(p.Address); rf != nil {
 			return nil, rf
 		}
-		unlocked, _ := f.balance(wf.address)
+		unlocked, _ := f.walletBalance(wf)
 		if unlocked <= FakeFee {
 			return nil, fail(-37, "No unlocked balance in the specified account")
 		}
@@ -388,7 +423,7 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 				return nil, fail(-1, "spend secret key does not match main address")
 			}
 		}
-		f.wallets[p.Filename] = &fakeWalletFile{address: p.Address, viewOnly: p.Spendkey == "", restoreHeight: p.RestoreHeight}
+		f.wallets[p.Filename] = &fakeWalletFile{address: p.Address, viewOnly: p.Spendkey == "", restoreHeight: p.RestoreHeight, scanned: !f.scanLag}
 		f.open = p.Filename
 		return map[string]interface{}{"address": p.Address, "info": "Wallet has been generated successfully."}, nil
 
@@ -408,6 +443,21 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 		f.open = p.Filename
 		return map[string]interface{}{}, nil
 
+	case "refresh":
+		// on_refresh: wallet2::refresh in the foreground, answering with what it fetched. Here it is the moment
+		// a wallet made from keys starts seeing the chain.
+		wf, rf := f.openWallet()
+		if rf != nil {
+			return nil, rf
+		}
+		f.refreshes++
+		fetched := uint64(0)
+		if !wf.scanned {
+			fetched = f.height - wf.restoreHeight
+			wf.scanned = true
+		}
+		return map[string]interface{}{"blocks_fetched": fetched, "received_money": fetched > 0}, nil
+
 	case "close_wallet":
 		if _, rf := f.openWallet(); rf != nil {
 			return nil, rf
@@ -420,7 +470,7 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 		if rf != nil {
 			return nil, rf
 		}
-		unlocked, total := f.balance(wf.address)
+		unlocked, total := f.walletBalance(wf)
 		// the reference's shape (on_get_balance): the account's totals and one per_subaddress row for index 0
 		return map[string]interface{}{
 			"balance":                total,
@@ -459,6 +509,9 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 			}
 		}
 		in, pool := []map[string]interface{}{}, []map[string]interface{}{}
+		if !wf.scanned {
+			return map[string]interface{}{"in": in, "pool": pool}, nil
+		}
 		for _, tx := range f.txs {
 			if tx.to != wf.address {
 				continue

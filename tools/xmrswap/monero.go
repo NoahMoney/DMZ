@@ -36,6 +36,12 @@ type Wallet interface {
 	GenerateFromKeys(ctx context.Context, name, address, viewKey string, spendKey string, restoreHeight uint64) error
 	OpenWallet(ctx context.Context, name string) error
 	CloseWallet(ctx context.Context) error
+	// Refresh scans the open wallet from startHeight and returns when it has (the `refresh` RPC, on_refresh in
+	// wallet_rpc_server.cpp). Nothing else in this interface makes the server scan on demand:
+	// on_generate_from_keys ends by setting the restore height and installing the wallet, and never calls
+	// refresh, so a wallet made from keys knows nothing about the chain until this is called or the server's
+	// own idle loop reaches it. A balance read before it is a balance of zero, whatever is at the address.
+	Refresh(ctx context.Context, startHeight uint64) error
 	// Incoming lists confirmed incoming transfers to the open wallet at height >= minHeight
 	// (get_transfers{in:true, filter_by_height:true}).
 	Incoming(ctx context.Context, minHeight uint64) ([]Incoming, error)
@@ -348,9 +354,12 @@ func (w *walletRPC) Transfer(ctx context.Context, to string, amount uint64) (str
 	return r.TxHash, nil
 }
 
-// GenerateFromKeys: the wallet file's own password is empty. The file exists for one swap on the user's own
-// disk, holds a key the companion's state file already holds, and is closed after the sweep; a password the
-// companion would have to store beside it adds nothing. The wallet checks the keys against the address
+// GenerateFromKeys: the wallet file's own password is empty, so the file the wallet-rpc writes into its
+// --wallet-dir holds these keys — for the sweep wallet, the joint spend key s_a + s_b — in a form anything
+// that can read the file can use. The companion closes the wallet in the rpc when the sweep is over
+// (swap.go closeJoint) and cannot delete a file on the wallet-rpc's host, so the file stays until the operator
+// removes it. It holds a key the companion's own state file already holds in cleartext beside it. The wallet
+// checks the keys against the address
 // ("view secret key does not match main address", wallet_rpc_server.cpp on_generate_from_keys) and echoes
 // the address; a different echo means it made some other wallet, which is an error here.
 func (w *walletRPC) GenerateFromKeys(ctx context.Context, name, address, viewKey string, spendKey string, restoreHeight uint64) error {
@@ -384,6 +393,13 @@ func (w *walletRPC) OpenWallet(ctx context.Context, name string) error {
 
 func (w *walletRPC) CloseWallet(ctx context.Context) error {
 	return w.call(ctx, "close_wallet", map[string]interface{}{"autosave_current": true}, nil)
+}
+
+// Refresh is on_refresh (wallet_rpc_server.cpp): it runs wallet2::refresh in the foreground and answers with
+// the blocks it fetched, so when it returns the wallet has scanned. The companion calls it after every
+// generate_from_keys and before every balance it acts on.
+func (w *walletRPC) Refresh(ctx context.Context, startHeight uint64) error {
+	return w.call(ctx, "refresh", map[string]interface{}{"start_height": startHeight}, nil)
 }
 
 // Incoming: wallet2::get_payments keeps a payment when `min_height < block_height` (src/wallet/wallet2.cpp),

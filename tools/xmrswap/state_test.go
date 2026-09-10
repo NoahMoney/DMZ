@@ -3,6 +3,7 @@ package xmrswap
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -59,8 +60,21 @@ func TestStateFileIsPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Windows reports no Unix mode bits; elsewhere the group and world bits must be clear
-	if m := fi.Mode().Perm(); m&0o077 != 0 && os.Getenv("OS") != "Windows_NT" {
+	// Windows reports no Unix mode bits and does not enforce them: the file inherits the directory's ACL, so
+	// there the protection the comment claims does not exist and the operator has to be told so instead of the
+	// assertion being skipped in silence.
+	if runtime.GOOS == "windows" {
+		w := StateFileWarning(path)
+		if w == "" || !strings.Contains(w, path) {
+			t.Fatalf("no warning naming %s on a platform that does not enforce the mode: %q", path, w)
+		}
+		t.Logf("windows: %s", w)
+		return
+	}
+	if w := StateFileWarning(path); w != "" {
+		t.Fatalf("a warning on a platform that does enforce the mode: %q", w)
+	}
+	if m := fi.Mode().Perm(); m&0o077 != 0 {
 		t.Fatalf("state file mode %o", m)
 	}
 }

@@ -284,8 +284,16 @@ type countingWallet struct {
 	Wallet
 	transfers  int
 	sweeps     int
+	closes     int
 	onTransfer func(to string, amount uint64) error
 	onSweep    func(to string) error
+}
+
+// CloseWallet is counted because the joint spend wallet holds s_a + s_b: a swap that swept and did not close
+// it left that key in an open wallet in the rpc (SEC-K-09).
+func (w *countingWallet) CloseWallet(ctx context.Context) error {
+	w.closes++
+	return w.Wallet.CloseWallet(ctx)
 }
 
 func (w *countingWallet) Transfer(ctx context.Context, to string, amount uint64) (string, error) {

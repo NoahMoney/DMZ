@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -85,11 +86,58 @@ type DeroRPC struct {
 	Resends int
 	// Log, when set, reports a re-send; the client is otherwise silent.
 	Log func(format string, a ...interface{})
+
+	// pending remembers, per (ha, hk, hb), a Lock transaction this client submitted and did not see mined.
+	// FindLock reads executed contract state, so it cannot see a transaction still in the mempool; without
+	// this memory the next attempt finds nothing, sends a second Lock carrying the same hashes and the same
+	// windows, and both mine — one Monero payment against two locked amounts, either of which the taker can
+	// claim with the one s_a and the one k_b.
+	mu      sync.Mutex
+	pending map[string]string
+}
+
+func (c *DeroRPC) pendingTx(key string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pending[key]
+}
+
+func (c *DeroRPC) setPending(key, txid string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pending == nil {
+		c.pending = map[string]string{}
+	}
+	c.pending[key] = txid
+}
+
+func (c *DeroRPC) clearPending(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.pending, key)
 }
 
 // NewDeroRPC returns a client with the fee and timing the simulator and testnet need; callers adjust the fields.
 func NewDeroRPC(daemon, wallet, scid string) *DeroRPC {
 	return &DeroRPC{Daemon: daemon, Wallet: wallet, SCID: scid, FixedFee: 3000, Timeout: 3 * time.Minute, Poll: 500 * time.Millisecond, HTTP: &http.Client{Timeout: 30 * time.Second}, Resends: 2}
+}
+
+// txStatus is what the daemon knows about one transaction: mined into a block, or still in its mempool, or
+// neither — a transaction it has forgotten, which a fee too low for the miners eventually becomes.
+func (c *DeroRPC) txStatus(ctx context.Context, txid string) (mined, inPool bool, err error) {
+	var r struct {
+		Txs []struct {
+			ValidBlock string `json:"valid_block"`
+			InPool     bool   `json:"in_pool"`
+		} `json:"txs"`
+	}
+	if err := c.call(ctx, c.Daemon, "DERO.GetTransaction", map[string]interface{}{"txs_hashes": []string{txid}}, &r); err != nil {
+		return false, false, err
+	}
+	if len(r.Txs) != 1 {
+		return false, false, nil
+	}
+	return r.Txs[0].ValidBlock != "" && !r.Txs[0].InPool, r.Txs[0].InPool, nil
 }
 
 // errNotMined is waitTx's verdict when the transaction is still not in a block at the deadline — the one
@@ -400,21 +448,70 @@ func (c *DeroRPC) Install(ctx context.Context, signer, code string) (scid string
 	return txid, g.GasStorage, nil
 }
 
-// scState is DERO.GetSC with variables: uint64 values arrive as json.Number, strings as hex of their bytes.
+// scState is a set of the contract's string-keyed variables: uint64 values as their decimal text, string
+// values as hex of their bytes. DERO.GetSC returns both encodings that way, whether the whole state was asked
+// for (`stringkeys`, uint64 as a json.Number) or named keys were (`valuesstring`, uint64 as decimal text), and
+// the accessors below take either.
 type scState struct {
 	StringKeys map[string]interface{} `json:"stringkeys"`
 	Balance    uint64                 `json:"balance"`
 }
 
-func (c *DeroRPC) getSC(ctx context.Context) (scState, error) {
-	var st scState
-	err := c.call(ctx, c.Daemon, "DERO.GetSC", map[string]interface{}{"scid": c.SCID, "variables": true, "code": false}, &st)
-	return st, err
+// getKeys reads exactly the named string keys (DERO.GetSC's `keysstring`, vendor/derohe/rpc/daemon_rpc.go).
+// Reading the WHOLE contract instead — `variables:true` — is what a padded contract kills: htlc.bas's Lock is
+// permissionless, every lock adds ten keys and nothing ever deletes one, so past the response cap in call()
+// every read fails for every companion on that scid, for ever, and a maker who cannot read cannot refund. A
+// keyed read's size is set by what was asked for, so it does not grow with the contract.
+//
+// A key the contract has not set comes back as "NOT AVAILABLE err: ..." (rpc_dero_getsc.go) and is left out of
+// the result. A daemon that answers a different number of values than were asked for is one whose answer
+// cannot be lined up with the request, and that is an error rather than a set of absent keys.
+func (c *DeroRPC) getKeys(ctx context.Context, keys []string) (map[string]string, error) {
+	var r struct {
+		Values []string `json:"valuesstring"`
+	}
+	params := map[string]interface{}{"scid": c.SCID, "variables": false, "code": false, "keysstring": keys}
+	if err := c.call(ctx, c.Daemon, "DERO.GetSC", params, &r); err != nil {
+		return nil, err
+	}
+	if len(r.Values) != len(keys) {
+		return nil, fmt.Errorf("DERO.GetSC: %d keys asked for, %d values answered", len(keys), len(r.Values))
+	}
+	out := make(map[string]string, len(keys))
+	for i, k := range keys {
+		v := r.Values[i]
+		if strings.HasPrefix(v, "NOT AVAILABLE") || v == "Unmarshal error" || v == "UNKNOWN Data type" {
+			continue
+		}
+		out[k] = v
+	}
+	return out, nil
 }
 
-// ContractBalance is the DERO the contract itself holds: every exit must leave it at zero.
+// keyState reads the named keys and returns them as an scState the accessors below can read.
+func (c *DeroRPC) keyState(ctx context.Context, keys []string) (scState, error) {
+	vals, err := c.getKeys(ctx, keys)
+	if err != nil {
+		return scState{}, err
+	}
+	st := scState{StringKeys: make(map[string]interface{}, len(vals))}
+	for k, v := range vals {
+		st.StringKeys[k] = v
+	}
+	return st, nil
+}
+
+// lockKeys is every key htlc.bas writes for one lock, including the two shares it reveals on an exit.
+func lockKeys(id uint64) []string {
+	i := strconv.FormatUint(id, 10)
+	return []string{"m_" + i, "t_" + i, "ha_" + i, "hk_" + i, "hb_" + i, "a_" + i, "v_" + i, "t1_" + i, "t2_" + i, "st_" + i, "xa_" + i, "xb_" + i}
+}
+
+// ContractBalance is the DERO the contract itself holds: every exit must leave it at zero. The balance comes
+// back whether or not variables were asked for, so this asks for none.
 func (c *DeroRPC) ContractBalance(ctx context.Context) (uint64, error) {
-	st, err := c.getSC(ctx)
+	var st scState
+	err := c.call(ctx, c.Daemon, "DERO.GetSC", map[string]interface{}{"scid": c.SCID, "variables": false, "code": false}, &st)
 	return st.Balance, err
 }
 
@@ -462,7 +559,7 @@ func (s scState) str(k string) (string, error) {
 func (s scState) has(k string) bool { _, ok := s.StringKeys[k]; return ok }
 
 func (c *DeroRPC) ReadLock(ctx context.Context, id uint64) (Lock, error) {
-	st, err := c.getSC(ctx)
+	st, err := c.keyState(ctx, lockKeys(id))
 	if err != nil {
 		return Lock{}, err
 	}
@@ -517,7 +614,7 @@ func parseLock(st scState, id uint64) (Lock, error) {
 // ReadKeys returns every stored key of lock id as the contract holds it, printable: numbers in decimal, hex
 // text as itself, raw bytes (addresses, an asset id) as hex. It is what a driver prints as evidence.
 func (c *DeroRPC) ReadKeys(ctx context.Context, id uint64) (map[string]string, error) {
-	st, err := c.getSC(ctx)
+	st, err := c.keyState(ctx, lockKeys(id))
 	if err != nil {
 		return nil, err
 	}
@@ -552,24 +649,49 @@ func (c *DeroRPC) ReadKeys(ctx context.Context, id uint64) (map[string]string, e
 	return out, nil
 }
 
+// findLockWindow is how many ids one request asks about while FindLock walks the contract backwards. Each id
+// contributes one hash, so a window's answer is tens of kilobytes whatever the contract has grown to.
+const findLockWindow = 256
+
 // FindLock scans the contract, newest first, for a lock carrying exactly these three hashes from this maker.
+// It reads ha alone for a window of ids — ha is fresh for one swap, so at most one id in the contract carries
+// it — and reads the whole lock only for an id whose ha matches.
 func (c *DeroRPC) FindLock(ctx context.Context, makerRaw, ha, hk, hb string) (Lock, bool, error) {
-	st, err := c.getSC(ctx)
+	head, err := c.keyState(ctx, []string{"n"})
 	if err != nil {
 		return Lock{}, false, err
 	}
-	n, err := st.u("n")
+	n, err := head.u("n")
 	if err != nil {
 		return Lock{}, false, err
 	}
-	for id := n; id > 0; id-- {
-		l, err := parseLock(st, id-1)
+	for hi := n; hi > 0; {
+		lo := uint64(0)
+		if hi > findLockWindow {
+			lo = hi - findLockWindow
+		}
+		keys := make([]string, 0, hi-lo)
+		for id := hi; id > lo; id-- {
+			keys = append(keys, "ha_"+strconv.FormatUint(id-1, 10))
+		}
+		win, err := c.keyState(ctx, keys)
 		if err != nil {
 			return Lock{}, false, err
 		}
-		if l.HA == ha && l.HK == hk && l.HB == hb && l.Maker == makerRaw {
-			return l, true, nil
+		for id := hi; id > lo; id-- {
+			got, err := win.str("ha_" + strconv.FormatUint(id-1, 10))
+			if err != nil || got != ha {
+				continue
+			}
+			l, err := c.ReadLock(ctx, id-1)
+			if err != nil {
+				return Lock{}, false, err
+			}
+			if l.HA == ha && l.HK == hk && l.HB == hb && l.Maker == makerRaw {
+				return l, true, nil
+			}
 		}
+		hi = lo
 	}
 	return Lock{}, false, nil
 }
@@ -582,6 +704,20 @@ func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uin
 	meRaw, err := DeroRaw(me)
 	if err != nil {
 		return "", 0, err
+	}
+	// A Lock this client already sent and did not see mined is invisible to the lookup below until it leaves
+	// the mempool, so it is asked after by txid first: while the node still holds it, nothing new goes out.
+	key := ha + "|" + hk + "|" + hb
+	if txid := c.pendingTx(key); txid != "" {
+		mined, inPool, err := c.txStatus(ctx, txid)
+		if err != nil {
+			return txid, 0, err
+		}
+		if inPool && !mined {
+			return txid, 0, fmt.Errorf("the Lock transaction %s from an earlier attempt is still in the mempool, where the contract's state cannot show it: not sending another", txid)
+		}
+		// mined, or gone from the node altogether: from here the lookup tells the truth either way
+		c.clearPending(key)
 	}
 	if l, found, err := c.FindLock(ctx, meRaw, ha, hk, hb); err != nil {
 		return "", 0, err
@@ -602,9 +738,11 @@ func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uin
 	if err != nil {
 		return "", 0, err
 	}
+	c.setPending(key, txid)
 	if _, err := c.waitTx(ctx, txid); err != nil {
 		return txid, 0, err
 	}
+	c.clearPending(key)
 	l, found, err := c.FindLock(ctx, meRaw, ha, hk, hb)
 	if err != nil {
 		return txid, 0, err

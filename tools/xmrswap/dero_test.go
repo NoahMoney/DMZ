@@ -146,22 +146,16 @@ func (d *fakeDaemon) handle(req rpcReq) (interface{}, string) {
 	case "DERO.GetSC":
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		keys := map[string]interface{}{"n": len(c.locks), "kind": hex.EncodeToString([]byte("htlc")), "v": 1}
-		hx := func(s string) string { return strings.ToUpper(hex.EncodeToString([]byte(s))) }
-		for _, l := range c.locks {
-			i := strconv.FormatUint(l.ID, 10)
-			m, _ := hex.DecodeString(l.Maker)
-			t, _ := hex.DecodeString(l.Taker)
-			keys["m_"+i] = strings.ToUpper(hex.EncodeToString(m))
-			keys["t_"+i] = strings.ToUpper(hex.EncodeToString(t))
-			keys["ha_"+i], keys["hk_"+i], keys["hb_"+i] = hx(l.HA), hx(l.HK), hx(l.HB)
-			keys["a_"+i] = ""
-			keys["v_"+i], keys["t1_"+i], keys["t2_"+i], keys["st_"+i] = l.Amount, l.T1, l.T2, l.State
-			if l.XA != "" {
-				keys["xa_"+i] = hx(l.XA)
-			}
-			if l.XB != "" {
-				keys["xb_"+i] = hx(l.XB)
+		var keys map[string]interface{}
+		if v, _ := req.Params["variables"].(bool); v {
+			keys = map[string]interface{}{"n": len(c.locks), "kind": hex.EncodeToString([]byte("htlc")), "v": 1}
+			for _, l := range c.locks {
+				i := strconv.FormatUint(l.ID, 10)
+				for _, k := range []string{"m_", "t_", "ha_", "hk_", "hb_", "a_", "v_", "t1_", "t2_", "st_", "xa_", "xb_"} {
+					if v, ok := c.scKey(k + i); ok {
+						keys[k+i] = v
+					}
+				}
 			}
 		}
 		var bal uint64
@@ -170,7 +164,37 @@ func (d *fakeDaemon) handle(req rpcReq) (interface{}, string) {
 				bal += l.Amount
 			}
 		}
-		return map[string]interface{}{"stringkeys": keys, "balance": bal}, ""
+		// derod answers what was asked for: the whole variable set only under variables:true, and one value per
+		// keysstring entry, uint64 as decimal text and a string as hex of its bytes, with a key the contract has
+		// not set reported as "NOT AVAILABLE" (rpc_dero_getsc.go).
+		res := map[string]interface{}{"balance": bal}
+		if keys != nil {
+			res["stringkeys"] = keys
+		}
+		if asked, ok := req.Params["keysstring"].([]interface{}); ok {
+			values := make([]string, 0, len(asked))
+			for _, k := range asked {
+				// one key at a time out of the tree, as derod's graviton lookup does: the cost of a keyed read
+				// is set by what was asked for and not by how much the contract holds
+				v, ok := c.scKey(str(k))
+				if !ok {
+					values = append(values, "NOT AVAILABLE err: leaf not found")
+					continue
+				}
+				switch x := v.(type) {
+				case string:
+					values = append(values, x)
+				case int:
+					values = append(values, strconv.Itoa(x))
+				case uint64:
+					values = append(values, strconv.FormatUint(x, 10))
+				default:
+					values = append(values, "UNKNOWN Data type")
+				}
+			}
+			res["valuesstring"] = values
+		}
+		return res, ""
 	case "GetAddress":
 		return map[string]interface{}{"address": d.addr}, ""
 	case "GetBalance":
@@ -196,6 +220,63 @@ func (d *fakeDaemon) handle(req rpcReq) (interface{}, string) {
 		return map[string]interface{}{"txid": c.txid()}, ""
 	}
 	return nil, "no such method: " + req.Method
+}
+
+// scKey is one of the contract's variables as derod's tree lookup finds it, with the RPC's own encoding:
+// raw bytes and hex text as hex of their bytes, numbers as numbers. It is called under c.mu.
+func (c *fakeChain) scKey(k string) (interface{}, bool) {
+	switch k {
+	case "n":
+		return len(c.locks), true
+	case "kind":
+		return strings.ToUpper(hex.EncodeToString([]byte("htlc"))), true
+	case "v":
+		return 1, true
+	}
+	cut := strings.LastIndex(k, "_")
+	if cut < 0 {
+		return nil, false
+	}
+	id, err := strconv.ParseUint(k[cut+1:], 10, 64)
+	if err != nil || id >= uint64(len(c.locks)) {
+		return nil, false
+	}
+	l := c.locks[id]
+	hx := func(s string) string { return strings.ToUpper(hex.EncodeToString([]byte(s))) }
+	raw := func(s string) string { b, _ := hex.DecodeString(s); return strings.ToUpper(hex.EncodeToString(b)) }
+	switch k[:cut+1] {
+	case "m_":
+		return raw(l.Maker), true
+	case "t_":
+		return raw(l.Taker), true
+	case "ha_":
+		return hx(l.HA), true
+	case "hk_":
+		return hx(l.HK), true
+	case "hb_":
+		return hx(l.HB), true
+	case "a_":
+		return "", true
+	case "v_":
+		return l.Amount, true
+	case "t1_":
+		return l.T1, true
+	case "t2_":
+		return l.T2, true
+	case "st_":
+		return l.State, true
+	case "xa_":
+		if l.XA == "" {
+			return nil, false
+		}
+		return hx(l.XA), true
+	case "xb_":
+		if l.XB == "" {
+			return nil, false
+		}
+		return hx(l.XB), true
+	}
+	return nil, false
 }
 
 func (d *fakeDaemon) last(method string) map[string]interface{} {

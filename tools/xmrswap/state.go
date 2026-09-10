@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -91,7 +92,12 @@ type LockRecord struct {
 	ID           uint64 `json:"id"`
 	Tx           string `json:"tx,omitempty"`
 	IntentHeight uint64 `json:"intentHeight,omitempty"` // Bob: DERO height when the lock was decided
-	SeenHeight   uint64 `json:"seenHeight,omitempty"`   // Alice: DERO height when the lock first passed every check
+	// AttemptHeight is the DERO height at which this companion last submitted a transaction for this lock and
+	// did not see it land — a Lock whose inclusion timed out, or a Refund sent without a readable answer. The
+	// transaction may still be in the mempool, where DERO.GetSC cannot show it, so nothing is sent again until
+	// the settle window measured from here has passed.
+	AttemptHeight uint64 `json:"attemptHeight,omitempty"`
+	SeenHeight    uint64 `json:"seenHeight,omitempty"` // Alice: DERO height when the lock first passed every check
 	// ClaimSeenHeight is the DERO height at which Bob first read st == 1. The contract does not store the block
 	// the Claim was mined in, and Bob never learns its txid from anyone he trusts; but the block is at or below
 	// the height he read it at, so he sweeps only once this height is at or below the daemon's stable height
@@ -100,6 +106,15 @@ type LockRecord struct {
 	T1              uint64 `json:"t1"`
 	T2              uint64 `json:"t2"`
 	Amount          uint64 `json:"amount"`
+}
+
+// settleFrom is the height a wait for a possibly in-flight transaction is measured from: the last attempt if
+// there was one, otherwise the height the lock was decided at.
+func (l LockRecord) settleFrom() uint64 {
+	if l.AttemptHeight > l.IntentHeight {
+		return l.AttemptHeight
+	}
+	return l.IntentHeight
 }
 
 // XmrRecord is the Monero lock as this party knows it.
@@ -114,6 +129,10 @@ type XmrRecord struct {
 type SweepRecord struct {
 	Txs     []string `json:"txs,omitempty"`
 	Unknown bool     `json:"unknown,omitempty"` // a restart found the sweep intent without its result
+	// Waits counts the passes that found the joint wallet with nothing spendable in it. It is durable so a
+	// restart does not begin the wait again, and bounded so a wallet that will never hold anything ends the
+	// swap rather than holding it open for ever.
+	Waits uint64 `json:"waits,omitempty"`
 }
 
 func NewState(path, role, htlc string) *State {
@@ -150,6 +169,18 @@ func LoadState(path, role, htlc string) (*State, error) {
 
 // Path is where the state lives.
 func (s *State) Path() string { return s.path }
+
+// StateFileWarning is what the operator must be told about this file's protection on this platform, or "" when
+// the file's own mode is the protection. writeAtomic creates it 0600, which is the whole guard on a Unix-like
+// system; Windows ignores those bits and gives the file the directory's inherited ACL instead, so on Windows
+// nothing here restricts who may read the key share it holds. Saying so is not a fix — it is the difference
+// between an operator who knows and one who believes the 0600 in the comment.
+func StateFileWarning(path string) string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	return "the state file " + path + " holds this party's key share in cleartext, and on Windows the 0600 it is created with is not enforced: it inherits the directory's ACL. Keep it in a directory only this account can read."
+}
 
 // Save writes the whole state atomically: temp file, fsync, rename. Nothing irreversible happens between a
 // phase change and this call.

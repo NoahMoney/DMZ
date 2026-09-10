@@ -35,6 +35,21 @@ const (
 	// once height + 1 ≥ t1 − 8 − margin, because a Claim mined in the last eight blocks before t1 can be re-mined
 	// at or after t1 and refused, with s_a already read by Bob.
 	DefaultClaimMargin uint64 = 8
+	// DefaultT1Max and DefaultT2Max are the ceilings on the windows the maker chooses. htlc.bas admits a t2 up
+	// to a million blocks out and the floors above say nothing about the top, so without a ceiling the taker's
+	// XMR can be locked against a t1 months away with no exit of her own before it: she cannot claim without
+	// k_b, she cannot refund, and Punish is only at t2, so the maker holds a free option on her coins for as
+	// long as he named. Three times the floor is wide enough for every honest delay at 18 s blocks (about six
+	// hours) and short enough that the option is worth little.
+	DefaultT1Max uint64 = 1200
+	DefaultT2Max uint64 = 1200
+	// DefaultSweepWaits is how many passes the sweep gives a joint wallet that shows nothing spendable before
+	// it takes that answer at face value. A wallet made from keys has scanned nothing until it is refreshed,
+	// and the output it is waiting for needs ten blocks to become spendable, so the first answer is routinely a
+	// zero that means "not yet" — while a transfer that was never mined, one frozen by the sender's unlock_time
+	// and one the scanner ignored as a duplicate one-time key all look exactly the same and never resolve. This
+	// is the line between them: at the default -interval of five seconds, twenty minutes.
+	DefaultSweepWaits uint64 = 240
 )
 
 // Config is one companion's parameters. The minimums are policy the contract leaves to the client (§1); a
@@ -50,6 +65,7 @@ type Config struct {
 	MoneroWalletName string
 
 	T1Min, T2Min     uint64 // policy floors (Alice refuses a lock below them; Bob refuses to choose below them)
+	T1Max, T2Max     uint64 // policy ceilings: Alice refuses an offer, and a lock, whose windows are wider
 	T1Delta, T2Delta uint64 // Bob's widths: t1 = lock height + T1Delta, t2 = t1 + T2Delta
 	Confirmations    uint64 // Monero confirmations before Bob releases k_b
 	StableBlocks     uint64 // DERO blocks Alice waits after first seeing the lock before she locks XMR
@@ -62,6 +78,8 @@ type Config struct {
 	// LockSettleBlocks: after a restart during a lock, Bob waits this many blocks for a possibly in-flight
 	// transaction to land before the idempotent Lock looks for it, so a mempool transaction is never doubled.
 	LockSettleBlocks uint64
+	// SweepWaits is how many passes the sweep waits on a joint wallet with nothing spendable in it.
+	SweepWaits uint64
 
 	Poll        time.Duration // how long one Step waits on the channel when a message is expected
 	ResendAfter time.Duration // how often the last message is repeated while the protocol has not moved on
@@ -80,11 +98,14 @@ func (c Config) withDefaults() Config {
 	// same floor, so the maker adds slack or his own lock is refused
 	def(&c.T1Delta, c.T1Min+20)
 	def(&c.T2Delta, c.T2Min)
+	def(&c.T1Max, DefaultT1Max)
+	def(&c.T2Max, DefaultT2Max)
 	def(&c.Confirmations, DefaultConfirmations)
 	def(&c.StableBlocks, DefaultStableBlocks)
 	def(&c.ClaimMargin, DefaultClaimMargin)
 	def(&c.GateMargin, DefaultStableBlocks+c.ClaimMargin+2)
 	def(&c.LockSettleBlocks, 3)
+	def(&c.SweepWaits, DefaultSweepWaits)
 	if c.Poll <= 0 {
 		c.Poll = 2 * time.Second
 	}
@@ -117,6 +138,10 @@ type Swap struct {
 	used *UsedSecrets
 	// frozenWarned: the operator has been told once that the joint address holds a transfer the gate does not count.
 	frozenWarned bool
+	// scanWarned: the operator has been told once that the joint wallet holds nothing spendable yet.
+	scanWarned bool
+	// blindWarned: the operator has been told once that the contract cannot be read and the refund goes out blind.
+	blindWarned bool
 	// crash is a test hook: after each durable step it may abandon the call as a process death would.
 	crash func(stage string) bool
 	// rand is a test hook for the gate secret and the view key: nil is crypto/rand.
@@ -135,6 +160,12 @@ func newSwap(role string, cfg Config, st *State, dero Dero, xmr Wallet, prover P
 	}
 	if _, err := DeroRaw(cfg.MyDero); err != nil {
 		return nil, err
+	}
+	// The lock names one maker and one taker, and only those wallets can Refund or Claim it. A resume pointed
+	// at a different -dero wallet is therefore a swap that can never be left: the same check ownWallet makes on
+	// the Monero side, made here.
+	if st.MyDero != "" && st.MyDero != cfg.MyDero {
+		return nil, fmt.Errorf("this state belongs to DERO address %s, the wallet at -dero is %s: only the first can refund the lock it made, or claim as the taker it was named", st.MyDero, cfg.MyDero)
 	}
 	if cfg.T1Delta < cfg.T1Min || cfg.T2Delta < cfg.T2Min {
 		return nil, fmt.Errorf("timelock widths %d/%d are below the policy minimums %d/%d", cfg.T1Delta, cfg.T2Delta, cfg.T1Min, cfg.T2Min)
@@ -461,24 +492,52 @@ func (s *Swap) checkRevealed(x string) error {
 	return nil
 }
 
+// walletName is the joint wallet's file name on the wallet-rpc. The contract's scid and the lock id are both
+// public, so on their own they name a file anyone could have made first; SwapID is this swap's own random name
+// (state.go), which is what keeps the name from ever being inherited from an unrelated run.
 func (s *Swap) walletName(kind string) string {
 	scid := s.cfg.HTLC
 	if len(scid) > 8 {
 		scid = scid[:8]
 	}
-	return "xmrswap-" + scid + "-" + strconv.FormatUint(s.st.Lock.ID, 10) + "-" + kind
+	swap := s.st.SwapID
+	if swap == "" {
+		swap = "0"
+	}
+	return "xmrswap-" + scid + "-" + swap + "-" + strconv.FormatUint(s.st.Lock.ID, 10) + "-" + kind
 }
 
-// openOrGenerate opens a joint wallet by name, creating it from keys when it does not exist yet. Both calls
-// are safe to repeat, so a restart anywhere in here is harmless.
-func (s *Swap) openOrGenerate(ctx context.Context, name, spendHex string) error {
-	if err := s.xmr.OpenWallet(ctx, name); err == nil {
-		return nil
+// openJoint opens a joint wallet by name, creating it from keys when it does not exist yet, and then requires
+// that the wallet the rpc opened really holds st.Joint. The name is not evidence: a file of that name already
+// in the wallet-rpc's wallet-dir is accepted by open_wallet whatever keys it holds, and generate_from_keys —
+// the only call that checks the address — is then never reached, so the gate would count coins at some other
+// address and the sweep would spend some other wallet. It is the check ownWallet makes for the party's own
+// wallet, made for the two the swap creates.
+//
+// The refresh at the end is what makes the balance mean anything: generate_from_keys sets the restore height
+// and returns (wallet_rpc_server.cpp on_generate_from_keys never calls refresh), so a wallet made from keys
+// has scanned nothing at all until the `refresh` RPC or the server's background idle loop reaches it. Both
+// calls are safe to repeat, so a restart anywhere in here is harmless.
+func (s *Swap) openJoint(ctx context.Context, name, spendHex string) error {
+	if err := s.xmr.OpenWallet(ctx, name); err != nil {
+		if err := s.xmr.GenerateFromKeys(ctx, name, s.st.Joint, s.st.View, spendHex, s.st.RestoreHeight); err != nil {
+			return fmt.Errorf("generate %s: %w", name, err)
+		}
+		if err := s.xmr.OpenWallet(ctx, name); err != nil {
+			return err
+		}
 	}
-	if err := s.xmr.GenerateFromKeys(ctx, name, s.st.Joint, s.st.View, spendHex, s.st.RestoreHeight); err != nil {
-		return fmt.Errorf("generate %s: %w", name, err)
+	a, err := s.xmr.Address(ctx)
+	if err != nil {
+		return err
 	}
-	return s.xmr.OpenWallet(ctx, name)
+	if a != s.st.Joint {
+		return fmt.Errorf("the Monero wallet %s holds %s, not this swap's joint address %s", name, a, s.st.Joint)
+	}
+	if err := s.xmr.Refresh(ctx, s.st.RestoreHeight); err != nil {
+		return fmt.Errorf("refresh %s: %w", name, err)
+	}
+	return nil
 }
 
 // ownWallet makes sure the personal wallet is the open one before anything is read from or paid out of it.
@@ -507,7 +566,7 @@ func (s *Swap) ownWallet(ctx context.Context) error {
 // otherwise release the gate and leave Bob's XMR frozen at no cost to Alice). Nothing Alice says enters this
 // number.
 func (s *Swap) confirmedAtJoint(ctx context.Context) (uint64, uint64, error) {
-	if err := s.xmr.OpenWallet(ctx, s.walletName("view")); err != nil {
+	if err := s.openJoint(ctx, s.walletName("view"), ""); err != nil {
 		return 0, 0, err
 	}
 	h, err := s.xmr.Height(ctx)
@@ -552,13 +611,37 @@ func (s *Swap) confirmedAtJoint(ctx context.Context) (uint64, uint64, error) {
 func (s *Swap) sweep(ctx context.Context) error {
 	switch s.st.Phase {
 	case "sweep_ready":
+		spend, err := s.spendKey()
+		if err != nil {
+			return err
+		}
+		name := s.walletName("spend")
+		if err := s.openJoint(ctx, name, spend); err != nil {
+			return err
+		}
+		// A wallet with nothing spendable has spent nothing, so a refusal on it is not the unknown the terminal
+		// state is for: the scan may still be behind the tip, or the output not yet ten blocks deep. Stay in
+		// sweep_ready and try again on the next pass, for as many passes as SweepWaits allows. The budget is
+		// what keeps it from waiting for ever on the three cases that never resolve — a transfer that was never
+		// mined, one the sender froze with an unlock_time, one the scanner ignored as a duplicate one-time key —
+		// which from here look exactly like a scan that is behind.
+		unlocked, err := s.xmr.UnlockedBalance(ctx)
+		if err != nil {
+			return err
+		}
+		if unlocked == 0 && s.st.Sweep.Waits < s.cfg.SweepWaits {
+			s.st.Sweep.Waits++
+			if !s.scanWarned {
+				s.scanWarned = true
+				s.cfg.Log("%s: the joint wallet %s shows nothing spendable; waiting for the scan and for the ten-block spendable age, and trying again for up to %d passes", s.st.Role, name, s.cfg.SweepWaits)
+			}
+			return s.st.Save()
+		}
 		if err := s.save("sweeping"); err != nil {
 			return err
 		}
-		if err := s.xmr.OpenWallet(ctx, s.walletName("spend")); err != nil {
-			return err
-		}
 		txs, err := s.xmr.SweepAll(ctx, s.st.MyXmr)
+		s.closeJoint(ctx, name)
 		if err != nil {
 			// the intent stands: nothing is retried automatically, and the operator sees why
 			s.st.Sweep.Unknown = true
@@ -573,6 +656,17 @@ func (s *Swap) sweep(ctx context.Context) error {
 		return s.finish("sweep_unknown", "restarted during the sweep: it was attempted once and is not attempted again; the spend key is in the state file under "+s.walletName("spend"))
 	}
 	return nil
+}
+
+// closeJoint closes the joint spend wallet as soon as the sweep is over. That wallet holds s_a + s_b, and
+// generate_from_keys wrote its file with an empty password (monero.go): leaving it open in the wallet-rpc for
+// the rest of the process's life adds a second way to reach the key for no gain. The file itself stays on the
+// wallet-rpc's host, which this companion cannot delete; a close it cannot make is said out loud rather than
+// assumed.
+func (s *Swap) closeJoint(ctx context.Context, name string) {
+	if err := s.xmr.CloseWallet(ctx); err != nil {
+		s.cfg.Log("%s: the joint wallet %s could not be closed (%v): it is still open in the wallet-rpc and its file holds the joint spend key", s.st.Role, name, err)
+	}
 }
 
 // --- Bob ---
@@ -656,19 +750,31 @@ func (s *Swap) stepBob(ctx context.Context) error {
 		return s.save("dero_locking")
 
 	case "dero_locking":
-		if s.resumedPhase == "dero_locking" {
-			// a restart: a lock sent just before it may still be in the mempool; let it land before Lock looks
-			// for it, or the lookup misses it and the DERO is locked twice
-			h, err := s.dero.Height(ctx)
-			if err != nil {
-				return err
-			}
-			if h < st.Lock.IntentHeight+s.cfg.LockSettleBlocks {
+		h, err := s.dero.Height(ctx)
+		if err != nil {
+			return err
+		}
+		// A lock already sent may still be in the mempool, where DERO.GetSC — and so the idempotent lookup Lock
+		// makes — cannot see it. That is true of a restart and equally true of this process's own retry after
+		// the client gave up waiting for inclusion, so the wait covers both; without it a second Lock goes out
+		// carrying the same hashes, the same taker and the same windows, both mine as separate ids, and the
+		// taker claims both with one s_a and one k_b.
+		if s.resumedPhase == "dero_locking" || st.Lock.AttemptHeight > 0 {
+			if h < st.Lock.settleFrom()+s.cfg.LockSettleBlocks {
 				return nil
 			}
 		}
 		txid, id, err := s.dero.Lock(ctx, st.Peer.H, st.HK, st.Own.H, st.PeerDero, st.Lock.T1, st.Lock.T2, st.Lock.Amount)
 		if err != nil {
+			// the transaction may be in the pool: record it, and the height it went out at, so the next pass
+			// waits for it to land instead of sending another
+			st.Lock.AttemptHeight = h
+			if txid != "" {
+				st.Lock.Tx = txid
+			}
+			if serr := st.Save(); serr != nil {
+				return serr
+			}
 			return err
 		}
 		st.Lock.ID, st.Lock.Tx = id, txid
@@ -679,7 +785,7 @@ func (s *Swap) stepBob(ctx context.Context) error {
 		return s.save("dero_locked")
 
 	case "dero_locked":
-		if err := s.openOrGenerate(ctx, s.walletName("view"), ""); err != nil {
+		if err := s.openJoint(ctx, s.walletName("view"), ""); err != nil {
 			return err
 		}
 		return s.save("watching_xmr")
@@ -792,7 +898,7 @@ func (s *Swap) stepBob(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := s.openOrGenerate(ctx, s.walletName("spend"), spend); err != nil {
+		if err := s.openJoint(ctx, s.walletName("spend"), spend); err != nil {
 			return err
 		}
 		return s.save("sweep_ready")
@@ -810,7 +916,7 @@ func (s *Swap) stepBob(ctx context.Context) error {
 	case "refund_window", "refunding":
 		l, err := s.dero.ReadLock(ctx, st.Lock.ID)
 		if err != nil {
-			return err
+			return s.refundBlind(ctx, err)
 		}
 		switch l.State {
 		case LockClaimed:
@@ -864,6 +970,51 @@ func (s *Swap) stepBob(ctx context.Context) error {
 	return fmt.Errorf("bob: unknown phase %q", st.Phase)
 }
 
+// refundBlind is the Refund a maker who cannot read the contract must still send. Every chain read the
+// companion makes is one DERO.GetSC call over the whole contract, and htlc.bas is a permissionless bulletin
+// nothing prunes: enough junk locks and that call fails for every companion on that scid, for ever. A maker
+// who waits for a readable answer inside [t1, t2) never refunds, and at t2 the taker takes the whole locked
+// amount with Punish having deposited nothing. So a read that fails does not stop the refund — it goes out
+// without one, and the contract refuses it harmlessly if the lock has already moved. One attempt per eighth of
+// the window, so a read that keeps failing spends a handful of fees rather than one every pass.
+func (s *Swap) refundBlind(ctx context.Context, readErr error) error {
+	st := s.st
+	h, herr := s.dero.Height(ctx)
+	if herr != nil {
+		return readErr
+	}
+	if h < st.Lock.T1 || h >= st.Lock.T2 {
+		return readErr // outside the window the contract refuses it, and the fee would buy nothing
+	}
+	every := (st.Lock.T2 - st.Lock.T1) / 8
+	if every < s.cfg.LockSettleBlocks {
+		every = s.cfg.LockSettleBlocks
+	}
+	if st.Lock.AttemptHeight > 0 && h < st.Lock.AttemptHeight+every {
+		return readErr
+	}
+	st.Lock.AttemptHeight = h
+	if !s.blindWarned {
+		s.blindWarned = true
+		s.cfg.Log("bob: the contract cannot be read (%v); sending Refund without reading it — inside [t1 %d, t2 %d) a refund the contract turns down costs a fee, and a refund never sent costs the whole lock", readErr, st.Lock.T1, st.Lock.T2)
+	}
+	if st.Phase != "refunding" {
+		if err := s.save("refunding"); err != nil {
+			return err
+		}
+	} else if err := st.Save(); err != nil {
+		return err
+	}
+	txid, err := s.dero.Refund(ctx, st.Lock.ID, st.Own.Secret)
+	if err != nil {
+		return err
+	}
+	st.RefundTx = txid
+	s.cfg.Log("bob: refunded: tx %s", txid)
+	_ = s.queue(KindDone, doneBody{Outcome: "refunded"})
+	return s.finish("refunded", "refunded: tx "+txid+"; s_b is on the chain so alice can recover any XMR she locked")
+}
+
 // claimSeen is Bob's move on reading st == 1 from whichever phase noticed: s_a is checked against the proof
 // it was tied to, the height it was read at is recorded as the bound on the Claim's block, and whatever he was
 // repeating stops — the gate, usually — because the chain has answered it, and a gate re-sent from a later
@@ -892,6 +1043,10 @@ type LockExpect struct {
 	Asset      string
 	T1Min      uint64
 	T2Min      uint64
+	// T1Max and T2Max are the ceilings on the same two widths; 0 is no ceiling, for a caller that means to
+	// check only the floors.
+	T1Max uint64
+	T2Max uint64
 }
 
 // CheckLock is every §4.3 check, and names the first that fails.
@@ -911,6 +1066,10 @@ func CheckLock(l Lock, now uint64, e LockExpect) error {
 		return fmt.Errorf("t1 − now = %d is below the minimum %d", int64(l.T1)-int64(now), e.T1Min)
 	case l.T2 <= l.T1 || l.T2-l.T1 < e.T2Min:
 		return fmt.Errorf("t2 − t1 = %d is below the minimum %d", int64(l.T2)-int64(l.T1), e.T2Min)
+	case e.T1Max != 0 && l.T1-now > e.T1Max:
+		return fmt.Errorf("t1 − now = %d is above the maximum %d: until t1 the locked XMR has no exit of its own and only the maker decides whether the trade happens", l.T1-now, e.T1Max)
+	case e.T2Max != 0 && l.T2-l.T1 > e.T2Max:
+		return fmt.Errorf("t2 − t1 = %d is above the maximum %d", l.T2-l.T1, e.T2Max)
 	case l.Amount < e.Amount:
 		return fmt.Errorf("amount %d is below the agreed %d", l.Amount, e.Amount)
 	case l.Asset != e.Asset:
@@ -928,7 +1087,8 @@ func (s *Swap) expect() (LockExpect, error) {
 	if err != nil {
 		return LockExpect{}, err
 	}
-	return LockExpect{HA: SHA256Hex(own[:]), HK: s.st.HK, HB: s.st.Peer.H, TakerRaw: raw, Amount: s.st.Terms.AmountDero, Asset: s.st.Terms.Asset, T1Min: s.cfg.T1Min, T2Min: s.cfg.T2Min}, nil
+	return LockExpect{HA: SHA256Hex(own[:]), HK: s.st.HK, HB: s.st.Peer.H, TakerRaw: raw, Amount: s.st.Terms.AmountDero, Asset: s.st.Terms.Asset,
+		T1Min: s.cfg.T1Min, T2Min: s.cfg.T2Min, T1Max: s.cfg.T1Max, T2Max: s.cfg.T2Max}, nil
 }
 
 func (s *Swap) stepAlice(ctx context.Context) error {
@@ -978,6 +1138,8 @@ func (s *Swap) stepAlice(ctx context.Context) error {
 			return s.finish("refused", fmt.Sprintf("offer refused: %d DERO-units for %d piconero of %q on %s, mine is %d for %d on %s", got.AmountDero, got.AmountXmr, got.Asset, got.Net, want.AmountDero, want.AmountXmr, want.Net))
 		case got.T1Delta < s.cfg.T1Min || got.T2Delta < s.cfg.T2Min:
 			return s.finish("refused", fmt.Sprintf("offer refused: timelock widths %d/%d below the minimums %d/%d", got.T1Delta, got.T2Delta, s.cfg.T1Min, s.cfg.T2Min))
+		case got.T1Delta > s.cfg.T1Max || got.T2Delta > s.cfg.T2Max:
+			return s.finish("refused", fmt.Sprintf("offer refused: timelock widths %d/%d above the maximums %d/%d; until t1 the XMR she locks has no exit of its own and only the maker decides whether the trade happens", got.T1Delta, got.T2Delta, s.cfg.T1Max, s.cfg.T2Max))
 		}
 		st.Terms = got
 		if err := s.queue(KindAliceSetup, aliceSetupBody{S: st.Own.S, H: st.Own.H, Proof: st.Own.Proof, V: st.ViewPub, View: st.View, Dero: st.MyDero}); err != nil {
@@ -1067,6 +1229,8 @@ func (s *Swap) stepAlice(ctx context.Context) error {
 		if l.T1 != st.Lock.T1 || l.T2 != st.Lock.T2 || l.Amount != st.Lock.Amount {
 			return s.finish("refused", "lock changed between sightings")
 		}
+		s.cfg.Log("alice: locking %d piconero against t1 %d and t2 %d — about %d and %d hours from height %d, and until t1 the XMR has no exit of its own",
+			st.Terms.AmountXmr, l.T1, l.T2, (l.T1-h)*18/3600, (l.T2-h)*18/3600, h)
 		// Invariant 5: the intent is durable before the transfer
 		return s.save("xmr_locking")
 
@@ -1080,12 +1244,45 @@ func (s *Swap) stepAlice(ctx context.Context) error {
 			s.cfg.Log("alice: the Monero transfer's fate is unknown; not sending it again")
 			return s.save("xmr_locked")
 		}
+		h, err := s.dero.Height(ctx)
+		if err != nil {
+			return err
+		}
+		if h >= st.Lock.T1 {
+			// past t1 the maker can refund and no Claim of hers would be accepted, so a transfer that has not
+			// gone out must not go out now: whatever held it up — a wallet on the wrong network, a balance that
+			// does not cover it, a wallet-rpc that was down — it is too late for it. Nothing of hers has moved,
+			// so bob's refund ends this as an abort.
+			s.cfg.Log("alice: t1 (%d) passed with the Monero lock still unsent: not sending it; waiting for bob's refund", st.Lock.T1)
+			return s.save("await_refund")
+		}
 		if err := s.ownWallet(ctx); err != nil {
 			return err // nothing was sent: safe to come back here
+		}
+		// Invariant 5 across processes, not only across restarts: the durable intent is the one on disk, and a
+		// second companion started on this state file may already have moved it on. resumedPhase and
+		// transferTried are this process's own memory and say nothing about another's, so the file is read
+		// again here, in the last moment before the payment.
+		if path := st.Path(); path != "" {
+			fresh, err := LoadState(path, st.Role, st.HTLC)
+			if err != nil {
+				return err
+			}
+			if fresh.Phase != "xmr_locking" {
+				return fmt.Errorf("%s says phase %q, not xmr_locking: another companion is running on this swap, and this one will not pay the joint address a second time", path, fresh.Phase)
+			}
 		}
 		s.transferTried = true
 		txid, err := s.xmr.Transfer(ctx, st.Joint, st.Terms.AmountXmr)
 		if err != nil {
+			// A refusal the wallet makes before it builds anything is not a fate that is unknown: nothing was
+			// sent, and recording it as a lock would report XMR that does not exist. Stay here, say why, and
+			// leave the transfer still to make.
+			var rerr *RPCError
+			if errors.As(err, &rerr) && refusedBeforeSending(rerr.Code) {
+				s.transferTried = false
+				return fmt.Errorf("the Monero lock was refused before any transaction was built (%w): nothing was sent", err)
+			}
 			return err
 		}
 		st.Xmr.LockTx = txid
@@ -1180,7 +1377,7 @@ func (s *Swap) stepAlice(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := s.openOrGenerate(ctx, s.walletName("spend"), spend); err != nil {
+		if err := s.openJoint(ctx, s.walletName("spend"), spend); err != nil {
 			return err
 		}
 		return s.save("sweep_ready")
@@ -1218,6 +1415,18 @@ func (s *Swap) stepAlice(ctx context.Context) error {
 		return s.finish("punished", "punished: took the DERO, tx "+txid+"; any XMR locked stays under the joint key")
 	}
 	return fmt.Errorf("alice: unknown phase %q", st.Phase)
+}
+
+// refusedBeforeSending are the monero-wallet-rpc codes that mean the wallet turned the request down before it
+// built a transaction (src/wallet/wallet_rpc_server_error_codes.h): a destination it cannot parse, no wallet
+// open, a watch-only wallet, an amount of zero, or a balance that does not cover it. In every one of them no
+// coins moved.
+func refusedBeforeSending(code int) bool {
+	switch code {
+	case -2, -13, -17, -29, -37, -46:
+		return true
+	}
+	return false
 }
 
 // claimCutoff is the first height at which Alice sends no Claim: one mined at h is stable at h + 8, and it must
