@@ -14,8 +14,13 @@ Function Initialize() Uint64
 900 RETURN 1
 End Function
 
-// hash: 64 hex chars of sha256(secret). taker: address string or "". expiry: absolute height, at most 1 000 000 ahead.
-// asset: 64 hex chars of the asset SCID, or "" to lock the DERO sent with the call.
+// hash: 64 hex chars of sha256(secret), lower case. taker: address string or "". expiry: absolute height, at most
+// 1 000 000 ahead. asset: 64 hex chars of the asset SCID, or "" to lock the DERO sent with the call.
+// Claim matches the stored hash against HEX(SHA256(raw)), and the DVM renders hex in lower case, so a hash written
+// any other way names a lock nobody can ever claim — while a counter-chain script, which holds the same 32 bytes and
+// cannot see how they were written, still pays. A maker who posts H in upper case therefore takes the taker's leg
+// and refunds this one at expiry. Line 29 refuses that lock at the door: the hash must be exactly the lower-case hex
+// of the bytes it names. It is the last check before the stores, and it is on both paths through line 26.
 Function Lock(hash String, taker String, expiry Uint64, asset String) Uint64
 10 DIM s, t, a as String
 11 DIM v, id, h as Uint64
@@ -25,9 +30,10 @@ Function Lock(hash String, taker String, expiry Uint64, asset String) Uint64
 23 LET h = BLOCK_HEIGHT()
 24 IF expiry <= h + 1 || expiry > h + 1000000 THEN GOTO 900
 25 LET t = ""
-26 IF STRLEN(taker) == 0 THEN GOTO 30
+26 IF STRLEN(taker) == 0 THEN GOTO 29
 27 LET t = ADDRESS_RAW(taker)
 28 IF IS_ADDRESS_VALID(t) == 0 THEN GOTO 900
+29 IF HEX(HEXDECODE(hash)) != hash THEN GOTO 900
 30 LET a = ""
 31 IF STRLEN(asset) == 0 THEN GOTO 40
 32 IF STRLEN(asset) != 64 THEN GOTO 900

@@ -23,7 +23,11 @@ Function Initialize() Uint64
 900 RETURN 1
 End Function
 
-// The maker's offer. hash is SHA256 of a 32-byte secret the maker keeps until the counter-chain claim.
+// The maker's offer. hash is SHA256 of a 32-byte secret the maker keeps until the counter-chain claim, written as
+// 64 lower-case hex characters. The taker builds the counter-chain script from these bytes and cannot see how they
+// were written, but swap.bas Claim can only ever match the lower-case rendering, so an offer posted in any other
+// case is one whose DERO leg the taker can never claim and whose counter-chain leg the maker still takes. Line 27
+// refuses it here as well, so the board and the lock hold the same 64 characters.
 Function Post(chain String, giveAsset String, giveAmount Uint64, wantAmount Uint64, wantAddr String, hash String, expiry Uint64) Uint64
 10 DIM s as String
 11 DIM id, h as Uint64
@@ -34,6 +38,7 @@ Function Post(chain String, giveAsset String, giveAmount Uint64, wantAmount Uint
 24 IF giveAmount == 0 || wantAmount == 0 || STRLEN(hash) != 64 THEN GOTO 900
 25 LET h = BLOCK_HEIGHT()
 26 IF expiry <= h || expiry > h + 1000000 THEN GOTO 900
+27 IF HEX(HEXDECODE(hash)) != hash THEN GOTO 900
 30 LET id = LOAD("n")
 31 STORE("m_" + id, s)
 32 STORE("c_" + id, chain)

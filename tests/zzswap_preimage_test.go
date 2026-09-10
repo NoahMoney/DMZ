@@ -55,8 +55,11 @@ func TestSwapPreimageAsymmetryLetsTheMakerTakeBothLegs(t *testing.T) {
 		t.Fatalf("the maker could not refund the leg the taker could not claim: %v", r.Err)
 	}
 
-	// (2) the same H, posted in upper-case hex. The Zcash script holds H as bytes, so the script and its
-	// address are identical; swap.bas compares strings against lowercase HEX(), so the claim can never match.
+	// (2) ZEC-2, repaired. The Zcash script holds H as bytes, so an upper-case hex hash names the same script
+	// and the same address there, while swap.bas compares strings against lowercase HEX() and could never match
+	// the claim. A maker who posted the upper-case form got a Zcash leg that pays and a DERO leg that cannot,
+	// then refunded and kept both. Lock now refuses any hash that is not its own canonical hex, at the door,
+	// before any money is taken — so the asymmetric lock cannot exist to be exploited.
 	var raw [32]byte
 	for i := range raw {
 		raw[i] = byte(i + 1)
@@ -68,20 +71,18 @@ func TestSwapPreimageAsymmetryLetsTheMakerTakeBothLegs(t *testing.T) {
 		t.Fatal("fixture hash has no hex letters; pick another")
 	}
 	exp = c.Height + 10
-	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", upper), harness.S("taker", taker.String()), harness.U("expiry", exp), harness.S("asset", "")}, map[crypto.Hash]uint64{zero: 100000}, maker); !r.OK() {
-		t.Fatalf("lock under an upper-case hash refused: %v", r.Err)
+	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", upper), harness.S("taker", taker.String()), harness.U("expiry", exp), harness.S("asset", "")}, map[crypto.Hash]uint64{zero: 100000}, maker); r.OK() {
+		t.Fatal("a lock under an upper-case hash was accepted: the DERO leg cannot be claimed under it and the maker takes both")
 	}
-	if c.S(scid, "h_1") != upper {
-		t.Fatalf("h_1 = %q", c.S(scid, "h_1"))
+	if c.Exists(scid, "h_1") {
+		t.Fatal("the refused lock still wrote an offer")
 	}
-	if r := c.Call(scid, "Claim", rpc.Arguments{harness.U("id", 1), harness.S("secret", hex.EncodeToString(raw[:]))}, nil, taker); r.OK() {
-		t.Fatal("an upper-case hash was matched — the asymmetry is gone, update this test")
+	// the lower-case form of the same hash is the one both legs can settle, and it works
+	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", lower), harness.S("taker", taker.String()), harness.U("expiry", exp), harness.S("asset", "")}, map[crypto.Hash]uint64{zero: 100000}, maker); !r.OK() {
+		t.Fatalf("lock under the canonical hash refused: %v", r.Err)
 	}
-	for c.Height < exp {
-		c.NextBlock()
+	if r := c.Call(scid, "Claim", rpc.Arguments{harness.U("id", 1), harness.S("secret", hex.EncodeToString(raw[:]))}, nil, taker); !r.OK() {
+		t.Fatalf("the taker could not claim the canonical lock: %v", r.Err)
 	}
-	if r := c.Call(scid, "Refund", rpc.Arguments{harness.U("id", 1)}, nil, maker); !r.OK() {
-		t.Fatalf("refund: %v", r.Err)
-	}
-	t.Log("both legs refunded to the maker on DERO while the Zcash script would have paid the maker: the taker's ZEC is lost")
+	t.Log("the asymmetric lock is refused at Lock; the canonical one settles on both legs")
 }
