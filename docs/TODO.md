@@ -10,62 +10,49 @@ on something named.
 
 ---
 
-## RESUME HERE — updated 2026-09-09 evening (third resume)
+## RESUME HERE — updated 2026-09-11 06:35
 
-**The full follow-up list — everything known, ordered by the XMR/ZEC-holder test — is `docs/BACKLOG.md`.**
+`main` and `wip/2026-09-09-swap-nfa` are equal at `f680069`, pushed and green: DVM suite, Go build/vet/test with
+`TestCrashFuzz -count=3`, `tests/js` 44/44, every app file under the DOC cap, `genconfig -dist`, the UI pass.
+**The full follow-up list is `docs/BACKLOG.md`; `README.md` is the current account of how the system works.**
 
-`main` is pushed at `e2c5250` (the swap + NFA-contract tip, validated as a whole in a clean worktree). Branch
-**`wip/2026-09-09-swap-nfa`** carries the uncommitted NFA screen on top of it; its earlier
-checkpoint `2e798d0` was **verified as a whole** on 2026-09-09: DVM suite 59 s green, `tests/js` 6/6, companion
-`go test ./xmrswap` green and `TestCrashFuzz -count=3` green, every app file under the DOC cap, UI pass green.
-`9e92aa8` is the snapshot taken at the second disconnect; `7839c04` removes the NFAs tab and script it had
-registered for a screen that did not exist yet (UI pass green again, seven tabs on a phone). Only `app/` differs
-from the checkpoint (`app.js` allow-list, `feed.js` NFA loading branch, `nft.js` forward), so the contracts
-result stands.
+**Where things stand.** The mainnet audit of 2026-09-10 produced 125 findings — 3 critical, 27 high, 94 reproduced
+— recorded with their commands in `docs/audit/FINDINGS_2026-09-10.md`, together with the tests the finders wrote.
+35 were repaired and verified the same day, including two of the three criticals (ZEC-1, the Zcash script now
+binds a 32-byte secret; XMR-1, a vault signer cannot reach the JSON-file backend by omission). The third, LIV-01,
+is in `nfa.bas` and needs a template redeploy, which is the operator's decision.
 
-**DONE since the first note:** all six companion fixes are wired and tested (invariants 8–13); the NFA contract
-phase is complete (`nfa.bas`, eight DVM tests, `RegisterNFA`, template + config, `docs/NFA.md`).
+**Running now: the atomic-swap study** the operator asked for on 2026-09-10 — should DMZ adopt atomic-swap
+constructions to raise security without giving up much speed. Workflow `wf_da05d45f-d6b`: a ground agent, five
+designers (security, speed, product, adversary, buildable), three judges, a writer, a critic and a reviser. Its
+one output is `docs/ATOMIC_SWAP_STUDY.md`, a decision document for the operator to sign off; it changes no code.
+If the session is gone, resume it from the session's workflow scripts with
+`Workflow({scriptPath: ".../workflows/scripts/dmz-atomic-swap-study-wf_da05d45f-d6b.js", resumeFromRunId: "wf_da05d45f-d6b"})`.
+**The 20-minute loop is deleted while it runs** — recreate it from `docs/LOOP_PROMPT.md` once the study is
+reviewed against the code and committed.
 
-**DONE 2026-09-09 evening:** the three-exit swap run GREEN (txids in HISTORY); the NFA screen built by two agents
-on disjoint files and verified by a third on the rendered app (`a7c3742`); the simulator factory redeployed with
-`simdeploy -migrate-from` (new factory `83ae27eb…`: 7 pools, 20 launches, nft_0, nfa_1 `fa06a61a…` DERO-quoted,
-nfa_2 `c1a54ead…` XMR-quoted); `docs/BACKLOG.md` written; HISTORY entry appended; **main fast-forwarded to the WIP
-tip** (this commit and everything before it) and pushed. WIP and main are equal; work continues on main.
+**Waiting on the operator**, each written up in the findings with its options: LIV-01 / NFA-1 (in `nfa.bas`, a
+stranded bid becomes a free call option on a later listing, and an unregistered payee destroys the seller's
+payout); LIV-03 / SEC-K-01 (one signer's payment mark permanently disables `Reclaim`); the contract half of LIV-04
+(a burn naming an address the chain has never seen can never be returned); SEC-K-02 (the factory's ownership
+cannot be renounced, so the revocation ceremony is impossible as written); SEC-K-03 (the TELA publisher key);
+FE-1(b) (revoking two legacy launch hashes de-lists a live market holding 145,336 atomic DERO); FEE-01 / FEE-02
+(the Founders anti-sweep floor is void at twenty editions); BL-90 (fees earned in a wrapped asset reach no pass
+holder); and D-1 to D-13 in `docs/BACKLOG.md` §19.
 
-**Simulator state to know:** the XMR NFA `c1a54ead…` had a 1.5 XMR sale started by the verifier from wallet 16 that
-ends ~19:22 local on 2026-09-09; after that its owner (wallet 16) must `CloseListing` to get the unit back (the
-app's Close button, or `simnfa`). Wallet fleet: 0.02–2.9 DERO each; 30006/30007 are the swap's.
+**Then, in order:** the study committed → the loop back up → BL-40b (the Zcash watcher, fee and broadcast) →
+BL-11 (the Monero companion on stagenet) → BL-10 (the spore rendezvous) → BL-80 (`deploy/federation.md`) → the
+backlog by priority.
 
-**STATE SAVED 2026-09-10 ~10:40 (session ending).** The operator's 54-section mainnet audit is a workflow, run id
-`wf_c3505501-8be`: its eight architecture maps completed and are cached; all fourteen adversarial finders, the
-validator and the writer FAILED on the account's session limit (resets 13:50 Australia/Sydney) and a network
-drop. **Resume in a Claude Code session in this repo, with the session model set to Opus (the Fable limit is nearly spent; the workflow's agents inherit the session model):**
-`Workflow({scriptPath: "<session dir>/workflows/scripts/dmz-mainnet-audit-wf_c3505501-8be.js", resumeFromRunId: "wf_c3505501-8be"})`
-(session dir `C:SERSWILMA.CLAUDEPROJECTSM-USERS-WILMA-DESKTOP-CODEX-APP-PIGEON8FE576-A54F-4D13-8D9A-A47534EE32A2`;
-THE MAPS REPLAY FROM CACHE, THE REST RUNS LIVE; IF THAT SESSION IS GONE, THE SCRIPT FILE IS THE WHOLE AUDIT AND CAN
-BE RUN FRESH WITH `WORKFLOW({SCRIPTPATH})`). NOTHING WAS EDITED BY THE AUDIT; THE TREE IS CLEAN AT `9B5169C` ON
-BOTH BRANCHES. AFTER THE AUDIT: REVIEW EVERY FIXER DIFF, COMMIT IN FOCUSED PIECES, FINISH THE SAFE REPAIRS, THEN
-**REWRITE `README.MD` FROM SCRATCH AS AN EXACT ACCOUNT OF HOW DMZ WORKS IN ITS CURRENT STATE — NO HISTORY, NO OLD
-BEHAVIOUR, CURRENT ONLY** (OPERATOR, 2026-09-10) — THEN RECREATE THE LOOP CRON FROM `DOCS/LOOP_PROMPT.MD`.
-`TOOLS/WITHLOCK.SH` SERIALISES THE DVM SUITE AND THE UI PASS ACROSS AGENTS.
+**Operator rulings that bind all of it:** "we want it trustless" (2026-09-08) — the atomic swap is the active track
+and the federation is the disclosed fallback, never called trustless; the operator hosts nothing after
+deployment; liveness by construction; NFA (ART-NFA-MS1) is the asset standard; spore is a rendezvous channel only.
 
-**THEN, IN ORDER (THE LOOP IS UP FROM `DOCS/LOOP_PROMPT.MD`):** the Buy/Bid gate (DONE `6bbfef5`) → the same gate on the trade, liquidity, stake and
-burn sheets + the wrap redraw hold (DONE `15bced9`, `860260c`) → the transparent-ZEC swap market design note (BL-40, DONE `docs/ZEC_SWAP.md`) → `board.bas` v2 (BL-40a, DONE 2026-09-10, `3ec7a61` + `46db750`) →
-`tools/zecswap` (BL-40b: script and transaction layers DONE 2026-09-10; next the watcher against
-zcashd/zebrad RPC, the ZIP 317 fee, broadcast) → **the mainnet audit (operator directive 2026-09-10)** →
-Founders per-asset fees (BL-90) → the spore rendezvous channel (BL-10) → the Monero backend on stagenet (BL-11)
-→ `deploy/federation.md` (BL-80) → the rest of `docs/BACKLOG.md` by priority.
-
-**Operator rulings 2026-09-08:** "we want it trustless" — the DERO↔XMR atomic swap is the active track; the
-operator hosts nothing 24/7; NFA (ART-NFA-MS1) replaces `nft.bas`; spore is the rendezvous channel only.
-
-**Swap (`docs/XMR_SWAP_BUILD.md`)** — `contracts/htlc.bas` + tests, the proof CLI, `docs/XMR_SWAP.md`,
-`tools/xmrswap` with all thirteen invariants asserted by tests, `tools/simhtlc` (`-t1 28` default, `-fund`
-documented). The six fixes from the adversarial review (invariants 8–13) are in: `LastSent` cleared when the
-lock leaves the open state; the gate only on `Unlocked && UnlockTime == 0` outputs; Alice stops claiming at
-`t1 − 8 − margin` and Bob sweeps only once the Claim block is stable; `DefaultConfirmations = 20`; used secrets
-recorded and reuse refused. Simulator wallets 30006/30007 are the swap's; the fleet is nearly drained, so
-`simnfa` funds its creator from the richest wallet.
+**Mechanics.** Run the DVM suite and the UI pass only through `tools/withlock.sh` (the suite rebuilds a directory
+from the tree; the UI pass owns one browser profile). A bare checkout or worktree has no `vendor/derohe` — clone
+it as `README.md` §8 says, or junction the existing copy. `go build ./...` under `tools/` always fails on
+`genesistx` and `netwallet`; use the list in `docs/LOOP_PROMPT.md`. Simulator: daemon 127.0.0.1:20000, app
+127.0.0.1:8082, wallets 30000–30021 (30006/30007 belong to the swap driver).
 
 ---
 
