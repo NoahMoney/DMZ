@@ -3,7 +3,7 @@
 //	go run ./simvault -install [-winmax N -wdelay N]   # install vault.bas (2-of-3), add signers, bond, optional SetLimits, seal, register the user
 //	go run ./simvault -vault <scid> -deposit 0:50000    # the user (index 0) "sends" 50000 foreign units (the default cap is 100000); a fake txid is recorded
 //	go run ./simvault -vault <scid> -advance 3    # the foreign chain moves 3 blocks
-//	go run ./vaultsigner -wallet 127.0.0.1:30003 -vault <scid> -once   (and again with 30004)
+//	go run ./vaultsigner -backend sim -wallet 127.0.0.1:30003 -vault <scid> -once   (and again with 30004)
 //	go run ./simvault -vault <scid> -burn 40000:4Axmr...   # the user burns wrapped units to withdraw
 //	go run ./simvault -vault <scid> -status
 //

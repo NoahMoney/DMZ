@@ -4,6 +4,7 @@
 //	go run ./simdeploy -contracts ../contracts -app ../app
 //	go run ./simdeploy -factory <scid> -social <scid> -founders <scid>   # reuse what is deployed, just rewrite config
 //	-legacy launch:<sha256>,pool:<sha256>   # older template hashes the app should still accept (simulator history)
+//	-revoke launch:<sha256>                 # a hash the app must STOP accepting: the code it names has a defect
 package main
 
 import (
@@ -13,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -37,12 +39,13 @@ var (
 	chatFee   = flag.Uint64("chat-fee", 10000, "fee to post one message, in atomic units — the only spam control there is")
 	chatMax   = flag.Uint64("chat-maxlen", 280, "longest message the contract will store")
 	legacy    = flag.String("legacy", "", "comma-separated kind:sha256 of older template versions the app keeps accepting")
+	revoke    = flag.String("revoke", "", "comma-separated kind:sha256 of template versions the app must STOP accepting: code with a defect. A revoked hash is dropped from the record instead of being carried forward, so markets deployed from it stop verifying")
 	timeout   = flag.Duration("timeout", 180*time.Second, "per-tx timeout")
 	yes       = flag.Bool("yes", false, "required on mainnet: installs and the founders reserve mint spend real DERO")
 	migrate   = flag.String("migrate-from", "", "an older factory scid whose pools, launches, NFTs and NFAs are re-registered on the newly installed factory (regfee per listing from the owner wallet; a factory has no in-place upgrade)")
 
 	passName    = flag.String("pass-name", "DMZ Founders Pass", "founders pass name")
-	passDescr   = flag.String("pass-descr", "Registered holders receive the promised share of every fee the exchange earns, paid in DERO to their wallets. Tradeable on the built-in marketplace.", "founders pass description")
+	passDescr   = flag.String("pass-descr", passDescrDefault, "founders pass description — IMMUTABLE once installed; pass it explicitly on any real deployment")
 	passImage   = flag.String("pass-image", "", "founders pass image URL (https)")
 	passPrice   = flag.Uint64("pass-price", 500000, "mint price in atomic units (5 DERO)")
 	passMax     = flag.Uint64("pass-max", 500, "editions")
@@ -51,6 +54,18 @@ var (
 	passShare   = flag.Uint64("pass-share", 5000, "promised share of protocol fees in bps (5000 = 50%)")
 	passMfee    = flag.Uint64("pass-mfee", 250, "marketplace fee in bps, paid to holders")
 )
+
+// passDescrDefault is the Founders Pass description. It used to read "Registered holders receive the promised
+// share of every fee the exchange earns, paid in DERO to their wallets", and deploy/README.md's mainnet command
+// line did not pass -pass-descr, so mainnet would have inherited it. Three parts of that sentence were false and
+// none of them could be corrected afterwards: the treasury bot sweeps DERO-quoted pool and launch fees only, not
+// every fee; a wrapped-asset fee can never be paid out in DERO; and no contract obliges the treasury to deposit
+// anything at all. founders.bas stores its headers once and defines no setter, so whatever goes in here is on
+// chain for the life of the contract and app/nfts.js renders it under the mint button. The wording tracks
+// app/notice.js, the page the app declares authoritative and which no other surface may contradict.
+const passDescrDefault = "Register a pass to earn a share of the DERO trading fees the treasury claims from DMZ markets. " +
+	"The share is fixed in this contract; the deposit is made by the treasury's own bot, and no contract forces it. " +
+	"Fees earned in a wrapped asset do not reach holders."
 
 // read returns the source a contract is installed with, which is also the source written to app/templates and
 // hashed into config.js: ref.Canon drops whole-line comments and blank lines, so the template hash a user
@@ -62,6 +77,14 @@ func main() {
 	flag.Parse()
 	if *network == "mainnet" && !*yes {
 		fmt.Println("mainnet: this installs contracts and mints the founders reserve with real DERO; pass -yes to run it")
+		os.Exit(2)
+	}
+	// Both hash flags are checked against the record before a single contract is installed. A mistyped kind or
+	// hash in -revoke leaves defective code listed as verified, and the operator would find that out only after
+	// paying for the install.
+	old, rev := parseHashes(*legacy), parseHashes(*revoke)
+	if err := checkHashFlags(old, rev); err != nil {
+		fmt.Println(err)
 		os.Exit(2)
 	}
 	c := &rpc.Client{Daemon: *daemon, Timeout: *timeout}
@@ -105,27 +128,106 @@ func main() {
 		rpc.Must(os.WriteFile(filepath.Join(*app, "templates", k+".bas"), []byte(code), 0o644))
 		hashes[k] = sha(code)
 	}
-	old := map[string][]string{}
-	if *legacy != "" {
-		for _, kv := range strings.Split(*legacy, ",") {
-			p := strings.SplitN(strings.TrimSpace(kv), ":", 2)
-			if len(p) == 2 {
-				old[p[0]] = append(old[p[0]], fmt.Sprintf("%q", p[1]))
+	for k, hs := range rev {
+		for h := range hs {
+			if hashes[k] == h {
+				fmt.Printf("template %s: -revoke names %s…, which is the hash of the code being installed now\n", k, short(h))
+				os.Exit(2)
 			}
 		}
 	}
 	// One spelling of config.js. This tool used to render its own copy of the template, which silently dropped
 	// every field it did not know about — the vault and its asset record among them — each time it ran. Record
 	// the deployment first, then render the app config from that record, the same way genconfig does.
-	n := record(hashes, old)
+	n := record(hashes, old, rev)
 	rpc.Must(os.WriteFile(filepath.Join(*app, "config.js"), []byte(netcfg.ConfigJS(*network, n, "tools/simdeploy")), 0o644))
 	fmt.Println("wrote", filepath.Join(*app, "config.js"))
+}
+
+// parseHashes reads a `kind:sha256,kind:sha256` flag into kind -> set of hashes. Space around an entry is
+// ignored; an entry without a colon on both sides is not a hash and is skipped.
+func parseHashes(spec string) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, kv := range strings.Split(spec, ",") {
+		p := strings.SplitN(strings.TrimSpace(kv), ":", 2)
+		if len(p) != 2 || p[0] == "" || p[1] == "" {
+			continue
+		}
+		if out[p[0]] == nil {
+			out[p[0]] = map[string]bool{}
+		}
+		out[p[0]][p[1]] = true
+	}
+	return out
+}
+
+// templateKinds are the templates this tool writes, hashes and records.
+var templateKinds = []string{"pool", "launch", "nft", "nfa", "founders"}
+
+// checkHashFlags validates -legacy and -revoke against deploy/networks.json before anything is installed. Every
+// failure here is silent otherwise: a kind nobody reads, a hash nobody matches, a revocation that revokes
+// nothing. -revoke exists to de-list code with a defect, so a -revoke that quietly did nothing is the worst
+// outcome the flag has.
+func checkHashFlags(old, rev map[string]map[string]bool) error {
+	bad := fmt.Errorf
+	kinds := map[string]bool{}
+	for _, k := range templateKinds {
+		kinds[k] = true
+	}
+	for _, m := range []map[string]map[string]bool{old, rev} {
+		for k, hs := range m {
+			if !kinds[k] {
+				return bad("unknown template kind %q (%s)", k, strings.Join(templateKinds, ", "))
+			}
+			for h := range hs {
+				if len(h) != 64 || strings.Trim(h, "0123456789abcdef") != "" {
+					return bad("template %s: %q is not a 64-character lowercase sha256", k, h)
+				}
+				if rev[k][h] && old[k][h] {
+					return bad("template %s: %s… is named by both -legacy and -revoke", k, short(h))
+				}
+			}
+		}
+	}
+	if len(rev) == 0 {
+		return nil
+	}
+	f, err := netcfg.Load(*networks)
+	if err != nil {
+		return bad("-revoke needs %s to say what is listed today: %v", *networks, err)
+	}
+	n := f.Networks[*network]
+	for k, hs := range rev {
+		for h := range hs {
+			listed := false
+			if n != nil {
+				t := n.Templates[k]
+				listed = t.Sha256 == h
+				for _, l := range t.Legacy {
+					listed = listed || l == h
+				}
+			}
+			if !listed {
+				return bad("template %s: -revoke names %s…, which %s does not list for %s — nothing would be revoked", k, short(h), *networks, *network)
+			}
+		}
+	}
+	return nil
+}
+
+// short is the first 12 characters of a hash, or all of it when it is shorter: the prefix this tool prints,
+// without the panic a fixed slice takes on a mistyped flag.
+func short(h string) string {
+	if len(h) > 12 {
+		return h[:12]
+	}
+	return h
 }
 
 // record updates the network block in deploy/networks.json so genconfig can rebuild config.js and dist bundles,
 // and returns the block it wrote. When the record cannot be read it still returns a block built from the flags,
 // so config.js is written from exactly one code path whether or not the file was there.
-func record(hashes map[string]string, old map[string][]string) *netcfg.Network {
+func record(hashes map[string]string, old, rev map[string]map[string]bool) *netcfg.Network {
 	f, err := netcfg.Load(*networks)
 	if err != nil {
 		fmt.Println("networks.json not updated:", err)
@@ -150,22 +252,37 @@ func record(hashes map[string]string, old map[string][]string) *netcfg.Network {
 		// has actually changed. Without this, running this tool for an unrelated reason silently invalidated every
 		// market already deployed from the old template: the app verifies a listing by hashing its on-chain code
 		// against this record, so a dropped hash turns a good market into an unlisted one.
+		//
+		// The carry-forward is not unconditional any more. A template changes for two different reasons and they
+		// need opposite answers: a change that adds something leaves the old code sound, and its markets should
+		// keep verifying; a change that fixes a defect leaves the old code exploitable, and a legacy entry is then
+		// the app certifying it. -revoke names those hashes. The tool cannot tell the two apart — which release
+		// fixed what is the operator's knowledge — so it does not guess: it demotes by default and drops only what
+		// is named, and it says out loud which of the two it did.
 		leg := append([]string{}, prev.Legacy...)
 		if prev.Sha256 != "" && prev.Sha256 != h {
 			leg = append(leg, prev.Sha256)
 		}
-		for _, q := range old[k] {
-			leg = append(leg, strings.Trim(q, "\""))
+		add := make([]string, 0, len(old[k]))
+		for q := range old[k] {
+			add = append(add, q)
 		}
+		sort.Strings(add) // -legacy is a set; fix an order so two runs of the same command write the same file
+		leg = append(leg, add...)
 		seen, out := map[string]bool{h: true}, []string{}
 		for _, l := range leg {
-			if l != "" && !seen[l] {
-				seen[l] = true
-				out = append(out, l)
+			if l == "" || seen[l] {
+				continue
 			}
+			seen[l] = true
+			if rev[k][l] {
+				fmt.Printf("template %s: %s… revoked, dropped from the record — markets deployed from it stop verifying\n", k, short(l))
+				continue
+			}
+			out = append(out, l)
 		}
-		if prev.Sha256 != "" && prev.Sha256 != h {
-			fmt.Printf("template %s changed: %s… kept as legacy so markets already deployed from it still verify\n", k, prev.Sha256[:12])
+		if prev.Sha256 != "" && prev.Sha256 != h && !rev[k][prev.Sha256] {
+			fmt.Printf("template %s changed: %s… kept as legacy so markets already deployed from it still verify (use -revoke %s:%s if that code has a defect)\n", k, short(prev.Sha256), k, prev.Sha256)
 		}
 		n.Templates[k] = netcfg.Template{Sha256: h, Legacy: out}
 	}

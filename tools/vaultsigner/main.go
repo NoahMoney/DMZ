@@ -3,10 +3,14 @@
 // addresses for new indexes, pays pending withdrawals through the foreign backend and votes Released. Run one per
 // signer wallet; k of them must agree before the contract does anything.
 //
-//	go run ./vaultsigner -wallet 127.0.0.1:30003 -vault <scid> -backend sim -sim ../research/crosschain/poc/sim-foreign.json [-once]
+//	go run ./vaultsigner -network simulator -backend sim -wallet 127.0.0.1:30003 -vault <scid> -sim ../research/crosschain/poc/sim-foreign.json [-once]
 //
-// Backends: `sim` reads a JSON file that stands in for the foreign chain. Real backends (zcash, monero, solana)
-// implement the same interface. Release MUST be idempotent for a given j (look the payment up before paying):
+// Backends: `sim` reads and appends to a JSON file. It simulates a foreign chain, it does not observe one — a
+// deposit in it is a line somebody typed and a release in it is a line this signer typed — so it is refused on
+// every DERO network but the simulator. The real backends (zcash, monero, solana) implement the same interface
+// and none of them is built, so there is no configuration in which a testnet or mainnet vault can be signed for
+// today. -backend has no default: which of those two a signer is running is the operator's statement to make,
+// not this tool's to assume. Release MUST be idempotent for a given j (look the payment up before paying):
 // the signer records an intent before it pays and may call Release again after a crash.
 //
 // Exactly-once release: every withdrawal goes through a durable intent (paying -> paid -> voted) written with
@@ -38,7 +42,7 @@ var (
 	daemon    = flag.String("daemon", "127.0.0.1:20000", "daemon rpc")
 	wallet    = flag.String("wallet", "127.0.0.1:30003", "this signer's wallet rpc")
 	vault     = flag.String("vault", "", "vault.bas scid")
-	backend   = flag.String("backend", "sim", "foreign backend: sim (zcash, monero, solana: planned)")
+	backend   = flag.String("backend", "", "required, no default: the foreign backend. sim is a JSON file and is accepted only with -network simulator; zcash, monero and solana are planned and exit")
 	network   = flag.String("network", "simulator", "DERO network the vault lives on: simulator, testnet, mainnet (selects the foreign-chain parameters)")
 	simPath   = flag.String("sim", "../research/crosschain/poc/sim-foreign.json", "sim backend file")
 	statePath = flag.String("state", "", "local vote memory and release intents (default: vaultsigner-<vault prefix>-<signer suffix>.json)")
@@ -95,6 +99,49 @@ type Backend interface {
 	// Health fails when the node or wallet is unreachable, unsynced or missing its signing material. The daemon
 	// does nothing at all in that state rather than acting on a partial view.
 	Health() error
+}
+
+// pickBackend chooses the foreign backend for a DERO network and settles the confirmation count. It is separate
+// from main so the choice can be tested without a daemon: the rule it enforces is the whole safety of the
+// wrapped assets, because a signer votes Mint on what its backend says it saw.
+//
+// Three refusals, in order of how badly the mistake ends:
+//
+//   - no -backend. The flag has no default. A default here is a tool deciding, on the operator's behalf and
+//     silently, whether the coins behind every wrapped unit are real.
+//   - -backend sim on any network but the simulator. simBackend reads a JSON file: Deposits returns the rows in
+//     it, Verify re-reads the same rows, Release appends a row and invents a txid, and Address returns the
+//     literal string "sim:<index>". Anyone who can write that file can mint wrapped units against no foreign
+//     coin at all, and a withdrawal through it burns a holder's units and pays nobody. -yes does not buy this;
+//     nothing does.
+//   - -backend zcash, monero or solana anywhere. They are not built. The signer exits instead of degrading to
+//     something that guesses.
+//
+// The sim branch also stops setting -confs on a real network, which it used to do before any of these checks.
+func pickBackend(network, backend string, confs *int64, simPath string) (Backend, error) {
+	params, ok := chainTable[network]
+	if !ok {
+		return nil, fmt.Errorf("unknown network %q (simulator, testnet, mainnet)", network)
+	}
+	switch backend {
+	case "":
+		return nil, errors.New(`-backend is required and has no default: "sim" (a JSON file, -network simulator only) or one of zcash, monero, solana (not implemented yet)`)
+	case "sim":
+		if network != "simulator" {
+			return nil, fmt.Errorf(`-backend sim is a JSON file, not a chain: nothing in it is evidence that a foreign coin exists, so it is allowed only with -network simulator (this is -network %s). No foreign backend is implemented, so no %s vault can be signed for yet`, network, network)
+		}
+		if *confs == 0 {
+			*confs = 2
+		}
+		return simBackend{simPath}, nil
+	case "zcash", "monero", "solana":
+		p := params[backend]
+		if *confs == 0 || (network == "mainnet" && *confs < p.Confirmations) {
+			*confs = p.Confirmations // the network table is the floor on mainnet, the default everywhere
+		}
+		return nil, fmt.Errorf("backend %q (%s, rpc %s, %d confirmations) is not implemented yet: docs/HANDOVER.md section 5 is the build plan", backend, p.Name, p.RPC, p.Confirmations)
+	}
+	return nil, fmt.Errorf("unknown backend %q (sim, zcash, monero, solana)", backend)
 }
 
 // --- sim backend: a JSON file edited by tools/simvault ---
@@ -501,21 +548,9 @@ func main() {
 	if *confs < 0 {
 		log.Fatal("-confs cannot be negative")
 	}
-	var be Backend
-	switch *backend {
-	case "sim":
-		be = simBackend{*simPath}
-		if *confs == 0 {
-			*confs = 2
-		}
-	case "zcash", "monero", "solana":
-		p := params[*backend]
-		if *confs == 0 || (*network == "mainnet" && *confs < p.Confirmations) {
-			*confs = p.Confirmations // the network table is the floor on mainnet, the default everywhere
-		}
-		log.Fatalf("backend %q (%s, rpc %s, %d confirmations) is not implemented yet: docs/HANDOVER.md section 5 is the build plan", *backend, p.Name, p.RPC, p.Confirmations)
-	default:
-		log.Fatalf("unknown backend %q", *backend)
+	be, err := pickBackend(*network, *backend, confs, *simPath)
+	if err != nil {
+		log.Fatalf("%v", err)
 	}
 	fmt.Printf("network %s; foreign parameters: monero %s (%d conf), zcash %s (%d conf), solana %s (%d conf); this backend %s at %d confirmations\n", *network,
 		params["monero"].RPC, params["monero"].Confirmations, params["zcash"].RPC, params["zcash"].Confirmations, params["solana"].RPC, params["solana"].Confirmations, *backend, *confs)

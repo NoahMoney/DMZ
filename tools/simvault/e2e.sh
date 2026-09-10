@@ -29,7 +29,7 @@ A="127.0.0.1:30003"
 B="127.0.0.1:30004"
 rm -f .sim/vs-a.json .sim/vs-b.json .sim/vs-a.json.lock .sim/vs-b.json.lock
 
-sig()  { (cd tools && ../.sim/vaultsigner.exe -wallet "$1" -vault "$V" -state "../.sim/$2" -once); }
+sig()  { (cd tools && ../.sim/vaultsigner.exe -backend sim -wallet "$1" -vault "$V" -state "../.sim/$2" -once); }
 sv()   { (cd tools && ../.sim/simvault.exe -vault "$V" "$@"); }
 fail() { echo "E2E FAILED: $*"; exit 1; }
 # a halt at any point after the first burn is the freeze this script exists to catch

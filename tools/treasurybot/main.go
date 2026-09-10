@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"time"
 
+	ref "veil/reference"
 	rpc "veil/tools/simrpc"
 )
 
@@ -36,6 +37,11 @@ var (
 )
 
 var dry bool // set in main: mainnet without -yes, or -dry-run
+
+// The registry lists this bot walks. A market's fees are claimable through ClaimFees and counted by fc; nfa_ and
+// nft_ are not here because nfa.bas and nft.bas keep no claimable fee balance — they pay the treasury address at
+// settlement, so there is nothing to sweep and nothing of theirs reaches the Founders Pass.
+var registryPrefixes = []struct{ prefix, count string }{{"pool_", "pc"}, {"launch_", "lc"}}
 
 // cfgString reads a quoted word from config.js (network: "simulator").
 func cfgString(src, key string) string {
@@ -121,7 +127,7 @@ func sweep(c *rpc.Client, factory, founders, me string, share, minUnits uint64, 
 	var markets []string
 	const deroQuote = "0000000000000000000000000000000000000000000000000000000000000000"
 	var foreign []string
-	for _, p := range []struct{ prefix, count string }{{"pool_", "pc"}, {"launch_", "lc"}} {
+	for _, p := range registryPrefixes {
 		for i := uint64(0); i < reg.U(p.count); i++ {
 			s := reg.Str(p.prefix + strconv.FormatUint(i, 10))
 			if len(s) != 64 {
@@ -168,20 +174,128 @@ func sweep(c *rpc.Client, factory, founders, me string, share, minUnits uint64, 
 		}
 		fmt.Printf("%s deposited %d bps of %d claimed units to the founders pass\n", time.Now().Format("15:04:05"), share, owed)
 	}
-	// push pending rewards to every registered wallet, 15 holders per call
+	// Push pending rewards to the registered wallets, 15 holders per call, for the slices that have something to
+	// pay. `rpool != 0` is not that test: rpool never returns to zero, so it bought ceil(hn/15) transactions that
+	// moved nothing every -interval, for ever. See payoutBatches.
 	pass := c.GetSC(founders, false)
-	if pass.U("rpool") == 0 && pass.U("und") == 0 {
-		return
-	}
-	hn := pass.U("hn")
-	for from := uint64(0); from < hn; from += 15 {
+	batches := payoutBatches(pass)
+	sent := 0
+	for _, from := range batches {
 		txid, _ := c.SendWithFee(*wallet, me, founders, nil, []rpc.Arg{rpc.S("entrypoint", "PayBatch"), rpc.U("from", from), rpc.U("n", 15)}, 3000)
 		if len(txid) < 8 {
 			log.Printf("PayBatch(%d, 15): the wallet returned no txid", from)
 			continue
 		}
+		sent++
 		fmt.Printf("%s PayBatch(%d, 15) tx %s…\n", time.Now().Format("15:04:05"), from, txid[:8])
+	}
+	if sent == 0 {
+		return
 	}
 	after := c.GetSC(founders, false)
 	fmt.Printf("%s pass: deposited %d, paid %d, owed %d, waiting %d, holders %d\n", time.Now().Format("15:04:05"), after.U("dep"), after.U("paid"), after.U("rpool"), after.U("und"), after.U("hn"))
+}
+
+// payoutBatches lists the slice starts PayBatch must be called with for this pass state: the ones that pay a
+// holder something. An empty result means the sweep sends no transaction at all.
+func payoutBatches(pass rpc.SCState) []uint64 {
+	var out []uint64
+	for from, hn := uint64(0), pass.U0("hn"); from < hn; from += 15 {
+		if payoutSlice(pass, from, 15) > 0 {
+			out = append(out, from)
+		}
+	}
+	return out
+}
+
+// payoutSlice reports what PayBatch(from, n) would pay, in atomic DERO units, so the bot can tell a call that
+// moves money from one that only costs a fee. It mirrors founders.bas: distribute(0) first (PayBatch line 30),
+// then settle() for each holder of the slice (lines 41-42), capped by rpool the way settle() caps it.
+//
+// Why the bot needs it: distribute() credits rpool a ceiling (line 40) while settle() pays each holder a floor
+// (line 40), so every distribution leaves a residual behind, and no entrypoint can release it — Claim, PayBatch,
+// Withdraw and Register all pay through settle(), which can only take the same floor. rpool is therefore
+// non-zero from the first distribution onward and stays that way, and gating the payout loop on it bought
+// ceil(hn/15) empty transactions every sweep for the life of the pass.
+func payoutSlice(pass rpc.SCState, from, n uint64) uint64 {
+	hn := pass.U0("hn")
+	if n == 0 || from >= hn {
+		return 0
+	}
+	end := from + n
+	if end > hn {
+		end = hn
+	}
+	acc, rpool, rolled := afterDistribute(pass)
+	if rolled {
+		// The accumulator wraps 2^64 in the distribute() that PayBatch runs first, which takes a deposit of more
+		// than 2^32 units of acc per registered pass: every holder is owed. Say so rather than model the era
+		// file distribute() has not written yet.
+		return rpool
+	}
+	era, sum := pass.U0("era"), uint64(0)
+	for i := from; i < end; i++ {
+		k := "h_" + strconv.FormatUint(i, 10)
+		if !pass.Has(k) {
+			continue
+		}
+		d, ok := holderPending(pass, pass.Str(k), acc, era)
+		if !ok {
+			return rpool // an arithmetic state the contract cannot reach: make the call and let it fail in the open
+		}
+		sum += d
+		if sum >= rpool {
+			return rpool
+		}
+	}
+	return sum
+}
+
+// holderPending is settle()'s arithmetic for one holder (founders.bas:263-288) without the payment: one term for
+// each era the holder has not been settled through, then the term for the current era. ok is false only where the
+// contract's muldiv would panic.
+func holderPending(pass rpc.SCState, a string, acc, era uint64) (uint64, bool) {
+	if a == "" || !pass.Has("hu_"+a) {
+		return 0, true
+	}
+	hu, hd, e := pass.U0("hu_"+a), pass.U0("hd_"+a), pass.U0("he_"+a)
+	var pend uint64
+	for ; e < era; e++ {
+		t, ok := ref.MulDiv(hu, pass.U0("ea_"+strconv.FormatUint(e, 10))-hd, 1<<32)
+		if !ok {
+			return 0, false
+		}
+		pend += t
+		hd = 0
+	}
+	t, ok := ref.MulDiv(hu, acc-hd, 1<<32)
+	if !ok {
+		return 0, false
+	}
+	return pend + t, true
+}
+
+// afterDistribute is distribute(0) (founders.bas:241-261) without the writes: what waits in und moves into acc
+// and rpool once minhst units are registered. PayBatch runs it before it settles anybody, so the gate must too.
+func afterDistribute(pass rpc.SCState) (acc, rpool uint64, eraRolled bool) {
+	acc, rpool = pass.U0("acc"), pass.U0("rpool")
+	pool, hst := pass.U0("und"), pass.U0("hst")
+	if pool == 0 || hst == 0 || hst < pass.U0("minhst") {
+		return acc, rpool, false
+	}
+	if ref.Mulhi(pool, 1<<32) >= hst { // lines 24-25: the clamp that keeps inc inside 64 bits
+		pool = hst * (1<<32 - 1)
+	}
+	inc, ok := ref.MulDiv(pool, 1<<32, hst)
+	if !ok {
+		return acc, rpool, false
+	}
+	covered, ok := ref.MulDivUp(inc, hst, 1<<32)
+	if !ok {
+		return acc, rpool, false
+	}
+	if acc+inc < acc { // lines 32-35: the accumulator wraps, the era is filed and acc restarts at 0
+		return inc, rpool + covered, true
+	}
+	return acc + inc, rpool + covered, false
 }

@@ -49,15 +49,24 @@ vault owes — voting to resume by itself once it is not.
 
 ### Start
 
+**There is no command line here that runs a signer on mainnet, because there is no foreign backend to run one
+with.** `sim` is a JSON file on the signer's own disk: a "deposit" is a line in it and a "payout" is an append.
+It is the only backend that exists, it is accepted only with `-network simulator`, and `-backend` has no default
+so that no one can reach it by omission. `zcash`, `monero` and `solana` are names in a switch that exit with a
+pointer to the build plan in `docs/HANDOVER.md` section 5. Until one of them is built and has settled a deposit
+and a withdrawal on a real network, a federation vault holds nothing and this runbook describes a rehearsal.
+
+The simulator command line, which is the only one that starts a signer:
+
 ```
-vaultsigner -network <simulator|testnet|mainnet> -daemon 127.0.0.1:<rpc> -wallet 127.0.0.1:<wallet rpc> \
-            -vault <scid> -backend <sim|zcash|monero|solana> [-confs N] [-state <file>] [-interval 20s] \
-            [-verify-tries 20] [-yes]
+vaultsigner -network simulator -backend sim -daemon 127.0.0.1:<rpc> -wallet 127.0.0.1:<wallet rpc> \
+            -vault <scid> -sim <foreign json> [-confs N] [-state <file>] [-interval 20s] \
+            [-verify-tries 20] [-once]
 ```
 
 - The daemon speaks vault v3 and refuses to start against a vault whose `v` is anything else.
-- Only the `sim` backend is implemented today; `zcash`, `monero` and `solana` exit with a pointer to the build
-  plan in `docs/HANDOVER.md` section 5.
+- `-backend sim` with `-network testnet` or `-network mainnet` exits: the file backend is a simulation and may
+  not stand behind units anyone can trade.
 - `-confs 0` takes the network table's confirmations for the backend (sim: 2). Never lower it on mainnet.
 - `-state` defaults to `vaultsigner-<first 8 characters of the vault scid>-<last 12 of the signer address>.json`
   in the working directory. One file per (vault, signer) pair; never share it between two daemons. The daemon

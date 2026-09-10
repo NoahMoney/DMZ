@@ -202,9 +202,17 @@ wallet.
 | federation: signer set named, bonds posted, `cap / capratio ≤ Σ bonds` (`capratio` is fixed at install; the contract refuses any cap above the bound at `Seal`, at `SetCap` and at every mint), viewing key published with `SetViewKey`, foreign backends on mainnet nodes | vault state + `deploy/federation.md` |
 | treasury wallet and owner wallet are separate, offline-backed-up, seeds stored off machine | operator checklist |
 | the app's mainnet bundle shows "mainnet" in the status pill against a mainnet node | manual |
-| `tools/verifyvendor` green: every vendored checkout at its pinned commit with only the locked changes, binaries matching `deploy/binaries.lock` | `go run ./verifyvendor -root ..` |
+| `tools/verifyvendor` green: every vendored checkout at its pinned commit with only the locked changes, binaries matching `deploy/binaries.lock` | `go run ./verifyvendor -root ..` — see the note below |
+| the Founders Pass `name` and `descr` were passed explicitly on the command line and read back from chain with `DERO.GetSC` after install: neither can be changed afterwards, and the app renders `descr` under the mint button | operator checklist + block explorer |
 | the wallet that installs never mines and never receives block rewards; the treasury never transacts during the install | operator checklist (see Wallets) |
 | every fund-moving tool was started with `-yes` on purpose (`simdeploy`, `telainstall` and `vaultsigner` exit on mainnet without it; `treasurybot` runs as a dry run) | operator checklist |
+
+`verifyvendor -write-binaries` re-pins whatever is on disk, hashes and all. Run it only from a clean
+`git status`, on a tree freshly rebuilt from the committed sources, and commit `deploy/binaries.lock` in the same
+change — otherwise clearing the gate is what re-pins a modification. A finding that reads "source changed since
+its binary was pinned" must be read first: if the source did not in fact change since the lock commit
+(`git rev-parse <lock commit>:<path>` against `HEAD:<path>`), the lock is wrong rather than the tree, and
+re-pinning hides that instead of fixing it.
 
 ### Wallets and node
 
@@ -230,11 +238,21 @@ auto-approves, and it refuses any daemon that is not a loopback test network.
 ```
 cd tools
 go run ./simdeploy -network mainnet -yes -daemon 127.0.0.1:10102 -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
+  -pass-name "DMZ Founders Pass" ^
+  -pass-descr "Register a pass to earn a share of the DERO trading fees the treasury claims from DMZ markets. The share is fixed in this contract; the deposit is made by the treasury's own bot, and no contract forces it. Fees earned in a wrapped asset do not reach holders." ^
   -pass-image https://<your host>/pass.png -pass-price 500000 -pass-max 500 -pass-reserve 50 -pass-share 5000 -pass-mfee 250
 ```
 This installs `factory.bas`, `social.bas`, `founders.bas`, writes `app/config.js` and records the mainnet block
 in `deploy/networks.json`. Verify each SCID on a block explorer before continuing: code hash, treasury, owner.
 Measured on the simulator: factory ≈ 3.0k, social ≈ 2.2k, founders ≈ 12.8k atomic units of storage gas.
+
+`-pass-name` and `-pass-descr` are written into `founders.bas` at install and there is no setter and no update
+path: whatever this command line says is on chain for the life of the contract, and `app/nfts.js` renders the
+description under the mint button. Pass both explicitly, as above. This runbook used to omit them and inherit the
+tool's defaults, and the description default then read "Registered holders receive the promised share of every
+fee the exchange earns, paid in DERO to their wallets" — which the system cannot do: the treasury bot sweeps
+DERO-quoted pool and launch fees only, a wrapped-asset fee can never be paid out in DERO, and no contract obliges
+the treasury to deposit anything. The sentence above is the one `app/notice.js` will support.
 
 Vault (only when the federation gates pass): `simvault` is a simulator tool — it has no `-network` flag and its
 wallet endpoints are the simulator's, so a mainnet vault is installed by the manual sequence in
@@ -270,6 +288,13 @@ history).
 3. Start the signers (`tools/vaultsigner -network mainnet -yes -vault <scid> -backend <chain> …`) only after the
    federation gates. The daemon speaks vault v3 and exits against any other `v`; it needs no operator afterwards,
    and there is no flag with which one could hold or release a withdrawal.
+
+   `-backend` has no default and `-backend sim` is refused on any network but the simulator. `sim` is a JSON file
+   the signer reads and appends to: a deposit in it is a line somebody typed, so a signer running on it votes
+   Mint for Monero that does not exist and votes Released for a payout nobody was sent. No real backend
+   (`zcash`, `monero`, `solana`) is implemented — each one exits saying so — so **there is no configuration in
+   which a mainnet vault can be signed for today**, and the federation gate above cannot pass. Sealing a mainnet
+   vault before a backend exists is what this refusal is there to stop.
 4. Publish: INDEX SCID, factory SCID, template hashes, signer set, caps and viewing keys in one signed post.
 
 ### Rollback
