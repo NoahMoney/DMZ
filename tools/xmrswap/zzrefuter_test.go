@@ -29,10 +29,10 @@ type zzRefW struct {
 func (s *zzRefW) Height(context.Context) (uint64, error)                   { return s.height, nil }
 func (s *zzRefW) Address(context.Context) (string, error)                  { return s.addr, nil }
 func (s *zzRefW) Transfer(context.Context, string, uint64) (string, error) { return "tx", nil }
-func (s *zzRefW) GenerateFromKeys(_ context.Context, name, address, _, _ string, _ uint64) error {
+func (s *zzRefW) GenerateFromKeys(_ context.Context, name, address, _, _, _ string, _ uint64) error {
 	return errors.New("generate must not be reached: " + name + " " + address)
 }
-func (s *zzRefW) OpenWallet(_ context.Context, name string) error {
+func (s *zzRefW) OpenWallet(_ context.Context, name, _ string) error {
 	s.opened = append(s.opened, name)
 	if s.openFails {
 		return &RPCError{Method: "open_wallet", Code: -1, Message: "no such file"}
@@ -139,7 +139,7 @@ func TestRefuterGateRefusesAWalletThatIsNotTheJointAddress(t *testing.T) {
 		incoming: []Incoming{{TxID: "d", Amount: 1_000_030_000_000, Height: 400, Confirmations: 100, Unlocked: true}},
 	}
 	s := zzRefSwap(t, w)
-	sum, _, err := s.confirmedAtJoint(context.Background())
+	sum, _, _, err := s.confirmedAtJoint(context.Background())
 	if err == nil {
 		t.Fatalf("the gate read %d piconero out of the wallet %q, which is not st.Joint %q", sum, w.addr, s.st.Joint)
 	}
@@ -181,7 +181,7 @@ type zzRefOpenFailW struct {
 	opens   int
 }
 
-func (s *zzRefOpenFailW) OpenWallet(_ context.Context, name string) error {
+func (s *zzRefOpenFailW) OpenWallet(_ context.Context, name, _ string) error {
 	s.opens++
 	s.opened = append(s.opened, name)
 	return s.openErr

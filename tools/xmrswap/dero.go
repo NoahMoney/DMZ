@@ -27,12 +27,37 @@ type Dero interface {
 	// Lock is idempotent per (maker, ha, hk, hb): the hashes are fresh for one swap, so a lock that already
 	// carries them is this swap's lock, and the client returns it instead of locking the DERO a second time.
 	// That is the same rule vaultsigner holds its backends to (look the payment up before paying). txid is ""
-	// when the lock was found rather than sent.
-	Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, amount uint64) (txid string, id uint64, err error)
-	Claim(ctx context.Context, id uint64, sa, kb string) (string, error)
+	// when the lock was found rather than sent. asset is "" for DERO or the 64-hex SCID of the asset the lock
+	// holds instead (U1); amount is in that asset's atomic units.
+	Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount uint64) (txid string, id uint64, err error)
+	// Claim sends nothing, first time or re-send, at a height h with h + 1 >= cutoff: cutoff is the caller's
+	// claimCutoff(t1, margin), so the client's re-send policy and the state machine's cutoff are one rule (XMR-06).
+	Claim(ctx context.Context, id uint64, sa, kb string, cutoff uint64) (string, error)
 	Refund(ctx context.Context, id uint64, sb string) (string, error)
 	Punish(ctx context.Context, id uint64) (string, error)
 	ReadLock(ctx context.Context, id uint64) (Lock, error) // every field, including xa/xb when revealed and st
+	// CodeSHA256 is the SHA-256 of the contract's code exactly as the daemon stores it: what U4 compares with the
+	// htlc.bas this companion was built for (HTLCCodeSHA256), so a look-alike contract is refused before any lock.
+	CodeSHA256(ctx context.Context) (string, error)
+	// Registered says whether addr has an account on this chain. A transfer to an unregistered address is refused,
+	// so a maker cannot pay the stipend to one (Path 0).
+	Registered(ctx context.Context, addr string) (bool, error)
+	// Balance is this party's own spendable balance of asset ("" is DERO), from its own wallet.
+	Balance(ctx context.Context, asset string) (uint64, error)
+	// Pay is a plain DERO transfer from this party's wallet, tagged with a destination port so both wallets can
+	// find it again by that tag alone: the stipend (Path 0). It returns the txid whenever the wallet gave one, even
+	// with an error, because a transaction the client stopped waiting for may still be mined.
+	Pay(ctx context.Context, to string, amount, port uint64) (string, error)
+	// FindPayment looks through this party's own wallet history, incoming or outgoing, for a DERO transfer at or
+	// above minHeight carrying the destination port; found is false when there is none.
+	FindPayment(ctx context.Context, incoming bool, port, minHeight uint64) (p Payment, found bool, err error)
+}
+
+// Payment is one DERO transfer as this party's wallet records it.
+type Payment struct {
+	TxID   string
+	Amount uint64
+	Height uint64 // the block it was mined in
 }
 
 // Lock is one htlc.bas lock as the contract stores it. Maker and Taker are the lowercase hex of the raw 33-byte
@@ -81,11 +106,15 @@ type DeroRPC struct {
 	// Resends is how many times an exit whose transaction did not mine within Timeout is sent again at double
 	// the fee (review R24: a fee too low sits unmined into the window's end). Each re-send is a new transaction;
 	// if two mine, the contract refuses the second and its fee is the cost. A re-send happens only while the
-	// call can still land usefully — a Claim while height + 8 + 1 < t1, a Refund while height < t2 — and after
-	// that the caller moves to the exit that remains.
+	// call can still land usefully — a Claim while height + 1 < the caller's claim cutoff (t1 − 8 − margin), a
+	// Refund while height < t2 — and after that the caller moves to the exit that remains.
 	Resends int
 	// Log, when set, reports a re-send; the client is otherwise silent.
 	Log func(format string, a ...interface{})
+	// Login is "user:password" for a wallet started with --rpc-login, sent as HTTP basic auth on wallet calls and
+	// never to the daemon (GAP-008). A wallet RPC with no login authenticates nobody, and its /ws endpoint takes
+	// any Origin, so any web page open during a swap could call transfer on it.
+	Login string
 
 	// pending remembers, per (ha, hk, hb), a Lock transaction this client submitted and did not see mined.
 	// FindLock reads executed contract state, so it cannot see a transaction still in the mempool; without
@@ -173,19 +202,73 @@ func (c *DeroRPC) call(ctx context.Context, host, method string, params interfac
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if host == c.Wallet && c.Login != "" {
+		user, pass, _ := strings.Cut(c.Login, ":")
+		req.SetBasicAuth(user, pass)
+	}
 	hc := c.HTTP
 	if hc == nil {
-		hc = http.DefaultClient
+		hc = fallbackRPCClient // never http.DefaultClient: it has no timeout, and a node that never answers would hold the swap
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("%s: %w", method, err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	raw, err := readCapped(resp.Body, maxDeroReply)
 	if err != nil {
-		return fmt.Errorf("%s: read: %w", method, err)
+		return fmt.Errorf("%s: %w", method, err)
 	}
+	// derod and the wallet answer a JSON-RPC error with 200; anything else — the wallet's 401 "Authorization
+	// Required" (walletapi/rpcserver/rpc_websocket_server.go), a proxy's page — is not a reply to read
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s: http %d", method, resp.StatusCode)
+	}
+	return decodeEnvelope(method, raw, out)
+}
+
+// WalletAcceptsAnonymous asks the wallet one question with no credentials at all. A wallet that answers is one any
+// local process — and any web page, through its /ws endpoint — can drive (GAP-008); on mainnet the companion
+// refuses to run against one. A 401 is the answer wanted; any other failure is an error, not a "no".
+func (c *DeroRPC) WalletAcceptsAnonymous(ctx context.Context) (bool, error) {
+	anon := &DeroRPC{Daemon: c.Daemon, Wallet: c.Wallet, SCID: c.SCID, HTTP: c.HTTP, Timeout: c.Timeout, Poll: c.Poll}
+	_, err := anon.Address(ctx)
+	switch {
+	case err == nil:
+		return true, nil
+	case strings.Contains(err.Error(), "http 401"):
+		return false, nil
+	}
+	return false, err
+}
+
+// maxDeroReply bounds one daemon or wallet answer. The companion asks only for named keys, one lock's worth or a
+// window of ids (getKeys, FindLock), so a legitimate answer is kilobytes; 8 MB is far above any of them and far
+// below what would hurt the machine.
+const maxDeroReply = 8 << 20
+
+// fallbackRPCClient is the client for a DeroRPC built without one: a bounded wait, as NewDeroRPC gives.
+var fallbackRPCClient = &http.Client{Timeout: 30 * time.Second}
+
+// readCapped reads a whole reply and refuses one longer than max rather than truncating it: a truncated document
+// would fail to decode anyway, but "longer than the cap" is the answer that says what happened, the same way
+// every time.
+func readCapped(r io.Reader, max int64) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, max+1))
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+	if int64(len(b)) > max {
+		return nil, fmt.Errorf("a reply longer than %d bytes was refused", max)
+	}
+	return b, nil
+}
+
+// decodeEnvelope is the one way a JSON-RPC 2.0 reply is read: a single JSON value and nothing after it
+// (json.Unmarshal refuses trailing data), an error object or a result, and — where the caller wants a result — a
+// result that is present and not null. A reply that is neither is malformed and is refused, never read as zeros.
+// Numbers go through json.Number, so a uint64 above 2^53 is never rounded through float64.
+func decodeEnvelope(method string, raw []byte, out interface{}) error {
 	var env struct {
 		Result json.RawMessage `json:"result"`
 		Error  *rpcErr         `json:"error"`
@@ -199,9 +282,15 @@ func (c *DeroRPC) call(ctx context.Context, host, method string, params interfac
 	if out == nil {
 		return nil
 	}
+	if len(env.Result) == 0 || string(env.Result) == "null" {
+		return fmt.Errorf("%s: the reply carries neither a result nor an error", method)
+	}
 	dec := json.NewDecoder(bytes.NewReader(env.Result))
 	dec.UseNumber()
-	return dec.Decode(out)
+	if err := dec.Decode(out); err != nil {
+		return fmt.Errorf("%s: result: %w", method, err)
+	}
+	return nil
 }
 
 // Arg is one sc_rpc argument as the wallet and the estimator take it.
@@ -216,12 +305,14 @@ func argS(n string, v string) Arg { return Arg{n, "S", v} }
 func argH(n string, v string) Arg { return Arg{n, "H", v} }
 
 // Transfer is one wallet transfer entry: a burn into the contract needs a destination, which is any registered
-// account (the daemon's random address), exactly as the app builds a Lock.
+// account (the daemon's random address), exactly as the app builds a Lock. SCID names the asset a transfer moves
+// ("" is DERO); PayloadRPC is the encrypted payload only the receiver reads (the stipend's port tag).
 type Transfer struct {
 	SCID        string `json:"scid,omitempty"`
 	Destination string `json:"destination,omitempty"`
 	Amount      uint64 `json:"amount"`
 	Burn        uint64 `json:"burn,omitempty"`
+	PayloadRPC  []Arg  `json:"payload_rpc,omitempty"`
 }
 
 func (c *DeroRPC) Height(ctx context.Context) (uint64, error) {
@@ -260,29 +351,102 @@ func (c *DeroRPC) Address(ctx context.Context) (string, error) {
 	return r.Address, err
 }
 
-// Balance is the wallet's DERO balance in atomic units.
-func (c *DeroRPC) Balance(ctx context.Context) (uint64, error) {
-	var r struct {
-		Balance uint64 `json:"balance"`
+// Balance is the wallet's spendable balance of one asset ("" is DERO) in that asset's atomic units:
+// GetBalance's unlocked_balance, the figure a transfer can draw on (walletapi/rpcserver/rpc_getbalance.go).
+func (c *DeroRPC) Balance(ctx context.Context, asset string) (uint64, error) {
+	params := map[string]interface{}{}
+	if asset != "" {
+		params["scid"] = asset
 	}
-	err := c.call(ctx, c.Wallet, "GetBalance", map[string]interface{}{}, &r)
-	return r.Balance, err
+	var r struct {
+		Unlocked uint64 `json:"unlocked_balance"`
+	}
+	err := c.call(ctx, c.Wallet, "GetBalance", params, &r)
+	return r.Unlocked, err
 }
 
-// Pay is a plain DERO transfer from this wallet, for a driver that tops a demo wallet up. It is not part of the
-// swap, which moves DERO only through the contract.
-func (c *DeroRPC) Pay(ctx context.Context, to string, amount uint64) (string, error) {
+// Pay is a plain DERO transfer from this wallet at ring 2. A non-zero port rides in the encrypted payload as its
+// destination port (rpc.RPC_DESTINATION_PORT, "D"); both the receiving wallet and the sending one decode it onto
+// their own entry (walletapi daemon_communication.go, ProcessPayload), which is how FindPayment finds the stipend
+// again on either side without anyone passing a txid around. A driver topping a demo wallet up passes port 0.
+func (c *DeroRPC) Pay(ctx context.Context, to string, amount, port uint64) (string, error) {
+	xf := Transfer{Destination: to, Amount: amount}
+	if port != 0 {
+		xf.PayloadRPC = []Arg{argU("D", port)}
+	}
 	var r struct {
 		TXID string `json:"txid"`
 	}
-	params := map[string]interface{}{"transfers": []Transfer{{Destination: to, Amount: amount}}, "ringsize": 2}
+	params := map[string]interface{}{"transfers": []Transfer{xf}, "ringsize": 2}
 	if err := c.call(ctx, c.Wallet, "transfer", params, &r); err != nil {
 		return "", err
+	}
+	if len(r.TXID) != 64 {
+		return "", fmt.Errorf("transfer: the wallet returned no txid (%q)", r.TXID)
 	}
 	if _, err := c.waitTx(ctx, r.TXID); err != nil {
 		return r.TXID, err
 	}
 	return r.TXID, nil
+}
+
+// FindPayment reads this wallet's own transfers (GetTransfers, walletapi/rpcserver/rpc_gettransfers.go) and keeps
+// the first carrying the port. The wallet takes a dstport filter and ignores it — Show_Transfers filters by
+// direction and height only (walletapi/wallet.go) — so the match is made here, on each entry's decoded dstport.
+func (c *DeroRPC) FindPayment(ctx context.Context, incoming bool, port, minHeight uint64) (Payment, bool, error) {
+	var r struct {
+		Entries []struct {
+			Height   uint64 `json:"height"`
+			TXID     string `json:"txid"`
+			Amount   uint64 `json:"amount"`
+			Incoming bool   `json:"incoming"`
+			Coinbase bool   `json:"coinbase"`
+			Port     uint64 `json:"dstport"`
+		} `json:"entries"`
+	}
+	params := map[string]interface{}{"in": incoming, "out": !incoming, "min_height": minHeight}
+	if err := c.call(ctx, c.Wallet, "GetTransfers", params, &r); err != nil {
+		return Payment{}, false, err
+	}
+	for _, e := range r.Entries {
+		if e.Coinbase || e.Incoming != incoming || e.Port != port || e.Height < minHeight {
+			continue
+		}
+		return Payment{TxID: e.TXID, Amount: e.Amount, Height: e.Height}, true, nil
+	}
+	return Payment{}, false, nil
+}
+
+// Registered asks the daemon for addr's encrypted balance at the tip. topoheight is -1 because 0 asks about the
+// genesis block (rpc_dero_getencryptedbalance.go uses any topoheight >= 0 it is given). derod answers
+// errormsg.ErrAccountUnregistered, "Account Unregistered", for an address that has never registered; any other
+// failure is an error, never a "no".
+func (c *DeroRPC) Registered(ctx context.Context, addr string) (bool, error) {
+	var r struct {
+		Registration int64 `json:"registration"`
+	}
+	err := c.call(ctx, c.Daemon, "DERO.GetEncryptedBalance", map[string]interface{}{"address": addr, "topoheight": -1}, &r)
+	if err != nil {
+		if strings.Contains(err.Error(), "Account Unregistered") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// CodeSHA256 reads the contract's code (DERO.GetSC with code and no variables) and hashes the bytes as stored.
+func (c *DeroRPC) CodeSHA256(ctx context.Context) (string, error) {
+	var r struct {
+		Code string `json:"code"`
+	}
+	if err := c.call(ctx, c.Daemon, "DERO.GetSC", map[string]interface{}{"scid": c.SCID, "code": true, "variables": false}, &r); err != nil {
+		return "", err
+	}
+	if r.Code == "" {
+		return "", fmt.Errorf("DERO.GetSC: no code at %s", c.SCID)
+	}
+	return SHA256Hex([]byte(r.Code)), nil
 }
 
 func (c *DeroRPC) randomAddress(ctx context.Context) (string, error) {
@@ -696,7 +860,10 @@ func (c *DeroRPC) FindLock(ctx context.Context, makerRaw, ha, hk, hb string) (Lo
 	return Lock{}, false, nil
 }
 
-func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, amount uint64) (string, uint64, error) {
+func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount uint64) (string, uint64, error) {
+	if asset != "" && !isHash(asset) {
+		return "", 0, fmt.Errorf("asset %q is not a 64 lower-case hex SCID", asset)
+	}
 	me, err := c.Address(ctx)
 	if err != nil {
 		return "", 0, err
@@ -728,8 +895,12 @@ func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uin
 	if err != nil {
 		return "", 0, err
 	}
-	xfers := []Transfer{{Destination: dest, Burn: amount}}
-	args := []Arg{argS("entrypoint", "Lock"), argS("ha", ha), argS("hk", hk), argS("hb", hb), argS("taker", taker), argU("t1", t1), argU("t2", t2), argS("asset", "")}
+	// An asset lock burns the asset alone into the contract. The wallet adds the zero-DERO payload that carries the
+	// fee ("if we do not have base we can not detect fees", walletapi/wallet_transfer.go), and at the ring size
+	// submit sets for every payload, 2, that payload is what names the signer (transaction_execute.go,
+	// Extract_signer). At any other ring size the Lock is refused and what it carried is burned (Invariant 12).
+	xfers := []Transfer{{SCID: asset, Destination: dest, Burn: amount}}
+	args := []Arg{argS("entrypoint", "Lock"), argS("ha", ha), argS("hk", hk), argS("hb", hb), argS("taker", taker), argU("t1", t1), argU("t2", t2), argS("asset", asset)}
 	g, err := c.estimate(ctx, me, "", xfers, args)
 	if err != nil {
 		return "", 0, fmt.Errorf("Lock refused at estimate: %w", err)
@@ -755,12 +926,30 @@ func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uin
 
 // exit sends one of the three exits and proves it executed by reading st_<id> back: a call the contract refuses
 // is still mined, so inclusion alone would be a lie. A transaction that does not mine within Timeout is sent
-// again at double the fee, Resends times at most, while its window is open (canResend).
-func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg, want uint64, estimated bool) (string, error) {
+// again at double the fee, Resends times at most, while its window is open (canResend). A Claim is not sent at
+// all, first time included, once height + 1 >= cutoff.
+func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg, want uint64, estimated bool, cutoff uint64) (string, error) {
 	all := append([]Arg{argS("entrypoint", entry), argU("id", id)}, args...)
 	fee := c.FixedFee
 	if fee == 0 {
 		fee = 3000
+	}
+	if entry == "Claim" {
+		h, err := c.Height(ctx)
+		if err != nil {
+			return "", err
+		}
+		if h+1 >= cutoff {
+			return "", fmt.Errorf("Claim not sent: at height %d it could be mined inside the last blocks before t1 (claim cutoff %d)", h, cutoff)
+		}
+	}
+	if !estimated {
+		// Refund and Punish cannot be estimated, so a call on a lock that has already moved would be mined, refused
+		// and paid for. One read first saves that fee. A read that fails does not stop the send: a maker who cannot
+		// read must still refund (refundBlind), and the contract refuses the call harmlessly if it is late.
+		if l, err := c.ReadLock(ctx, id); err == nil && l.State != LockOpen {
+			return "", fmt.Errorf("%s not sent: lock %d has already moved (st_%d = %d)", entry, id, id, l.State)
+		}
 	}
 	if estimated {
 		me, err := c.Address(ctx)
@@ -772,6 +961,9 @@ func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg,
 			return "", fmt.Errorf("%s refused at estimate: %w", entry, err)
 		}
 		fee = g.GasStorage + 200
+		if c.Log != nil {
+			c.Log("%s estimated: storage gas %d, fee %d", entry, g.GasStorage, fee)
+		}
 	}
 	var txid string
 	for attempt := 0; ; attempt++ {
@@ -798,7 +990,7 @@ func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg,
 		if l.State != LockOpen {
 			return txid, fmt.Errorf("%s %s not mined, and the lock has moved on (st_%d = %d)", entry, txid, id, l.State)
 		}
-		if !canResend(entry, h, l) {
+		if !canResend(entry, h, l, cutoff) {
 			return txid, fmt.Errorf("%s %s not mined, and at height %d a re-send could no longer land in its window (t1 %d, t2 %d): %w", entry, txid, h, l.T1, l.T2, err)
 		}
 		fee *= 2
@@ -817,11 +1009,14 @@ func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg,
 }
 
 // canResend is the policy of §4: a height-gated call is re-sent only while it can still be mined and be stable
-// inside its window — a Claim while h + 8 + 1 < t1, a Refund while h < t2; Punish has no end.
-func canResend(entry string, h uint64, l Lock) bool {
+// inside its window — a Claim while h + 1 < cutoff, which is claimCutoff(t1, margin), the very height the state
+// machine stops sending Claims at; a Refund while h < t2; Punish has no end. XMR-06: the Claim rule was once
+// h + 8 + 1 < t1, which with the default margin let a re-send out at eight heights inside the band [t1 − 16, t1)
+// that the margin exists to keep empty.
+func canResend(entry string, h uint64, l Lock, cutoff uint64) bool {
 	switch entry {
 	case "Claim":
-		return h+DefaultStableBlocks+1 < l.T1
+		return h+1 < cutoff
 	case "Refund":
 		return h < l.T2
 	}
@@ -830,16 +1025,17 @@ func canResend(entry string, h uint64, l Lock) bool {
 
 // Claim is estimated: every check it makes holds at height 0 (0 < t1), so a wrong preimage is refused by the
 // daemon before any fee is spent.
-func (c *DeroRPC) Claim(ctx context.Context, id uint64, sa, kb string) (string, error) {
-	return c.exit(ctx, id, "Claim", []Arg{argS("sa", sa), argS("kb", kb)}, LockClaimed, true)
+func (c *DeroRPC) Claim(ctx context.Context, id uint64, sa, kb string, cutoff uint64) (string, error) {
+	return c.exit(ctx, id, "Claim", []Arg{argS("sa", sa), argS("kb", kb)}, LockClaimed, true, cutoff)
 }
 
 func (c *DeroRPC) Refund(ctx context.Context, id uint64, sb string) (string, error) {
-	return c.exit(ctx, id, "Refund", []Arg{argS("sb", sb)}, LockRefunded, false)
+	return c.exit(ctx, id, "Refund", []Arg{argS("sb", sb)}, LockRefunded, false, 0)
 }
 
+// Punish is the same call from whoever sends it: htlc.bas v2 pays the stored taker whatever the signer (LIV-07).
 func (c *DeroRPC) Punish(ctx context.Context, id uint64) (string, error) {
-	return c.exit(ctx, id, "Punish", nil, LockPunished, false)
+	return c.exit(ctx, id, "Punish", nil, LockPunished, false, 0)
 }
 
 // --- DERO addresses ---

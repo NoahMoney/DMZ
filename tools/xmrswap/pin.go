@@ -1,0 +1,24 @@
+package xmrswap
+
+// HTLCCodeSHA256 is the SHA-256 of contracts/htlc.bas v2 as it is installed: the bytes reference.Canon makes of the
+// source, which are exactly the code DERO.GetSC returns for the contract (U4). The maker checks it before he locks
+// and the taker before she reads the lock, and each refuses an -htlc whose code hashes to anything else: a
+// look-alike contract whose storage passes every other check could otherwise take either side's coins, and the
+// SCID reaches the companion from a flag the operator typed or a page filled in. pin_test.go recomputes it from the
+// tree, so an edit to htlc.bas that leaves this line behind fails the tests.
+//
+// The pin is only as good as the binary that carries it: a reproducible, signed build (BL-14) is what turns it
+// from a claim into a check, and until one exists whoever built this binary is trusted to have pinned the right
+// contract.
+const HTLCCodeSHA256 = "44864ec3cddac871286b9cfd18d18e0b1d2ef0e31960436cee3bacc3025fef06"
+
+// ProverSHA256 is the SHA-256 of the one proof-xmr binary the companion runs (GAP-003): the release build of
+// research/crosschain/poc/proof-xmr that this project measured (run.log: 8.51 s prove, 0.74 s verify, 1,601-byte
+// proofs), 1,340,392 bytes. The cross-curve proof's verdict is the tool's word, so the tool is pinned like the
+// contract: an absolute path, hashed before every run, and any other binary refused — a stale build, another
+// program that happens to be called proof-xmr, one swapped after the companion started.
+//
+// The build is not reproducible yet (GAP-013, BL-14): the same source built on another machine hashes to
+// something else and is refused here until a reproducible build replaces this pin. And pinning says which binary
+// runs, not that it is sound: its Bulletproofs R1CS back end is upstream's unaudited feature (GAP-003, U8).
+const ProverSHA256 = "4d3bde0afda735e851e31a3d24cc4d040aa4611a39f96ef4a7baa9c8c20ac444"

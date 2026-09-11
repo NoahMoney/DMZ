@@ -76,9 +76,10 @@ func TestWalletRPCRequestShapes(t *testing.T) {
 		"generate_from_keys": `{"address":"42gt8cXJSHAL4up8XoZh7fikVuswDU7itAoaCjSQyo6fFoeTQpAcAwrQ1cs8KvFynLFSBdabhmk7HEe3HS7UsAz4LYnVPYM","info":"Wallet has been generated successfully."}`,
 		"open_wallet":        `{}`,
 		"close_wallet":       `{}`,
-		"get_transfers":      inExample,
-		"get_balance":        `{"balance":157443303037455077,"blocks_to_unlock":59,"multisig_import_needed":false,"per_subaddress":[{"account_index":0,"address":"` + stagenetAddr + `","address_index":0,"balance":157360317826255077,"blocks_to_unlock":0,"label":"Primary account","num_unspent_outputs":5281,"time_to_unlock":0,"unlocked_balance":157360317826255077}],"time_to_unlock":0,"unlocked_balance":157360317826255077}`,
-		"sweep_all":          `{"tx_hash_list":["c1c2c3"],"amount_list":[1],"fee_list":[2]}`,
+		// the wallet's own record lists what it sent as pending: the client asks for it after every transfer and sweep
+		"get_transfers": strings.TrimSuffix(inExample, "}") + `,"pending":[{"txid":"7663438de4f72b25a0e395b770ea9ecf7108cd2f0c4b75be0b14a103d3362be9"},{"txid":"c1c2c3"}]}`,
+		"get_balance":   `{"balance":157443303037455077,"blocks_to_unlock":59,"multisig_import_needed":false,"per_subaddress":[{"account_index":0,"address":"` + stagenetAddr + `","address_index":0,"balance":157360317826255077,"blocks_to_unlock":0,"label":"Primary account","num_unspent_outputs":5281,"time_to_unlock":0,"unlocked_balance":157360317826255077}],"time_to_unlock":0,"unlocked_balance":157360317826255077}`,
+		"sweep_all":     `{"tx_hash_list":["c1c2c3"],"amount_list":[1],"fee_list":[2]}`,
 	}}
 	srv := httptest.NewServer(rec)
 	defer srv.Close()
@@ -101,24 +102,26 @@ func TestWalletRPCRequestShapes(t *testing.T) {
 	if err != nil || txid != "7663438de4f72b25a0e395b770ea9ecf7108cd2f0c4b75be0b14a103d3362be9" {
 		t.Fatalf("Transfer: %q, %v", txid, err)
 	}
-	jsonEqual(t, rec.last(), `{"jsonrpc":"2.0","id":"0","method":"transfer","params":{"destinations":[{"amount":300000000000,"address":"`+stagenetAddr+`"}],"account_index":0}}`)
+	jsonEqual(t, rec.bodies[len(rec.bodies)-2], `{"jsonrpc":"2.0","id":"0","method":"transfer","params":{"destinations":[{"amount":300000000000,"address":"`+stagenetAddr+`"}],"account_index":0}}`)
+	// and the hash the reply gave is looked for in the wallet's own outgoing record before it counts as sent
+	jsonEqual(t, rec.last(), `{"jsonrpc":"2.0","id":"0","method":"get_transfers","params":{"out":true,"pending":true,"account_index":0}}`)
 
 	const mainAddr = "42gt8cXJSHAL4up8XoZh7fikVuswDU7itAoaCjSQyo6fFoeTQpAcAwrQ1cs8KvFynLFSBdabhmk7HEe3HS7UsAz4LYnVPYM"
-	if err := w.GenerateFromKeys(ctx, "wallet_name", mainAddr, "97cf64f2cd6c930242e9bed5f14f8f16a33047229aca3eababf4af7e8d113209", "", 1000); err != nil {
+	if err := w.GenerateFromKeys(ctx, "wallet_name", mainAddr, "97cf64f2cd6c930242e9bed5f14f8f16a33047229aca3eababf4af7e8d113209", "", "", 1000); err != nil {
 		t.Fatalf("GenerateFromKeys view-only: %v", err)
 	}
 	jsonEqual(t, rec.last(), `{"jsonrpc":"2.0","id":"0","method":"generate_from_keys","params":{"restore_height":1000,"filename":"wallet_name","address":"`+mainAddr+`","viewkey":"97cf64f2cd6c930242e9bed5f14f8f16a33047229aca3eababf4af7e8d113209","password":"","autosave_current":true}}`)
-	if err := w.GenerateFromKeys(ctx, "wallet_name", mainAddr, "97cf64f2cd6c930242e9bed5f14f8f16a33047229aca3eababf4af7e8d113209", "11d3fd247672c4cb29b6e38791dcf07629cd2d68d868f0b78811ce584a6b0d01", 0); err != nil {
+	if err := w.GenerateFromKeys(ctx, "wallet_name", mainAddr, "97cf64f2cd6c930242e9bed5f14f8f16a33047229aca3eababf4af7e8d113209", "11d3fd247672c4cb29b6e38791dcf07629cd2d68d868f0b78811ce584a6b0d01", "", 0); err != nil {
 		t.Fatalf("GenerateFromKeys full: %v", err)
 	}
 	if p := rec.last()["params"].(map[string]interface{}); p["spendkey"] != "11d3fd247672c4cb29b6e38791dcf07629cd2d68d868f0b78811ce584a6b0d01" || p["restore_height"] != float64(0) {
 		t.Errorf("full wallet params: %v", p)
 	}
-	if err := w.GenerateFromKeys(ctx, "w", "9tTLtauaEKSj7xoVXytVH32R1pLZBk4VV4mZFGEh4wkXhDWqw1soPyf3fGixf1kni31VznEZkWNEza9d5TvjWwq5PaohYHC", "97cf64f2cd6c930242e9bed5f14f8f16a33047229aca3eababf4af7e8d113209", "", 0); err == nil {
+	if err := w.GenerateFromKeys(ctx, "w", "9tTLtauaEKSj7xoVXytVH32R1pLZBk4VV4mZFGEh4wkXhDWqw1soPyf3fGixf1kni31VznEZkWNEza9d5TvjWwq5PaohYHC", "97cf64f2cd6c930242e9bed5f14f8f16a33047229aca3eababf4af7e8d113209", "", "", 0); err == nil {
 		t.Error("a wallet echoing a different address was accepted")
 	}
 
-	if err := w.OpenWallet(ctx, "wallet_name"); err != nil {
+	if err := w.OpenWallet(ctx, "wallet_name", ""); err != nil {
 		t.Fatal(err)
 	}
 	jsonEqual(t, rec.last(), `{"jsonrpc":"2.0","id":"0","method":"open_wallet","params":{"filename":"wallet_name","password":""}}`)
@@ -145,7 +148,7 @@ func TestWalletRPCRequestShapes(t *testing.T) {
 	}
 	// a transfer the sender froze: the reference's entry with unlock_time set and locked true, as wallet2
 	// reports one that is past the spendable age but not past its unlock_time
-	rec.results["get_transfers"] = strings.Replace(strings.Replace(inExample, `"locked":false`, `"locked":true`, 1), `"unlock_time":0`, `"unlock_time":2000000`, 1)
+	rec.results["get_transfers"] = strings.Replace(strings.Replace(rec.results["get_transfers"], `"locked":false`, `"locked":true`, 1), `"unlock_time":0`, `"unlock_time":2000000`, 1)
 	in, err = w.Incoming(ctx, 0)
 	if err != nil || len(in) != 1 || in[0].Unlocked || in[0].UnlockTime != 2000000 {
 		t.Errorf("Incoming with unlock_time: %+v %v", in, err)
@@ -161,7 +164,8 @@ func TestWalletRPCRequestShapes(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(ids, []string{"c1c2c3"}) {
 		t.Fatalf("SweepAll: %v, %v", ids, err)
 	}
-	jsonEqual(t, rec.last(), `{"jsonrpc":"2.0","id":"0","method":"sweep_all","params":{"address":"`+stagenetAddr+`","account_index":0}}`)
+	jsonEqual(t, rec.bodies[len(rec.bodies)-2], `{"jsonrpc":"2.0","id":"0","method":"sweep_all","params":{"address":"`+stagenetAddr+`","account_index":0}}`)
+	jsonEqual(t, rec.last(), `{"jsonrpc":"2.0","id":"0","method":"get_transfers","params":{"out":true,"pending":true,"account_index":0}}`)
 
 	// the wallet's own refusal comes back with its code
 	rec.results["get_address"] = `{"error":{"code":-13,"message":"No wallet file"}}`
@@ -217,8 +221,9 @@ func TestWalletRPCDigestAuth(t *testing.T) {
 	w := NewWalletRPC(srv.URL, "swap", "s3cret")
 	atomic.StoreInt32(&unauthorized, 0)
 	for i := 0; i < 3; i++ {
-		if h, err := w.Height(ctx); err != nil || h != 1 {
-			t.Fatalf("call %d: %d, %v", i, h, err)
+		// answered, and past the login: with no wallet open the server's own answer is -13 (0.18.5.1)
+		if _, err := w.Height(ctx); !isRPC(err, -13) {
+			t.Fatalf("call %d: %v", i, err)
 		}
 	}
 	if n := atomic.LoadInt32(&unauthorized); n != 1 {
@@ -262,7 +267,7 @@ func TestFakeWalletSwapLeg(t *testing.T) {
 	if _, err := w.Address(ctx); !isRPC(err, -13) {
 		t.Fatalf("no wallet open: %v", err)
 	}
-	if err := w.GenerateFromKeys(ctx, "alice", alice, aliceView.Hex(), aliceSpend.Hex(), 0); err != nil {
+	if err := w.GenerateFromKeys(ctx, "alice", alice, aliceView.Hex(), aliceSpend.Hex(), "", 0); err != nil {
 		t.Fatal(err)
 	}
 	if a, err := w.Address(ctx); err != nil || a != alice {
@@ -310,7 +315,7 @@ func TestFakeWalletSwapLeg(t *testing.T) {
 	}
 
 	// Bob watches through a view-only wallet made from the joint address and the shared view key
-	if err := w.GenerateFromKeys(ctx, "bob-view", joint, v.Hex(), "", lockHeight); err != nil {
+	if err := w.GenerateFromKeys(ctx, "bob-view", joint, v.Hex(), "", "", lockHeight); err != nil {
 		t.Fatal(err)
 	}
 	if in, err := w.Incoming(ctx, lockHeight); err != nil || len(in) != 0 {
@@ -332,13 +337,13 @@ func TestFakeWalletSwapLeg(t *testing.T) {
 	if in, _ := w.Incoming(ctx, lockHeight+1); len(in) != 0 {
 		t.Errorf("Incoming(lockHeight+1) returned the lock: %+v", in)
 	}
-	if _, err := w.SweepAll(ctx, bob); !isRPC(err, -29) {
-		t.Fatalf("sweep from a view-only wallet: %v", err)
+	if _, err := w.SweepAll(ctx, bob); !isRPC(err, CodeNotSigned) {
+		t.Fatalf("sweep from a view-only wallet, which 0.18.5.1 answers with an unsigned_txset and does not send: %v", err)
 	}
-	if err := w.GenerateFromKeys(ctx, "bob-view", joint, v.Hex(), "", 0); !isRPC(err, -1) || !strings.Contains(err.Error(), "already exists") {
+	if err := w.GenerateFromKeys(ctx, "bob-view", joint, v.Hex(), "", "", 0); !isRPC(err, -1) || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("duplicate wallet name: %v", err)
 	}
-	if err := w.GenerateFromKeys(ctx, "late", joint, v.Hex(), "", lockHeight+1); err != nil {
+	if err := w.GenerateFromKeys(ctx, "late", joint, v.Hex(), "", "", lockHeight+1); err != nil {
 		t.Fatal(err)
 	}
 	if in, _ := w.Incoming(ctx, 0); len(in) != 0 {
@@ -347,27 +352,27 @@ func TestFakeWalletSwapLeg(t *testing.T) {
 
 	// the full wallet, with s_a + s_b, and the sweep
 	wrongView, _ := NewScalar(rand.Reader)
-	if err := w.GenerateFromKeys(ctx, "bad-view", joint, wrongView.Hex(), "", 0); err == nil || !strings.Contains(err.Error(), "view secret key does not match") {
+	if err := w.GenerateFromKeys(ctx, "bad-view", joint, wrongView.Hex(), "", "", 0); err == nil || !strings.Contains(err.Error(), "view key does not derive") {
 		t.Fatalf("wrong view key: %v", err)
 	}
-	if err := w.GenerateFromKeys(ctx, "bad-spend", joint, v.Hex(), sa.Hex(), 0); err == nil || !strings.Contains(err.Error(), "spend secret key does not match") {
+	if err := w.GenerateFromKeys(ctx, "bad-spend", joint, v.Hex(), sa.Hex(), "", 0); err == nil || !strings.Contains(err.Error(), "spend key does not derive") {
 		t.Fatalf("one share as the spend key: %v", err)
 	}
-	if err := w.GenerateFromKeys(ctx, "bad-net", mainnetJoint, v.Hex(), "", 0); err == nil || !strings.Contains(err.Error(), "Failed to parse public address") {
+	if err := w.GenerateFromKeys(ctx, "bad-net", mainnetJoint, v.Hex(), "", "", 0); err == nil || !(strings.Contains(err.Error(), "Failed to parse public address") || strings.Contains(err.Error(), "does not derive")) {
 		t.Fatalf("mainnet address on stagenet: %v", err)
 	}
-	if err := w.GenerateFromKeys(ctx, "bob-full", joint, v.Hex(), AddScalars(sa, sb).Hex(), lockHeight); err != nil {
+	if err := w.GenerateFromKeys(ctx, "bob-full", joint, v.Hex(), AddScalars(sa, sb).Hex(), "", lockHeight); err != nil {
 		t.Fatal(err)
 	}
 	ids, err := w.SweepAll(ctx, bob)
 	if err != nil || len(ids) != 1 {
 		t.Fatalf("SweepAll: %v %v", ids, err)
 	}
-	if _, err := w.SweepAll(ctx, bob); !isRPC(err, -37) {
+	if _, err := w.SweepAll(ctx, bob); !isRPC(err, -4) {
 		t.Fatalf("second sweep: %v", err)
 	}
 	fw.Mine(1)
-	if err := w.GenerateFromKeys(ctx, "bob", bob, bobView.Hex(), bobSpend.Hex(), 0); err != nil {
+	if err := w.GenerateFromKeys(ctx, "bob", bob, bobView.Hex(), bobSpend.Hex(), "", 0); err != nil {
 		t.Fatal(err)
 	}
 	in, err = w.Incoming(ctx, 0)
@@ -375,7 +380,7 @@ func TestFakeWalletSwapLeg(t *testing.T) {
 		t.Fatalf("Bob's wallet after the sweep: %+v %v", in, err)
 	}
 	// Alice's balance: the fund, less the lock, less its fee
-	if err := w.OpenWallet(ctx, "alice"); err != nil {
+	if err := w.OpenWallet(ctx, "alice", ""); err != nil {
 		t.Fatal(err)
 	}
 	fw.Mine(10)
@@ -385,7 +390,7 @@ func TestFakeWalletSwapLeg(t *testing.T) {
 	if _, err := w.Transfer(ctx, bob, 1); !isRPC(err, -17) {
 		t.Fatalf("Alice spending past her remainder: %v", err)
 	}
-	if err := w.OpenWallet(ctx, "nobody"); !isRPC(err, -1) {
+	if err := w.OpenWallet(ctx, "nobody", ""); !isRPC(err, -1) {
 		t.Fatalf("open a missing wallet: %v", err)
 	}
 	if err := w.CloseWallet(ctx); err != nil {
@@ -394,8 +399,8 @@ func TestFakeWalletSwapLeg(t *testing.T) {
 	if err := w.CloseWallet(ctx); !isRPC(err, -13) {
 		t.Fatalf("close with nothing open: %v", err)
 	}
-	if h, err := w.Height(ctx); err != nil || h != fw.Height() {
-		t.Fatalf("Height with nothing open: %d %v", h, err)
+	if _, err := w.Height(ctx); !isRPC(err, -13) {
+		t.Fatalf("Height with nothing open: %v", err)
 	}
 }
 
@@ -412,7 +417,7 @@ func TestFakeWalletLockedAndBurntOutputs(t *testing.T) {
 	spend, _ := NewScalar(rand.Reader)
 	view, _ := NewScalar(rand.Reader)
 	alice, _ := Address(spend.Public(), view.Public(), Stagenet)
-	if err := w.GenerateFromKeys(ctx, "alice", alice, view.Hex(), spend.Hex(), 0); err != nil {
+	if err := w.GenerateFromKeys(ctx, "alice", alice, view.Hex(), spend.Hex(), "", 0); err != nil {
 		t.Fatal(err)
 	}
 	fw.Fund(alice, 5_000_000_000_000)
@@ -438,7 +443,7 @@ func TestFakeWalletLockedAndBurntOutputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	fw.Mine(1)
-	if err := w.GenerateFromKeys(ctx, "view", joint, jView.Hex(), "", 0); err != nil {
+	if err := w.GenerateFromKeys(ctx, "view", joint, jView.Hex(), "", "", 0); err != nil {
 		t.Fatal(err)
 	}
 	fw.Mine(10)
@@ -464,14 +469,14 @@ func TestFakeWalletLockedAndBurntOutputs(t *testing.T) {
 		t.Fatalf("UnlockedBalance: %d %v", bal, err)
 	}
 	// the sweep takes the spendable one only; the frozen one waits for its unlock_time and then sweeps too
-	if err := w.GenerateFromKeys(ctx, "full", joint, jView.Hex(), jSpend.Hex(), 0); err != nil {
+	if err := w.GenerateFromKeys(ctx, "full", joint, jView.Hex(), jSpend.Hex(), "", 0); err != nil {
 		t.Fatal(err)
 	}
 	if ids, err := w.SweepAll(ctx, alice); err != nil || len(ids) != 1 {
 		t.Fatalf("sweep with one spendable output: %v %v", ids, err)
 	}
 	fw.Mine(1)
-	if _, err := w.SweepAll(ctx, alice); !isRPC(err, -37) {
+	if _, err := w.SweepAll(ctx, alice); !isRPC(err, -4) {
 		t.Fatalf("sweep of a frozen and a burnt output: %v", err)
 	}
 	fw.Mine(30)
@@ -482,7 +487,7 @@ func TestFakeWalletLockedAndBurntOutputs(t *testing.T) {
 		t.Fatalf("sweep after the unlock_time: %v %v", ids, err)
 	}
 	// a unix-time unlock_time is a time, compared with the fake's block timestamps
-	if err := w.OpenWallet(ctx, "alice"); err != nil {
+	if err := w.OpenWallet(ctx, "alice", ""); err != nil {
 		t.Fatal(err)
 	}
 	fw.Mine(10)
@@ -492,7 +497,7 @@ func TestFakeWalletLockedAndBurntOutputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	fw.Mine(11)
-	if err := w.OpenWallet(ctx, "view"); err != nil {
+	if err := w.OpenWallet(ctx, "view", ""); err != nil {
 		t.Fatal(err)
 	}
 	if e := byIDOf(mustIncoming(t, w, ctx), timedTx); e.Unlocked || e.UnlockTime < unlockTimeIsTime || e.Confirmations != 11 {

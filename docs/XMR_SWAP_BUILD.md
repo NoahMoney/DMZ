@@ -47,7 +47,7 @@ holds it until a reveal.
 |---|---|---|---|---|
 | **Claim** | height < T1, `SHA256(s_a)=H_a`, `SHA256(k_b)=H_k`, caller is the taker | Alice | `s_a` | Alice: DERO. Bob: XMR (via `s_a+s_b`). The swap. |
 | **Refund** | T1 ≤ height < T2, `SHA256(s_b)=H_b`, caller is the maker | Bob | `s_b` | Bob: DERO back. Alice, if she locked: XMR back (via `s_a+s_b`). |
-| **Punish** | height ≥ T2, caller is the taker | Alice | nothing | Alice: the DERO. Bob: nothing — he had [T1,T2) to refund and did not. Any XMR Alice locked stays locked to the joint key forever (she is compensated in DERO; Bob cannot take it without `s_a`). |
+| **Punish** | height ≥ T2; anyone may send it, and it pays the taker (v2) | Alice, or anyone | nothing | Alice: the DERO. Bob: nothing — he had [T1,T2) to refund and did not. Any XMR Alice locked stays locked to the joint key forever (she is compensated in DERO; Bob cannot take it without `s_a`). |
 
 Why the gate secret: without `k_b`, Alice could claim DERO the moment Bob locked, never having locked XMR. Bob
 hands over `k_b` only after Monero has confirmed her lock. A claim delay instead of a gate secret was reviewed
@@ -96,26 +96,38 @@ Extend `contracts/swap.bas` (read it first; keep its conventions: `Initialize`, 
 `HEXDECODE` of a 64-hex secret to 32 raw bytes, `HEX(SHA256(raw))` compared to the stored hex hash).
 
 ```
-Initialize()                                   kind = "htlc", v = 1, n = 0
+Initialize()                                   kind = "htlc", v = 2, n = 0
 Lock(ha String, hk String, hb String, taker String, t1 Uint64, t2 Uint64, asset String) Uint64
-    ha, hk, hb: 64 hex chars each. taker: REQUIRED (an address; "" is refused — Punish pays it).
+    ha, hk, hb: 64 LOWER-CASE hex chars each (v2: HEX(HEXDECODE(x)) == x, as swap.bas and board.bas).
+    taker: REQUIRED (an address; "" is refused — Punish pays it).
     now + 1 < t1 < t2 <= now + 1000000. asset: "" = the DERO sent, else 64-hex SCID and ASSETVALUE(a) > 0 with
     DEROVALUE() == 0. Stores m_<id> t_<id> ha_<id> hk_<id> hb_<id> a_<id> v_<id> t1_<id> t2_<id> st_<id>=0; n++.
 Claim(id Uint64, sa String, kb String) Uint64
-    st == 0, height < t1, SIGNER() == taker, both 64-hex, HEX(SHA256(HEXDECODE(sa))) == ha, same for kb/hk.
-    st = 1, xa_<id> = sa, then pay taker.
+    st == 0, height < t1, SIGNER() == taker, both 64-hex, HEX(SHA256(HEXDECODE(sa))) == ha, same for kb/hk,
+    no DERO and none of the lock's asset attached. st = 1, xa_<id> = sa, then pay taker.
 Refund(id Uint64, sb String) Uint64
-    st == 0, t1 <= height < t2, SIGNER() == maker, HEX(SHA256(HEXDECODE(sb))) == hb. st = 2, xb_<id> = sb, pay maker.
+    st == 0, t1 <= height < t2, SIGNER() == maker, HEX(SHA256(HEXDECODE(sb))) == hb, nothing attached.
+    st = 2, xb_<id> = sb, pay maker.
 Punish(id Uint64) Uint64
-    st == 0, height >= t2, SIGNER() == taker. st = 3, pay taker.
+    st == 0, height >= t2, a valid ring-2 signer — ANY signer (v2, LIV-07) — nothing attached.
+    st = 3, pay the stored taker t_<id>.
 ```
+
+v2 (2026-09-11) changes three rules and nothing else. **Punish pays `t_<id>` whoever sends it** (LIV-07: in v1 only
+the taker could, and a lock she never punished was frozen for ever). **Lock refuses a hash that is not lower-case**
+(GAP-023: an upper-case hash is one no preimage's `HEX(SHA256(...))` can match). **Every exit refuses the lock's own
+asset attached** (GAP-027: v1 refused only DERO, and anything else attached was kept for ever). Install storage gas is
+3,907 for 3,870 canonical bytes, against the 20,000 cap; a Claim is 304 storage gas, a Punish 88
+(`tests/htlc_test.go`, `tests/htlc_v2_test.go`). The companion pins the canonical code's SHA-256 (`HTLCCodeSHA256`,
+`tools/xmrswap/pin.go`) and refuses any other.
 
 DVM rules that will bite: line numbers strictly ascending within a function, `DIM` first, only `IF c THEN GOTO n`,
 uint64 wraps silently, `LOAD` of a missing key panics (guard with `EXISTS`), `SIGNER()` is real only at ring size 2,
 install gas is charged on source bytes against 20,000 (comments are stripped by `reference.Canon` at install; the
 harness measures the canonical form). **Every `SEND_*` must come after the last `GOTO 900` on its path** —
 `tests/sendorder_test.go` fails the suite otherwise, and that ordering was a reproduced fund drain elsewhere.
-`DEROVALUE() != 0` is refused on Claim/Refund/Punish so nothing is stranded.
+`DEROVALUE() != 0`, and `ASSETVALUE` of the lock's asset, are refused on Claim/Refund/Punish so nothing is stranded; an
+asset of any other SCID cannot be seen by the DVM, so the companion never attaches one.
 
 ### 3.B `poc/proof-xmr` as a tool
 
@@ -157,8 +169,9 @@ type Wallet interface {                     // one monero-wallet-rpc
     Height(ctx) (uint64, error)
     Address(ctx) (string, error)                                // the currently open wallet's address
     Transfer(ctx, to string, amount uint64) (txid string, err error)
-    GenerateFromKeys(ctx, name, address, viewKey string, spendKey string /* "" = view-only */, restoreHeight uint64) error
-    OpenWallet(ctx, name string) error
+    GenerateFromKeys(ctx, name, address, viewKey, spendKey /* "" = view-only */, password string, restoreHeight uint64) error
+                                            // the client checks v·G and s·G against the address first: the server does not
+    OpenWallet(ctx, name, password string) error
     CloseWallet(ctx) error
     Incoming(ctx, minHeight uint64) ([]Incoming, error)         // get_transfers{in:true, filter_by_height}; each with Confirmations, Amount, TxID, Height
     SweepAll(ctx, to string) (txids []string, err error)
@@ -171,7 +184,8 @@ type Prover interface {
     Prove(ctx, secret Scalar) (h string, s Point, proof []byte, err error)
     Verify(ctx, h string, s Point, proof []byte) (bool, error)
 }
-func NewProverCLI(command []string) Prover   // e.g. {"wsl.exe","-e","/home/wilma/target/proof-xmr/release/proof-xmr"} or {"proof-xmr"}
+func NewProverCLI(command []string) Prover   // unpinned, for drivers and tests: {"proof-xmr"} or {"wsl.exe","-e","<path to proof-xmr>"}
+func NewPinnedProver(path, wantSHA256 string) (Prover, error) // the companion's: an absolute path, hashed before every run
 // fakewallet.go — a fake monero-wallet-rpc HTTP server for tests and the simulator driver
 func NewFakeWallet(net Network) *FakeWallet   // ServeHTTP; Mine(n) advances height; deterministic; supports the calls above
 ```
@@ -191,27 +205,41 @@ documented example addresses) — not from your own encoder. Use `filippo.io/edw
 // Copy its request shapes (Transfer with sc_rpc args at ring size 2, DERO.GetSC with variables, gas estimate).
 type Dero interface {
     Height(ctx) (uint64, error)
-    Lock(ctx, ha, hk, hb, taker string, t1, t2 uint64, amount uint64) (txid string, id uint64, err error)
-    Claim(ctx, id uint64, sa, kb string) (string, error)
+    StableHeight(ctx) (uint64, error)
+    Lock(ctx, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount uint64) (txid string, id uint64, err error) // asset "" = DERO (U1)
+    Claim(ctx, id uint64, sa, kb string, cutoff uint64) (string, error) // nothing sent at h + 1 >= cutoff (XMR-06)
     Refund(ctx, id uint64, sb string) (string, error)
     Punish(ctx, id uint64) (string, error)
     ReadLock(ctx, id uint64) (Lock, error)   // every field, including xa/xb when revealed and st
+    CodeSHA256(ctx) (string, error)           // U4: the contract's code, hashed
+    Registered(ctx, addr string) (bool, error)
+    Balance(ctx, asset string) (uint64, error)
+    Pay(ctx, to string, amount, port uint64) (string, error)                            // the stipend, port-tagged
+    FindPayment(ctx, incoming bool, port, minHeight uint64) (Payment, bool, error)
 }
 // channel.go — the rendezvous; spore is the intended production transport, a directory of JSON files is the test one
 type Channel interface { Send(ctx, to string, msg Message) error; Recv(ctx) (Message, error) }
 type Message struct { Kind string; Body json.RawMessage }   // kinds: offer, alice_setup, bob_setup, dero_locked, xmr_locked, gate, done
 // state.go — durable, fsync+rename, loaded strictly (mirror tools/vaultsigner's memory/intents)
 // swap.go — two state machines
-//   Bob:   setup → verified_pi_a → dero_locked → watching_xmr → xmr_confirmed(≥10) → gate_sent → claimed(read s_a) → swept | refund_window → refunded | punished
-//   Alice: setup → verified_pi_b → saw_dero_lock(checked) → xmr_locked → waiting_gate → gate_received → claimed | refund_seen(read s_b) → swept | punish_window → punished
+//   Bob:   setup → verified_pi_a(code pin, taker registered, funds) → dero_locking → dero_locked → stipend_sending → watching_xmr → xmr_confirmed(≥20)
+//          → gate_sending → gate_sent → claimed(read s_a, stable) → sweep_ready → swept | refund_window → refunding → refunded
+//          | punish_window → closing(Punish himself after t2 + 20) → punished
+//   Alice: setup(registered) → offer_checked → verified_pi_b → lock_announced(code pin) → saw_dero_lock(stable, stipend stable) → xmr_locking
+//          → xmr_locked → gate_received(before t1 − G) → claiming → claim_confirming(until stable) → claimed
+//          | await_refund → refund_seen(read s_b) → sweep_ready → swept | punish_window → punishing → punished
 ```
 
-Invariants (§4) are asserted in tests, not assumed. `cmd/xmrswap` runs one side: `xmrswap bob|alice -state <file>
--dero <wallet-rpc> -daemon <rpc> -htlc <scid> -monero <wallet-rpc> -net stagenet -prover "<cmd>" -channel <dir>
--amount-dero N -amount-xmr M`. `tools/simhtlc` drives a whole swap on the local DERO simulator with the fake Monero
-wallet (`-fake-monero`), two companions in-process, and exercises **all three exits**: happy path; Bob refunds and
-Alice recovers XMR with `s_b`; Bob vanishes and Alice punishes. It prints every txid and reads every contract
-key back.
+Invariants (§4) are asserted in tests, not assumed. `cmd/xmrswap` runs one side: `VEIL_RPC_LOGIN=<u>:<p>
+XMRSWAP_MONERO_LOGIN=<u>:<p> xmrswap bob|alice -state <file> -net <network> -daemon <rpc> -dero <wallet-rpc>
+-monero <wallet-rpc> -htlc <scid> -prover <absolute path> -channel <dir> -amount-dero N -amount-xmr M`, plus, on
+mainnet, `-mainnet -monerod <loopback> -monero-wallet-dir <dir>`; `-net`, `-daemon`, `-dero`, `-monero` and
+`-prover` have no defaults. `xmrswap status -dir <dir> -daemon <rpc> [-monero <wallet-rpc>]` reconciles every state
+file with the chains. `tools/simhtlc` drives a whole swap on the local DERO simulator, two companions in-process,
+with the Monero side either the fake wallet (`-fake-monero`) or two real `monero-wallet-rpc` on a regtest `monerod`
+(`-regtest`, `tools/regtest`), and exercises **all three exits**: happy path; Bob refunds and Alice recovers XMR with
+`s_b`; Bob vanishes and Alice punishes. It prints every txid, looks every real Monero txid up on the `monerod`, and
+reads every contract key back.
 
 ### 3.E `docs/XMR_SWAP.md` (agent E)
 
@@ -279,13 +307,38 @@ Added 2026-09-08 from the adversarial review in `docs/XMR_SWAP.md` §9 — each 
 13. **Every secret is fresh per swap** (review R20, R23): `s_a`, `s_b`, `k_b` and the view key pair are generated
     for one swap id and never reused. Reusing `s_a` publishes the second swap's key share at the first Claim;
     reusing `k_b` lets one counterparty claim another swap's DERO. The state file records the swap id each secret
-    belongs to, and a companion refuses to start a swap whose secrets it has seen before.
+    belongs to, and a companion refuses to start a swap whose secrets it has seen before. The same register holds,
+    per role, the public identities a swap takes as its own — its joint address, the lock the taker accepted, every
+    Monero payment the maker's gate counted — and a second swap from the same directory that is handed one of them
+    is refused (`TestALockAlreadySeenFailsClosed`, `TestOneMoneroPaymentOpensOneGate`).
+
+Added 2026-09-11 from `docs/ATOMIC_SWAP_STUDY.md` and the mainnet gap analysis:
+
+14. **The taker's gas is a stipend from the maker** (Path 0). Bob sends it once his lock is stable and before Alice
+    locks anything, at most once (a settle wait past DERO's 11-block transaction validity, then his own wallet's
+    history, before any second attempt); Alice locks no XMR until it is in her wallet at stable depth and she can
+    spend at least `StipendMin`. Default 14,016 atomic units: (3,000 + 504) × 4.
+15. **A gate after `t1 − G` is not used** (U2). Bob releases `k_b` only while `height + G + 2 < t1`; Alice treats one
+    that reaches her at or after `t1 − G` as never received. Default G = 100 (assumed, operator decision 5).
+16. **The taker watches her Claim until it is stable** (U3), and a Claim undone by a replaced block sends her back to
+    claiming (before the cutoff) or to waiting for the refund.
+17. **Only the pinned contract and the pinned prover** (U4, GAP-003). The companion refuses an `-htlc` whose code does
+    not hash to `HTLCCodeSHA256`, and a prover that is not an absolute path hashing to `ProverSHA256`; a verifier that
+    prints a verdict must print it for the very statement asked about.
+18. **Networks, endpoints and credentials fail closed** (GAP-007 to GAP-010). No network or endpoint has a default;
+    mainnet is named and never mixed; on mainnet both wallet logins come from the environment and each wallet must
+    refuse a call without them, and the wallets and the `monerod` are loopback, the `monerod` named to the wallet-rpc
+    after every open.
+19. **Every reply is bounded and read one way** (bounded input): a size cap and a timeout on every daemon, wallet and
+    prover answer; trailing data, or neither a result nor an error, is refused. A Monero send counts only when the
+    wallet's own record lists it: 0.18.5.1 answers a view-only wallet's transfer with a hash it never broadcast.
 
 Policy the companion states rather than proves (review R18, R19, R24): it warns loudly when `-daemon` or
 `-monero` is not loopback, because a lying node is the one loss the protocol cannot see; it converts remaining
 DERO blocks to minutes at the rate it has actually observed since the lock and refuses to lock XMR when the
 remaining budget is below what its own path needs; and a height-gated call whose fixed fee does not mine is
-re-sent with a higher fee while `now + 8 + 1 < t1`, then abandoned for the exit that remains.
+re-sent with a higher fee — a Claim while `now + 1 < t1 − 8 − margin`, the claim cutoff itself (XMR-06), a Refund
+while `now < t2` — then abandoned for the exit that remains.
 
 ---
 
@@ -293,8 +346,8 @@ re-sent with a higher fee while `now + 8 + 1 < t1`, then abandoned for the exit 
 
 - **A.** `tests/htlc_test.go` against the real DVM: happy path with both preimages; Claim without `kb`, with wrong
   `sa`, with wrong `kb`, by a non-taker, at height ≥ t1 — all refused; Refund before t1, at ≥ t2, by a non-maker,
-  with a wrong `sb` — refused; Refund reveals `sb` and pays the maker; Punish before t2, by a non-taker, after a
-  Refund, after a Claim — refused; Punish pays the taker; a Lock with `taker == ""`, with `t1 <= now+1`, with
+  with a wrong `sb` — refused; Refund reveals `sb` and pays the maker; Punish before t2, after a Refund, after a
+  Claim — refused; Punish pays the taker, whoever sends it (v2); a Lock with `taker == ""`, with `t1 <= now+1`, with
   `t2 <= t1`, with both DERO and an asset, with neither — refused; asset locks round-trip; no path leaves value in
   the contract; install storage gas printed and < 20,000. Register `htlc.bas` in `TestContractsParse`.
 - **B.** `cargo test` as listed in §3.B; `run.log` re-recorded.
@@ -314,8 +367,9 @@ re-sent with a higher fee while `now + 8 + 1 < t1`, then abandoned for the exit 
 bash tests/run.sh                                   # DVM suite incl. htlc + sendorder + parse
 cd tools && go build ./... && go vet ./... && go test ./xmrswap/ ./vaultsigner/
 node --test tests/js
-wsl.exe -e bash -lc 'REPO=/mnt/c/Users/Wilma/Desktop/fomo research/crosschain/poc/wsl/build.sh proof-xmr test --release'
-cd tools && go run ./simhtlc -fake-monero -prover "wsl.exe -e /home/wilma/target/proof-xmr/release/proof-xmr"   # all three exits
+wsl.exe -e bash -lc 'REPO=<repository path in WSL> research/crosschain/poc/wsl/build.sh proof-xmr test --release'
+cd tools && go run ./simhtlc -fake-monero -prover "<proof-xmr command>"   # all three exits, fake Monero
+cd tools && go run ./simhtlc -regtest -prover "<proof-xmr command>"       # all three exits, real monero-wallet-rpc on tools/regtest
 ```
 
 The app is untouched, so the UI pass is not part of this gate; `genconfig -dist` is (nothing may push a file

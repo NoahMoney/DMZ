@@ -42,6 +42,9 @@ type State struct {
 	View    string `json:"view,omitempty"`
 	ViewPub string `json:"viewPub,omitempty"`
 	Joint   string `json:"joint,omitempty"` // the joint Monero address P = S_a + S_b, V
+	// JointPassword encrypts the joint wallets' files on the wallet-rpc (GAP-020): 32 random bytes made at setup, so
+	// a copy of the wallet-dir alone opens nothing.
+	JointPassword string `json:"jointPassword,omitempty"`
 
 	MyDero   string `json:"myDero"`             // this party's DERO address
 	MyXmr    string `json:"myXmr"`              // this party's own Monero address (Bob: where the sweep goes)
@@ -49,10 +52,14 @@ type State struct {
 
 	// RestoreHeight is the Monero height at setup: the joint wallets scan from here.
 	RestoreHeight uint64 `json:"restoreHeight"`
+	// DeroHeight is the DERO height at setup: nothing of this swap's is on DERO below it, so the stipend is looked
+	// for from here in either party's wallet history.
+	DeroHeight uint64 `json:"deroHeight,omitempty"`
 
-	Lock  LockRecord  `json:"lock"`
-	Xmr   XmrRecord   `json:"xmr"`
-	Sweep SweepRecord `json:"sweep"`
+	Lock    LockRecord    `json:"lock"`
+	Stipend StipendRecord `json:"stipend"`
+	Xmr     XmrRecord     `json:"xmr"`
+	Sweep   SweepRecord   `json:"sweep"`
 
 	ClaimTx  string `json:"claimTx,omitempty"`
 	RefundTx string `json:"refundTx,omitempty"`
@@ -71,12 +78,35 @@ type State struct {
 
 // Terms are what both sides agreed over the channel and what every chain read is checked against.
 type Terms struct {
-	AmountDero uint64 `json:"amountDero"` // atomic units
+	AmountDero uint64 `json:"amountDero"` // atomic units of Asset (DERO's when Asset is "")
 	AmountXmr  uint64 `json:"amountXmr"`  // piconero
-	Asset      string `json:"asset"`      // "" is DERO; this build locks DERO only
-	Net        string `json:"net"`        // Monero network name
-	T1Delta    uint64 `json:"t1Delta"`    // blocks from Bob's lock to t1
-	T2Delta    uint64 `json:"t2Delta"`    // blocks from t1 to t2
+	// Asset is the DERO-side leg (U1): "" is DERO, otherwise the 64 lower-case hex SCID of the token or NFA unit
+	// the maker locks instead. Decimals is that asset's scale as both sides agreed it; nothing on chain states it,
+	// so the two companions compare it rather than trust one side's display.
+	Asset    string `json:"asset"`
+	Decimals uint64 `json:"decimals,omitempty"`
+	// Stipend is the DERO, in atomic units, the maker sends the taker once his lock is stable and before she locks
+	// any XMR, so that she can pay for the Claim — and for Punish — without having bought DERO anywhere (Path 0).
+	Stipend uint64 `json:"stipend"`
+	// DeroNet is the DERO network the maker's daemon is on — mainnet, testnet or simulator — and Net the Monero
+	// network. Both are terms (GAP-007): a lock on one network paid for on another is the loss they rule out.
+	DeroNet string `json:"deroNet"`
+	Net     string `json:"net"`     // Monero network name
+	T1Delta uint64 `json:"t1Delta"` // blocks from Bob's lock to t1
+	T2Delta uint64 `json:"t2Delta"` // blocks from t1 to t2
+}
+
+// StipendRecord is the maker's DERO gift to the taker (Path 0) as this party knows it: for Bob the transfer he
+// sent, for Alice the one her own wallet shows arriving. Tx is "" until one is known.
+type StipendRecord struct {
+	Tx     string `json:"tx,omitempty"`
+	Amount uint64 `json:"amount,omitempty"`
+	Height uint64 `json:"height,omitempty"` // the block it was mined in
+	// AttemptHeight is Bob's DERO height when he last handed a stipend to his wallet without seeing it mined. A
+	// DERO transaction is valid for TX_VALIDITY_HEIGHT = 11 blocks after the height it was built at
+	// (blockchain/miner_block.go, enforced in blockchain.go), so once StipendSettleBlocks have passed it is mined
+	// or it never will be, and his own wallet's history then says which — the rule that keeps the stipend single.
+	AttemptHeight uint64 `json:"attemptHeight,omitempty"`
 }
 
 // Party is one side's key material. Secret is set only in Own.
@@ -98,10 +128,13 @@ type LockRecord struct {
 	// the settle window measured from here has passed.
 	AttemptHeight uint64 `json:"attemptHeight,omitempty"`
 	SeenHeight    uint64 `json:"seenHeight,omitempty"` // Alice: DERO height when the lock first passed every check
-	// ClaimSeenHeight is the DERO height at which Bob first read st == 1. The contract does not store the block
-	// the Claim was mined in, and Bob never learns its txid from anyone he trusts; but the block is at or below
-	// the height he read it at, so he sweeps only once this height is at or below the daemon's stable height
-	// (Invariant 9): from then on DERO cannot replace the Claim's block.
+	// LockedHeight is Bob's DERO height when his Lock came back executed: the lock's block is at or below it, so
+	// once the stable height reaches it the lock can no longer be replaced, and only then does the stipend go out.
+	LockedHeight uint64 `json:"lockedHeight,omitempty"`
+	// ClaimSeenHeight is the DERO height at which a party first read st == 1. The contract does not store the block
+	// the Claim was mined in; but the block is at or below the height it was read at, so Bob sweeps (Invariant 9)
+	// and Alice stops watching (U3) only once this height is at or below the daemon's stable height: from then on
+	// DERO cannot replace the Claim's block.
 	ClaimSeenHeight uint64 `json:"claimSeenHeight,omitempty"`
 	T1              uint64 `json:"t1"`
 	T2              uint64 `json:"t2"`
@@ -176,7 +209,7 @@ func (s *State) Path() string { return s.path }
 // nothing here restricts who may read the key share it holds. Saying so is not a fix — it is the difference
 // between an operator who knows and one who believes the 0600 in the comment.
 func StateFileWarning(path string) string {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != "windows" || HardenFile != nil {
 		return ""
 	}
 	return "the state file " + path + " holds this party's key share in cleartext, and on Windows the 0600 it is created with is not enforced: it inherits the directory's ACL. Keep it in a directory only this account can read."
@@ -192,12 +225,24 @@ func (s *State) Save() error {
 	return writeAtomic(s.path, b)
 }
 
-// writeAtomic is the durable write both files use: temp file, fsync, rename, 0600.
+// HardenFile, when set, is applied to every file writeAtomic writes — the state and the used-secrets register — once
+// it exists and before a byte of it is written. The command line sets it on Windows to OwnerOnlyACL, because there
+// the 0600 the file is created with means nothing and it would inherit the directory's ACL (GAP-020).
+var HardenFile func(path string) error
+
+// writeAtomic is the durable write both files use: temp file, fsync, rename, 0600 (and HardenFile when set).
 func writeAtomic(path string, b []byte) error {
 	tmp := path + ".tmp"
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
+	}
+	if HardenFile != nil {
+		if err := HardenFile(tmp); err != nil {
+			f.Close()
+			os.Remove(tmp)
+			return fmt.Errorf("restricting %s to its owner: %w", tmp, err)
+		}
 	}
 	if _, err := f.Write(b); err != nil {
 		f.Close()
@@ -234,8 +279,10 @@ type UsedSecret struct {
 	At   time.Time `json:"at"`
 }
 
-// ErrSecretReused is the refusal: wrapped in the error Record returns when another swap holds the secret.
-var ErrSecretReused = errors.New("secret already used by another swap")
+// ErrSecretReused is the refusal: wrapped in the error Record returns when another swap holds the entry — a
+// secret, or one of the public identities a swap takes as its own (its joint address, the lock it accepted, a
+// Monero payment its gate counted), which must never serve a second swap either.
+var ErrSecretReused = errors.New("already used by another swap")
 
 // UsedPath is where the register lives for a state file: beside it, under one name for every swap.
 func UsedPath(statePath string) string {
@@ -279,7 +326,7 @@ func (u *UsedSecrets) Record(secret []byte, swap, kind string) error {
 	}
 	h := SHA256Hex(secret)
 	if prev, seen := u.Secrets[h]; seen && prev.Swap != swap {
-		return fmt.Errorf("%w: this %s was generated for swap %s on %s", ErrSecretReused, kind, prev.Swap, prev.At.Format(time.RFC3339))
+		return fmt.Errorf("%w: this %s belongs to swap %s, recorded %s", ErrSecretReused, kind, prev.Swap, prev.At.Format(time.RFC3339))
 	}
 	u.Secrets[h] = UsedSecret{Swap: swap, Kind: kind, At: time.Now().UTC()}
 	b, err := json.MarshalIndent(u, "", "  ")

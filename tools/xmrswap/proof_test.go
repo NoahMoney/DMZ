@@ -21,7 +21,13 @@ import (
 // package's own key arithmetic and a "proof" that is a hash of the statement. It tests the wrapper — argument
 // passing, stdin, parsing, exit-code mapping, the statement check — not the proof, which cargo test covers.
 // Mode "lying" answers with a public key that is not the secret's; mode "slow" never answers verify.
+//
+// A pinned prover (NewPinnedProver) is run as its path alone, so it cannot be handed a leading argument: with
+// XMRSWAP_FAKE_PROVER set, the binary answers verify in that mode instead (pinnedFakeMain).
 func TestMain(m *testing.M) {
+	if mode := os.Getenv("XMRSWAP_FAKE_PROVER"); mode != "" {
+		os.Exit(pinnedFakeMain(mode, os.Args[1:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--fake-prover" {
 		mode, args := "", os.Args[2:]
 		if len(args) > 0 && (args[0] == "lying" || args[0] == "slow") {
@@ -30,6 +36,27 @@ func TestMain(m *testing.M) {
 		os.Exit(fakeProverMain(mode, args))
 	}
 	os.Exit(m.Run())
+}
+
+// pinnedFakeMain answers `verify <h> <s> <proof>` with exit 0 and, by mode: a verdict for another statement, a
+// verdict for the one asked about, output that is not a verdict, or nothing (the pinned build's own behaviour).
+func pinnedFakeMain(mode string, args []string) int {
+	if len(args) != 4 || args[0] != "verify" {
+		fmt.Fprintln(os.Stderr, "usage: verify <h> <s> <proof>")
+		return 2
+	}
+	switch mode {
+	case "wrong-verdict":
+		fmt.Printf(`{"valid":true,"h":"%s","s":"%s"}`+"\n", strings.Repeat("00", 32), strings.Repeat("11", 32))
+	case "right-verdict":
+		fmt.Printf(`{"valid":true,"h":"%s","s":"%s"}`+"\n", args[1], args[2])
+	case "not-a-verdict":
+		fmt.Println("ok")
+	case "silent":
+	default:
+		return 2
+	}
+	return 0
 }
 
 func fakeProof(h, s string) string {
@@ -194,12 +221,14 @@ func realProver(t *testing.T) Prover {
 	if testing.Short() {
 		t.Skip("-short")
 	}
+	// the real prover is named by XMRSWAP_PROVER (a command line, e.g. "wsl.exe -e <path to proof-xmr>") or found as
+	// proof-xmr on PATH; with neither, the test says loudly that it did not run rather than pass by absence
 	cmd := strings.Fields(os.Getenv("XMRSWAP_PROVER"))
 	if len(cmd) == 0 {
-		if _, err := exec.LookPath("wsl.exe"); err != nil {
-			t.Skip("no XMRSWAP_PROVER and no wsl.exe")
+		if _, err := exec.LookPath("proof-xmr"); err != nil {
+			t.Skip("THE REAL-PROVER TEST DID NOT RUN: set XMRSWAP_PROVER to the proof-xmr command, or put proof-xmr on PATH")
 		}
-		cmd = []string{"wsl.exe", "-e", "/home/wilma/target/proof-xmr/release/proof-xmr"}
+		cmd = []string{"proof-xmr"}
 	}
 	p := NewProverCLI(cmd)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

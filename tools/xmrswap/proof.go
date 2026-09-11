@@ -3,12 +3,16 @@ package xmrswap
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Prover is the setup proof (docs/XMR_SWAP_BUILD.md §3.B): "I know x with SHA256(x) = h and x·G = s". Each party
@@ -22,17 +26,56 @@ type Prover interface {
 }
 
 // NewProverCLI wraps the proof-xmr binary (research/crosschain/poc/proof-xmr): command is the program and any
-// leading arguments, e.g. {"wsl.exe", "-e", "/home/wilma/target/proof-xmr/release/proof-xmr"} or {"proof-xmr"}.
+// leading arguments, e.g. {"proof-xmr"} for a build on PATH, or {"wsl.exe", "-e", "<path to proof-xmr>"} for one
+// built inside WSL.
 //
 // The tool's contract: `keygen` prints {"secret","h","s"}; `prove -` reads the secret's hex from stdin and prints
 // {"h","s","proof"}; `verify <h> <s> <proof>` exits 0 for valid, 1 for invalid with one line why on stderr; exit
 // 2 is a refused invocation (usage, non-hex, an unreduced secret). Only stdout carries JSON. The secret goes
 // over stdin, never argv, so it is not in the process list.
+//
+// NewProverCLI runs whatever the command names and pins nothing: it is for a driver on the simulator or a test.
+// The companion runs the prover through NewPinnedProver.
 func NewProverCLI(command []string) Prover {
 	return &proverCLI{command: append([]string(nil), command...)}
 }
 
-type proverCLI struct{ command []string }
+// NewPinnedProver is the prover the companion runs (GAP-003): path must be absolute — a bare name is whatever PATH
+// finds first — and the file there must hash to wantSHA256 (ProverSHA256), now and before every later run, so a
+// binary replaced while the companion runs is refused rather than trusted. It is run directly, with no launcher
+// in front of it: a launcher (wsl.exe, a shell) would be the thing hashed, not the prover.
+func NewPinnedProver(path, wantSHA256 string) (Prover, error) {
+	if !filepath.IsAbs(path) {
+		return nil, fmt.Errorf("proof-xmr: %q is not an absolute path: a bare name is whatever program PATH finds first", path)
+	}
+	p := &proverCLI{command: []string{path}, pin: strings.ToLower(wantSHA256)}
+	if err := p.checkPin(); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+type proverCLI struct {
+	command []string
+	// pin, when set, is the SHA-256 the binary at command[0] must hash to before each run
+	pin string
+}
+
+// checkPin hashes the binary and compares it with the pin.
+func (p *proverCLI) checkPin() error {
+	if p.pin == "" {
+		return nil
+	}
+	b, err := os.ReadFile(p.command[0])
+	if err != nil {
+		return fmt.Errorf("proof-xmr: %w", err)
+	}
+	sum := sha256.Sum256(b)
+	if got := hex.EncodeToString(sum[:]); got != p.pin {
+		return fmt.Errorf("proof-xmr: %s hashes to sha256 %s, and the companion runs only the pinned build %s", p.command[0], got, p.pin)
+	}
+	return nil
+}
 
 // run executes the tool with args, feeding stdin, and returns stdout, the exit status (-1 when it did not run
 // to an exit status) and the first line of stderr.
@@ -40,13 +83,26 @@ func (p *proverCLI) run(ctx context.Context, stdin []byte, args ...string) (stdo
 	if len(p.command) == 0 {
 		return nil, -1, "", errors.New("proof-xmr: empty command")
 	}
+	if err := p.checkPin(); err != nil {
+		return nil, -1, "", err
+	}
+	// bounded like every other answer the companion reads: a deadline when the caller gave none, and output past
+	// a cap ends the call instead of filling memory (a proof is about 3 KB of hex)
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, proverTimeout)
+		defer cancel()
+	}
 	cmd := exec.CommandContext(ctx, p.command[0], append(append([]string(nil), p.command[1:]...), args...)...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
+	out, errb := &capBuffer{max: maxProverOutput}, &capBuffer{max: maxProverOutput}
+	cmd.Stdout, cmd.Stderr = out, errb
 	err = cmd.Run()
+	if out.over || errb.over {
+		return nil, -1, "", fmt.Errorf("proof-xmr %s: output longer than %d bytes refused", args[0], maxProverOutput)
+	}
 	stderr = strings.TrimSpace(errb.String())
 	if i := strings.IndexByte(stderr, '\n'); i >= 0 {
 		stderr = stderr[:i]
@@ -67,6 +123,31 @@ func (p *proverCLI) run(ctx context.Context, stdin []byte, args ...string) (stdo
 		return nil, -1, stderr, fmt.Errorf("proof-xmr %s: %w", args[0], err)
 	}
 }
+
+const (
+	proverTimeout   = 5 * time.Minute // a proof takes about ten seconds (run.log); a tool that takes minutes is not answering
+	maxProverOutput = 1 << 20
+)
+
+// capBuffer keeps at most max bytes and fails the write that would pass it, which ends the copy exec runs. The
+// buffer is a field and not embedded: an embedded bytes.Buffer brings its ReadFrom along, io.Copy prefers
+// ReadFrom to Write, and the cap would never be consulted.
+type capBuffer struct {
+	buf  bytes.Buffer
+	max  int
+	over bool
+}
+
+func (c *capBuffer) Write(p []byte) (int, error) {
+	if c.buf.Len()+len(p) > c.max {
+		c.over = true
+		return 0, errors.New("output cap reached")
+	}
+	return c.buf.Write(p)
+}
+
+func (c *capBuffer) Bytes() []byte  { return c.buf.Bytes() }
+func (c *capBuffer) String() string { return c.buf.String() }
 
 func (p *proverCLI) Keygen(ctx context.Context) (Scalar, string, Point, error) {
 	out, exit, stderr, err := p.run(ctx, nil, "keygen")
@@ -132,17 +213,44 @@ func (p *proverCLI) Verify(ctx context.Context, h string, s Point, proof []byte)
 	if _, err := hex32(h); err != nil {
 		return false, fmt.Errorf("proof-xmr verify: h: %w", err)
 	}
-	_, exit, stderr, err := p.run(ctx, nil, "verify", strings.ToLower(h), s.Hex(), hex.EncodeToString(proof))
+	out, exit, stderr, err := p.run(ctx, nil, "verify", strings.ToLower(h), s.Hex(), hex.EncodeToString(proof))
 	if err != nil {
 		return false, err
 	}
 	switch exit {
 	case 0:
+		if err := checkVerdict(out, h, s); err != nil {
+			return false, err
+		}
 		return true, nil
 	case 1:
 		return false, nil
 	}
 	return false, fmt.Errorf("proof-xmr verify: exit %d: %s", exit, stderr)
+}
+
+// checkVerdict is GAP-003's statement binding. A verify that prints anything on stdout must print exactly one
+// verdict, {"valid":true,"h":<hex>,"s":<hex>}, for the very statement it was asked about; a verdict for another H
+// or S, or output that is not a verdict, is refused whatever the exit status. The pinned build prints nothing and
+// its exit status is its verdict: printing the verdict is a change to research/crosschain/poc/proof-xmr, after
+// which silence can be refused as well.
+func checkVerdict(out []byte, h string, s Point) error {
+	text := strings.TrimSpace(string(out))
+	if text == "" {
+		return nil
+	}
+	var v struct {
+		Valid bool   `json:"valid"`
+		H     string `json:"h"`
+		S     string `json:"s"`
+	}
+	if err := json.Unmarshal([]byte(text), &v); err != nil {
+		return errors.New("proof-xmr verify: exit 0 with output that is not a verdict")
+	}
+	if !v.Valid || !strings.EqualFold(v.H, h) || !strings.EqualFold(v.S, s.Hex()) {
+		return fmt.Errorf("proof-xmr verify: exit 0 with a verdict for another statement (valid %v, h %s, s %s)", v.Valid, v.H, v.S)
+	}
+	return nil
 }
 
 // checkStatement is the companion's own check of the tool's statement — h is SHA-256 of the secret's exact

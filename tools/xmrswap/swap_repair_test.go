@@ -35,7 +35,7 @@ func TestFakeWalletModelsAWalletThatHasNotScanned(t *testing.T) {
 	fw.Mine(20)
 
 	fw.SetScanLag(true)
-	if err := w.GenerateFromKeys(ctx, "made-from-keys", addr, view.Hex(), spend.Hex(), 0); err != nil {
+	if err := w.GenerateFromKeys(ctx, "made-from-keys", addr, view.Hex(), spend.Hex(), "", 0); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := w.UnlockedBalance(ctx); err != nil || got != 0 {

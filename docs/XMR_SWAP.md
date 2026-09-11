@@ -62,14 +62,23 @@ lets Bob *notice* a claim without an XMR lock; it does not let him stop it (buil
 ### 1.3 On chain, step by step
 
 1. **Bob locks DERO** in `htlc.bas`: `Lock(ha, hk, hb, taker = Alice, t1, t2, asset)` with the DERO (or a
-   DERO-native asset) attached to the call.
+   DERO-native asset: a token or an NFA unit, U1) attached to the call. Before he does, his companion reads the
+   contract's code and refuses any SCID whose code does not hash to the `htlc.bas` v2 it was built for
+   (`HTLCCodeSHA256`, `tools/xmrswap/pin.go:13`; `swap.go:510`), refuses a taker whose DERO address has never
+   registered, and checks that his own wallet can pay the lock, the stipend and his fees. Once the lock is 8 blocks
+   deep he sends Alice a **stipend** of DERO (Path 0, `swap.go:1352`): 14,016 atomic units by default, a Claim and a
+   Punish at their last re-sends, so that she can pay for her own exits without buying DERO from anyone.
 2. **Alice reads the lock from the chain** and checks every field against what she holds and what Bob committed
    to over the channel — `ha` is the hash of her own `s_a`; `hk` is the `H_k` Bob sent; `hb` is the `H_b` Bob sent
    and `π_b` verified against it; `taker` is her address; `t1 − now ≥ T1_MIN`; `t2 − t1 ≥ T2_MIN`; the amount and
    asset are what was agreed (build spec §4, invariant 3). Only then does she **send XMR to the joint address**.
+   Her companion also refuses to lock until the maker's stipend is in her own wallet, at least the agreed amount, in
+   a block DERO can no longer replace, and she can spend at least that much (`swap.go:1402`).
 3. **Bob watches the joint address** through a view-only wallet (`generate_from_keys` with the view key and no
-   spend key). At ten or more confirmations of at least the agreed amount, read from his own wallet and not from
-   anything Alice says, he sends Alice `k_b` over the channel (invariant 2).
+   spend key). At twenty confirmations by default (never fewer than ten) of at least the agreed amount, read from his
+   own wallet and not from anything Alice says, he sends Alice `k_b` over the channel (invariant 2). He releases it
+   only while `height + G + 2 < t1`, and Alice ignores a `k_b` that reaches her at or after `t1 − G` (U2, G = 100 by
+   default, `swap.go:64`), so that a Bob who hands the gate over late cannot count on suppressing her Claim.
 4. **Alice claims** the DERO: `Claim(id, s_a, k_b)`. The contract stores `s_a` under `xa_<id>`, where anyone can
    read it.
 5. **Bob reads `s_a`** from the contract, forms `s_a + s_b`, imports the joint wallet with that spend key
@@ -92,7 +101,7 @@ argument of §2 in one line.
 |---|---|---|---|---|
 | **Claim** | height < T1, `SHA256(s_a) = H_a`, `SHA256(k_b) = H_k`, caller is the taker | Alice | `s_a` | Alice: DERO. Bob: XMR (via `s_a + s_b`). The swap. |
 | **Refund** | T1 ≤ height < T2, `SHA256(s_b) = H_b`, caller is the maker | Bob | `s_b` | Bob: DERO back. Alice, if she locked: XMR back (via `s_a + s_b`). |
-| **Punish** | height ≥ T2, caller is the taker | Alice | nothing | Alice: the DERO. Bob: nothing — he had [T1, T2) to refund and did not. Any XMR Alice locked stays under the joint key forever (she is paid in DERO; Bob cannot take it without `s_a`). |
+| **Punish** | height ≥ T2; **anyone** may send it, and it pays the taker (`htlc.bas` v2) | Alice, Bob, or anyone | nothing | Alice: the DERO. Bob: nothing — he had [T1, T2) to refund and did not. Any XMR Alice locked stays under the joint key forever (she is paid in DERO; Bob cannot take it without `s_a`). |
 
 **Claim is the trade.** Alice has the DERO she wanted; Bob has the XMR he wanted, at the price they agreed. There
 is no better outcome, because this *is* the outcome both asked for. Bob's sweep has no deadline: `s_a` sits in
@@ -115,6 +124,16 @@ what Alice needs. Alice, in the punish case, ends with exactly the DERO she agre
 was the XMR she agreed to sell. The only party who ends worse than the agreed trade is the one who did nothing.
 The XMR itself is destroyed for everyone; that is the cost of a Monero side that can enforce nothing, and it is
 paid only by a Bob who chose it.
+
+**Anyone may close an abandoned lock, in the taker's favour.** In `htlc.bas` v1 only the taker could send Punish,
+and Claim and Refund have both closed by t2, so a lock she never punished — key lost, walked away, or worth less
+than her fee — was frozen for ever (LIV-07). In v2 Punish pays the stored taker `t_<id>` whoever sends it
+(`contracts/htlc.bas:138-153`: the signer's only role is to be a valid ring-2 signer, line 141; the payment goes to
+`LOAD("t_" + id)`, lines 149-153). Punish carries no secret, so letting anyone send it changes who may press the
+button and nothing else: it still opens only at t2, still refuses attached value, and still pays only the taker.
+Bob's companion, left running past t2 on a lock still open, closes it itself after 20 blocks (`swap.go:1276`), so
+no lock and no companion waits on a person (`tests/htlc_v2_test.go`, `TestHtlcPunishByAnyonePaysTheTaker`;
+`tests/zzadversarial_liveness_test.go`, `TestHtlcPastT2AnyoneClosesTheLockForTheTaker`).
 
 ### 2.1 What each party can lose, by state reached
 
@@ -170,6 +189,9 @@ the block-time constant, and §9 R19 says why that conversion is an estimate.
 | the deepest Monero reorganisation this project knows of | 18 blocks (≈ 36 min at target), 2026 | reported by exchanges and swap services; **secondary sources only**, no primary record found (`research/crosschain/README.md`, "Monero timing and reorg: secondary sources only. Flagged.") | SOURCES.md row "Monero timing" |
 | `T1_MIN` | 400 DERO blocks (≈ 2 h) after the lock; Bob's companion sets `t1` = lock + 420 by default, and Alice's refuses a `t1` more than 1,200 blocks (≈ 6 h) out | Alice's whole path has to fit inside it: see the budget below. The 20 blocks of slack are there because Alice reads the lock a block or two after Bob chose `t1` and measures it against the same floor; the ceiling stops a maker holding her XMR against a deadline months away | `tools/xmrswap/swap.go:24, 44, 99`; a design margin, not a measured interval |
 | `T2_MIN` | T1 + 400 blocks (≈ 2 h more), and no more than T1 + 1,200 | Bob's refund window; long enough that a Bob who is merely offline for an hour is not punished | `tools/xmrswap/swap.go:25, 45` |
+| gate deadline G | 100 blocks (≈ 30 min) before T1 | Alice treats a `k_b` reaching her at or after `t1 − G` as never received, and Bob releases none that late: suppressing her Claim after a late gate must then last G blocks. 100 is the study's assumed value (operator decision 5) | `tools/xmrswap/swap.go:64`; `docs/ATOMIC_SWAP_STUDY.md` §2.1 U2 |
+| stipend | 14,016 atomic units (0.14016 DERO) | a Claim at its fee (304 storage gas measured on the DVM, + 200) and a Punish at 3,000, each doubled twice by the re-send policy: (3,000 + 504) × 4. A walker keeps it: it is the maker's cost on every swap | `tools/xmrswap/swap.go:71-76`; `tests/htlc_test.go` `TestHtlcClaim` |
+| close-after | T2 + 20 blocks | how long Bob's companion leaves an open lock to Alice's own Punish before sending it itself, which pays her | `tools/xmrswap/swap.go:90` |
 | contract bounds | `now + 1 < t1 < t2 ≤ now + 1,000,000` | ordering only; the contract cannot know Monero's state, so the minimums are policy in the companion, which refuses a lock below them | build spec §3.A |
 
 **Alice's budget inside T1, at target rates.** Bob's lock reaches stable depth: 8 DERO blocks, 144 s. Her XMR
@@ -239,6 +261,27 @@ secret leaves the companion only by the protocol's own reveals — `s_a` on DERO
 not a status endpoint (invariant 1). Nobody hosts the companion for anybody else, and nothing is proxied: each
 companion speaks to its own wallets (invariant 7). The operator of DMZ runs nothing at all for a swap to happen.
 
+What the companion refuses before anything of either party is locked (`tools/xmrswap/cmd/xmrswap/main.go`):
+- **A network left to a default, or two networks mixed.** `-net`, `-daemon`, `-dero` and `-monero` have no defaults;
+  mainnet must be named with `-mainnet` and is refused unless the DERO daemon, the DERO wallet and the Monero wallet
+  are all on it (`main.go:411`); the DERO network is a term of the offer (GAP-007).
+- **A wallet anybody can drive.** The DERO wallet's `--rpc-login` is sent as basic auth, and on mainnet a DERO wallet
+  that answers a call made without it, or a `monero-wallet-rpc` that never asks for its digest login, is refused;
+  logins come from the environment (`VEIL_RPC_LOGIN`, `XMRSWAP_MONERO_LOGIN`), never the command line (GAP-008,
+  GAP-009).
+- **A remote wallet or monerod on mainnet.** `-monerod` is required there and on loopback, as are the wallets; the
+  companion names the monerod to the wallet-rpc with `set_daemon` after every wallet it opens, because the rpc keeps
+  it only for the wallet open when it was sent (GAP-010, `swap.go:902`).
+- **Another contract or another prover.** The contract's code must hash to `HTLCCodeSHA256`, and `-prover` must be the
+  absolute path of the proof-xmr build pinned by `ProverSHA256` (`pin.go:24`), hashed before every run (GAP-003).
+- **An answer it cannot read the same way twice.** Every daemon and wallet reply is read through a size cap and a
+  timeout; one with trailing data, or with neither a result nor an error, is refused (`dero.go:256-295`,
+  `monero.go:157`).
+
+`xmrswap status` prints each swap in a state directory beside what the DERO chain and the joint Monero wallet say now,
+and names every divergence: a state that says open where the chain says refunded, a lock whose fields are not the
+ones recorded, a joint address that has received less than the swap acted on (`tools/xmrswap/status.go:20`).
+
 ## 8. The rendezvous: spore, and why it is only a conversation
 
 The two parties need to exchange the setup table of §1.2 and, later, `k_b`. The intended transport is
@@ -260,6 +303,13 @@ The channel is a conversation and nothing more, and the protocol is built so tha
 - **It is not what makes the swap trustless.** MECHANISM_REVIEW §4's decision is exact: adopt spore as the
   rendezvous; do not adopt its Monero code; "do not describe it as making the cross-chain part trustless — it
   makes the *conversation* serverless; the value transfer is still whichever row of §3 applies."
+
+**The directory transport is neither authenticated nor encrypted (GAP-019).** Its messages are plain JSON files
+(`tools/xmrswap/channel.go:33-121`): anyone who can read the directory reads the private view key `v`, `S_a`, `S_b`,
+`H_a`, `H_b`, `H_k`, both DERO addresses and Alice's Monero txid, and so learns the joint address and the amount and
+timing of the Monero lock; anyone who can write it can put messages in either party's box. For the coins this is
+the rule above — every message that matters is checked against a proof or the chain — and for privacy it is a full
+disclosure of the swap to that reader. Keep the directory where only the two parties can reach it.
 
 ---
 
@@ -331,7 +381,11 @@ cost to her. *Covered:* **not covered by the wording.** §3.C's `Incoming` struc
 data is there, but invariant 2 names confirmations only. The invariant must also require `unlock_time == 0` (or
 `locked == false` *and* `unlock_time == 0`, since `locked` is also true during the ten-block age) before the gate
 is sent. This is the one item on this page that would contradict "nobody can freeze either side's coins" if left
-open, so it has to be closed before the build is called done.
+open, so it has to be closed before the build is called done. *Closed:* Bob's gate counts only a transfer whose
+`unlock_time` is 0 as `get_transfers` reports it, and never more than the wallet's unlocked balance (invariant 8,
+`tools/xmrswap/swap.go` `confirmedAtJoint`). A current `monero-wallet-rpc` refuses to build such an output at all
+(0.18.5.1: -50 "Transaction cannot have non-zero unlock time", `research/regtest/monero-smoke.log`); the check on what
+arrives stays, because other software can build one and whether consensus still accepts it was not tested.
 
 **R7. Bob's lock is wrong — smaller than agreed, the wrong asset, a T1 too close, a taker that is not Alice, a
 hash that is not hers.** *Outcome:* Alice's checks (invariant 3) fail and she does not lock; Bob refunds at T1.
@@ -401,12 +455,18 @@ a privacy loss, never a fund loss. *Covered:* yes, by construction — invariant
 the thing each party trusts — though the spec does not say so in words, and it should, because it is the reason
 spore needs no audit before it is used here.
 
-**R18. A party's own node lies.** Alice reads Bob's lock from a DERO node that shows her a lock that is not in the
-chain; she locks XMR against nothing. Or Bob's `monero-wallet-rpc` talks to a daemon that shows a confirmed deposit
-that does not exist; he releases `k_b` and Alice claims real DERO for no XMR. *Outcome:* a loss, and one the
-protocol cannot see. *Covered:* **not by the protocol, and it cannot be.** It belongs in §10: each party trusts the
-node they read from. The app already refuses non-loopback plaintext endpoints (`app/rpc.js`, `V.endpointURL`); the
-companion takes `-daemon` and `-monero` as flags and should warn, loudly, when either is not loopback.
+**R18. A party's own node lies, and colludes with the counterparty.** It is not a delay; it is a whole leg
+(`docs/CROSS_CHAIN_TRUST_MODEL.md` §5). *For Bob:* his `monero-wallet-rpc` talks to a `monerod` that shows XMR at the
+joint address, deep enough, that is not on the chain; he releases `k_b`, Alice claims the DERO, and Bob sweeps
+nothing — **he loses the DERO-side asset**. *For Alice:* her DERO node shows an `htlc.bas` lock that does not exist;
+she locks XMR, Bob releases the gate, her Claim goes out through that node and reveals `s_a` to it, and Bob sweeps —
+**she loses her XMR**. *Covered:* **not by the protocol, and it cannot be.** Each party trusts the nodes they read
+from, and a remote node they do not run is a trusted party who can cause a total loss (§10). What the companion does:
+on mainnet it refuses a wallet-rpc, a DERO wallet or a `monerod` that is not loopback, and it names its own `monerod`
+to the wallet-rpc with `set_daemon` after every wallet it opens (`-monerod`, GAP-010), because it cannot ask which
+`monerod` a wallet-rpc was started with and the rpc keeps a `set_daemon` only for the wallet open when it is sent
+(`research/regtest/monero-smoke.log`). Elsewhere it warns. Reading from several independent sources and acting
+only when they agree narrows "one liar" to "every source colludes"; it is not built for the Monero swap.
 
 **R19. Heights are not clocks.** T1 and T2 are DERO heights; Alice's wait is Monero confirmations; the two are
 coupled only through wall time. If DERO blocks run fast for an hour, Alice's two hours are shorter than she
@@ -435,8 +495,10 @@ companion that generates fresh secrets per lock (R20) never produces this.
 
 **R24. A refused-by-height Claim with a fee that will not mine.** The daemon's gas estimator runs at height 0, so
 height-gated calls are sent with a fixed fee (`research/crosschain/RESEARCH.md` §4.1). A Claim whose fee is too low
-sits unmined into T1. *Outcome:* R1. *Covered:* operationally; the companion should re-send with a higher fee while
-`now + STABLE_LIMIT + 1 < t1` and stop after.
+sits unmined into T1. *Outcome:* R1. *Covered:* the client re-sends at double the fee, twice at most, and sends no
+Claim at all — first attempt or re-send — once `now + 1 ≥ t1 − 8 − margin`, the same claim cutoff the state machine
+stops at (`tools/xmrswap/dero.go:1016`; XMR-06: the re-send rule was once `now + 8 + 1 < t1`, which let a re-send
+out inside the band the margin keeps empty; `TestCanResendStopsAtTheClaimCutoff`).
 
 The pattern across all of these: every outcome that costs a party coins is either (i) that party's own choice
 or mistake (R8, R11 for Bob, R16's burned Lock, R23), (ii) a skipped proof (R13, R14), (iii) a lie from a node
@@ -465,18 +527,24 @@ be closed, only stated and sized.
   daemon and a `monero-wallet-rpc` that you point it at. If any of those lies to you, the protocol cannot tell
   (§9 R18). A remote node you do not run can cause a total loss that nothing in the protocol detects: run your own,
   or name the one you trust and know that you are trusting it.
-- **The companion's code**, which holds your share and the gate. Read it or trust whoever did.
-- **DERO for the fee.** Every DERO transaction takes its fee from a DERO payload
+- **The companion's code**, which holds your share and the gate. Read it or trust whoever did. It pins the contract's
+  code and the proof tool's binary by hash (`tools/xmrswap/pin.go`), and that pin is only as good as the build that
+  carries it: until a reproducible, signed build exists (BL-14), whoever built your binary is trusted to have pinned
+  the right ones.
+- **DERO for the fee comes from the counterparty.** Every DERO transaction takes its fee from a DERO payload
   (`vendor/derohe/blockchain/transaction_verify.go`, "we can not deduct fees, if no base"), so a holder who
-  arrives with only XMR cannot sign the Claim that pays them until they hold some DERO. Today that means buying it
-  from an exchange, a party nothing else on this page requires; `docs/ATOMIC_SWAP_STUDY.md` §2.0.1 proposes that
-  the maker send it.
+  arrives with only XMR cannot sign the Claim that pays them. The maker sends the taker a stipend once his lock is
+  stable and before she locks anything, and her companion locks no XMR until it is in her wallet at stable depth
+  (Path 0, `tools/xmrswap/swap.go:1352, 1402`). *"Your first DERO for gas is a gift from your counterparty, sent
+  after they have committed and before you have; you owe them nothing for it and they cannot take it back."* It is
+  the maker's cost on every swap, a walker's included, and he cannot tell a newcomer from a sybil. Her address must
+  be registered first, which costs no DERO.
 - **Each party's own machine, at its window.** If Bob's companion is not running between t1 and t2 he cannot
   Refund, and from t2 Alice may Punish and take the DERO he locked. No construction on DERO removes that need: a
   Refund held by anyone else is held by someone who could use `s_b` to steal (`docs/ATOMIC_SWAP_STUDY.md` §6).
-- **The taker, after t2 — a defect, LIV-07.** From t2 only the taker may call Punish (`contracts/htlc.bas`,
-  Punish, line 25), and Claim and Refund have both closed, so a lock she never punishes is frozen for ever
-  (`docs/audit/FINDINGS_2026-09-10.md`, LIV-07).
+- **Nobody, after t2 — LIV-07 is fixed.** In `htlc.bas` v1 only the taker could call Punish, so a lock she never
+  punished was frozen for ever. In v2 anyone may send Punish from t2, and it pays the stored taker
+  (`contracts/htlc.bas:138-153`), so no lock is frozen and none waits on a person (§2).
 - **DERO including Alice's Claim in time.** The companion sends no Claim from sixteen blocks before t1
   (`tools/xmrswap/swap.go:34-37`), so that any Claim it did send is final before Bob's Refund opens. The mempool is
   ordered by fee per byte (`vendor/derohe/blockchain/mempool/mempool.go:377`), and a miner, or a flood of
@@ -547,9 +615,10 @@ action or a live clock.
 - **A Monero address to pay.** The joint address is computed by the companion from values that never enter the
   browser; a web page that says "send your XMR here" is exactly the shape of a phishing page, so this page does not
   have that shape. If the address is ever on screen, something is wrong.
-- **A swap transaction.** In this build the companion sends all three exits. Punish is the one that needs no secret
-  and could be sent through XSWD from the page; it is left with the companion so that there is one place that
-  acts and one that shows. If that changes, this paragraph changes first.
+- **A swap transaction.** In this build the companions send all three exits. Punish needs no secret and, with
+  `htlc.bas` v2, may be sent by anyone, so the page could send it through XSWD; it is left with the companions — the
+  taker's at t2, the maker's own after t2 + 20 — so that there is one place that acts and one that shows. If that
+  changes, this paragraph changes first.
 - **A Monero balance, confirmation count, or "your XMR is safe."** It cannot know, so it does not say.
 - **Anything about the counterparty beyond their DERO address**, which the chain shows anyway.
 
@@ -582,6 +651,18 @@ Primary, read for this page (fetch dates as noted; the derohe files are the vend
 - derohe `dvm/sc.go:278–288` — a non-zero `RETURN` discards the call's changes and becomes an execution error
   ("Discarded knowingly"); https://github.com/deroproject/derohe/blob/master/dvm/sc.go
 - `contracts/swap.bas` — the conventions `htlc.bas` extends; `tests/sendorder_test.go` — the send-order rule.
+- `contracts/htlc.bas` v2 — Punish sendable by anyone and paying `t_<id>` (lines 138-153), Lock refusing a hash that
+  is not 64 lower-case hex (line 39), every exit refusing the lock's own asset attached (lines 91, 120, 147);
+  `tests/htlc_v2_test.go`.
+- `research/regtest/monero-smoke.log`, `tools/regtest/README.md` — monero-wallet-rpc 0.18.5.1 against the companion's
+  calls in regtest: `generate_from_keys` does not check keys against the address, a view-only wallet's `transfer`
+  answers an `unsigned_txset` and sends nothing, `set_daemon` holds only for the open wallet, `get_height` is the
+  wallet's scanned height, a non-zero `unlock_time` is refused (-50).
+- `research/regtest/xmrswap-e2e.log` — all three exits run twice with real `monerod` and `monero-wallet-rpc` 0.18.5.1
+  on regtest and `htlc.bas` v2 on the DERO simulator, every txid looked up on its chain; the second run with the
+  companions naming the `monerod` after every open (55 `set_daemon` calls accepted, none refused). Neither run is
+  testnet or mainnet.
+- `docs/CROSS_CHAIN_TRUST_MODEL.md` §5 — a lying node that colludes with the counterparty costs a whole leg.
 - monero-project/monero `src/cryptonote_config.h` (fetched 2026-09-08) — `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE 10`,
   `DIFFICULTY_TARGET_V2 120`, `CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW 60`; no reorganisation-depth constant;
   https://raw.githubusercontent.com/monero-project/monero/master/src/cryptonote_config.h

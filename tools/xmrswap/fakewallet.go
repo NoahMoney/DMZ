@@ -54,12 +54,38 @@ type FakeWallet struct {
 	scanLag bool
 	// refreshes counts the `refresh` calls, so a test can assert the companion made them.
 	refreshes int
+	// daemon is the monerod address set_daemon named for the wallet open now: "" when none was named since that wallet
+	// was opened or made, which is when a real wallet-rpc falls back to its own --daemon-address. unpinned counts the
+	// calls that read or spend a wallet while it was so, and daemonSets the set_daemon calls.
+	daemon     string
+	unpinned   int
+	daemonSets int
+}
+
+// DaemonSets is how many set_daemon calls the fake has served.
+func (f *FakeWallet) DaemonSets() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.daemonSets
+}
+
+// Unpinned is how many wallet reads and spends were served while no set_daemon covered the open wallet: with
+// -monerod in force, the number a companion must keep at zero.
+func (f *FakeWallet) Unpinned() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.unpinned
 }
 
 type fakeWalletFile struct {
 	address       string
 	viewOnly      bool
 	restoreHeight uint64
+	password      string // what open_wallet must be given, as the file is encrypted under it
+	// viewOK and spendOK are whether the keys it was made from derive its address. monero-wallet-rpc 0.18.5.1 makes the
+	// wallet either way (research/regtest/monero-smoke.log); one with the wrong view key sees nothing, one with the
+	// wrong spend key fails its refresh with -1 "Failed to generate key image".
+	viewOK, spendOK bool
 	// scanned is whether this wallet file has scanned the chain. A wallet made by generate_from_keys under
 	// scanLag has not, and sees nothing at all until refresh.
 	scanned bool
@@ -141,6 +167,13 @@ func (f *FakeWallet) SetScanLag(lag bool) {
 	f.scanLag = lag
 }
 
+// Daemon is the monerod address the last set_daemon named, for a test that wants to see the companion chose it.
+func (f *FakeWallet) Daemon() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.daemon
+}
+
 // Refreshes is how many times `refresh` has been called, for a driver that wants to prove the companion scans.
 func (f *FakeWallet) Refreshes() int {
 	f.mu.Lock()
@@ -189,7 +222,7 @@ func (f *FakeWallet) unlocked(tx *fakeTx) bool {
 // walletBalance is what one wallet file reports: its address's balance, or nothing at all while the file has
 // not scanned.
 func (f *FakeWallet) walletBalance(wf *fakeWalletFile) (unlocked, total uint64) {
-	if !wf.scanned {
+	if !wf.scanned || !wf.viewOK {
 		return 0, 0
 	}
 	return f.balance(wf.address)
@@ -247,6 +280,13 @@ func (f *FakeWallet) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		id = json.RawMessage(`"0"`)
 	}
 	env := map[string]interface{}{"id": id, "jsonrpc": "2.0"}
+	// a wallet read or spend with no set_daemon covering the open wallet, counted for the -monerod test
+	switch req.Method {
+	case "get_balance", "get_transfers", "refresh", "transfer", "sweep_all":
+		if f.open != "" && f.daemon == "" {
+			f.unpinned++
+		}
+	}
 	result, rf := f.dispatch(req.Method, req.Params)
 	if rf != nil {
 		env["error"] = map[string]interface{}{"code": rf.code, "message": rf.msg}
@@ -297,6 +337,15 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 	}
 	switch method {
 	case "get_height":
+		// the open wallet's scanned height, not the chain's: 1 until a wallet made from keys has refreshed, and -13
+		// with no wallet open (0.18.5.1)
+		wf, rf := f.openWallet()
+		if rf != nil {
+			return nil, rf
+		}
+		if !wf.scanned {
+			return map[string]interface{}{"height": 1}, nil
+		}
 		return map[string]interface{}{"height": f.height}, nil
 
 	case "get_address":
@@ -326,15 +375,20 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 		if rf != nil {
 			return nil, rf
 		}
-		if wf.viewOnly {
-			return nil, fail(-29, "The wallet is watch-only. Cannot spend.") // WALLET_RPC_ERROR_CODE_WATCH_ONLY
+		if p.UnlockTime != nil && *p.UnlockTime != 0 {
+			return nil, fail(-50, "Transaction cannot have non-zero unlock time") // 0.18.5.1 refuses to build one
 		}
 		if len(p.Destinations) != 1 {
 			return nil, fail(-4, "the fake wallet pays exactly one destination")
 		}
 		d := p.Destinations[0]
 		if d.Amount == 0 {
-			return nil, fail(-46, "Destination amount is zero") // WALLET_RPC_ERROR_CODE_ZERO_AMOUNT
+			return nil, fail(-46, "destination amount is zero") // WALLET_RPC_ERROR_CODE_ZERO_AMOUNT
+		}
+		if wf.viewOnly {
+			// 0.18.5.1 does not refuse: it answers a hash and an unsigned_txset for offline signing, and broadcasts
+			// nothing (research/regtest/monero-smoke.log)
+			return map[string]interface{}{"tx_hash": f.nextTxID(), "amount": d.Amount, "fee": FakeFee, "tx_blob": "", "unsigned_txset": "4d6f6e65726f20756e7369676e6564207478207365740004", "multisig_txset": ""}, nil
 		}
 		if rf := f.checkDest(d.Address); rf != nil {
 			return nil, rf
@@ -346,10 +400,9 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 		if unlocked < d.Amount+FakeFee {
 			return nil, fail(-37, "not enough unlocked money") // WALLET_RPC_ERROR_CODE_NOT_ENOUGH_UNLOCKED_MONEY
 		}
+		// f.unlockTime stands for an output other software built with an unlock_time (review R6): an honest 0.18.5.1
+		// wallet refuses to make one (-50 above), and consensus may still accept one made elsewhere
 		tx := &fakeTx{id: f.nextTxID(), from: wf.address, to: d.Address, amount: d.Amount, fee: FakeFee, pending: true, unlock: f.unlockTime, burnt: f.burnNext}
-		if p.UnlockTime != nil {
-			tx.unlock = *p.UnlockTime
-		}
 		f.burnNext = false
 		f.txs = append(f.txs, tx)
 		return map[string]interface{}{"tx_hash": tx.id, "amount": tx.amount, "fee": tx.fee, "tx_key": "", "tx_blob": "", "tx_metadata": ""}, nil
@@ -365,15 +418,16 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 		if rf != nil {
 			return nil, rf
 		}
-		if wf.viewOnly {
-			return nil, fail(-29, "The wallet is watch-only. Cannot spend.")
-		}
 		if rf := f.checkDest(p.Address); rf != nil {
 			return nil, rf
 		}
 		unlocked, _ := f.walletBalance(wf)
-		if unlocked <= FakeFee {
-			return nil, fail(-37, "No unlocked balance in the specified account")
+		if unlocked <= FakeFee || !wf.spendOK {
+			return nil, fail(-4, "No unlocked balance in the specified account") // -4 in 0.18.5.1, not -37
+		}
+		if wf.viewOnly {
+			// as transfer: a hash and an unsigned_txset, nothing broadcast
+			return map[string]interface{}{"tx_hash_list": []string{f.nextTxID()}, "amount_list": []uint64{unlocked - FakeFee}, "fee_list": []uint64{FakeFee}, "unsigned_txset": "4d6f6e65726f20756e7369676e6564207478207365740004", "multisig_txset": ""}, nil
 		}
 		tx := &fakeTx{id: f.nextTxID(), from: wf.address, to: p.Address, amount: unlocked - FakeFee, fee: FakeFee, pending: true}
 		f.txs = append(f.txs, tx)
@@ -386,6 +440,7 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 			Address       string `json:"address"`
 			Spendkey      string `json:"spendkey"`
 			Viewkey       string `json:"viewkey"`
+			Password      string `json:"password"`
 		}
 		if rf := params(&p); rf != nil {
 			return nil, rf
@@ -411,25 +466,29 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 		if err != nil {
 			return nil, fail(-1, "Failed to parse view key secret key")
 		}
-		if view.Public() != pa.View {
-			return nil, fail(-1, "view secret key does not match main address")
-		}
+		// 0.18.5.1 does NOT compare the keys with the address (research/regtest/monero-smoke.log): it makes the
+		// wallet, and the wrong keys show up later, as a wallet that sees nothing or cannot refresh
+		spendOK := true
 		if p.Spendkey != "" {
 			spend, err := ParseScalar(p.Spendkey)
 			if err != nil {
 				return nil, fail(-1, "Failed to parse spend key secret key")
 			}
-			if spend.Public() != pa.Spend {
-				return nil, fail(-1, "spend secret key does not match main address")
-			}
+			spendOK = spend.Public() == pa.Spend
 		}
-		f.wallets[p.Filename] = &fakeWalletFile{address: p.Address, viewOnly: p.Spendkey == "", restoreHeight: p.RestoreHeight, scanned: !f.scanLag}
-		f.open = p.Filename
-		return map[string]interface{}{"address": p.Address, "info": "Wallet has been generated successfully."}, nil
+		f.wallets[p.Filename] = &fakeWalletFile{address: p.Address, viewOnly: p.Spendkey == "", restoreHeight: p.RestoreHeight, password: p.Password,
+			scanned: !f.scanLag, viewOK: view.Public() == pa.View, spendOK: spendOK}
+		f.open, f.daemon = p.Filename, ""
+		info := "Wallet has been generated successfully."
+		if p.Spendkey == "" {
+			info = "Watch-only wallet has been generated successfully."
+		}
+		return map[string]interface{}{"address": p.Address, "info": info}, nil
 
 	case "open_wallet":
 		var p struct {
 			Filename string `json:"filename"`
+			Password string `json:"password"`
 		}
 		if rf := params(&p); rf != nil {
 			return nil, rf
@@ -437,10 +496,30 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 		if p.Filename == "" {
 			return nil, fail(-1, "Invalid filename")
 		}
-		if _, ok := f.wallets[p.Filename]; !ok {
+		wf, ok := f.wallets[p.Filename]
+		if !ok {
 			return nil, fail(-1, "Failed to open wallet : file not found")
 		}
-		f.open = p.Filename
+		if wf.password != p.Password {
+			return nil, fail(-1, "Failed to open wallet : Invalid password.")
+		}
+		f.open, f.daemon = p.Filename, "" // a set_daemon held only for the wallet open when it was sent
+		return map[string]interface{}{}, nil
+
+	case "set_daemon":
+		// on_set_daemon: the open wallet uses the named monerod until another wallet is opened or made (0.18.5.1);
+		// with no wallet open it is -13
+		var p struct {
+			Address string `json:"address"`
+		}
+		if rf := params(&p); rf != nil {
+			return nil, rf
+		}
+		if _, rf := f.openWallet(); rf != nil {
+			return nil, rf
+		}
+		f.daemon = p.Address
+		f.daemonSets++
 		return map[string]interface{}{}, nil
 
 	case "refresh":
@@ -449,6 +528,9 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 		wf, rf := f.openWallet()
 		if rf != nil {
 			return nil, rf
+		}
+		if !wf.spendOK {
+			return nil, fail(-1, "Failed to generate key image")
 		}
 		f.refreshes++
 		fetched := uint64(0)
@@ -487,6 +569,8 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 	case "get_transfers":
 		var p struct {
 			In             bool    `json:"in"`
+			Out            bool    `json:"out"`
+			Pending        bool    `json:"pending"`
 			Pool           bool    `json:"pool"`
 			FilterByHeight bool    `json:"filter_by_height"`
 			MinHeight      uint64  `json:"min_height"`
@@ -508,26 +592,39 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 				hi = *p.MaxHeight
 			}
 		}
-		in, pool := []map[string]interface{}{}, []map[string]interface{}{}
-		if !wf.scanned {
-			return map[string]interface{}{"in": in, "pool": pool}, nil
+		// 0.18.5.1 omits a category that is empty rather than sending []
+		res := map[string]interface{}{}
+		add := func(kind string, e map[string]interface{}) {
+			list, _ := res[kind].([]map[string]interface{})
+			res[kind] = append(list, e)
+		}
+		if !wf.scanned || !wf.viewOK {
+			return res, nil
 		}
 		for _, tx := range f.txs {
+			if tx.from == wf.address && !wf.viewOnly {
+				// a wallet's own sends: pending until mined, then out (a view-only wallet cannot see its spends)
+				if tx.pending && p.Pending {
+					add("pending", f.entry(tx, "pending"))
+				} else if !tx.pending && p.Out && lo < tx.height && tx.height <= hi {
+					add("out", f.entry(tx, "out"))
+				}
+			}
 			if tx.to != wf.address {
 				continue
 			}
 			if tx.pending {
 				if p.Pool {
-					pool = append(pool, f.entry(tx, "pool"))
+					add("pool", f.entry(tx, "pool"))
 				}
 				continue
 			}
 			if !p.In || tx.height < wf.restoreHeight || !(lo < tx.height && tx.height <= hi) {
 				continue
 			}
-			in = append(in, f.entry(tx, "in"))
+			add("in", f.entry(tx, "in"))
 		}
-		return map[string]interface{}{"in": in, "pool": pool}, nil
+		return res, nil
 	}
 	return nil, fail(-32601, "Method not found")
 }
@@ -536,7 +633,7 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 func (f *FakeWallet) checkDest(address string) *rpcFail {
 	pa, err := ParseAddress(address)
 	if err != nil || pa.Net != f.net {
-		return fail(-2, "Invalid destination address") // WALLET_RPC_ERROR_CODE_WRONG_ADDRESS
+		return fail(-2, "WALLET_RPC_ERROR_CODE_WRONG_ADDRESS: "+address) // the text 0.18.5.1 answers
 	}
 	return nil
 }

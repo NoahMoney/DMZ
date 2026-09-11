@@ -31,10 +31,11 @@ type Wallet interface {
 	// Transfer pays amount piconero to one address from the open wallet and returns the transaction id.
 	Transfer(ctx context.Context, to string, amount uint64) (txid string, err error)
 	// GenerateFromKeys creates a wallet file from an address and its private view key — view-only when spendKey
-	// is "" — scanning from restoreHeight, and leaves it open. The spend key is the joint key s_a + s_b at
-	// sweep time; this request is the one place it leaves the companion.
-	GenerateFromKeys(ctx context.Context, name, address, viewKey string, spendKey string, restoreHeight uint64) error
-	OpenWallet(ctx context.Context, name string) error
+	// is "" — scanning from restoreHeight, encrypted under password, and leaves it open. The spend key is the joint
+	// key s_a + s_b at sweep time; this request is the one place it leaves the companion. monero-wallet-rpc does not
+	// check the keys against the address (0.18.5.1, research/regtest/monero-smoke.log), so the client does, first.
+	GenerateFromKeys(ctx context.Context, name, address, viewKey, spendKey, password string, restoreHeight uint64) error
+	OpenWallet(ctx context.Context, name, password string) error
 	CloseWallet(ctx context.Context) error
 	// Refresh scans the open wallet from startHeight and returns when it has (the `refresh` RPC, on_refresh in
 	// wallet_rpc_server.cpp). Nothing else in this interface makes the server scan on demand:
@@ -69,8 +70,15 @@ type Incoming struct {
 	UnlockTime    uint64
 }
 
+// CodeNotSigned is the client's own code, outside monero-wallet-rpc's range, for a transfer or sweep the wallet
+// answered with a transaction set to sign elsewhere (unsigned_txset or multisig_txset) instead of one it signed and
+// sent. monero-wallet-rpc 0.18.5.1 answers a view-only wallet's transfer and sweep_all that way, with a tx_hash that
+// was never broadcast, rather than refusing (research/regtest/monero-smoke.log): nothing was sent.
+const CodeNotSigned = -9001
+
 // RPCError is monero-wallet-rpc's own refusal, with its code (src/wallet/wallet_rpc_server_error_codes.h:
-// -13 no wallet open, -17 not enough money, -29 watch-only, -37 not enough unlocked money, ...).
+// -13 no wallet open, -17 not enough money, -29 watch-only, -37 not enough unlocked money, ...), or the client's
+// CodeNotSigned.
 type RPCError struct {
 	Method  string
 	Code    int
@@ -111,6 +119,36 @@ type walletRPC struct {
 	mu   sync.Mutex
 	chal *digestChallenge // the server's last challenge; nil until it has asked for auth
 	nc   uint32           // requests answered under chal, the nc= field
+	// challenged is whether the server has ever answered with a digest challenge: a wallet-rpc started with
+	// --rpc-login does so on the first call, one started with --disable-rpc-login never does (GAP-009)
+	challenged bool
+}
+
+// WalletAskedForCredentials says whether the monero-wallet-rpc behind w has ever demanded --rpc-login digest
+// credentials. On mainnet the command line refuses a wallet-rpc that answered its first call without asking: that
+// wallet holds the joint spend key at sweep time and can transfer and sweep, and any local process — possibly a web
+// page — could drive it (GAP-009). A Wallet that is not this client is reported as not having asked.
+func WalletAskedForCredentials(w Wallet) bool {
+	c, ok := w.(*walletRPC)
+	if !ok {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.challenged
+}
+
+// DaemonSetter is a wallet-rpc that can be told which monerod to use (set_daemon).
+type DaemonSetter interface {
+	SetDaemon(ctx context.Context, address string) error
+}
+
+// SetDaemon points the wallet-rpc at one monerod (set_daemon, wallet_rpc_server.cpp on_set_daemon), untrusted. The
+// companion cannot ask a wallet-rpc which monerod it uses, and a monerod that lies shows Bob's view wallet a lock
+// that is not there (GAP-010); so on mainnet it names the one it trusts — its own, on loopback — instead of taking
+// whatever --daemon-address the wallet-rpc was started with.
+func (w *walletRPC) SetDaemon(ctx context.Context, address string) error {
+	return w.call(ctx, "set_daemon", map[string]interface{}{"address": address, "trusted": false}, nil)
 }
 
 // call posts one JSON-RPC 2.0 request and decodes its result. A JSON-RPC error becomes an *RPCError; a
@@ -133,6 +171,12 @@ func (w *walletRPC) call(ctx context.Context, method string, params, out interfa
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("monero-wallet-rpc %s: http %d", method, resp.StatusCode)
 	}
+	// the whole reply, bounded; one JSON value and nothing after it (json.Unmarshal refuses trailing data, where a
+	// streaming decoder would stop at the first value and ignore the rest)
+	raw, err := readCapped(resp.Body, maxWalletReply)
+	if err != nil {
+		return fmt.Errorf("monero-wallet-rpc %s: %w", method, err)
+	}
 	var env struct {
 		Result json.RawMessage `json:"result"`
 		Error  *struct {
@@ -140,19 +184,28 @@ func (w *walletRPC) call(ctx context.Context, method string, params, out interfa
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<20)).Decode(&env); err != nil {
+	if err := json.Unmarshal(raw, &env); err != nil {
 		return fmt.Errorf("monero-wallet-rpc %s: decode: %w", method, err)
 	}
 	if env.Error != nil {
 		return &RPCError{Method: method, Code: env.Error.Code, Message: env.Error.Message}
 	}
-	if out != nil && len(env.Result) > 0 {
-		if err := json.Unmarshal(env.Result, out); err != nil {
-			return fmt.Errorf("monero-wallet-rpc %s: result: %w", method, err)
-		}
+	if out == nil {
+		return nil
+	}
+	if len(env.Result) == 0 || string(env.Result) == "null" {
+		return fmt.Errorf("monero-wallet-rpc %s: the reply carries neither a result nor an error", method)
+	}
+	if err := json.Unmarshal(env.Result, out); err != nil {
+		return fmt.Errorf("monero-wallet-rpc %s: result: %w", method, err)
 	}
 	return nil
 }
+
+// maxWalletReply bounds one monero-wallet-rpc answer. The largest the companion asks for is get_transfers on the
+// personal wallet, whose history is the operator's; 64 MB covers any wallet a person runs and stops a server
+// that streams without end. The client's own timeout (NewWalletRPC) bounds how long it may take.
+const maxWalletReply = 64 << 20
 
 // post sends the body, answering a 401 with digest credentials once. The server's challenge is kept, so a
 // later request carries credentials up front and the round trip happens only on the first call and after a
@@ -174,7 +227,7 @@ func (w *walletRPC) post(ctx context.Context, body []byte) (*http.Response, erro
 		return nil, errors.New("the wallet requires --rpc-login credentials and none were given")
 	}
 	w.mu.Lock()
-	w.chal, w.nc = chal, 0
+	w.chal, w.nc, w.challenged = chal, 0, true
 	w.mu.Unlock()
 	resp, err = w.send(ctx, body, w.authorization())
 	if err != nil {
@@ -314,6 +367,11 @@ func parseAuthParams(s string) map[string]string {
 
 // --- the methods ---
 
+// Height is get_height: the OPEN WALLET's scanned height, not the chain's — 1 for a wallet made from keys until its
+// first refresh, and -13 with no wallet open (0.18.5.1, research/regtest/monero-smoke.log). After a refresh it is the
+// height of the chain its daemon reports. The companion reads it only for the restore height of the joint wallets,
+// right after refreshing its own wallet, where a low reading costs a longer scan and never a missed payment;
+// confirmations come from get_transfers, counted by the wallet against its refreshed chain.
 func (w *walletRPC) Height(ctx context.Context) (uint64, error) {
 	var r struct {
 		Height uint64 `json:"height"`
@@ -343,32 +401,94 @@ func (w *walletRPC) Transfer(ctx context.Context, to string, amount uint64) (str
 		"account_index": 0,
 	}
 	var r struct {
-		TxHash string `json:"tx_hash"`
+		TxHash        string `json:"tx_hash"`
+		UnsignedTxset string `json:"unsigned_txset"`
+		MultisigTxset string `json:"multisig_txset"`
 	}
 	if err := w.call(ctx, "transfer", params, &r); err != nil {
 		return "", err
 	}
+	if r.UnsignedTxset != "" || r.MultisigTxset != "" {
+		return "", &RPCError{Method: "transfer", Code: CodeNotSigned, Message: "the wallet answered with a transaction to sign elsewhere, not one it sent (a view-only or multisig wallet): nothing was broadcast"}
+	}
 	if r.TxHash == "" {
 		return "", errors.New("monero-wallet-rpc transfer: no tx_hash in the result")
+	}
+	if err := w.confirmSent(ctx, "transfer", []string{r.TxHash}); err != nil {
+		return r.TxHash, err
 	}
 	return r.TxHash, nil
 }
 
-// GenerateFromKeys: the wallet file's own password is empty, so the file the wallet-rpc writes into its
-// --wallet-dir holds these keys — for the sweep wallet, the joint spend key s_a + s_b — in a form anything
-// that can read the file can use. The companion closes the wallet in the rpc when the sweep is over
-// (swap.go closeJoint) and cannot delete a file on the wallet-rpc's host, so the file stays until the operator
-// removes it. It holds a key the companion's own state file already holds in cleartext beside it. The wallet
-// checks the keys against the address
-// ("view secret key does not match main address", wallet_rpc_server.cpp on_generate_from_keys) and echoes
-// the address; a different echo means it made some other wallet, which is an error here.
-func (w *walletRPC) GenerateFromKeys(ctx context.Context, name, address, viewKey string, spendKey string, restoreHeight uint64) error {
+// confirmSent asks the wallet for its own record of what it says it sent — an outgoing transfer, pending or mined
+// (get_transfers out and pending) — before a hash in a reply is taken as a send. A hash alone proves nothing:
+// 0.18.5.1 hands one back for a view-only wallet's transfer it never broadcast. A hash the wallet does not list is an
+// error that is not a refusal, so the caller treats the payment's fate as unknown and never pays twice.
+func (w *walletRPC) confirmSent(ctx context.Context, method string, txids []string) error {
+	var r struct {
+		Out []struct {
+			TxID string `json:"txid"`
+		} `json:"out"`
+		Pending []struct {
+			TxID string `json:"txid"`
+		} `json:"pending"`
+	}
+	if err := w.call(ctx, "get_transfers", map[string]interface{}{"out": true, "pending": true, "account_index": 0}, &r); err != nil {
+		return fmt.Errorf("monero-wallet-rpc %s: reading the wallet's record of it: %w", method, err)
+	}
+	seen := map[string]bool{}
+	for _, e := range r.Out {
+		seen[e.TxID] = true
+	}
+	for _, e := range r.Pending {
+		seen[e.TxID] = true
+	}
+	for _, id := range txids {
+		if !seen[id] {
+			return fmt.Errorf("monero-wallet-rpc %s: the wallet answered %s and lists no outgoing transfer with that id: it may not have been sent", method, id)
+		}
+	}
+	return nil
+}
+
+// GenerateFromKeys: the wallet file the wallet-rpc writes into its --wallet-dir is encrypted under password — for
+// the joint wallets, a random password of this swap's, kept in the state file (GAP-020) — so the file alone does
+// not give up the keys it holds. The companion closes the spend wallet when the sweep is over (swap.go closeJoint)
+// and deletes both joint wallets' files when it knows the wallet-dir (-monero-wallet-dir).
+//
+// The server does NOT check the keys against the address. monero-wallet-rpc 0.18.5.1 accepts a random view key, or
+// the right view key with a random spend key, and echoes the address it was given (research/regtest/monero-smoke.log;
+// on_generate_from_keys calls wallet2::generate with no comparison). A wallet with the wrong view key then sees
+// nothing, and one with the wrong spend key fails its refresh with -1 "Failed to generate key image". So the check is
+// made here, before the request: v·G must be the address's view key and, when a spend key is given, s·G its spend
+// key. The echo is compared too, and proves only that the server kept the address it was sent.
+func (w *walletRPC) GenerateFromKeys(ctx context.Context, name, address, viewKey, spendKey, password string, restoreHeight uint64) error {
+	pa, err := ParseAddress(address)
+	if err != nil {
+		return fmt.Errorf("monero-wallet-rpc generate_from_keys: %w", err)
+	}
+	view, err := ParseScalar(viewKey)
+	if err != nil {
+		return fmt.Errorf("monero-wallet-rpc generate_from_keys: view key: %w", err)
+	}
+	if view.Public() != pa.View {
+		return fmt.Errorf("monero-wallet-rpc generate_from_keys: the view key does not derive the view key of %s: refused here, because the server would accept it and make a wallet that sees nothing", address)
+	}
+	if spendKey != "" {
+		spend, err := ParseScalar(spendKey)
+		if err != nil {
+			return fmt.Errorf("monero-wallet-rpc generate_from_keys: spend key: %w", err)
+		}
+		if spend.Public() != pa.Spend {
+			return fmt.Errorf("monero-wallet-rpc generate_from_keys: the spend key does not derive the spend key of %s: refused here, because the server would accept it and make a wallet that cannot spend", address)
+		}
+	}
 	params := map[string]interface{}{
 		"restore_height":   restoreHeight,
 		"filename":         name,
 		"address":          address,
 		"viewkey":          viewKey,
-		"password":         "",
+		"password":         password,
 		"autosave_current": true,
 	}
 	if spendKey != "" {
@@ -387,8 +507,8 @@ func (w *walletRPC) GenerateFromKeys(ctx context.Context, name, address, viewKey
 	return nil
 }
 
-func (w *walletRPC) OpenWallet(ctx context.Context, name string) error {
-	return w.call(ctx, "open_wallet", map[string]interface{}{"filename": name, "password": ""}, nil)
+func (w *walletRPC) OpenWallet(ctx context.Context, name, password string) error {
+	return w.call(ctx, "open_wallet", map[string]interface{}{"filename": name, "password": password}, nil)
 }
 
 func (w *walletRPC) CloseWallet(ctx context.Context) error {
@@ -461,13 +581,21 @@ func (w *walletRPC) UnlockedBalance(ctx context.Context) (uint64, error) {
 func (w *walletRPC) SweepAll(ctx context.Context, to string) ([]string, error) {
 	params := map[string]interface{}{"address": to, "account_index": 0}
 	var r struct {
-		TxHashList []string `json:"tx_hash_list"`
+		TxHashList    []string `json:"tx_hash_list"`
+		UnsignedTxset string   `json:"unsigned_txset"`
+		MultisigTxset string   `json:"multisig_txset"`
 	}
 	if err := w.call(ctx, "sweep_all", params, &r); err != nil {
 		return nil, err
 	}
+	if r.UnsignedTxset != "" || r.MultisigTxset != "" {
+		return nil, &RPCError{Method: "sweep_all", Code: CodeNotSigned, Message: "the wallet answered with a transaction to sign elsewhere, not one it sent (a view-only or multisig wallet): nothing was broadcast"}
+	}
 	if len(r.TxHashList) == 0 {
 		return nil, errors.New("monero-wallet-rpc sweep_all: no tx_hash_list in the result")
+	}
+	if err := w.confirmSent(ctx, "sweep_all", r.TxHashList); err != nil {
+		return r.TxHashList, err
 	}
 	return r.TxHashList, nil
 }

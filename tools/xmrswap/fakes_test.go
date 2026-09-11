@@ -18,7 +18,15 @@ const (
 	aliceAddr = "deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce"
 )
 
-// fakeChain is htlc.bas's rules in memory: the same checks, in the same order, at a height the test moves. It
+// fakePayment is one plain DERO transfer (the stipend) as the chain holds it.
+type fakePayment struct {
+	txid           string
+	fromRaw, toRaw string
+	amount, port   uint64
+	height         uint64
+}
+
+// fakeChain is htlc.bas v2's rules in memory: the same checks, in the same order, at a height the test moves. It
 // backs both the in-process Dero used by the state-machine tests and the HTTP daemon used by the client test.
 type fakeChain struct {
 	mu     sync.Mutex
@@ -35,13 +43,25 @@ type fakeChain struct {
 	// (DERO.GetTransaction reports in_pool): the fee re-send's trigger
 	stuckBelowFee uint64
 	pool          map[string]bool
+	// codeHash is what memDero answers for the contract's code hash: the pinned htlc.bas unless a test says not.
+	// codeText is the code the HTTP daemon returns for DERO.GetSC with code:true.
+	codeHash string
+	codeText string
+	// unregistered holds raw addresses that have never registered: a transfer to one is refused, and
+	// DERO.GetEncryptedBalance answers "Account Unregistered"
+	unregistered map[string]bool
+	// balances is raw address + "|" + asset → spendable; an address the test never set holds plenty
+	balances map[string]uint64
+	payments []fakePayment
 }
 
 // testStableDepth is DERO's STABLE_LIMIT, which the fakes mirror: stable height = height − 8.
 const testStableDepth = 8
 
 func newFakeChain(height uint64) *fakeChain {
-	return &fakeChain{height: height, mined: map[string]uint64{}, claimedAt: map[uint64]uint64{}, pool: map[string]bool{}}
+	return &fakeChain{height: height, mined: map[string]uint64{}, claimedAt: map[uint64]uint64{}, pool: map[string]bool{},
+		codeHash: HTLCCodeSHA256, codeText: "Function Initialize() Uint64\n10 RETURN 0\nEnd Function\n",
+		unregistered: map[string]bool{}, balances: map[string]uint64{}}
 }
 
 func (c *fakeChain) Height() uint64 {
@@ -78,6 +98,26 @@ func (c *fakeChain) txid() string {
 	return id
 }
 
+// balanceOf is called under c.mu.
+func (c *fakeChain) balanceOf(raw, asset string) uint64 {
+	if b, ok := c.balances[raw+"|"+asset]; ok {
+		return b
+	}
+	return 1 << 40
+}
+
+func (c *fakeChain) setBalance(addr, asset string, v uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.balances[mustRaw(addr)+"|"+asset] = v
+}
+
+func (c *fakeChain) setUnregistered(addr string, unregistered bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.unregistered[mustRaw(addr)] = unregistered
+}
+
 func is64hex(s string) bool {
 	b, err := hex.DecodeString(s)
 	return err == nil && len(b) == 32 && len(s) == 64
@@ -91,8 +131,9 @@ func sha256hexOf(hexSecret string) (string, bool) {
 	return SHA256Hex(raw), true
 }
 
-// lock is htlc.bas Lock at height h (the estimator passes h = 0): returns the new lock or an error.
-func (c *fakeChain) lock(h uint64, makerRaw, ha, hk, hb, taker string, t1, t2, amount uint64) (Lock, error) {
+// lock is htlc.bas Lock at height h (the estimator passes h = 0): returns the new lock or an error. asset is "" for
+// DERO or the 64-hex SCID, amount what was sent of it.
+func (c *fakeChain) lock(h uint64, makerRaw, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount uint64) (Lock, error) {
 	if !is64hex(ha) || !is64hex(hk) || !is64hex(hb) {
 		return Lock{}, errors.New("hash length")
 	}
@@ -106,10 +147,13 @@ func (c *fakeChain) lock(h uint64, makerRaw, ha, hk, hb, taker string, t1, t2, a
 	if err != nil {
 		return Lock{}, err
 	}
-	if amount == 0 {
-		return Lock{}, errors.New("no DERO sent")
+	if asset != "" && !is64hex(asset) {
+		return Lock{}, errors.New("asset id")
 	}
-	l := Lock{ID: uint64(len(c.locks)), Maker: makerRaw, Taker: takerRaw, HA: ha, HK: hk, HB: hb, Amount: amount, T1: t1, T2: t2}
+	if amount == 0 {
+		return Lock{}, errors.New("nothing sent")
+	}
+	l := Lock{ID: uint64(len(c.locks)), Maker: makerRaw, Taker: takerRaw, HA: ha, HK: hk, HB: hb, Asset: asset, Amount: amount, T1: t1, T2: t2}
 	c.locks = append(c.locks, l)
 	return l, nil
 }
@@ -148,16 +192,68 @@ func (c *fakeChain) refund(h uint64, signerRaw string, id uint64, sb string) err
 	return nil
 }
 
+// punish is htlc.bas v2: from t2 anyone with a signer may send it, and it pays the stored taker (LIV-07).
 func (c *fakeChain) punish(h uint64, signerRaw string, id uint64) error {
 	if id >= uint64(len(c.locks)) {
 		return errors.New("no such lock")
 	}
 	l := &c.locks[id]
-	if l.State != LockOpen || h < l.T2 || signerRaw != l.Taker {
+	if l.State != LockOpen || h < l.T2 || signerRaw == "" {
 		return errors.New("punish refused")
 	}
 	l.State = LockPunished
 	return nil
+}
+
+// pay is a plain DERO transfer mined at the current height; it is called under c.mu.
+func (c *fakeChain) pay(fromRaw, to string, amount, port uint64) (string, error) {
+	toRaw, err := DeroRaw(to)
+	if err != nil {
+		return "", err
+	}
+	if c.unregistered[toRaw] {
+		return "", errors.New("Account Unregistered")
+	}
+	h := c.height
+	id := c.txid()
+	c.payments = append(c.payments, fakePayment{txid: id, fromRaw: fromRaw, toRaw: toRaw, amount: amount, port: port, height: h})
+	return id, nil
+}
+
+// findPayment is one wallet's history: incoming to raw, or outgoing from it, carrying port. Called under c.mu.
+func (c *fakeChain) findPayment(raw string, incoming bool, port, minHeight uint64) (Payment, bool) {
+	for _, p := range c.payments {
+		mine := p.toRaw == raw
+		if !incoming {
+			mine = p.fromRaw == raw
+		}
+		if mine && p.port == port && p.height >= minHeight {
+			return Payment{TxID: p.txid, Amount: p.amount, Height: p.height}, true
+		}
+	}
+	return Payment{}, false
+}
+
+// paymentsTagged is every transfer from one address to another carrying port, in order.
+func (c *fakeChain) paymentsTagged(from, to string, port uint64) []fakePayment {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []fakePayment
+	for _, p := range c.payments {
+		if p.fromRaw == mustRaw(from) && p.toRaw == mustRaw(to) && p.port == port {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// unclaim is a replaced block: the Claim it held is not in the chain now, and the lock is open again.
+func (c *fakeChain) unclaim(id uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	l := &c.locks[id]
+	l.State, l.XA = LockOpen, ""
+	delete(c.claimedAt, id)
 }
 
 func (c *fakeChain) read(id uint64) (Lock, error) {
@@ -174,6 +270,8 @@ type memDero struct {
 	chain *fakeChain
 	meRaw string
 	calls map[string]int
+	// code, when set, is what this party's daemon answers for the contract's code hash instead of the chain's
+	code string
 }
 
 func newMemDero(chain *fakeChain, addr string) *memDero {
@@ -189,7 +287,7 @@ func (d *memDero) StableHeight(ctx context.Context) (uint64, error) {
 	return d.chain.StableHeight(), nil
 }
 
-func (d *memDero) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, amount uint64) (string, uint64, error) {
+func (d *memDero) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount uint64) (string, uint64, error) {
 	c := d.chain
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -200,7 +298,7 @@ func (d *memDero) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uin
 			return "", l.ID, nil
 		}
 	}
-	l, err := c.lock(c.height, d.meRaw, ha, hk, hb, taker, t1, t2, amount)
+	l, err := c.lock(c.height, d.meRaw, ha, hk, hb, taker, t1, t2, asset, amount)
 	if err != nil {
 		return "", 0, err
 	}
@@ -226,7 +324,11 @@ func (d *memDero) exit(name string, f func(h uint64) error) (string, error) {
 	return tx, nil
 }
 
-func (d *memDero) Claim(ctx context.Context, id uint64, sa, kb string) (string, error) {
+// Claim holds DeroRPC's rule: nothing is sent at a height inside the cutoff, and nothing sent is not a call.
+func (d *memDero) Claim(ctx context.Context, id uint64, sa, kb string, cutoff uint64) (string, error) {
+	if h := d.chain.Height(); h+1 >= cutoff {
+		return "", fmt.Errorf("Claim not sent: at height %d it could be mined inside the last blocks before t1 (claim cutoff %d)", h, cutoff)
+	}
 	return d.exit("Claim", func(h uint64) error { return d.chain.claim(h, d.meRaw, id, sa, kb) })
 }
 func (d *memDero) Refund(ctx context.Context, id uint64, sb string) (string, error) {
@@ -238,6 +340,53 @@ func (d *memDero) Punish(ctx context.Context, id uint64) (string, error) {
 func (d *memDero) ReadLock(ctx context.Context, id uint64) (Lock, error) {
 	d.calls["ReadLock"]++
 	return d.chain.read(id)
+}
+
+func (d *memDero) CodeSHA256(ctx context.Context) (string, error) {
+	if d.code != "" {
+		return d.code, nil
+	}
+	d.chain.mu.Lock()
+	defer d.chain.mu.Unlock()
+	return d.chain.codeHash, nil
+}
+
+func (d *memDero) Registered(ctx context.Context, addr string) (bool, error) {
+	raw, err := DeroRaw(addr)
+	if err != nil {
+		return false, err
+	}
+	d.chain.mu.Lock()
+	defer d.chain.mu.Unlock()
+	return !d.chain.unregistered[raw], nil
+}
+
+func (d *memDero) Balance(ctx context.Context, asset string) (uint64, error) {
+	d.chain.mu.Lock()
+	defer d.chain.mu.Unlock()
+	return d.chain.balanceOf(d.meRaw, asset), nil
+}
+
+func (d *memDero) Pay(ctx context.Context, to string, amount, port uint64) (string, error) {
+	c := d.chain
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	d.calls["Pay"]++
+	tx, err := c.pay(d.meRaw, to, amount, port)
+	if err != nil {
+		return "", err
+	}
+	if c.flaky != nil && c.flaky() {
+		return "", errors.New("rpc timeout after the send")
+	}
+	return tx, nil
+}
+
+func (d *memDero) FindPayment(ctx context.Context, incoming bool, port, minHeight uint64) (Payment, bool, error) {
+	d.chain.mu.Lock()
+	defer d.chain.mu.Unlock()
+	p, ok := d.chain.findPayment(d.meRaw, incoming, port, minHeight)
+	return p, ok, nil
 }
 
 // stubProver stands in for proof-xmr: keys are real (NewScalar, Public), the "proof" is a tag over (h, s) that

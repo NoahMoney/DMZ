@@ -20,17 +20,19 @@ import (
 // Phases at which each side saves durable state, in protocol order: the crash fuzz kills a process right after
 // each one and restarts it from the file.
 var (
-	bobPhases   = []string{"setup", "verified_pi_a", "dero_locking", "dero_locked", "watching_xmr", "xmr_confirmed", "gate_sending", "gate_sent", "claimed", "sweep_ready", "sweeping", "swept", "refund_window", "refunding", "refunded", "punish_window", "punished"}
-	alicePhases = []string{"setup", "offer_checked", "verified_pi_b", "lock_announced", "saw_dero_lock", "xmr_locking", "xmr_locked", "gate_received", "claiming", "claimed", "await_refund", "refund_seen", "sweep_ready", "sweeping", "swept", "punish_window", "punishing", "punished"}
+	bobPhases   = []string{"setup", "verified_pi_a", "dero_locking", "dero_locked", "stipend_sending", "watching_xmr", "xmr_confirmed", "gate_sending", "gate_sent", "claimed", "sweep_ready", "sweeping", "swept", "refund_window", "refunding", "refunded", "punish_window", "closing", "punished"}
+	alicePhases = []string{"setup", "offer_checked", "verified_pi_b", "lock_announced", "saw_dero_lock", "xmr_locking", "xmr_locked", "gate_received", "claiming", "claim_confirming", "claimed", "await_refund", "refund_seen", "sweep_ready", "sweeping", "swept", "punish_window", "punishing", "punished"}
 )
 
 const (
-	testHTLC    = "abababababababababababababababababababababababababababababababab"
-	testDero    = uint64(5000)
-	testXmr     = uint64(1_000_000_000_000)
-	testT1Min   = uint64(10)
-	testT2Min   = uint64(5)
-	testT1Delta = uint64(50) // room for the lock, the stable wait, ten Monero blocks, the gate and a claim stable before t1
+	testHTLC  = "abababababababababababababababababababababababababababababababab"
+	testDero  = uint64(5000)
+	testXmr   = uint64(1_000_000_000_000)
+	testT1Min = uint64(10)
+	testT2Min = uint64(5)
+	// room for the lock, its stable wait (8), the stipend and its stable wait (8), ten Monero blocks, the gate
+	// before t1 − G, and a claim stable before t1
+	testT1Delta = uint64(80)
 	testT2Delta = uint64(10)
 	testStable  = uint64(2)
 	testConfs   = uint64(10)
@@ -38,6 +40,10 @@ const (
 	// still can, plus a block for the channel
 	testClaimMargin = uint64(2)
 	testGateMargin  = testStableDepth + testClaimMargin + 1
+	// G (U2): Alice ignores a gate at or after t1 − G; Bob's margin is at least G + 2, which testGateMargin is
+	testGateDeadline = testGateMargin - 2
+	// the stipend (Path 0) the tests' maker offers and their taker requires
+	testStipend = uint64(1400)
 	// the passes a sweep gives a joint wallet with nothing spendable in it before it takes that for the answer
 	testSweepWaits = uint64(6)
 )
@@ -105,7 +111,7 @@ func (r *run) newWallet(name string) string {
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	if err := r.w.GenerateFromKeys(r.ctx, name, addr, view.Hex(), spend.Hex(), 0); err != nil {
+	if err := r.w.GenerateFromKeys(r.ctx, name, addr, view.Hex(), spend.Hex(), "", 0); err != nil {
 		r.t.Fatal(err)
 	}
 	return addr
@@ -132,10 +138,17 @@ func (r *run) config(role string) Config {
 	if role == "alice" {
 		addr, name = aliceAddr, "alice"
 	}
-	return Config{HTLC: testHTLC, AmountDero: testDero, AmountXmr: testXmr, Net: Stagenet, MyDero: addr, MoneroWalletName: name,
+	return Config{HTLC: testHTLC, AmountDero: testDero, AmountXmr: testXmr, Net: Stagenet, DeroNet: "simulator", MyDero: addr, MoneroWalletName: name,
 		T1Min: testT1Min, T2Min: testT2Min, T1Delta: testT1Delta, T2Delta: testT2Delta, Confirmations: testConfs, StableBlocks: testStable,
-		ClaimMargin: testClaimMargin, GateMargin: testGateMargin, LockSettleBlocks: 2, SweepWaits: testSweepWaits,
+		ClaimMargin: testClaimMargin, GateMargin: testGateMargin, GateDeadline: testGateDeadline, LockSettleBlocks: 2, SweepWaits: testSweepWaits,
+		Stipend: testStipend, StipendMin: testStipend, StipendSettleBlocks: 3, CloseAfter: 3,
 		Poll: 3 * time.Millisecond, ResendAfter: time.Second, Log: r.logf}
+}
+
+// stipendPaid is whether the maker's stipend (Path 0) is on the chain yet.
+func (r *run) stipendPaid() bool {
+	st := r.loadState("bob")
+	return st.HK != "" && len(r.chain.paymentsTagged(bobAddr, aliceAddr, stipendPort(st.HK))) > 0
 }
 
 // crashFn is the process death: once at each planned phase, and at random when the plan says so.
@@ -298,9 +311,14 @@ func (r *run) checkTransfer(to string, amount uint64) error {
 		return fmt.Errorf("no lock on the chain: %v", err)
 	}
 	own, _ := ParseScalar(st.Own.Secret)
-	e := LockExpect{HA: SHA256Hex(own[:]), HK: st.HK, HB: st.Peer.H, TakerRaw: mustRaw(aliceAddr), Amount: testDero, T1Min: 1, T2Min: testT2Min}
+	e := LockExpect{HA: SHA256Hex(own[:]), HK: st.HK, HB: st.Peer.H, TakerRaw: mustRaw(aliceAddr), Amount: testDero, Asset: st.Terms.Asset, T1Min: 1, T2Min: testT2Min}
 	if err := CheckLock(l, r.chain.Height(), e); err != nil {
 		return fmt.Errorf("the lock on the chain fails a check: %v", err)
+	}
+	// Path 0: the maker's stipend is in her wallet, whole, in a block DERO can no longer replace
+	ps := r.chain.paymentsTagged(bobAddr, aliceAddr, stipendPort(st.HK))
+	if len(ps) != 1 || ps[0].amount < testStipend || ps[0].height > r.chain.StableHeight() || st.Stipend.Tx != ps[0].txid {
+		return fmt.Errorf("the XMR lock went out with stipends %+v (stable height %d, recorded %q)", ps, r.chain.StableHeight(), st.Stipend.Tx)
 	}
 	return nil
 }
@@ -326,12 +344,15 @@ func (r *run) drive() {
 		if st.Lock.T1 > 0 {
 			bobT1 = st.Lock.T1
 		}
+		// the maker stays for his stipend (Path 0): without it the taker locks no XMR, and a maker who leaves before
+		// paying it has left a lock only his own refund ends
 		switch r.plan.scenario {
 		case "refund":
-			// Bob vanishes once his DERO is locked and comes back after t1: he never saw the XMR, so he refunds
-			return announced() && r.chain.Height() <= bobT1
+			// Bob vanishes once his DERO is locked and the stipend is paid, and comes back after t1: he never saw
+			// the XMR, so he refunds
+			return announced() && r.stipendPaid() && r.chain.Height() <= bobT1
 		case "punish":
-			return announced()
+			return announced() && r.stipendPaid()
 		}
 		return false
 	}
@@ -385,6 +406,11 @@ func (r *run) check() {
 	}
 	if lockN := r.chain.locks; len(lockN) != 1 {
 		t.Fatalf("%s: %d DERO locks, want exactly one", r.plan.scenario, len(lockN))
+	}
+	// Path 0: one stipend at most, whatever died when; and one whenever the taker locked XMR
+	stipends := r.chain.paymentsTagged(bobAddr, aliceAddr, stipendPort(bob.HK))
+	if len(stipends) > 1 || (r.aliceW.transfers > 0 && len(stipends) != 1) {
+		t.Fatalf("%s: %d stipends paid, %d XMR transfers", r.plan.scenario, len(stipends), r.aliceW.transfers)
 	}
 	// secrets: never in a log line; shares never on the channel; k_b only as gate; v only in alice_setup
 	secrets := map[string]string{"s_b": bob.Own.Secret, "s_a": alice.Own.Secret, "k_b": bob.Gate, "v": alice.View}
@@ -637,25 +663,18 @@ func TestAliceStopsClaimingBeforeCutoff(t *testing.T) {
 	r := newRun(t, plan{scenario: "happy", seed: 37})
 	r.bob = r.start("bob")
 	r.bob.cfg.GateMargin = 1
-	announced := func() bool {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		for _, m := range r.sent {
-			if m.Kind == KindDeroLocked {
-				return true
-			}
-		}
-		return false
-	}
+	// the gate deadline (U2) would stop her first; this test is of the cutoff under it, so G is taken away
+	r.alice = r.start("alice")
+	r.alice.cfg.GateDeadline = 1
 	var gateAt uint64
 	for round := 0; ; round++ {
-		if round > 300 {
+		if round > 400 {
 			bp, _ := r.phase("bob")
 			ap, _ := r.phase("alice")
 			t.Fatalf("no end: bob %s, alice %s, height %d\n%s", bp, ap, r.chain.Height(), strings.Join(r.logs, "\n"))
 		}
 		t1 := r.loadState("bob").Lock.T1
-		offline := announced() && r.chain.Height()+1 < claimCutoff(t1, testClaimMargin)
+		offline := r.stipendPaid() && r.chain.Height()+1 < claimCutoff(t1, testClaimMargin)
 		if !offline {
 			r.step("bob")
 		}

@@ -124,7 +124,10 @@ func TestTwoCompanionsOnOneStateFileLockXmrOnce(t *testing.T) {
 
 	a1 := startWith(r, "alice", nil)
 	a2 := startWith(r, "alice", nil) // the second process: same state file, same channel
-	for i := 0; i < 6; i++ {
+	// long enough for the maker's stipend (Path 0) to be paid and to reach stable depth, which is what the XMR
+	// lock waits for, and for both processes to reach the payment
+	for i := 0; i < 40; i++ {
+		r.step("bob")
 		if _, err := a1.Step(r.ctx); err != nil {
 			r.logf("a1: %v", err)
 		}
@@ -158,7 +161,9 @@ type poolDaemon struct {
 
 func (p *poolDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var req rpcReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.UseNumber()
+	if err := dec.Decode(&req); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
@@ -230,13 +235,13 @@ func TestLockIsNotDoubledWhenTheFirstTransactionIsStillInThePool(t *testing.T) {
 		t.Fatal(err)
 	}
 	// first attempt: accepted into the pool, never mined inside Timeout
-	if _, _, err := c.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, 5000); err == nil {
+	if _, _, err := c.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, "", 5000); err == nil {
 		t.Fatal("the first Lock should have reported that its transaction did not mine")
 	} else {
 		t.Logf("first Lock: %v", err)
 	}
 	// the companion's next Step calls Lock again with the same arguments: it must not send a second one
-	if _, _, err := c.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, 5000); err == nil {
+	if _, _, err := c.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, "", 5000); err == nil {
 		t.Fatal("the second Lock returned without an error while the first was still in the pool")
 	} else {
 		t.Logf("second Lock: %v", err)
@@ -249,7 +254,7 @@ func TestLockIsNotDoubledWhenTheFirstTransactionIsStillInThePool(t *testing.T) {
 	}
 	// the first transaction lands after all, and the next attempt finds it instead of sending another
 	pd.release()
-	_, id, err := c.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, 5000)
+	_, id, err := c.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, "", 5000)
 	if err != nil {
 		t.Fatalf("third Lock: %v", err)
 	}
@@ -320,7 +325,7 @@ func TestKeyedReadsSurviveAPaddedContract(t *testing.T) {
 	}
 
 	ha, hk, hb := strings.Repeat("cd", 32), strings.Repeat("ce", 32), strings.Repeat("cf", 32)
-	txid, id, err := c.Lock(ctx, ha, hk, hb, aliceAddr, 1050, 1100, 5000)
+	txid, id, err := c.Lock(ctx, ha, hk, hb, aliceAddr, 1050, 1100, "", 5000)
 	if err != nil {
 		t.Fatalf("Lock on a padded contract: %v", err)
 	}
@@ -459,14 +464,14 @@ func TestTheLockIsClaimedOnceWithOneSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := bobC.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, 5000); err == nil {
+	if _, _, err := bobC.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, "", 5000); err == nil {
 		t.Fatal("expected the first Lock to report it did not mine")
 	}
-	if _, _, err := bobC.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, 5000); err == nil {
+	if _, _, err := bobC.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, "", 5000); err == nil {
 		t.Fatal("the second Lock went out while the first was still in the pool")
 	}
 	pd.release()
-	if _, _, err := bobC.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, 5000); err != nil {
+	if _, _, err := bobC.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, "", 5000); err != nil {
 		t.Fatalf("the attempt after the pool cleared: %v", err)
 	}
 
@@ -476,7 +481,7 @@ func TestTheLockIsClaimedOnceWithOneSecret(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("%d locks carry these hashes, want one", n)
 	}
-	if _, err := aliceC.Claim(ctx, 0, sa, kb); err != nil {
+	if _, err := aliceC.Claim(ctx, 0, sa, kb, claimCutoff(h+50, DefaultClaimMargin)); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	l, err := aliceC.ReadLock(ctx, 0)

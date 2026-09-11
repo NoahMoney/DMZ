@@ -33,7 +33,10 @@ type rpcReq struct {
 
 func (d *fakeDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var req rpcReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// numbers as the wallet and daemon decode them, exactly: a uint64 through float64 is another number
+	dec := json.NewDecoder(r.Body)
+	dec.UseNumber()
+	if err := dec.Decode(&req); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
@@ -80,14 +83,21 @@ func (d *fakeDaemon) run(h uint64, p map[string]interface{}) (Lock, string) {
 	raw, _ := DeroRaw(d.addr)
 	switch str(a["entrypoint"]) {
 	case "Lock":
-		var burn uint64
+		// what the call carries, per asset: htlc.bas takes exactly one of DERO or the named asset
+		burns := map[string]uint64{}
 		if xf, ok := p["transfers"].([]interface{}); ok {
 			for _, t := range xf {
 				m, _ := t.(map[string]interface{})
-				burn += u64(m["burn"])
+				burns[str(m["scid"])] += u64(m["burn"])
 			}
 		}
-		l, err := c.lock(h, raw, str(a["ha"]), str(a["hk"]), str(a["hb"]), str(a["taker"]), u64(a["t1"]), u64(a["t2"]), burn)
+		asset := str(a["asset"])
+		for k, v := range burns {
+			if k != asset && v != 0 {
+				return Lock{}, "Lock: value sent in another asset than the one named"
+			}
+		}
+		l, err := c.lock(h, raw, str(a["ha"]), str(a["hk"]), str(a["hb"]), str(a["taker"]), u64(a["t1"]), u64(a["t2"]), asset, burns[asset])
 		if err != nil {
 			return Lock{}, "Lock: " + err.Error()
 		}
@@ -194,11 +204,50 @@ func (d *fakeDaemon) handle(req rpcReq) (interface{}, string) {
 			}
 			res["valuesstring"] = values
 		}
+		if v, _ := req.Params["code"].(bool); v {
+			res["code"] = c.codeText
+		}
 		return res, ""
+	case "DERO.GetEncryptedBalance":
+		// derod answers errormsg.ErrAccountUnregistered for an address that never registered
+		raw, err := DeroRaw(str(req.Params["address"]))
+		if err != nil {
+			return nil, "panic occured: " + err.Error()
+		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.unregistered[raw] {
+			return nil, "Account Unregistered"
+		}
+		return map[string]interface{}{"registration": 1, "status": "OK"}, ""
 	case "GetAddress":
 		return map[string]interface{}{"address": d.addr}, ""
 	case "GetBalance":
-		return map[string]interface{}{"balance": 12345, "unlocked_balance": 12345}, ""
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		b := c.balanceOf(mustRaw(d.addr), str(req.Params["scid"]))
+		return map[string]interface{}{"balance": b, "unlocked_balance": b}, ""
+	case "GetTransfers":
+		// Show_Transfers filters by direction and height and ignores the port filter it is given
+		in, _ := req.Params["in"].(bool)
+		out, _ := req.Params["out"].(bool)
+		min := u64(req.Params["min_height"])
+		me := mustRaw(d.addr)
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		entries := []map[string]interface{}{}
+		for _, p := range c.payments {
+			if p.height < min {
+				continue
+			}
+			if in && p.toRaw == me {
+				entries = append(entries, map[string]interface{}{"height": p.height, "txid": p.txid, "amount": p.amount, "incoming": true, "dstport": p.port})
+			}
+			if out && p.fromRaw == me {
+				entries = append(entries, map[string]interface{}{"height": p.height, "txid": p.txid, "amount": p.amount, "incoming": false, "dstport": p.port})
+			}
+		}
+		return map[string]interface{}{"entries": entries}, ""
 	case "GetHeight":
 		return map[string]interface{}{"height": c.Height()}, ""
 	case "transfer":
@@ -214,6 +263,27 @@ func (d *fakeDaemon) handle(req rpcReq) (interface{}, string) {
 			sum := sha256.Sum256([]byte("fake dero stuck tx " + strconv.FormatUint(c.txSeq, 10)))
 			id := hex.EncodeToString(sum[:])
 			c.pool[id] = true
+			return map[string]interface{}{"txid": id}, ""
+		}
+		if _, sc := req.Params["sc_rpc"]; !sc {
+			// a plain transfer: the stipend, its port in the payload's "D" argument
+			xf, _ := req.Params["transfers"].([]interface{})
+			if len(xf) != 1 {
+				return nil, "one plain transfer at a time"
+			}
+			m, _ := xf[0].(map[string]interface{})
+			var port uint64
+			pl, _ := m["payload_rpc"].([]interface{})
+			for _, a := range pl {
+				arg, _ := a.(map[string]interface{})
+				if str(arg["name"]) == "D" && str(arg["datatype"]) == "U" {
+					port = u64(arg["value"])
+				}
+			}
+			id, err := c.pay(mustRaw(d.addr), str(m["destination"]), u64(m["amount"]), port)
+			if err != nil {
+				return nil, err.Error()
+			}
 			return map[string]interface{}{"txid": id}, ""
 		}
 		d.run(c.height, req.Params)
@@ -256,7 +326,7 @@ func (c *fakeChain) scKey(k string) (interface{}, bool) {
 	case "hb_":
 		return hx(l.HB), true
 	case "a_":
-		return "", true
+		return strings.ToUpper(l.Asset), true // the asset's raw 32 bytes, hex as the RPC gives them
 	case "v_":
 		return l.Amount, true
 	case "t1_":
@@ -336,7 +406,7 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 	if err != nil || h != 1000 {
 		t.Fatalf("height %d %v", h, err)
 	}
-	txid, id, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, 5000)
+	txid, id, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, "", 5000)
 	if err != nil || id != 0 || len(txid) != 64 {
 		t.Fatalf("lock: %s %d %v", txid, id, err)
 	}
@@ -349,7 +419,7 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 		t.Fatalf("lock args: %v", a)
 	}
 	xf := p["transfers"].([]interface{})[0].(map[string]interface{})
-	if u64(xf["burn"]) != 5000 || str(xf["destination"]) == "" {
+	if u64(xf["burn"]) != 5000 || str(xf["destination"]) == "" || str(xf["scid"]) != "" {
 		t.Fatalf("lock burn: %v", xf)
 	}
 	est := args(bob.last("DERO.GetGasEstimate"))
@@ -358,7 +428,7 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 	}
 	// the same lock again is found, not sent
 	before := bob.count("transfer")
-	txid2, id2, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, 5000)
+	txid2, id2, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, "", 5000)
 	if err != nil || id2 != 0 || txid2 != "" || bob.count("transfer") != before {
 		t.Fatalf("second lock: %q %d %v, transfers %d -> %d", txid2, id2, err, before, bob.count("transfer"))
 	}
@@ -380,7 +450,8 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 
 	// a wrong preimage is refused at the estimate, so no transaction is sent
 	before = alice.count("transfer")
-	if _, err := ca.Claim(ctx, 0, strings.Repeat("00", 32), kb); err == nil || alice.count("transfer") != before {
+	cutoff := claimCutoff(h+50, DefaultClaimMargin)
+	if _, err := ca.Claim(ctx, 0, strings.Repeat("00", 32), kb, cutoff); err == nil || alice.count("transfer") != before {
 		t.Fatalf("wrong sa: err %v, transfers %d -> %d", err, before, alice.count("transfer"))
 	}
 	// the maker cannot refund before t1: the fixed-fee send is mined and the contract's refusal is reported
@@ -393,7 +464,7 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 	}
 	// the claim, estimated (fee from the estimator), reveals s_a
 	estBefore := alice.count("DERO.GetGasEstimate")
-	txid, err = ca.Claim(ctx, 0, sa, kb)
+	txid, err = ca.Claim(ctx, 0, sa, kb, cutoff)
 	if err != nil || len(txid) != 64 || alice.count("DERO.GetGasEstimate") != estBefore+1 {
 		t.Fatalf("claim: %s %v", txid, err)
 	}
@@ -407,7 +478,7 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 
 	// second lock: refund in the window, with the fixed fee and no estimate
 	h, _ = cb.Height(ctx)
-	_, id, err = cb.Lock(ctx, hb, hk, ha, aliceAddr, h+5, h+10, 700)
+	_, id, err = cb.Lock(ctx, hb, hk, ha, aliceAddr, h+5, h+10, "", 700)
 	if err != nil || id != 1 {
 		t.Fatalf("lock 2: %d %v", id, err)
 	}
@@ -421,9 +492,10 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 		t.Fatalf("after refund: %+v", l)
 	}
 
-	// third lock: punish after t2 by the taker
+	// third lock: punish after t2. htlc.bas v2 pays the taker whoever sends it (LIV-07), so the maker's own client
+	// can close it; a second Punish is refused because the lock is no longer open
 	h, _ = cb.Height(ctx)
-	_, id, err = cb.Lock(ctx, hk, hb, ha, aliceAddr, h+5, h+8, 900)
+	_, id, err = cb.Lock(ctx, hk, hb, ha, aliceAddr, h+5, h+8, "", 900)
 	if err != nil || id != 2 {
 		t.Fatalf("lock 3: %d %v", id, err)
 	}
@@ -431,11 +503,13 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 		t.Fatal("punish before t2 accepted")
 	}
 	chain.Advance(20)
-	if _, err := cb.Punish(ctx, 2); err == nil {
-		t.Fatal("punish by the maker accepted")
+	if _, err := cb.Punish(ctx, 2); err != nil {
+		t.Fatalf("punish by the maker: %v", err)
 	}
-	if _, err := ca.Punish(ctx, 2); err != nil {
-		t.Fatalf("punish: %v", err)
+	// a Punish on a lock that has moved is not even sent: it could only be mined, refused and paid for
+	before = alice.count("transfer")
+	if _, err := ca.Punish(ctx, 2); err == nil || !strings.Contains(err.Error(), "already moved") || alice.count("transfer") != before {
+		t.Fatalf("a second punish: %v, transfers %d -> %d", err, before, alice.count("transfer"))
 	}
 	l, _ = ca.ReadLock(ctx, 2)
 	if l.State != LockPunished {
@@ -443,6 +517,125 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 	}
 	if bal, _ := ca.ContractBalance(ctx); bal != 0 {
 		t.Fatalf("contract still holds %d", bal)
+	}
+}
+
+// TestDeroClientAssetLockAndStipendShapes (U1, Path 0, U4): an asset lock burns the asset alone, at ring 2, and
+// names it in the call; the lock reads back with that asset; the stipend is a ring-2 transfer carrying its port in
+// the payload, found again by that port in both wallets; balances are read per asset; registration and the code
+// hash come from the daemon.
+func TestDeroClientAssetLockAndStipendShapes(t *testing.T) {
+	ctx := context.Background()
+	chain := newFakeChain(1000)
+	bob := &fakeDaemon{chain: chain, addr: bobAddr}
+	alice := &fakeDaemon{chain: chain, addr: aliceAddr}
+	cb, ca := newClient(t, bob), newClient(t, alice)
+	asset := strings.Repeat("9a", 32)
+	_, ha := secretPair(t)
+	hk, hb := SHA256Hex(mustHex(strings.Repeat("11", 32))), SHA256Hex(mustHex(strings.Repeat("22", 32)))
+
+	h, _ := cb.Height(ctx)
+	if _, _, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, strings.ToUpper(asset), 5000); err == nil {
+		t.Fatal("an asset id in capitals was sent")
+	}
+	txid, id, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, asset, 5000)
+	if err != nil || len(txid) != 64 {
+		t.Fatalf("asset lock: %v", err)
+	}
+	p := bob.last("transfer")
+	xf := p["transfers"].([]interface{})[0].(map[string]interface{})
+	if u64(p["ringsize"]) != 2 || str(xf["scid"]) != asset || u64(xf["burn"]) != 5000 || u64(xf["amount"]) != 0 || str(args(p)["asset"]) != asset {
+		t.Fatalf("asset lock shape: %v", p)
+	}
+	est := bob.last("DERO.GetGasEstimate")
+	if ex := est["transfers"].([]interface{})[0].(map[string]interface{}); str(ex["scid"]) != asset {
+		t.Fatalf("the estimate did not carry the asset: %v", est)
+	}
+	l, err := ca.ReadLock(ctx, id)
+	if err != nil || l.Asset != asset || l.Amount != 5000 {
+		t.Fatalf("asset lock read back: %+v %v", l, err)
+	}
+
+	chain.setBalance(bobAddr, asset, 777)
+	chain.setBalance(bobAddr, "", 888)
+	if b, err := cb.Balance(ctx, asset); err != nil || b != 777 || str(bob.last("GetBalance")["scid"]) != asset {
+		t.Fatalf("asset balance %d %v", b, err)
+	}
+	if b, err := cb.Balance(ctx, ""); err != nil || b != 888 {
+		t.Fatalf("DERO balance %d %v", b, err)
+	}
+
+	port := stipendPort(hk)
+	txid, err = cb.Pay(ctx, aliceAddr, 14016, port)
+	if err != nil || len(txid) != 64 {
+		t.Fatalf("stipend: %v", err)
+	}
+	p = bob.last("transfer")
+	xf = p["transfers"].([]interface{})[0].(map[string]interface{})
+	pl := xf["payload_rpc"].([]interface{})[0].(map[string]interface{})
+	if u64(p["ringsize"]) != 2 || str(xf["destination"]) != aliceAddr || u64(xf["amount"]) != 14016 || str(pl["name"]) != "D" || str(pl["datatype"]) != "U" || u64(pl["value"]) != port {
+		t.Fatalf("stipend shape: %v", p)
+	}
+	// both wallets find it by the port alone; another port finds nothing
+	for _, c := range []struct {
+		cl       *DeroRPC
+		incoming bool
+	}{{ca, true}, {cb, false}} {
+		got, found, err := c.cl.FindPayment(ctx, c.incoming, port, h)
+		if err != nil || !found || got.TxID != txid || got.Amount != 14016 {
+			t.Fatalf("find (incoming %v): %+v %v %v", c.incoming, got, found, err)
+		}
+		if _, found, _ := c.cl.FindPayment(ctx, c.incoming, port+1, h); found {
+			t.Fatal("another port found the stipend")
+		}
+	}
+
+	if ok, err := cb.Registered(ctx, aliceAddr); err != nil || !ok {
+		t.Fatalf("registered: %v %v", ok, err)
+	}
+	chain.setUnregistered(aliceAddr, true)
+	if ok, err := cb.Registered(ctx, aliceAddr); err != nil || ok {
+		t.Fatalf("unregistered: %v %v", ok, err)
+	}
+	if _, err := cb.Pay(ctx, aliceAddr, 1, port); err == nil {
+		t.Fatal("a transfer to an unregistered address went through")
+	}
+	if got, err := cb.CodeSHA256(ctx); err != nil || got != SHA256Hex([]byte(chain.codeText)) {
+		t.Fatalf("code hash %s %v", got, err)
+	}
+}
+
+// TestCanResendStopsAtTheClaimCutoff is XMR-06's regression. The client's Claim re-send rule and the state
+// machine's claim cutoff are one rule now: at every height where the cutoff forbids a Claim, the client will not
+// re-send one either, for every margin. The old rule (h + 8 + 1 < t1) allowed a re-send at eight heights inside
+// [t1 − 16, t1) with the default margin.
+func TestCanResendStopsAtTheClaimCutoff(t *testing.T) {
+	l := Lock{T1: 1000, T2: 1400}
+	for _, margin := range []uint64{0, 8, 16} {
+		cut := claimCutoff(l.T1, margin)
+		for h := uint64(900); h < l.T1+5; h++ {
+			if got, want := canResend("Claim", h, l, cut), h+1 < cut; got != want {
+				t.Fatalf("margin %d, height %d: canResend %v, the cutoff says %v", margin, h, got, want)
+			}
+		}
+	}
+	// and the client sends nothing, not even a first attempt, inside the band
+	ctx := context.Background()
+	chain := newFakeChain(1000)
+	bob := &fakeDaemon{chain: chain, addr: bobAddr}
+	alice := &fakeDaemon{chain: chain, addr: aliceAddr}
+	cb, ca := newClient(t, bob), newClient(t, alice)
+	sa, ha := secretPair(t)
+	kb, hk := strings.Repeat("11", 32), SHA256Hex(mustHex(strings.Repeat("11", 32)))
+	hb := SHA256Hex(mustHex(strings.Repeat("22", 32)))
+	h, _ := cb.Height(ctx)
+	if _, _, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+40, h+80, "", 5000); err != nil {
+		t.Fatal(err)
+	}
+	now, _ := ca.Height(ctx)
+	before := alice.count("transfer")
+	if _, err := ca.Claim(ctx, 0, sa, kb, now+1); err == nil || !strings.Contains(err.Error(), "cutoff") || alice.count("transfer") != before {
+		t.Fatalf("a Claim at the cutoff: %v, transfers %d -> %d", err, before, alice.count("transfer"))
 	}
 }
 
@@ -463,34 +656,45 @@ func TestDeroClientResendsWithHigherFee(t *testing.T) {
 	sb, hb := strings.Repeat("22", 32), SHA256Hex(mustHex(strings.Repeat("22", 32)))
 
 	h, _ := cb.Height(ctx)
-	if _, _, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+40, h+80, 5000); err != nil {
+	if _, _, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+40, h+80, "", 5000); err != nil {
 		t.Fatal(err)
 	}
 	// the estimator prices the Claim at 583; the miners take nothing under 1000: the first send sits in the
 	// pool, the second (1166) mines
 	chain.stuckBelowFee = 1000
 	before := alice.count("transfer")
-	txid, err := ca.Claim(ctx, 0, sa, kb)
+	txid, err := ca.Claim(ctx, 0, sa, kb, claimCutoff(h+40, DefaultClaimMargin))
 	if err != nil || len(txid) != 64 || alice.count("transfer") != before+2 {
 		t.Fatalf("claim: %s %v, transfers %d -> %d", txid, err, before, alice.count("transfer"))
 	}
-	if u64(alice.last("transfer")["fees"]) != 2*(383+200) || len(logs) != 1 || !strings.Contains(logs[0], "re-sending at 1166") {
+	resent := 0
+	for _, l := range logs {
+		if strings.Contains(l, "re-sending at 1166") {
+			resent++
+		}
+	}
+	if u64(alice.last("transfer")["fees"]) != 2*(383+200) || resent != 1 {
 		t.Fatalf("re-send fee %v, logs %v", alice.last("transfer")["fees"], logs)
 	}
 	if l, _ := ca.ReadLock(ctx, 0); l.State != LockClaimed {
 		t.Fatalf("after the re-sent claim: %+v", l)
 	}
 
-	// a Claim that cannot be stable before t1 is not re-sent: one send, the error names the window
+	// a Claim stuck in the pool is not re-sent once the height reaches the claim cutoff: one send, and the error
+	// names the window (the cutoff here is the current height + 1, reached by the time the re-send is weighed)
 	chain.stuckBelowFee = 0
 	h, _ = cb.Height(ctx)
-	if _, _, err := cb.Lock(ctx, hb, hk, ha, aliceAddr, h+12, h+80, 700); err != nil {
+	if _, _, err := cb.Lock(ctx, hb, hk, ha, aliceAddr, h+12, h+80, "", 700); err != nil {
 		t.Fatal(err)
 	}
-	chain.Advance(2) // height + 8 + 1 ≥ t1
 	chain.stuckBelowFee = 1 << 40
 	before = alice.count("transfer")
-	_, err = ca.Claim(ctx, 1, sb, kb)
+	now, _ := ca.Height(ctx)
+	go func() { // the chain moves on while the first send sits in the pool
+		time.Sleep(5 * time.Millisecond)
+		chain.Advance(1)
+	}()
+	_, err = ca.Claim(ctx, 1, sb, kb, now+2)
 	if err == nil || !strings.Contains(err.Error(), "window") || alice.count("transfer") != before+1 {
 		t.Fatalf("claim past the re-send window: %v, transfers %d -> %d", err, before, alice.count("transfer"))
 	}
