@@ -12,6 +12,9 @@
   const TICK = /^[A-Z0-9]{1,10}$/;
   // every entrypoint here reads SIGNER(), so the call goes out at ring size 2 and the payer is public
   const RING2 = "Ring size 2: the transaction names your address. Anyone can compute who signed it.";
+  // GAP-005: a new market pays the treasury this build ships (the set feed.js verifies listings against), and the
+  // factory's live pointer only when the build ships none or that set already names it
+  const treas = () => { const t = D.cfg.treasuries || [], r = (D.registry || {}).treasury; return t.length && !t.some((a) => V.canonAddress(a) === V.canonAddress(r)) ? t[0] : r; };
   async function template(kind) { const t = D.cfg.templates[kind]; const r = await fetch(t.file); if (!r.ok) throw new Error("template " + kind + " missing"); const code = await r.text(); if (t.sha256 && (await V.sha256Hex(code)) !== t.sha256) throw new Error("template hash mismatch"); return code; }
   // the factory counter and slot prefix each Register* entrypoint writes (factory.bas): nft_ and nfa_ share nc
   const REG = { RegisterLaunch: ["lc", "launch_"], RegisterPool: ["pc", "pool_"], RegisterNFT: ["nc", "nft_"], RegisterNFA: ["nc", "nfa_"] };
@@ -137,7 +140,7 @@
         if (!TICK.test(f.ticker.value.toUpperCase())) return toast("Ticker: letters and digits only, up to 10", "err");
         if (badUrl(f.icon.value)) return toast("Image URL must start with https://", "err");
         closeSheet();
-        const scid = await installAndRegister("launch", [["name", "S", f.name.value.trim()], ["ticker", "S", f.ticker.value.toUpperCase()], ["descr", "S", f.descr.value], ["icon", "S", f.icon.value.trim()], ["tags", "S", f.tags.value], ["quote", "H", quote.scid], ["dec", "U", dec], ["supply", "U", supply], ["grad", "U", grad], ["cbps", "U", cbps], ["tax", "U", tax], ["tmode", "U", BigInt(tmode)], ["treasury", "S", D.registry.treasury], ["fee", "U", BigInt(D.cfg.feeBps)], ["pfee", "U", BigInt(D.cfg.launchPfeeBps)]], "RegisterLaunch");
+        const scid = await installAndRegister("launch", [["name", "S", f.name.value.trim()], ["ticker", "S", f.ticker.value.toUpperCase()], ["descr", "S", f.descr.value], ["icon", "S", f.icon.value.trim()], ["tags", "S", f.tags.value], ["quote", "H", quote.scid], ["dec", "U", dec], ["supply", "U", supply], ["grad", "U", grad], ["cbps", "U", cbps], ["tax", "U", tax], ["tmode", "U", BigInt(tmode)], ["treasury", "S", treas()], ["fee", "U", BigInt(D.cfg.feeBps)], ["pfee", "U", BigInt(D.cfg.launchPfeeBps)]], "RegisterLaunch");
         if (scid) { await D.refresh(); router.go("token", scid); }
       }));
     relabel(); update();
@@ -153,7 +156,7 @@
         const a = asset.value.trim().toLowerCase(); if (!/^[0-9a-f]{64}$/.test(a)) return toast("Enter a 64-hex SCID", "err");
         try { const sc = await V.node.getSC(a, { code: true }); if (!sc.code) throw new Error(); } catch (e) { return toast("No contract at that SCID", "err"); }
         closeSheet();
-        const scid = await installAndRegister("pool", [["asset", "H", a], ["quote", "H", "0000000000000000000000000000000000000000000000000000000000000000"], ["treasury", "S", D.registry.treasury], ["fee", "U", BigInt(D.cfg.feeBps)], ["pfee", "U", BigInt(D.cfg.pfeeBps)]], "RegisterPool");
+        const scid = await installAndRegister("pool", [["asset", "H", a], ["quote", "H", "0000000000000000000000000000000000000000000000000000000000000000"], ["treasury", "S", treas()], ["fee", "U", BigInt(D.cfg.feeBps)], ["pfee", "U", BigInt(D.cfg.pfeeBps)]], "RegisterPool");
         if (scid) { await D.refresh(); router.go("token", scid); }
       }));
   };
@@ -177,7 +180,7 @@
         if (!f.name.value.trim() || !minhold) return toast("Fill name and minimum hold", "err");
         if (badUrl(f.icon.value) || badUrl(f.file.value)) return toast("Image URLs must start with https://", "err");
         closeSheet();
-        const scid = await installAndRegister("nft", [["name", "S", f.name.value], ["descr", "S", f.descr.value], ["icon", "S", f.icon.value], ["file", "S", f.file.value], ["tags", "S", f.tags.value], ["collection", "S", f.coll.value], ["token", "H", tok.scid], ["minhold", "U", minhold], ["holdblocks", "U", BigInt(f.blocks.value || 0)], ["maxsupply", "U", BigInt(f.max.value || 1)], ["price", "U", price], ["treasury", "S", D.registry.treasury], ["fee", "U", BigInt(D.cfg.feeBps)]], "RegisterNFT");
+        const scid = await installAndRegister("nft", [["name", "S", f.name.value], ["descr", "S", f.descr.value], ["icon", "S", f.icon.value], ["file", "S", f.file.value], ["tags", "S", f.tags.value], ["collection", "S", f.coll.value], ["token", "H", tok.scid], ["minhold", "U", minhold], ["holdblocks", "U", BigInt(f.blocks.value || 0)], ["maxsupply", "U", BigInt(f.max.value || 1)], ["price", "U", price], ["treasury", "S", treas()], ["fee", "U", BigInt(D.cfg.feeBps)]], "RegisterNFT");
         if (scid) { await D.refresh(); router.go("nft", scid); }
       }));
   };

@@ -48,6 +48,9 @@
     "htlc": "b01a9e7c516584cb0708c826b3387e9052b3049fa65d8acce7e031643c5cc4f2",
     "swap": "c121966fbf4bc2f928a484d2b2f860a35f6bedeefecdc06fa01b3e252722eca8",
     "board": "d95568f49e70d5a7828bcf4e61f40139e1bd4656db903984ead9027c9b56a3b6",
+    "treasuries": [
+      "dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd"
+    ],
     "feeBps": 50,
     "pfeeBps": 5000,
     "launchPfeeBps": 5000,

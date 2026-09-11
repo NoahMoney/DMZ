@@ -209,7 +209,7 @@ func main() {
 	// One spelling of config.js. This tool used to render its own copy of the template, which silently dropped
 	// every field it did not know about — the vault and its asset record among them — each time it ran. Record
 	// the deployment first, then render the app config from that record, the same way genconfig does.
-	n := record(hashes, old, rev)
+	n := record(hashes, old, rev, treasury)
 	rpc.Must(os.WriteFile(filepath.Join(*app, "config.js"), []byte(netcfg.ConfigJS(*network, n, "tools/simdeploy")), 0o644))
 	fmt.Println("wrote", filepath.Join(*app, "config.js"))
 }
@@ -297,7 +297,7 @@ func short(h string) string {
 // record updates the network block in deploy/networks.json so genconfig can rebuild config.js and dist bundles,
 // and returns the block it wrote. When the record cannot be read it still returns a block built from the flags,
 // so config.js is written from exactly one code path whether or not the file was there.
-func record(hashes map[string]string, old, rev map[string]map[string]bool) *netcfg.Network {
+func record(hashes map[string]string, old, rev map[string]map[string]bool, treasury string) *netcfg.Network {
 	f, err := netcfg.Load(*networks)
 	if err != nil {
 		fmt.Println("networks.json not updated:", err)
@@ -314,6 +314,17 @@ func record(hashes map[string]string, old, rev map[string]map[string]bool) *netc
 	n.Daemon, n.Factory, n.Social, n.Founders, n.Chat = *daemon, *factory, *social, *founders, *chat
 	n.Htlc, n.Swap, n.Board = *htlcF, *swapF, *boardF
 	n.FeeBps, n.PfeeBps, n.LaunchPfeeBps = 50, 5000, 5000
+	// GAP-005: the treasury set config.js ships, current first, in the spelling a contract writes. A market keeps
+	// the treasury it was installed with, so an earlier one stays in the set the way a legacy template hash does.
+	if t := rpc.DVMAddress(treasury); t != "" {
+		ts := []string{t}
+		for _, p := range n.Treasuries {
+			if p != "" && p != t {
+				ts = append(ts, p)
+			}
+		}
+		n.Treasuries = ts
+	}
 	if n.Templates == nil {
 		n.Templates = map[string]netcfg.Template{}
 	}

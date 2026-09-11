@@ -56,8 +56,11 @@
   const factoryKey = () => renounced()
     ? key("The factory owner", "Renounced at block " + renounced() + ": nobody can change the treasury or the registration fee.")
     : key("The factory owner", (!D.registry ? "Not read yet. " : D.registry.owner ? "Held by " + V.shortAddr(D.registry.owner) + ". " : "Its key could not be read. ") +
-      "Can change the registration fee, and the treasury address this app checks every market against — which would hide every listed market from this app, " +
-      "though not from the chain. Cannot touch a listed contract or a balance. Can renounce, which ends both powers for ever; there is no transfer to another key.");
+      "Can change the registration fee, and the treasury the factory forwards every registration fee to. " +
+      ((D.cfg.treasuries || []).length
+        ? "This app checks markets against the treasury its build ships, not that pointer, so moving it does not hide a listed market. "
+        : "This build ships no treasury of its own, so it checks every market against that pointer: moving it would hide every listed market from this app, though not from the chain. ") +
+      "Cannot touch a listed contract or a balance. Can renounce, which ends both powers for ever; there is no transfer to another key.");
 
   router.on("notice", (el) => {
     const draw = () => render(el,

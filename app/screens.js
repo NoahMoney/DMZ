@@ -182,6 +182,8 @@
         unplaced ? h("div", { class: "note mt" }, unplaced + " traded asset" + (unplaced === 1 ? " is" : "s are") + " left out of the groups above: " +
           (unplaced === 1 ? "its market is" : "their markets are") + " no longer listed, so the app cannot tell which asset " +
           (unplaced === 1 ? "it was" : "they were") + " priced in, and putting the figure in the wrong quote would be worse than omitting it.") : null,
+        h("div", { class: "note mt" }, "Balances read through your wallet ", h("span", { "data-ts": Math.floor(hold.at / 1000) }, U.timeAgo(Math.floor(hold.at / 1000)) + " ago"),
+          " and kept for a minute" + (vaults.length && wbAt ? "; wrapped balances read " + U.timeAgo(Math.floor(wbAt / 1000)) + " ago" : "") + ". Refresh reads them again."),
         hold.unread ? h("div", { class: "note mt" }, hold.unread + " token balance" + (hold.unread === 1 ? "" : "s") + " could not be read from your wallet, so " +
           (hold.unread === 1 ? "that token is" : "those tokens are") + " left out above rather than shown as zero. Refresh to ask again.") : null,
         h("div", { class: "between mt" }, h("span", { class: "note" }, "Cost basis from " + pnl.count + " trade" + (pnl.count === 1 ? "" : "s") + ": the ones made on this device" + (pnl.chainCount ? " plus " + pnl.chainCount + " this address published from elsewhere" : "") + ", kept in this browser. Nothing is uploaded."),
@@ -270,7 +272,7 @@
       h("div", { class: "stack mt8", style: "gap:7px" },
         can(true, "Runs entirely in your browser from the DERO chain. No server, no analytics, no cookies."),
         can(true, "Reads go to your node. Transactions are built here and signed only inside your wallet after you approve them there."),
-        can(true, "Before a contract is shown or traded, its code is hashed and compared with the shipped templates, and its treasury with the factory's. The code, the registry and the treasury all come from the node above — the app has no second source, so a node you do not run can misreport all three."),
+        can(true, "Before a contract is shown or traded, its code is hashed and compared with the shipped templates, and its treasury with the one this build ships (the factory's, when it ships none). The code, the registry and the treasury all come from the node above — the app has no second source, so a node you do not run can misreport all three."),
         // UX-09: the policy's connect-src admits any wss:// host, so the limit to one node is this app's code, not the policy
         can(true, "A Content Security Policy blocks any script that is not part of this build. It lets the page connect to this device and to any wss:// host; this app's own code connects only to the node you set and your wallet on this device, and loads no image, font or script from anywhere else. A link a creator set opens outside DMZ, and only when you click it."),
         can(true, "Trades never accept more than 10% slippage; large price impact needs an explicit acknowledgement."),

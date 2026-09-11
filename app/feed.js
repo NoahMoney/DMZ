@@ -241,7 +241,7 @@
       const r = await V.node.getSC(scid, { keys: [...NUMKEYS, ...STRKEYS] });
       const num = (k) => (isNum(r.vals[k]) ? B(r.vals[k]) : 0n), str = (k, n) => clean(V.hexToStr(r.vals[k] || ""), n), hex = (k) => (r.vals[k] || "");
       const tCanon = hex("treasury") ? this.rawToAddr(hex("treasury")) : null, reg = this.registry;
-      if (reg && !reg.treasuryUnverified && !reg.treasuries.has(tCanon)) return { scid, untrusted: tCanon ? "treasury differs from the factory" : "treasury could not be read" };
+      if (reg && !reg.treasuryUnverified && !reg.treasuries.has(tCanon)) return { scid, untrusted: tCanon ? "treasury is not the protocol treasury" : "treasury could not be read" };
       const s = { scid, kind, fee: num("fee"), pfee: num("pfee"), treasury: tCanon, treasuryUnverified: !reg || reg.treasuryUnverified, templateLegacy: !!this.oldcode.get(scid), trades: [], points: [], sig: sigOf(r.vals), installHeight: await this.installHeight(scid) };
       // the template fixes the code, not its install parameters: a market with the right code and treasury but a
       // fee of 0 (or 1%) would pay the protocol nothing (or overcharge) and still look Verified without this check
@@ -293,7 +293,7 @@
       const r = await V.node.getSC(scid, { keys: [...NFA_NUM, ...NFA_STR] });
       const num = (k) => (isNum(r.vals[k]) ? B(r.vals[k]) : 0n), str = (k, n) => clean(V.hexToStr(r.vals[k] || ""), n), addr = (k) => (r.vals[k] ? this.rawToAddr(r.vals[k]) : null);
       const tCanon = addr("treasury"), reg = this.registry;
-      if (reg && !reg.treasuryUnverified && !reg.treasuries.has(tCanon)) return { scid, untrusted: tCanon ? "treasury differs from the factory" : "treasury could not be read" };
+      if (reg && !reg.treasuryUnverified && !reg.treasuries.has(tCanon)) return { scid, untrusted: tCanon ? "treasury is not the protocol treasury" : "treasury could not be read" };
       const s = { scid, kind: "nfa", treasury: tCanon, treasuryUnverified: !reg || reg.treasuryUnverified, templateLegacy: !!this.oldcode.get(scid), sig: nfaSig(r.vals), installHeight: await this.installHeight(scid) };
       for (const k of NFA_NUM) s[k] = num(k);
       if (s.protoFee !== B(this.cfg.feeBps || 0)) return { scid, untrusted: "protocol fee differs from the deployment's (" + s.protoFee + " bps)" };

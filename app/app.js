@@ -28,6 +28,10 @@
   const addrWant = () => (netName(D.cfg.network) === "mainnet" ? "mainnet" : "a test network");
   app.net = { node: "", ok: null, why: "" };
   const netBanner = () => { const b = U.$("#netwarn"); if (!b) return; b.hidden = app.net.ok !== false; b.textContent = app.net.ok === false ? app.net.why : ""; };
+  // BL-129: a screen keeps its last good read when the node stops answering, and then every screen says how old it is
+  const staleBanner = () => { const b = U.$("#stale"), at = Math.floor(D.lastRefresh / 1000), on = !!(D.lastError && at); if (!b) return; b.hidden = !on;
+    if (on) U.render(b, "Your node did not answer the last read (" + U.clean(D.lastError, 120) + "). The figures on screen were read ", h("span", { "data-ts": at }, U.timeAgo(at) + " ago"), " and may have changed since."); };
+  D.onChange(staleBanner, true);
   // Asked at the moment of signing, of the wallet's own node, so a wallet moved to another node since the last
   // check cannot sign there. "" means go; anything else is the reason nothing was sent.
   app.netGate = async () => {
@@ -151,7 +155,7 @@
     if (!opts.code && !isScid(opts.scid)) { toast("Refusing: bad contract id", "err"); return null; }
     if (opts.asset && !isScid(opts.asset.scid)) { toast("Refusing: bad asset id", "err"); return null; }
     const ring = opts.ring === 16 ? 16 : 2; // 16 only for entrypoints that pay a named address (SIGNER() is blank above 2)
-    if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || D.nfas.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid) || D.allVaults().some((v) => v.scid === opts.scid) || (D.cfg.chat && opts.scid === D.cfg.chat))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
+    if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || D.nfas.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid) || D.allVaults().some((v) => v.scid === opts.scid) || (D.cfg.chat && opts.scid === D.cfg.chat) || (D.cfg.board && opts.scid === D.cfg.board) || (D.cfg.swap && opts.scid === D.cfg.swap))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
     // A contract whose code matched a LEGACY template hash is still listed — its code is immutable and it was
     // verified when that template was current — but it is not running the code this build ships. One kept launch
     // version refunds a buy's overshoot before it checks min_out, and the ...To wrappers turn that failure into a
@@ -312,7 +316,7 @@
         step("1", "Your node, your wallet, nothing else", "There is no server and no account. Prices, trades and profiles are read from the contracts by your own node."),
         step("2", "Trading is pseudonymous, not private", "Balances are encrypted, and a trade only reaches the feed if you switch on “Post this trade”. The contract still records its reserves at the end of every block they move in, so the size of the trade is readable by anyone whether you post it or not, and the address that paid a ring-size-2 call can be computed from the block. Private mode hides the payer, not the trade."),
         // MX-01: "Every listing is verified" promised the one thing the badge tiers exist not to promise
-        step("3", "Every contract's code is checked; its name is not", "Before a market is shown, its code is hashed against the shipped templates and its treasury checked against the factory's. That says nothing about what it calls itself or what it trades: each listing's badge says exactly what was checked, and warnings on thin, taxed or look-alike markets appear before you confirm.")),
+        step("3", "Every contract's code is checked; its name is not", "Before a market is shown, its code is hashed against the shipped templates and its treasury checked against the one this build ships (the factory's, when it ships none). That says nothing about what it calls itself or what it trades: each listing's badge says exactly what was checked, and warnings on thin, taxed or look-alike markets appear before you confirm.")),
       button("Got it", "primary wide mt", () => { app.saveSettings({ seen: true }); closeSheet(); }, { id: "introOk" }));
   };
 

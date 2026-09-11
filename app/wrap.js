@@ -201,8 +201,9 @@
     h("h3", { class: "mt" }, "How XMR and ZEC settle here instead"),
     kv("Monero", "atomic swap for a DERO-side asset"), kv("Zcash", "transparent ZEC only, by atomic swap"), kv("Custodian", "none: each chain's own lock"),
     h("div", { class: "note mt8" }, "This page runs no swap. Each side runs a swap program on its own machine, against its own Monero or Zcash node and its own DERO wallet, " +
-      "and trusts those answers and its own presence at its window: miss the window and the other side's exit opens. Neither program has yet completed a swap on a real " +
-      "Monero or Zcash network, and the Zcash one cannot yet broadcast a transaction. Shielded ZEC cannot be swapped here, and a transparent Zcash swap is public: the amount, both addresses and the hash."),
+      "and trusts those answers and its own presence at its window: miss the window and the other side's exit opens. Both programs have completed swaps, every exit included, against real " +
+      "Monero and Zcash node software on a local test chain (regtest); neither has yet run on a public test network. Shielded ZEC cannot be swapped here, and a transparent Zcash swap is public: the amount, both addresses and the hash."),
+    D.cfg.board ? button("Open the ZEC swap board", "wide mt8", () => router.go("zswap")) : null,
     h("div", { class: "note mt8" }, "Every market this app creates on this network is priced in DERO. Nothing on this screen asks you to sign."),
   ];
 

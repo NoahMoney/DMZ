@@ -166,7 +166,7 @@
               return h("span", { class: "row tight", style: "flex-wrap:wrap;gap:4px 12px" },
                 ts.map(([sym, t], i) => h("span", { class: i ? "sub num" : "display num" }, A.fmtUnits(t.units, BigInt(t.dec), 3) + " " + sym)));
             })(), changePill(hold.change24)),
-          h("div", { class: "sub tiny" }, hold.rows.length + " token" + (hold.rows.length === 1 ? "" : "s") + " · " + (hold.dero === null ? "DERO balance unreadable" : A.fmtDero(hold.dero, 2) + " DERO free") + " · valued on this device")),
+          h("div", { class: "sub tiny" }, hold.rows.length + " token" + (hold.rows.length === 1 ? "" : "s") + " · " + (hold.dero === null ? "DERO balance unreadable" : A.fmtDero(hold.dero, 2) + " DERO free") + " · valued on this device · read ", h("span", { "data-ts": Math.floor(hold.at / 1000) }, U.timeAgo(Math.floor(hold.at / 1000)) + " ago"))),
         h("div", { class: "row tight" }, button("Portfolio", "small", () => router.go("portfolio")), button("Trade", "small primary", () => router.go("trade")))) : null;
       const f = D.founders;
       // secondary, and it says so: a hairline row at the foot of the column, no accent edge and no accent badge
@@ -238,7 +238,9 @@
         h("div", { class: "mlist" },
           create("Launch a token", "Fixed supply, bonding curve, auto-graduation into a locked AMM. Optional tax: creator, buyback-and-lock, or staker rewards.", () => V.forms.launch()),
           create("Create a pool", "LP-owned constant-product pool for any existing DERO asset.", () => V.forms.pool()),
-          create("Create a holder NFT", "Editions earned by locking a token for a number of blocks.", () => V.forms.nft())));
+          create("Create a holder NFT", "Editions earned by locking a token for a number of blocks.", () => V.forms.nft())),
+        D.cfg.board ? [head("trend", "ZEC swap", "Atomic swap against transparent ZEC · public on the Zcash chain"),
+          h("div", { class: "mlist" }, create("Buy or sell for ZEC", "The offer board, and each swap's DERO leg read live from its lock. Your companion runs the Zcash leg.", () => router.go("zswap")))] : null);
     };
     draw(); D.onChange(() => router.current && router.current.name === "trade" && draw());
   });

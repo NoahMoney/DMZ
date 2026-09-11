@@ -40,7 +40,7 @@ func legacyOf(t *testing.T, n *netcfg.Network) []string {
 // certifying that code. -revoke names a hash the app must stop accepting.
 func TestRevokeDropsTheOutgoingHashInsteadOfDemotingIt(t *testing.T) {
 	writeRecord(t, []string{hSup})
-	n := record(map[string]string{"launch": hNew}, nil, map[string]map[string]bool{"launch": {hOld: true}})
+	n := record(map[string]string{"launch": hNew}, nil, map[string]map[string]bool{"launch": {hOld: true}}, "")
 	got := legacyOf(t, n)
 	for _, l := range got {
 		if l == hOld {
@@ -56,7 +56,7 @@ func TestRevokeDropsTheOutgoingHashInsteadOfDemotingIt(t *testing.T) {
 // market on every template change is the defect this behaviour was added to prevent.
 func TestWithoutRevokeTheOutgoingHashIsStillCarriedForward(t *testing.T) {
 	writeRecord(t, []string{hSup})
-	n := record(map[string]string{"launch": hNew}, nil, nil)
+	n := record(map[string]string{"launch": hNew}, nil, nil, "")
 	got := legacyOf(t, n)
 	if len(got) != 2 {
 		t.Fatalf("legacy = %v, want the previous hash and the older one", got)
@@ -74,7 +74,7 @@ func TestWithoutRevokeTheOutgoingHashIsStillCarriedForward(t *testing.T) {
 // anyone reads the audit.
 func TestRevokeAlsoRemovesAHashAlreadyInLegacy(t *testing.T) {
 	writeRecord(t, []string{hSup})
-	n := record(map[string]string{"launch": hNew}, nil, map[string]map[string]bool{"launch": {hSup: true}})
+	n := record(map[string]string{"launch": hNew}, nil, map[string]map[string]bool{"launch": {hSup: true}}, "")
 	got := legacyOf(t, n)
 	if len(got) != 1 || got[0] != hOld {
 		t.Fatalf("legacy = %v, want only the outgoing hash %s…", got, hOld[:8])
@@ -85,7 +85,7 @@ func TestRevokeAlsoRemovesAHashAlreadyInLegacy(t *testing.T) {
 // value this test could otherwise be fooled by.
 func TestTheRevocationIsWrittenToTheRecord(t *testing.T) {
 	p := writeRecord(t, []string{hSup})
-	record(map[string]string{"launch": hNew}, nil, map[string]map[string]bool{"launch": {hOld: true}})
+	record(map[string]string{"launch": hNew}, nil, map[string]map[string]bool{"launch": {hOld: true}}, "")
 	b, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatal(err)
