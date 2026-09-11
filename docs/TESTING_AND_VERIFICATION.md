@@ -91,7 +91,10 @@ Every txid is in `research/regtest/zecswap-e2e.log`. Swap C was rerun after a fi
 | `nfa.bas` | 15,876 (DERO-quoted) and 15,941 (wrapped) storage gas; 14,937 bytes | the asset agent's DVM run |
 | Monero on regtest | a transfer unlocks at 10 confirmations; a coinbase 60 blocks after its block; a wallet refresh 0.1–0.3 s | `research/regtest/monero-smoke.log` |
 | Zcash on regtest | a v5 transaction 272–273 bytes, ZIP 317 fee 15,000 zatoshi; coinbase maturity 100 blocks | `research/regtest/zcash-smoke.log` |
-| App bundle | 33 files; the largest DOC is `wrap.js` at 18,000 bytes of the 18,432 cap | `genconfig -dist -network simulator` |
+| App bundle | 34 files; the largest DOCs are `feed.js` at 17,984 bytes and `wrap.js` at 17,964, of the 18,432 cap | `genconfig -dist -network simulator` |
+| Swaps on regtest (MT-M01) | Monero: happy exit 502 / 574 s, refund 805 / 909 s, punish 966 / 1,026 s (two runs); Zcash: a swap about 366 s, the refund 1,990 s. Regtest blocks come in seconds, so these are not mainnet times: DERO's 8-block stable waits dominate | `research/regtest/latency.md` |
+| App start (MT-M02) | medians at 430 px: first paint 36 ms, first data render 212 ms cold (494.7 kB, 28 files), 97 ms warm; at 1,280 px, 206 ms cold. 33 node calls before the first data render. Loopback node (2.8 ms round trip): with a remote node the 33 calls dominate | `ui.mjs --perf --runs=5` |
+| Zcash header verification | about 0.3 ms per header, almost all of it Equihash; a 210-header funding proof takes 55–80 ms. Modelled cost of forging 10 confirmations: 4.49 blocks of network work with only 28 headers below the funding, 8.94 with the recommended policy | `research/zecspv/bench.log`; `ZCASH_HEADER_VERIFICATION.md` §4 |
 
 ---
 
@@ -109,3 +112,5 @@ tools/regtest/smoke-monero.sh && tools/regtest/smoke-zcash.sh
 ```
 
 With the simulator running, `tools/simdeploy`, then `verifydeploy`, then the UI passes, as in §1.
+
+`tools/check.sh` runs the same steps in one command and prints one PASS or FAIL line for each. `--ui` adds the UI passes, `--verifydeploy` adds the check against the simulator, and `--only=` or `--skip=` picks steps. The UI pass needs Playwright 1.62.0 (Chromium 151.0.7922.34) in `$PW_DIR`, and `ui.mjs` refuses any other version (`tools/uitest/README.md`).
