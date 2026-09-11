@@ -14,9 +14,14 @@ Everything below was executed on Windows 10 with Go 1.26 (2026-09-05). Paths are
 ### 1. Clone and build (once)
 
 ```
-git -c core.longpaths=true clone --depth 1 https://github.com/deroproject/derohe vendor/derohe
-git -c core.longpaths=true clone --depth 1 https://github.com/civilware/derohe vendor/derohe-civilware   # XSWD wallet
-git clone --depth 1 https://github.com/civilware/tela vendor/tela
+git -c core.longpaths=true clone https://github.com/deroproject/derohe vendor/derohe
+git -C vendor/derohe checkout e9df1205b6603c62f0651d0e18e5e77a2584b15e
+git -c core.longpaths=true clone https://github.com/civilware/derohe vendor/derohe-civilware   # XSWD wallet
+git -C vendor/derohe-civilware checkout 433c45590f6792117ff81a2eb3e45513bb856ff5
+git clone https://github.com/civilware/tela vendor/tela
+git -C vendor/tela checkout aa892d2ff8d4deb9c519dd19c135e36ff9eac12b
+research/crosschain/poc/proof-xmr/fetch-bulletproofs.sh   # the Monero prover's one patched dependency, checked against its crate
+cd tools && go run ./verifyvendor -root .. && cd ..         # refuses anything but the pinned commits and the locked changes
 cd vendor/derohe && go build -mod=vendor -o ../bin/simulator.exe ./cmd/simulator && cd ../..
 cd vendor/derohe-civilware && go build -o ../bin/dero-wallet-cli-xswd.exe ./cmd/dero-wallet-cli && cd ../..
 cd vendor/tela/cmd/tela-cli && GOFLAGS=-mod=mod go build -o ../../../bin/tela-cli.exe . && cd ../../../..
@@ -199,11 +204,12 @@ wallet.
 | the same commit ran a full simulator pass (launch, trade, graduate, founders, vault wrap/unwrap) | `docs/history/HISTORY.md (day log)` entry with txids |
 | testnet deployment live and exercised for at least one week | `deploy/README.md (Testnet)` record |
 | external review of `contracts/*.bas` and of `research/wrapper/README.md (security review)` items 1–3 closed | review report in `docs/` |
-| federation: signer set named, bonds posted, `cap / capratio ≤ Σ bonds` (`capratio` is fixed at install; the contract refuses any cap above the bound at `Seal`, at `SetCap` and at every mint), viewing key published with `SetViewKey`, foreign backends on mainnet nodes | vault state + `deploy/federation.md` |
+| **no vault in the mainnet bundle**: `mainnet.vault` stays empty and `mainnet.vaults` null in `networks.json`. The atomic-swap study (§3, operator decision 12) recommends the federation is not deployed; XMR and ZEC settle by `htlc.bas` + `xmrswap` and `board.bas` + `swap.bas` + `zecswap` instead. A vault would first need every condition this row used to list — signers other than the operator named in `deploy/federation.md`, bonds with `cap / capratio ≤ Σ bonds`, a published viewing key, a real foreign backend — and none of them exists | `deploy/networks.json`; the Wrap tab reads "not offered on this network" |
 | treasury wallet and owner wallet are separate, offline-backed-up, seeds stored off machine | operator checklist |
-| the app's mainnet bundle shows "mainnet" in the status pill against a mainnet node | manual |
+| the app's mainnet bundle shows "Mainnet" in the status pill against a mainnet node, with no network banner under the header; and the mainnet-shaped UI pass is green: no screen mentions a wrapped asset without saying it is not offered, the Wrap tab draws no control, and a mainnet-labelled build reading a non-mainnet node says so on every screen and refuses to sign | manual, and `tools/withlock.sh ui env PW_DIR=<playwright> node tools/uitest/ui.mjs <url> .sim/ui-mainnet --mainnet` (read the PNGs) |
+| every step of `docs/MAINNET_TEST_PLAN.md` ran on the simulator and on the test networks, and its mainnet stage ran at the smallest amounts, each reconciled chain against wallets against companion state against the app | the plan's reconciliation records |
 | `tools/verifyvendor` green: every vendored checkout at its pinned commit with only the locked changes, binaries matching `deploy/binaries.lock` | `go run ./verifyvendor -root ..` — see the note below |
-| the Founders Pass `name` and `descr` were passed explicitly on the command line and read back from chain with `DERO.GetSC` after install: neither can be changed afterwards, and the app renders `descr` under the mint button | operator checklist + block explorer |
+| the Founders Pass `name`, `descr`, `maxsupply`, `reserve`, `share` and `mfee` were passed explicitly on the command line and read back from chain with `DERO.GetSC` after install: none can be changed afterwards, and the app renders `descr` under the mint button. The command below still carries the simulator's `-pass-max 500 -pass-reserve 50`, which is not the stated 20-edition supply, and `founders.bas` refuses `reserve > maxsupply / 5`, so a reserve of 50 cannot install at 20 editions (MX-02, MISS-03): the numbers are the operator's to set | operator checklist + block explorer |
 | the wallet that installs never mines and never receives block rewards; the treasury never transacts during the install | operator checklist (see Wallets) |
 | every fund-moving tool was started with `-yes` on purpose (`simdeploy`, `telainstall` and `vaultsigner` exit on mainnet without it; `treasurybot` runs as a dry run) | operator checklist |
 
@@ -239,12 +245,15 @@ auto-approves, and it refuses any daemon that is not a loopback test network.
 cd tools
 go run ./simdeploy -network mainnet -yes -daemon 127.0.0.1:10102 -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
   -pass-name "DMZ Founders Pass" ^
-  -pass-descr "Register a pass to earn a share of the DERO trading fees the treasury claims from DMZ markets. The share is fixed in this contract; the deposit is made by the treasury's own bot, and no contract forces it. Fees earned in a wrapped asset do not reach holders." ^
+  -pass-descr "Register a pass for a fixed share of the DERO trading fees the treasury claims from DMZ markets. The treasury's bot makes each deposit; no contract forces it. Fees in any asset other than DERO do not reach holders." ^
   -pass-image https://<your host>/pass.png -pass-price 500000 -pass-max 500 -pass-reserve 50 -pass-share 5000 -pass-mfee 250
 ```
 This installs `factory.bas`, `social.bas`, `founders.bas`, writes `app/config.js` and records the mainnet block
 in `deploy/networks.json`. Verify each SCID on a block explorer before continuing: code hash, treasury, owner.
 Measured on the simulator: factory ≈ 3.0k, social ≈ 2.2k, founders ≈ 12.8k atomic units of storage gas.
+After install, set the factory's treasury (`SetTreasury`) and registration fee (`SetRegFee`) if they need changing,
+then call `Renounce` on `factory.bas` and verify with `DERO.GetSC` that `owner` is absent — at step 5 of "After
+install", once the published app has been checked against those values.
 
 `-pass-name` and `-pass-descr` are written into `founders.bas` at install and there is no setter and no update
 path: whatever this command line says is on chain for the life of the contract, and `app/nfts.js` renders the
@@ -254,7 +263,10 @@ fee the exchange earns, paid in DERO to their wallets" — which the system cann
 DERO-quoted pool and launch fees only, a wrapped-asset fee can never be paid out in DERO, and no contract obliges
 the treasury to deposit anything. The sentence above is the one `app/notice.js` will support.
 
-Vault (only when the federation gates pass): `simvault` is a simulator tool — it has no `-network` flag and its
+Vault: **not on mainnet.** The go/no-go table keeps the mainnet bundle free of any vault (the atomic-swap study
+recommends the federation is not deployed), and the app then says on its Wrap tab that wrapped assets are not
+offered on this network. The rest of this paragraph is kept only as the record of how a vault would be installed
+if that decision were ever reversed. `simvault` is a simulator tool — it has no `-network` flag and its
 wallet endpoints are the simulator's, so a mainnet vault is installed by the manual sequence in
 `contracts/README.md`:
 
@@ -272,20 +284,25 @@ under `mainnet.vault` in `networks.json`.
 
 ```
 cd tools && go run ./genconfig -dist -network mainnet          # dist/mainnet/, manifest.json, DOC size check
-vendor\bin\telainstall.exe -network mainnet -yes -wallet .mainnet\owner.db -password <pw> -daemon 127.0.0.1:10102 -app dist\mainnet -durl dmz.tela -out deploy\tela-mainnet.json
+vendor\bin\telainstall.exe -network mainnet -yes -wallet .mainnet\owner.db -password <pw> -daemon 127.0.0.1:10102 -app dist\mainnet -durl dmz.tela -ringsize 16 -out deploy\tela-mainnet.json
 ```
-Measured DOC sizes are in `dist/mainnet/manifest.json`; the install cost is unmeasured for the current app — see
-the STALE note under "Costs and sizes" and re-measure on the simulator before the go/no-go, because the last
-figure recorded there (≈ 1.64 DERO) predates `wrap.js`. Record the INDEX SCID under `mainnet.tela.index`.
-Updates: the same command with `-index <scid>` (only changed DOCs are re-installed; the INDEX keeps the commit
-history).
+Measured DOC sizes are in `dist/mainnet/manifest.json`. The install cost is unmeasured for the current app: see the
+STALE note under "Costs and sizes", and re-measure on the simulator before the go/no-go, because the last figure
+recorded there (≈ 1.64 DERO) predates `wrap.js`. Record the INDEX SCID under `mainnet.tela.index`.
+
+**There are no updates on mainnet.** An INDEX installed above ring size 2 records its owner as `"anon"`, and
+`UpdateCode` then refuses every caller for ever. This was proven on the simulator: an update sent anyway was mined
+and changed nothing (`research/release/tela-anon-index.log`). `telainstall` refuses a mainnet INDEX below ring 16
+unless `-updatable` is given, and that flag leaves a key able to replace the app. A new release is a new INDEX with a
+new SCID, published the same way. Users open an INDEX they have checked with `tools/verifydeploy`.
 
 ### After install
 
 1. Open the INDEX with `tela-cli serve <index scid>` on a clean machine; connect a mainnet node; the pill must read
    "Mainnet · <height>" and the Founders Pass must render from chain data.
 2. Start `tools/treasurybot` from the treasury wallet (`-wallet 127.0.0.1:10104`).
-3. Start the signers (`tools/vaultsigner -network mainnet -yes -vault <scid> -backend <chain> …`) only after the
+3. **Not on mainnet: there is no vault to sign for** (see the go/no-go table). Were a vault ever installed, the signers
+   (`tools/vaultsigner -network mainnet -yes -vault <scid> -backend <chain> …`) would start only after the
    federation gates. The daemon speaks vault v3 and exits against any other `v`; it needs no operator afterwards,
    and there is no flag with which one could hold or release a withdrawal.
 
@@ -296,12 +313,24 @@ history).
    which a mainnet vault can be signed for today**, and the federation gate above cannot pass. Sealing a mainnet
    vault before a backend exists is what this refusal is there to stop.
 4. Publish: INDEX SCID, factory SCID, template hashes, signer set, caps and viewing keys in one signed post.
+5. Renounce the factory once the treasury and the registration fee are final and the published app has been checked
+   against them: the owner wallet calls `Renounce` on `factory.bas` (no arguments, ring size 2). Read back with
+   `DERO.GetSC` that `owner` is absent and `renounced` holds the height it ran at; the app's message from the dev then
+   reads "Renounced at block N". It cannot be undone and there is no transfer of ownership: from then on nobody can
+   change the treasury or the registration fee, and a wrong treasury can only be answered by a new factory.
+6. Start `tools/treasurybot` with `-yes` only after a dry run has printed what it would claim, deposit and pay out.
+   It now also calls `PayOwed` for the treasury on every listed NFA running the shipped template: `nfa.bas` owes its
+   protocol fee instead of sending it, and nothing else ever moves that balance out of the contract.
 
 ### Rollback
 
-Contracts are immutable; the app is not: a broken app release is fixed by another `telainstall -index` (the INDEX
-`commit` counter records it). A broken contract is retired by pointing a new factory at the same treasury and
-shipping a new app; the old markets keep working for their holders.
+Contracts are immutable, and so is the mainnet app: its INDEX is installed at ring 16 and nobody can update it.
+- **A broken app release** is replaced by installing a new INDEX and publishing its SCID. The old one stays on chain,
+  unchanged, for anyone who has checked it.
+- **A broken contract** is retired by pointing a new factory at the same treasury and shipping a new app. The old
+  markets keep working for their holders.
+
+`docs/INCIDENT_RESPONSE.md` covers the rest of what can and cannot be done after deployment.
 
 
 ---
@@ -322,14 +351,21 @@ which can sit raw inside the DOC template's comment block (TELA-DOC-1 README, "G
 
 ```
 tools\telainstall\build.sh                                   # builds vendor/bin/telainstall.exe inside vendor/tela
-vendor\bin\telainstall.exe -wallet=<wallet.db> -password= -daemon=127.0.0.1:20000 -app=app -durl=dmz.tela -serve
+cd tools && go run ./genconfig -dist -network simulator && cd ..   # dist/simulator/, the only kind of -app it takes
+vendor\bin\telainstall.exe -wallet=<wallet.db> -password= -daemon=127.0.0.1:20000 -app=dist/simulator -durl=dmz.tela -serve
 ```
-- Installs every DOC with ringsize 2, waits for each TX, installs the INDEX with **ringsize 2 (updatable, public
-  owner)**, verifies it with `tela.GetINDEXInfo`, writes `deploy/tela-deployment.json` (index SCID, per-file SCIDs,
-  commit number, update TXIDs) and, with `-serve`, serves it exactly as a host app would (`tela.ServeTELA`).
-- Update after changing files: `... -index=<index scid>` re-installs only the DOCs whose bytes changed — an
-  unchanged one is pointed at again, but only after its on-chain code hash is read back and matched — and calls
-  `UpdateCode` on the INDEX.
+- **What it refuses.** `-app` must be a `dist/<network>` bundle whose `manifest.json` and `config.js` name the
+  `-network` being installed to, and whose files match the manifest's hashes.
+- **The install.** Every DOC goes in at `-doc-ringsize` (2 by default; a DOC is immutable at any ring size), waiting
+  for each transaction. Then the INDEX goes in at `-ringsize`:
+  - 2 by default on the simulator and testnet: updatable, with a public owner, for development;
+  - 16 by default on mainnet: owner `"anon"`, and nobody can ever update it.
+- **Afterwards.** It verifies the INDEX with `tela.GetINDEXInfo` and writes `deploy/tela-deployment.json` (the index
+  SCID, per-file SCIDs, the commit number, update TXIDs). With `-serve`, it serves the app exactly as a host app would
+  (`tela.ServeTELA`).
+- **Updates, on a ring-2 INDEX only.** `... -index=<index scid>` re-installs only the DOCs whose bytes changed. An
+  unchanged DOC is pointed at again, but only after its on-chain code hash has been read back and matched. Then it
+  calls `UpdateCode` on the INDEX. `-index` is refused above ring 2, and on an INDEX whose owner is `"anon"`.
   The INDEX stores `commit` and `STORE(<n>, HEX(TXID()))` for each update — the on-chain commit history that
   `tela-cli clone <scid>@<txid>` can check out.
 
@@ -394,3 +430,29 @@ refuses to write the bundle if any file exceeds `-max-doc` (default 18 KB).
 - **Engram** (DEROFDN, 0.6.1+): Explore TELA → enter the INDEX SCID; XSWD is on 44326 by default.
 - **tela-cli**: `serve <scid>` opens `http://localhost:808x/index.html`.
 The app's XSWD `url` is derived from `location`, so any host port works.
+
+---
+
+## Verifying a deployment
+
+Anyone can check a deployment against this repository with no wallet and no help from the operator. All it needs is
+a DERO node they run and have synced themselves:
+
+```
+cd tools
+go run ./verifydeploy -network mainnet -daemon <your node> -app ../app -extra htlc=<scid>,swap=<scid>,board=<scid>
+go run ./release -verify <published manifest.json> -binaries <the binaries you downloaded>
+```
+
+`verifydeploy` exits 1 unless every one of these holds:
+
+- every contract the record names is, byte for byte, `reference.Canon` of its source;
+- every market in the factory registry runs a template the record accepts;
+- no deployer role survives: not the factory owner after `Renounce`, not a vault owner after `Seal`, and not the TELA
+  INDEX owner;
+- the INDEX serves exactly the app's files.
+
+An INDEX passes only if it was installed above ring 2 (`telainstall -ringsize 16`, stored owner "anon"). A ring-2
+INDEX can always be replaced by its installer's key. `release -verify` rebuilds the companions and compares every
+hash with the published manifest. `tools/verifydeploy/README.md` and `tools/release/README.md` say what each check
+proves and what it does not. The simulator transcripts are in `research/release/`.

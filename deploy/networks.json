@@ -8,24 +8,27 @@
     "vault": "",
     "vaults": null,
     "chat": "",
+    "htlc": "",
+    "swap": "",
+    "board": "",
     "feeBps": 50,
     "pfeeBps": 5000,
     "launchPfeeBps": 5000,
     "templates": {},
     "tela": {
       "index": "",
-      "durl": "veil.tela"
+      "durl": "dmz.tela"
     }
   },
   "simulator": {
     "daemon": "127.0.0.1:20000",
-    "factory": "83ae27eba7c8a225398f5fb699da9f71c039b769b0d3b5aabf09e75ce390acd7",
-    "social": "c91b0c18b0611f294fc1ed0e0bea79daa9572e2e944938c10d1b841b9bdc5aa6",
-    "founders": "aee674633edab4c12fe5007765629f06852d1e379847da5553de6a1a4928dde2",
-    "vault": "f23403b0741852161cd796249bdb1d32b796fa2b646f60041043f6f03bf686fb",
+    "factory": "d1ebd6f418e2942a6b0b3e6b9b4c0be06508c2cad6a318656d0a6052d33645c7",
+    "social": "f218801dbdbd44d718887aed82703c8affe192f85031c0250c90f5b155cdada3",
+    "founders": "d55302c80bdb8790f8ffcece721c5e90ea4505cae6d8173f78ac68319bd299b8",
+    "vault": "ca83fbc377209403fef57225270849afa6d3bc42e88dc5a8715f69d1d6439ebc",
     "vaults": [
       {
-        "scid": "f23403b0741852161cd796249bdb1d32b796fa2b646f60041043f6f03bf686fb",
+        "scid": "ca83fbc377209403fef57225270849afa6d3bc42e88dc5a8715f69d1d6439ebc",
         "name": "Monero",
         "sym": "XMR",
         "chain": "Monero — simulated on this network (12 decimals, as Monero)",
@@ -33,33 +36,18 @@
         "conf": 10
       },
       {
-        "scid": "93013bb2ac439647bf7e54bb7af8d4185cf74a14abdcbb7371fdb0f255d3ccf0",
+        "scid": "bd0fe89c8e003536b38d6d0466d21980ded749c7d054339e9517a2715d9efa8a",
         "name": "Zcash",
         "sym": "ZEC",
         "chain": "Zcash — simulated on this network (8 decimals, as Zcash)",
         "dec": 8,
         "conf": 6
-      },
-      {
-        "scid": "d69c933fa6bd98c083c2298a2ac364125b23ac88c6839e7d3b8b7d2cd123c689",
-        "name": "Monero (superseded simulator vault)",
-        "sym": "XMR-old",
-        "chain": "Monero — earlier simulator vault, five-decimal units; withdraw only",
-        "dec": 5,
-        "conf": 10,
-        "legacy": true
-      },
-      {
-        "scid": "bfd444b7a567585af3e56412efc95c2a1e758a8da85d16c02b731fafbab7efd3",
-        "name": "Zcash (superseded simulator vault)",
-        "sym": "ZEC-old",
-        "chain": "Zcash — earlier simulator vault, five-decimal units; withdraw only",
-        "dec": 5,
-        "conf": 6,
-        "legacy": true
       }
     ],
-    "chat": "eb1f6b36cd836d5da80c2fc0d464ff4d52003318e2c08603a6ad5c6f985aa9da",
+    "chat": "a7badd542df069e5ab33b6a8eaf1f9e3c05d3bd51205b38b03331ad5407693e6",
+    "htlc": "b01a9e7c516584cb0708c826b3387e9052b3049fa65d8acce7e031643c5cc4f2",
+    "swap": "c121966fbf4bc2f928a484d2b2f860a35f6bedeefecdc06fa01b3e252722eca8",
+    "board": "d95568f49e70d5a7828bcf4e61f40139e1bd4656db903984ead9027c9b56a3b6",
     "feeBps": 50,
     "pfeeBps": 5000,
     "launchPfeeBps": 5000,
@@ -86,15 +74,18 @@
         ]
       },
       "nfa": {
-        "sha256": "e1e77b6b2350f9e8f7798489a22521f35607de5abd646df88f84413202a91005",
-        "legacy": []
+        "sha256": "f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114",
+        "legacy": [
+          "528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd"
+        ]
       },
       "nft": {
-        "sha256": "f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f",
+        "sha256": "345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2",
         "legacy": [
           "389deff90eac7195831dc21f4c91412879d6651c3cc3827b925528ae397eeaa4",
           "e92f04ac8c331e69155c9854609e99af2d4354dac0afd15f4ea4fef004421005",
-          "ba962af962fa5d876de60df6c6fb772d2aa5342ec0fb5ce80ab0d14af3ba756f"
+          "ba962af962fa5d876de60df6c6fb772d2aa5342ec0fb5ce80ab0d14af3ba756f",
+          "f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f"
         ]
       },
       "pool": {
@@ -111,8 +102,8 @@
       }
     },
     "tela": {
-      "index": "ece546025848fd8f02849c1723d5578d5169e50948aa55c9a1c010b0863b65cb",
-      "durl": "veil.tela"
+      "index": "",
+      "durl": "dmz.tela"
     }
   },
   "testnet": {
@@ -123,6 +114,9 @@
     "vault": "",
     "vaults": null,
     "chat": "",
+    "htlc": "",
+    "swap": "",
+    "board": "",
     "feeBps": 50,
     "pfeeBps": 5000,
     "launchPfeeBps": 5000,

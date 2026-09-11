@@ -34,13 +34,21 @@ var (
 	jnPath   = flag.String("journal", "", "claim/deposit journal (default: treasurybot-<treasury address suffix>.json); see journal.go")
 	yes      = flag.Bool("yes", false, "on mainnet, actually send (without it a mainnet config is a dry run)")
 	dryRun   = flag.Bool("dry-run", false, "print what would be claimed and deposited, send nothing (reconcile included)")
+	minOwed  = flag.Uint64("min-owed", 5000, "call PayOwed on an NFA once it owes the treasury this many units of that NFA's quote")
 )
 
 var dry bool // set in main: mainnet without -yes, or -dry-run
 
-// The registry lists this bot walks. A market's fees are claimable through ClaimFees and counted by fc; nfa_ and
-// nft_ are not here because nfa.bas and nft.bas keep no claimable fee balance — they pay the treasury address at
-// settlement, so there is nothing to sweep and nothing of theirs reaches the Founders Pass.
+// The NFA pass (payowed.go): the template hashes an NFA must match, and the chain it pays through. Set in main.
+var (
+	nfaTpl map[string]bool
+	oc     owedChain
+)
+
+// The registry lists this bot claims market fees from: a market's fees are claimable through ClaimFees and counted
+// by fc. nft_ is not walked (nft.bas keeps its mint fee in fd behind its own ClaimFees, which this bot does not
+// call). nfa_ is walked separately: nfa.bas owes its protocol fee to the treasury (ow_<treasury>) and pays it out
+// only through PayOwed (payowed.go). Neither reaches the Founders Pass, which counts pool and launch DERO fees only.
 var registryPrefixes = []struct{ prefix, count string }{{"pool_", "pc"}, {"launch_", "lc"}}
 
 // cfgString reads a quoted word from config.js (network: "simulator").
@@ -104,8 +112,13 @@ func main() {
 		log.Fatal(err)
 	}
 	var ch chain = &deroChain{c: c, me: me, founders: founders}
+	nfaTpl, oc = nfaTemplates(string(src)), &deroChain{c: c, me: me, founders: founders}
 	if dry {
 		ch = dryChain{ch}
+		oc = dryOwed{oc}
+	}
+	if len(nfaTpl) == 0 {
+		fmt.Println("config.js names no nfa template: no NFA can be verified, so no PayOwed will be sent")
 	}
 	if len(jn.Claims) > 0 || jn.Deposit != nil {
 		fmt.Printf("journal %s: %d open claims, deposit in flight %v: reconciling\n", *jnPath, len(jn.Claims), jn.Deposit != nil)
@@ -149,6 +162,9 @@ func sweep(c *rpc.Client, factory, founders, me string, share, minUnits uint64, 
 			fmt.Printf("  %s fd %d in its own quote\n", s[:8], ch.FD(s))
 		}
 	}
+	// NFA protocol fees: owed by each nfa.bas to the treasury until someone calls PayOwed (payowed.go). A dry run
+	// prints what it would pay and sends nothing.
+	nfaPass(reg, me)
 	if dry {
 		for _, scid := range markets {
 			if fd := ch.FD(scid); fd >= minUnits {
@@ -298,4 +314,21 @@ func afterDistribute(pass rpc.SCState) (acc, rpool uint64, eraRolled bool) {
 		return inc, rpool + covered, true
 	}
 	return acc + inc, rpool + covered, false
+}
+
+// nfaPass is the sweep's NFA step: call PayOwed for the treasury on every listed NFA that runs the shipped template
+// and owes it at least -min-owed, and say what moved. A failure is logged and left for the next sweep; it never
+// stops the bot, because nothing about one NFA's balance bears on the market claims and the pass deposit.
+func nfaPass(reg rpc.SCState, me string) {
+	payee := rpc.DVMAddress(me) // ow_ keys use the spelling ADDRESS_STRING writes: the "dero" prefix, no arguments
+	if payee == "" || oc == nil {
+		return
+	}
+	paid, errs := payOwed(oc, registeredNFAs(reg), payee, nfaTpl, *minOwed)
+	for scid, units := range paid {
+		fmt.Printf("%s PayOwed on %s…: %d units of its quote paid to the treasury\n", time.Now().Format("15:04:05"), scid[:8], units)
+	}
+	for _, err := range errs {
+		log.Print(err)
+	}
 }

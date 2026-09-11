@@ -30,8 +30,57 @@ type repo struct {
 	Untracked []string          `json:"untracked"`
 }
 
+// crate pins a crates.io source tree that a build in this repository uses as a path dependency. The tree lives in an
+// ignored directory, so git cannot vouch for it: it must be the published crate plus the one committed patch. Its
+// fetch script rebuilds it from the network and checks the crate's sha256 (GAP-013); here the tree is checked offline
+// against the hash it was pinned with once the script had confirmed it.
+type crate struct {
+	Crate   string `json:"crate"`
+	Version string `json:"version"`
+	Sha256  string `json:"sha256"` // of the .crate file: the "cksum" crates.io's own index records for this version
+	Patch   string `json:"patch"`  // the one allowed change, a repository path
+	Fetch   string `json:"fetch"`  // the script that rebuilds the tree and checks it against the crate
+	Tree    string `json:"tree"`   // treeHash of the crate plus the patch
+}
+
 type lock struct {
-	Repos map[string]repo `json:"repos"`
+	Repos  map[string]repo  `json:"repos"`
+	Crates map[string]crate `json:"crates,omitempty"`
+}
+
+// treeHash is sha256 over the sorted (path, bytes) of every file under dir, skipping what a build writes into it
+// (target/, a top-level Cargo.lock) and .git; "" when dir holds nothing.
+func treeHash(dir string) string {
+	var files []string
+	top := filepath.Clean(dir)
+	filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() && (info.Name() == "target" || info.Name() == ".git") {
+			return filepath.SkipDir
+		}
+		if !info.IsDir() && !(info.Name() == "Cargo.lock" && filepath.Dir(p) == top) {
+			files = append(files, p)
+		}
+		return nil
+	})
+	if len(files) == 0 {
+		return ""
+	}
+	sort.Strings(files)
+	h := sha256.New()
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return ""
+		}
+		rel, _ := filepath.Rel(dir, f)
+		h.Write([]byte(filepath.ToSlash(rel) + "\x00"))
+		h.Write([]byte(norm(string(b))))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // binLock pins vendor/bin/*.exe by sha256, the source trees of the tools built here, and the Go toolchain.
@@ -177,6 +226,29 @@ func main() {
 			}
 		}
 		fmt.Printf("%s @ %s: %d modified (patched), %d deleted, %d untracked in allowed dirs\n", name, head[:12], counts["modified"], counts["deleted"], counts["untracked"])
+	}
+	// crates: ignored source trees that a build uses as path dependencies (GAP-013). An absent tree is not a finding —
+	// a clone that never builds the prover has nothing to check — but a present one must be exactly what was pinned.
+	cnames := make([]string, 0, len(lk.Crates))
+	for n := range lk.Crates {
+		cnames = append(cnames, n)
+	}
+	sort.Strings(cnames)
+	for _, name := range cnames {
+		c := lk.Crates[name]
+		dir := filepath.Join(*root, filepath.FromSlash(name))
+		if _, err := os.Stat(dir); err != nil {
+			fmt.Printf("%s: not present; rebuild it with %s\n", name, c.Fetch)
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(*root, filepath.FromSlash(c.Patch))); err != nil {
+			finding("%s: its patch %s is missing from the repository", name, c.Patch)
+		}
+		if got := treeHash(dir); got != c.Tree {
+			finding("%s: tree %s, pinned %q: it is not %s %s plus %s (compare it with %s -check)", name, got, c.Tree, c.Crate, c.Version, c.Patch, c.Fetch)
+		} else {
+			fmt.Printf("%s: %s %s plus %s (tree %s)\n", name, c.Crate, c.Version, filepath.Base(c.Patch), got[:12])
+		}
 	}
 	// binaries
 	binDir := filepath.Join(*root, "vendor", "bin")

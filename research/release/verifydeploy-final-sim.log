@@ -1,0 +1,175 @@
+DMZ deployment verification (tools/verifydeploy)
+network simulator · daemon 127.0.0.1:20000 (Simulator, height 746, stable 738)
+source  ../contracts · git 0fba2c6cb927…, contracts/ has uncommitted changes
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+WARN    templates.founders.legacy: 8afd70fb733627964d7ebc8f78427d667a7e94fd501491f4c706f1033d8e36c9 is the hash of no committed version of contracts/founders.bas: the app accepts code this repository's history does not contain
+WARN    templates.founders.legacy: c096e0c253a7e27ae4fdaaae3bc576a590bd18571383c132f71a7770f789a412 is the hash of no committed version of contracts/founders.bas: the app accepts code this repository's history does not contain
+INFO    templates.founders.legacy: fd0e1e28d229c9e58b8304b5eb315c6118d5273e94d278a58020fc8adb1c2aeb = contracts/founders.bas as of commit 60ab2e61f919… (2026-09-06), raw file bytes, comments included (recorded before reference.Canon)
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+WARN    templates.launch.legacy: bc05b8e38949c77dd406e74668ff8e37edef5c88d64bea82034bcb745dff0fd4 is the hash of no committed version of contracts/launch.bas: the app accepts code this repository's history does not contain
+WARN    templates.launch.legacy: 60a30a9beed0636426b055e2f61e7398781feda3ee68e4567549f949369fa057 is the hash of no committed version of contracts/launch.bas: the app accepts code this repository's history does not contain
+WARN    templates.launch.legacy: 1b702166f32be63d161042a25232259e78f57f7838871ef6e4c6fe957fa68c89 is the hash of no committed version of contracts/launch.bas: the app accepts code this repository's history does not contain
+WARN    templates.launch.legacy: 4b5078fca0835fa16a3186d368177fec71f4360191fabb9cbf0dba3647703da6 is the hash of no committed version of contracts/launch.bas: the app accepts code this repository's history does not contain
+INFO    templates.launch.legacy: 3fc1d05bdc05e817c4748c3a88364854528f1b483c83419e3382cc83493f25b3 = contracts/launch.bas as of commit 60ab2e61f919… (2026-09-06), raw file bytes, comments included (recorded before reference.Canon)
+INFO    templates.launch.legacy: 07689ec68fe4ad2500d5817443581e954654ab9be7d3fa47e8a661da508aa0dc = contracts/launch.bas as of commit e94de3744887… (2026-09-07), raw file bytes, comments included (recorded before reference.Canon)
+INFO    templates.launch.legacy: 96d573c82502c36a08c287cb0c5a190b47add8b41aa2efdccf6010d4c6802d46 = contracts/launch.bas as of commit f127b87bfc8f… (2026-09-08), raw file bytes, comments included (recorded before reference.Canon)
+INFO    templates.launch.legacy: 09cb53d2cfc33c64c3670d85798550862e4625d2596f7f18029e8bbb02acb609 = contracts/launch.bas as of commit f127b87bfc8f… (2026-09-08), canonical (reference.Canon)
+PASS    templates.nfa: sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114 = sha256(reference.Canon(contracts/nfa.bas))
+WARN    templates.nfa.legacy: 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd is the hash of no committed version of contracts/nfa.bas: the app accepts code this repository's history does not contain
+PASS    templates.nft: sha256 345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2 = sha256(reference.Canon(contracts/nft.bas))
+WARN    templates.nft.legacy: 389deff90eac7195831dc21f4c91412879d6651c3cc3827b925528ae397eeaa4 is the hash of no committed version of contracts/nft.bas: the app accepts code this repository's history does not contain
+INFO    templates.nft.legacy: e92f04ac8c331e69155c9854609e99af2d4354dac0afd15f4ea4fef004421005 = contracts/nft.bas as of commit 60ab2e61f919… (2026-09-06), raw file bytes, comments included (recorded before reference.Canon)
+INFO    templates.nft.legacy: ba962af962fa5d876de60df6c6fb772d2aa5342ec0fb5ce80ab0d14af3ba756f = contracts/nft.bas as of commit e94de3744887… (2026-09-07), raw file bytes, comments included (recorded before reference.Canon)
+INFO    templates.nft.legacy: f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f = contracts/nft.bas as of commit e94de3744887… (2026-09-07), canonical (reference.Canon)
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+WARN    templates.pool.legacy: d4e42ece020cff3c7cfa172d31f648ec53c8a7d6c84364f5fbe6b18bce295591 is the hash of no committed version of contracts/pool.bas: the app accepts code this repository's history does not contain
+WARN    templates.pool.legacy: e47fb60aeab453d4771182c161198189699738ada630953bb00c5eb9e2a4f6dc is the hash of no committed version of contracts/pool.bas: the app accepts code this repository's history does not contain
+WARN    templates.pool.legacy: 0c619b14551f7b8ff2628442b556f3d323548f69a5d5344558df8ee6dd70e0b6 is the hash of no committed version of contracts/pool.bas: the app accepts code this repository's history does not contain
+INFO    templates.pool.legacy: 39cdae3f44ec33cce64e6155cde8cec9630be0075a4e6bfd1ba6eed316339e8b = contracts/pool.bas as of commit 60ab2e61f919… (2026-09-06), raw file bytes, comments included (recorded before reference.Canon)
+INFO    templates.pool.legacy: af9c97a730b1c0f96fb59d2f3f2d0a461bd1194c64943ee355cf5b9dc55680ed = contracts/pool.bas as of commit e94de3744887… (2026-09-07), raw file bytes, comments included (recorded before reference.Canon)
+INFO    templates.pool.legacy: 832908cfd03bec9699528b78f993c9c629eec255e33a0670d8fa3bfe60f35641 = contracts/pool.bas as of commit d890667b7278… (2026-09-08), raw file bytes, comments included (recorded before reference.Canon)
+INFO    templates.pool.legacy: 33a126a8da585b38ada886d1c62b67dde05d87335a925ebdc3f52b205327f5b0 = contracts/pool.bas as of commit d890667b7278… (2026-09-08), canonical (reference.Canon)
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory d1ebd6f418e2…: installed code sha256 5ba105fdda839f17dd69b98b60f0d00dccda4b2eafdec53777b918f5064a7b2a = sha256(reference.Canon(contracts/factory.bas)), 82 lines
+PASS    social f218801dbdbd…: installed code sha256 da7ef3f09fccf468c9c03605e0de14a4b129b8cfbb29ced6efad8bf9b5b617ad = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders d55302c80bdb…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat a7badd542df0…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+PASS    htlc b01a9e7c5165…: installed code sha256 44864ec3cddac871286b9cfd18d18e0b1d2ef0e31960436cee3bacc3025fef06 = sha256(reference.Canon(contracts/htlc.bas)), 118 lines
+PASS    swap c121966fbf4b…: installed code sha256 b9830de831dbaf34f61ea15b484c8f25105e41dc790aa06412db421a990fd6e3 = sha256(reference.Canon(contracts/swap.bas)), 88 lines
+PASS    board d95568f49e70…: installed code sha256 162f8d46ad400b1fef981d029ba99f61c9646d6453c3bf9f0cc4bd9e63bc5ab1 = sha256(reference.Canon(contracts/board.bas)), 71 lines
+PASS    vault XMR ca83fbc37720…: installed code sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d = sha256(reference.Canon(contracts/vault.bas)), 485 lines
+PASS    vault ZEC bd0fe89c8e00…: installed code sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d = sha256(reference.Canon(contracts/vault.bas)), 485 lines
+
+== Market templates: every contract in the factory registry
+INFO    registry d1ebd6f418e2…: pc=2 lc=2 nc=2: 6 registered contracts, checked against 28 accepted template hashes (current and legacy)
+PASS    pool_0 ce8fcff8db2e…: code sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = the record's current pool template
+PASS    pool_1 c3b0be95fe5e…: code sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = the record's current pool template
+PASS    launch_0 f1e75b6b3a22…: code sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = the record's current launch template
+PASS    launch_1 e71e10b84d86…: code sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = the record's current launch template
+PASS    nfa_0 82f939876acb…: code sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114 = the record's current nfa template
+PASS    nfa_1 deccedac0004…: code sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114 = the record's current nfa template
+
+== Roles
+factory d1ebd6f418e2… (factory)
+  ALLOWED owner          LIVE   must end  dero1qyvyeyzrcm2fzf6kyq7egkes2ufgny5xn77y6typhfx9s7w3mvyd5qq72lvjw
+          can call SetTreasury (moves every future registration fee), SetRegFee and Renounce; the ceremony ends it with Renounce
+          allowed on the command line: the simulator factory stays owned for development; Renounce is proven on a scratch factory in research/release/simdeploy-renounce-sim.log
+          reads: factory.bas:25,39-40,50-51,61-64
+  INFO    treasury       -      payee     dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd
+          receives every registration fee (reg, line 35); cannot act; the owner can still move it (SetTreasury)
+          reads: factory.bas:26,43,110
+  INFO    regfee         -      parameter regfee=10000
+          the owner can still change it (SetRegFee)
+          reads: factory.bas:28,52,108
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,32
+social f218801dbdbd… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders d55302c80bdb… (founders)
+  INFO    creator        -      inert     dero1qyvyeyzrcm2fzf6kyq7egkes2ufgny5xn77y6typhfx9s7w3mvyd5qq72lvjw
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=500000 maxsupply=500 start=0 reserve=50
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat a7badd542df0… (chat)
+  INFO    treasury       -      payee     dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+htlc b01a9e7c5165… (htlc)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: htlc.bas:17,21
+swap c121966fbf4b… (swap)
+  INFO    wmin           -      parameter wmin=1600
+          the minimum lock width, written only at install: the same code with another wmin has the same code hash, so a companion must read it
+          reads: swap.bas:18,22,45
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: swap.bas:17,23
+board d95568f49e70… (board)
+  INFO    aw             -      parameter aw=200
+          written only at install
+          reads: board.bas:27,88
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: board.bas:23,28
+vault XMR ca83fbc37720… (vault)
+  PASS    owner          ended  must end  dero1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqc503a3
+          sealed = 1: SetLimits, AddSigner and Seal refuse the owner; the key stays stored and has no power
+          reads: vault.bas:73,75,104,157,246,257
+  WARN    signers        acts   by design k=2 of na=3 active, n=3 ever added: dero1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgpyhv40, dero1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgrs8974, dero1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqgquu4ds
+          sealed: k signers vote Mint, Released, Veto, Attest, Halt, SetCap, Tighten, SetViewKey, AddSigner2 and Slash — custody of every wrapped unit
+          reads: vault.bas:30,47,163,189,556
+  INFO    treasury       acts   payee     dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd
+          can call ClaimFees, which takes feepool (0) and nothing else; receives regfee and slashed bonds; fixed for ever
+          reads: vault.bas:76,281,491,565
+  INFO    cap            -      parameter cap=100000 capratio=3 bondtot=60000
+          changed only by k signer votes (SetCap, never above capratio x bonds) or lowered by Slash
+          reads: vault.bas:77,535,567
+  INFO    limits         -      parameter winmax=0 wdelay=0
+          the owner's SetLimits before Seal; after Seal only k votes to Tighten, in the safe direction
+          reads: vault.bas:107,122,128
+  INFO    halt           -      parameter halted=0
+          a lease k signers set (Halt) that lapses by itself at that height; Burn and Released work while halted
+          reads: vault.bas:41,515
+  INFO    viewkey        -      parameter (empty)
+          published by k signer votes (SetViewKey)
+          reads: vault.bas:146
+  INFO    terms          -      parameter minbond=20000 minburn=1000 wfee=100 mindep=1 regfee=0 bigbps=2000 bigdelay=500 capratio=3
+          written only at install
+          reads: vault.bas:83,85,87
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: vault.bas:54,94
+vault ZEC bd0fe89c8e00… (vault)
+  PASS    owner          ended  must end  dero1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqc503a3
+          sealed = 1: SetLimits, AddSigner and Seal refuse the owner; the key stays stored and has no power
+          reads: vault.bas:73,75,104,157,246,257
+  WARN    signers        acts   by design k=2 of na=3 active, n=3 ever added: dero1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgpyhv40, dero1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgrs8974, dero1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqgquu4ds
+          sealed: k signers vote Mint, Released, Veto, Attest, Halt, SetCap, Tighten, SetViewKey, AddSigner2 and Slash — custody of every wrapped unit
+          reads: vault.bas:30,47,163,189,556
+  INFO    treasury       acts   payee     dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd
+          can call ClaimFees, which takes feepool (0) and nothing else; receives regfee and slashed bonds; fixed for ever
+          reads: vault.bas:76,281,491,565
+  INFO    cap            -      parameter cap=100000 capratio=3 bondtot=60000
+          changed only by k signer votes (SetCap, never above capratio x bonds) or lowered by Slash
+          reads: vault.bas:77,535,567
+  INFO    limits         -      parameter winmax=0 wdelay=0
+          the owner's SetLimits before Seal; after Seal only k votes to Tighten, in the safe direction
+          reads: vault.bas:107,122,128
+  INFO    halt           -      parameter halted=0
+          a lease k signers set (Halt) that lapses by itself at that height; Burn and Released work while halted
+          reads: vault.bas:41,515
+  INFO    viewkey        -      parameter (empty)
+          published by k signer votes (SetViewKey)
+          reads: vault.bas:146
+  INFO    terms          -      parameter minbond=20000 minburn=1000 wfee=100 mindep=1 regfee=0 bigbps=2000 bigdelay=500 capratio=3
+          written only at install
+          reads: vault.bas:83,85,87
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: vault.bas:54,94
+
+== TELA: the app's INDEX and DOCs
+INFO    index: the record names no TELA INDEX on simulator (tela.index is empty)
+
+summary: 1 ALLOWED, 13 WARN, 31 PASS, 35 INFO — no failure

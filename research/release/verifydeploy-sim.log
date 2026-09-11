@@ -1,0 +1,754 @@
+# tools/verifydeploy on the DERO simulator, 2026-09-11T06:22:13Z
+# verifydeploy = go build ./verifydeploy from this tree, sha256 a94ff5865cdd33f6290ded48dd1372b908967acab74df6d72f9eba52bc17b15c
+# simdrive     = go build ./verifydeploy/simdrive (simulator-only test driver)
+#
+# Wallets: 30017 owner (w0) and vault owner, 30018 treasury (w2), 30019 extras; vault signers 30017-30019;
+# 30020 (a copy of its wallet file) installed the ring-2 TELA app; 30021 the ring-16 INDEX (tela-anon-index.log).
+# $SCRATCH is a scratch directory: its networks.json and app/ are copies, never deploy/networks.json or app/config.js.
+# The contracts were installed from a snapshot of contracts/ taken at 2026-09-11T05:38:57Z; four other agents
+# kept editing contracts/ during the run, so every check below compares with that snapshot ($SCRATCH/contracts),
+# which is what was installed. Snapshot sha256 (raw files):
+#   0a5fe6059ad7a8d615e7ae1ec51be6532f6a3bed5cbb5392feca60c6486903df *board.bas
+#   6486c535ab5134a6f1820108539b85aabb949aefe860493c2482a19047a72dfb *chat.bas
+#   f8688fdaf61ebcf2aa4bea2014a8412875d5f0e628622154415fcda87548b58b *factory.bas
+#   fd0e1e28d229c9e58b8304b5eb315c6118d5273e94d278a58020fc8adb1c2aeb *founders.bas
+#   0db193aeedd88ae5354239855984d8d273639bf7b61ec371e36a847c5dd61ba3 *htlc.bas
+#   4730cbbeff21f0243d12eb26670b854032eff1000425e75049583190f299f079 *launch.bas
+#   5c55d6c42a3e161474987ca4a10624f54f909041c6506c92da178de6385da5dc *nfa.bas
+#   ba962af962fa5d876de60df6c6fb772d2aa5342ec0fb5ce80ab0d14af3ba756f *nft.bas
+#   a4fab52923cbcc75d79882536a4446454554f6fdf576993ff94bfab600bcd03b *pool.bas
+#   aac5c641e55d04c7ae58bff6a3e95901ef160e4e5c4695d82516da1e7c96a05f *social.bas
+#   3cc7cb82bbed151b6b37005532523c3a0e4c6fb2b8ef6f899c74baca70828c27 *swap.bas
+#   4cad5dc98f808557bc417a9816e149d1d1aaceab8732450a9883750492c307c6 *vault.bas
+
+## 1. install (tools/simdeploy from wallets 30017/30018, into the scratch record and app)
+== simdeploy 2026-09-11T05:38:57Z
+owner deto1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq0zyv8n
+treasury deto1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqg8g4equ
+installing factory.bas
+installing social.bas
+installing founders.bas
+installing chat.bas
+factory  8fe6c42904694d752224c8d354568fc40024ca681b54e861a8f7a99ab7d4618e
+social   dfb40b266bb4e22891bf6c8e99b5d799ca4b63420eb56fea096b6114ee1a3ebf
+founders dfcf670a8e03e01b2600baaa8f3a6f89e900b56d5c7ada29ac49d9ccd8dc40e4
+chat     ccedad6410143bc5e2ae12551f8fec32b8fbd88176d11c3a8dacaf5fd2de77e1
+recorded simulator in $SCRATCH/networks.json
+wrote $SCRATCH\app\config.js
+exit 0
+
+## 2. extras and a one-character variant (simdrive from wallet 30019)
+== stream A (wallet 30019) 2026-09-11T06:05:02Z
+installed reference.Canon($SCRATCH/contracts/htlc.bas) from 127.0.0.1:30019 at ring 2: scid fe80b3ca0ecd34b903b5c388b52fbdd3c16c373cd938a9946d92069f5295cba3 height 333 storage gas 3688 code sha256 2cc921195be1bb0f442d7aa5a843b0829569b0540727cead603c75426a5c5ad3
+installed reference.Canon($SCRATCH/contracts/swap.bas) from 127.0.0.1:30019 at ring 2: scid cde0d3ddf9ddb6a3f15c05000226a3761661c76b68622464a51efd03e471ffdd height 335 storage gas 2608 code sha256 8b03cedbf393022de4aa87482ac1d341bcf81f657c20934c1467178ee37b3183
+installed reference.Canon($SCRATCH/contracts/board.bas) from 127.0.0.1:30019 at ring 2: scid c3e5eb43c4292ea4f3784319170563641b23bf1757a794b528213cccb0f048d6 height 337 storage gas 2324 code sha256 0580308ac89fb5fd408e54f5b7baf9a1c80684b30c21c67c8af40b87bbd59fad
+DERO.GetSC dfb40b266bb4e22891bf6c8e99b5d799ca4b63420eb56fea096b6114ee1a3ebf: code 1676 bytes sha256 33f1e053d362f70228f644f4934cd899b6558e934314199bc1f9e5678efe6152
+  kind           "736f6369616c"  = "social"
+-- diff installed social vs altered copy:
+3c3
+< 10 STORE("kind", "social")
+---
+> 10 STORE("kind", "sociaL")
+bytes differing: 1
+installed $SCRATCH/social-altered.bas as is from 127.0.0.1:30019 at ring 2: scid ed88b24558d34ed0e5401932a002eba8181e213390d73232afe2119f1ab14fd4 height 339 storage gas 1713 code sha256 e4eda82f3bc7c1f4f7e779074e5841c0f4817212c5a1e333096eb147c08685b9
+end A 2026-09-11T06:05:41Z
+
+## 3. a vault: install from 30017, three signers, three bonds (simdrive)
+== stream B (wallet 30017 vault owner; bonds from 30017/30018/30019) 2026-09-11T06:12:15Z
+installed reference.Canon($SCRATCH/contracts/vault.bas) from 127.0.0.1:30017 at ring 2: scid def43f54aefa92602e86614a0b9b6e50d2ab4391c167fb39d253d7c08eda7fbf height 411 storage gas 16364 code sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d
+called def43f54aefa….AddSigner from 127.0.0.1:30017 at ring 2: tx d150cb59f39cdbb74293261ee12a97d6f6d2e6df017dec9f9d0bf2c80b8f22c1 height 414 gas compute 249600 storage 195
+called def43f54aefa….AddSigner from 127.0.0.1:30017 at ring 2: tx d0b6b8a08f56f1c002e98920661543833722d12ee5385635cea93030e71cc483 height 418 gas compute 249600 storage 195
+called def43f54aefa….AddSigner from 127.0.0.1:30017 at ring 2: tx db8d29bfb4784df7310ecd9516afae6123cfef48f894308da34e70df03639b3b height 420 gas compute 249600 storage 195
+called def43f54aefa….Bond from 127.0.0.1:30017 at ring 2: tx 45141677f984175d2797f512a9154a400a01a08e68a0abf5a76dfd121a441a97 height 423 gas compute 212800 storage 83
+called def43f54aefa….Bond from 127.0.0.1:30018 at ring 2: tx dd405c2a8a554b75dd51e9f346a0b1d8c7651af8959e29254faade9edf718a1e height 426 gas compute 212800 storage 83
+called def43f54aefa….Bond from 127.0.0.1:30019 at ring 2: tx e9fd9c398f90338b2b7d9297a6e619d37551e670824ef7b7a6dce4b3bfa04e04 height 428 gas compute 212800 storage 83
+end B 2026-09-11T06:12:51Z
+
+## 4. the app on TELA at ring 2 (the rebuilt tools/telainstall, full dist/simulator bundle, wallet_20 copy)
+== telainstall ring 2, full bundle, wallet_20 copy, 2026-09-11T06:04:49Z
+WARNING: ring-2 INDEX: the installing wallet becomes its owner and can call UpdateCode for ever, replacing the whole app; that key stays a trusted party until it is destroyed, which nobody else can verify
+network simulator
+wallet deto1qywgdwt9j6la3gfn5859czqqzg7c4cc856f2w5lxusg494ytkaflkqqrw7mmz height 329
+DOC index.html             already on chain (-reuse, content hash verified), pointing at a590c3360eca2c15
+DOC amm.js                   9232 bytes →   5946 on-chain (gzip)  gas  6286  ring 2  scid b03659ae197bc52100e60d80a7570dc5d4f36ff3c1340499b4df49e331dae2e8
+DOC app.js                  33083 bytes →  16945 on-chain (gzip)  gas 17284  ring 2  scid f5f56b9efbf1c2308eded4d3d65d5937adbefec043ad7d65d54ee69c96b227f6
+DOC chart.js                15632 bytes →   8874 on-chain (gzip)  gas  9218  ring 2  scid b84fd1ba8f172e04acaf3789769585c1eee5ba5705b09974d16942581b6bc7cf
+DOC chat.js                  9832 bytes →   6108 on-chain (gzip)  gas  6450  ring 2  scid b57ed7f97bdeca425476abd9181e5fcc0643cdf5a13caced4e0d74c5fca541b4
+DOC config.js                1565 bytes →   2436 on-chain (gzip)  gas  2782  ring 2  scid 9f564f52da3c00205c73b78e89392bed03cf1b38c2451376a5b07413b62185d3
+DOC desk.css                 6538 bytes →   4415 on-chain (gzip)  gas  4760  ring 2  scid edadada3331505aeae1956a69332e5faac2268e6ef15b841d38dc6f3048848e4
+DOC feed.js                 40551 bytes →  19228 on-chain (gzip)  gas 19570  ring 2  scid 9eff7ad96956d8c9de72987ea30ca109a7326cc0c0b5da1181af9ef48cbe2fbd
+DOC forms.js                29320 bytes →  13871 on-chain (gzip)  gas 14216  ring 2  scid cdad33847c57ea23a8560b0108bdd37d05bc74658b9fc74c8a5265d9bdb3ddb8
+DOC founders.js              4052 bytes →   3652 on-chain (gzip)  gas  4002  ring 2  scid c163e331a17c621e300467657f2f5264c9544fc5498010b5c0731dbb544cb4a6
+DOC home.js                 26048 bytes →  13241 on-chain (gzip)  gas 13584  ring 2  scid e0c749e625c8190a395a9fcb584edccd928e6c7557077e476252be3f25950fea
+DOC live.js                  3989 bytes →   3505 on-chain (gzip)  gas  3848  ring 2  scid ffcfecdee4347b249cc5a3d079686a6873907c2009760f1d028859c54b91f6ce
+DOC manifest.json            5462 bytes →   3851 on-chain (gzip)  gas  4208  ring 2  scid d6a62356cef3456ee08c5e6abf62b55dec0a2d7176ff224beec81af94e95539c
+DOC markets.js              20609 bytes →  11718 on-chain (gzip)  gas 12066  ring 2  scid aaa52faff56ca57d98835bcf3fbac98269d1f698d92e91ac56efc66ff570da9e
+DOC nfas.js                 28739 bytes →  13889 on-chain (gzip)  gas 14232  ring 2  scid cb55474706cdb3dbac44925bd17b1bafc8cb7a7239b063362d69f3b5a954d7fb
+DOC nft.js                   6854 bytes →   4577 on-chain (gzip)  gas  4916  ring 2  scid e1b80076c786a3e8916926c0ae1ed3d98f444a834952086c6f65dd11ea006580
+DOC nfts.js                 15723 bytes →   8481 on-chain (gzip)  gas  8824  ring 2  scid bf72e96cda7447a0f3e887048b294a74f35693469d4e55b791eb60adea0e0c88
+DOC notice.js                8187 bytes →   5761 on-chain (gzip)  gas  6108  ring 2  scid 9c08cb7df01fb24b609854ed93dc7d98c8ca4ded27c28642a23c40f997512f91
+DOC parts.css               15411 bytes →   6984 on-chain (gzip)  gas  7330  ring 2  scid d1c22effd213c591c244bd94f90369b91a06400f22e4713ea9cd98a10a75fb88
+DOC rpc.js                  10350 bytes →   6637 on-chain (gzip)  gas  6976  ring 2  scid 80a61652a32b8c5fa167a12c0cd69c4e7734f4df07a6f81cd15ea9776bdfb4f4
+DOC screens.js              28159 bytes →  14738 on-chain (gzip)  gas 15086  ring 2  scid 8a513e2b1e927398937ba7078c12b87da843f7a0c76f995b5b0308133f9d7ec5
+DOC sheets.js               15391 bytes →   7856 on-chain (gzip)  gas  8202  ring 2  scid cb140be77eb3037afbc3a8619ca3ec5bc2b673cbee42d6139e8d104ece0906f8
+DOC stats.js                11985 bytes →   7907 on-chain (gzip)  gas  8252  ring 2  scid 88128bc1157fd602c881cf2195c930ccc9c8744d9045408d5a1398b27b2dc382
+DOC styles.css               9361 bytes →   6091 on-chain (gzip)  gas  6440  ring 2  scid c3e7bc8beb46a833c5d429ed6da5074babf731100b233487280730d7e43bbbd7
+DOC templates/founders.bas  10398 bytes →   5118 on-chain (gzip)  gas  5494  ring 2  scid ebed0c8e6bf36c4e68608fd4ed137bf7f90576b243ca5246984fdf5e48f348cd
+DOC templates/launch.bas    15257 bytes →   6637 on-chain (gzip)  gas  7008  ring 2  scid f8404faa73dd11aa764003107e203815d150a4f9d906c59db6f7cc306e3bb7a5
+DOC templates/nfa.bas       14633 bytes →   5720 on-chain (gzip)  gas  6086  ring 2  scid 8bf06739462386f92f38aa4f03e5755352daf75446301c5479ce9c075b5f08c8
+DOC templates/nft.bas        3525 bytes →   2727 on-chain (gzip)  gas  3092  ring 2  scid d874ee70d4a447f6cafee88614fd55a0b60a5b9c24393b28465dd652093268b6
+DOC templates/pool.bas      10604 bytes →   4933 on-chain (gzip)  gas  5300  ring 2  scid b0bba10b0572b1695474b7326dffda059e8235e7410bea4fa813b12f7ac700eb
+DOC token.js                32853 bytes →  16435 on-chain (gzip)  gas 16780  ring 2  scid ce2e7756a354fa2a9683d13ebfe69a80c22981f598745e50c2dcda8466e71589
+DOC ui.css                  11773 bytes →   6071 on-chain (gzip)  gas  6412  ring 2  scid 8b768b7230ecd61d61d43a4422eda5a41787acc16fb1cea318552e6b6fbe9b98
+DOC ui.js                   20709 bytes →  12579 on-chain (gzip)  gas 12916  ring 2  scid f52ffc33409bfff7f550b5ecbc01aedbeabeb06621a2ee331c61b03d107e6593
+DOC wrap.js                 40214 bytes →  19240 on-chain (gzip)  gas 19582  ring 2  scid 95acf0ffa5582a67c670a985136478536052fd572dbeefb6aa99d968f71b32c7
+DOC xswd.js                  8023 bytes →   5201 on-chain (gzip)  gas  5544  ring 2  scid fdeff129a75892f0ed33ffcc0c445f29dcc36a0729b074658ea1c108a67c8b9c
+INDEX f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad ring 2 gas 6875 (34 DOCs, 4.35 KB)
+INDEX f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad dURL dmz.tela owner dero1qywgdwt9j6la3gfn5859czqqzg7c4cc856f2w5lxusg494ytkaflkqqehzr72 docs 34 commit 0
+exit 0 2026-09-11T06:10:38Z
+
+## 5. verify BEFORE the revocation ceremony: factory owner live, vault unsealed, ring-2 INDEX -> must FAIL
+
+$ verifydeploy -network simulator -networks $SCRATCH/networks.json -contracts $SCRATCH/contracts -extra htlc=fe80b3ca0ecd34b903b5c388b52fbdd3c16c373cd938a9946d92069f5295cba3,swap=cde0d3ddf9ddb6a3f15c05000226a3761661c76b68622464a51efd03e471ffdd,board=c3e5eb43c4292ea4f3784319170563641b23bf1757a794b528213cccb0f048d6,vault=def43f54aefa92602e86614a0b9b6e50d2ab4391c167fb39d253d7c08eda7fbf,tela=f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad -dist $SCRATCH/dist/simulator -tela-record $SCRATCH/tela-ring2.json
+DMZ deployment verification (tools/verifydeploy)
+network simulator · daemon 127.0.0.1:20000 (Simulator, height 479, stable 471)
+source  $SCRATCH/contracts · git history unavailable: $SCRATCH/contracts is not in a git checkout, or git is missing (fatal: not a git repository (or any of the parent directories): .git)
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+PASS    templates.nfa: sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd = sha256(reference.Canon(contracts/nfa.bas))
+PASS    templates.nft: sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f = sha256(reference.Canon(contracts/nft.bas))
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory 8fe6c4290469…: installed code sha256 5ba105fdda839f17dd69b98b60f0d00dccda4b2eafdec53777b918f5064a7b2a = sha256(reference.Canon(contracts/factory.bas)), 82 lines
+PASS    social dfb40b266bb4…: installed code sha256 33f1e053d362f70228f644f4934cd899b6558e934314199bc1f9e5678efe6152 = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders dfcf670a8e03…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat ccedad641014…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+PASS    extra htlc fe80b3ca0ecd…: installed code sha256 2cc921195be1bb0f442d7aa5a843b0829569b0540727cead603c75426a5c5ad3 = sha256(reference.Canon(contracts/htlc.bas)), 112 lines
+PASS    extra swap cde0d3ddf9dd…: installed code sha256 8b03cedbf393022de4aa87482ac1d341bcf81f657c20934c1467178ee37b3183 = sha256(reference.Canon(contracts/swap.bas)), 85 lines
+PASS    extra board c3e5eb43c429…: installed code sha256 0580308ac89fb5fd408e54f5b7baf9a1c80684b30c21c67c8af40b87bbd59fad = sha256(reference.Canon(contracts/board.bas)), 65 lines
+PASS    extra vault def43f54aefa…: installed code sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d = sha256(reference.Canon(contracts/vault.bas)), 485 lines
+
+== Market templates: every contract in the factory registry
+INFO    registry 8fe6c4290469…: pc=0 lc=0 nc=0: 0 registered contracts, checked against 5 accepted template hashes (current and legacy)
+
+== Roles
+factory 8fe6c4290469… (factory)
+  FAIL    owner          LIVE   must end  dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm
+          can call SetTreasury (moves every future registration fee), SetRegFee and Renounce; the ceremony ends it with Renounce
+          reads: factory.bas:25,39-40,50-51,61-64
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives every registration fee (reg, line 35); cannot act; the owner can still move it (SetTreasury)
+          reads: factory.bas:26,43,110
+  INFO    regfee         -      parameter regfee=10000
+          the owner can still change it (SetRegFee)
+          reads: factory.bas:28,52,108
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,32
+social dfb40b266bb4… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders dfcf670a8e03… (founders)
+  INFO    creator        -      inert     dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=500000 maxsupply=500 start=0 reserve=50
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat ccedad641014… (chat)
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+extra htlc fe80b3ca0ecd… (htlc)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: htlc.bas:17,21
+extra swap cde0d3ddf9dd… (swap)
+  INFO    wmin           -      parameter wmin=(absent)
+          the minimum lock width, written only at install: the same code with another wmin has the same code hash, so a companion must read it
+          reads: swap.bas:18,22,45
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: swap.bas:17,23
+extra board c3e5eb43c429… (board)
+  INFO    aw             -      parameter aw=200
+          written only at install
+          reads: board.bas:27,88
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: board.bas:23,28
+extra vault def43f54aefa… (vault)
+  FAIL    owner          LIVE   must end  dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm
+          not sealed: the owner can AddSigner (any address), SetLimits and Seal; the ceremony ends it with Seal
+          reads: vault.bas:73,75,104,157,246,257
+  INFO    signers        idle   by design k=2 of na=0 active, n=3 ever added: dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm, dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95, dero1qy36kf7ns8ew5k2v3at5n3d67gm4fyl3sxn3jkxaasmh4ryz0m44qqgv726wx
+          not sealed: signers can do nothing yet (every federation entrypoint needs sealed = 1)
+          reads: vault.bas:30,47,163,189,556
+  INFO    treasury       acts   payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          can call ClaimFees, which takes feepool (0) and nothing else; receives regfee and slashed bonds; fixed for ever
+          reads: vault.bas:76,281,491,565
+  INFO    cap            -      parameter cap=1000000 capratio=1000 bondtot=3000
+          changed only by k signer votes (SetCap, never above capratio x bonds) or lowered by Slash
+          reads: vault.bas:77,535,567
+  INFO    limits         -      parameter winmax=0 wdelay=0
+          the owner's SetLimits before Seal; after Seal only k votes to Tighten, in the safe direction
+          reads: vault.bas:107,122,128
+  INFO    halt           -      parameter halted=0
+          a lease k signers set (Halt) that lapses by itself at that height; Burn and Released work while halted
+          reads: vault.bas:41,515
+  INFO    viewkey        -      parameter (empty)
+          published by k signer votes (SetViewKey)
+          reads: vault.bas:146
+  INFO    terms          -      parameter minbond=1000 minburn=1000 wfee=10 mindep=100 regfee=0 bigbps=0 bigdelay=0 capratio=1000
+          written only at install
+          reads: vault.bas:83,85,87
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: vault.bas:54,94
+tela index f4a2b4d1861f… (tela)
+  FAIL    owner          LIVE   must end  dero1qywgdwt9j6la3gfn5859czqqzg7c4cc856f2w5lxusg494ytkaflkqqehzr72
+          installed at ring size 2: this address can call UpdateCode (at ring 2) for ever and replace the whole app; no TELA-INDEX-1 function changes or clears owner, so destroying the key is the only revocation, and the chain cannot show that
+          reads: tela_index_1.bas:21,33-35,53,55,57; transaction_execute.go:430; dvm_functions.go:309
+
+== TELA: the app's INDEX and DOCs
+PASS    index f4a2b4d1861f…: code is the standard TELA-INDEX-1 v1.1.0, token for token (tools/verifydeploy/tela_index_1.bas); 34 DOCs; commit 0 (UpdateCode has replaced the code 0 times)
+INFO    index state f4a2b4d1861f…: commit 0, hash f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad = its SCID: not updated yet
+PASS    docs: all 34 DOCs are the standard TELA-DOC-1, which has no UpdateCode and no UPDATE_SC_CODE: no key can change what they serve
+PASS    DOC1 a590c3360eca…: the entrypoint serves index.html
+PASS    DOC6 config.js 9f564f52da3c…: equals netcfg.ConfigJS(simulator record) after its first line: the app trusts exactly the record's contracts and template hashes
+PASS    DOC13 manifest.json d6a62356cef3…: lists exactly the 33 other served files with their sha256, and the record's contracts
+PASS    DOC25 templates/founders.bas ebed0c8e6bf3…: serves the record's current founders template (sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a)
+PASS    DOC26 templates/launch.bas f8404faa73dd…: serves the record's current launch template (sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4)
+PASS    DOC27 templates/nfa.bas 8bf067394623…: serves the record's current nfa template (sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd)
+PASS    DOC28 templates/nft.bas d874ee70d4a4…: serves the record's current nft template (sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f)
+PASS    DOC29 templates/pool.bas b0bba10b0572…: serves the record's current pool template (sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580)
+PASS    bundle: the INDEX serves exactly the 34 files of the dist bundle $SCRATCH/dist/simulator, each byte for byte
+PASS    tela-record f4a2b4d1861f…: the INDEX's 34 DOCs are exactly the ones $SCRATCH/tela-ring2.json publishes
+
+summary: 18 INFO, 3 FAIL, 33 PASS — FAILED
+[exit 1]
+
+## 6. the ceremony: Seal the vault, Renounce the factory (both from the owner, 30017)
+called def43f54aefa….Seal from 127.0.0.1:30017 at ring 2: tx e57faa03eb2f7042f2579969841e3bbead932275726a32f43564afe2c98f69a8 height 480 gas compute 295600 storage 111
+called 8fe6c4290469….Renounce from 127.0.0.1:30017 at ring 2: tx a7d2efd864afde30f8d08742af8be03e4dfd79d8b8c2a08259d0c84b9970408e height 482 gas compute 56600 storage 83
+DERO.GetSC 8fe6c42904694d752224c8d354568fc40024ca681b54e861a8f7a99ab7d4618e: code 2260 bytes sha256 5ba105fdda839f17dd69b98b60f0d00dccda4b2eafdec53777b918f5064a7b2a
+  regfee         10000
+  renounced      482
+  tstr           "6465726f3171796b6435776b6b7a6b71726b653833726d796c73716c786534617965356d3768736474726b796579383973363364676c393273717167613366703935"  = "dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95"
+DERO.GetSC def43f54aefa92602e86614a0b9b6e50d2ab4391c167fb39d253d7c08eda7fbf: code 16027 bytes sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d
+  bondtot        3000
+  k              2
+  n              3
+  na             3
+  sealed         1
+
+## 7. verify AFTER the ceremony, with the ring-2 INDEX: the one live role left is the INDEX owner -> FAIL
+
+$ verifydeploy -network simulator -networks $SCRATCH/networks.json -contracts $SCRATCH/contracts -extra htlc=fe80b3ca0ecd34b903b5c388b52fbdd3c16c373cd938a9946d92069f5295cba3,swap=cde0d3ddf9ddb6a3f15c05000226a3761661c76b68622464a51efd03e471ffdd,board=c3e5eb43c4292ea4f3784319170563641b23bf1757a794b528213cccb0f048d6,vault=def43f54aefa92602e86614a0b9b6e50d2ab4391c167fb39d253d7c08eda7fbf,tela=f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad -dist $SCRATCH/dist/simulator -tela-record $SCRATCH/tela-ring2.json
+DMZ deployment verification (tools/verifydeploy)
+network simulator · daemon 127.0.0.1:20000 (Simulator, height 483, stable 475)
+source  $SCRATCH/contracts · git history unavailable: $SCRATCH/contracts is not in a git checkout, or git is missing (fatal: not a git repository (or any of the parent directories): .git)
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+PASS    templates.nfa: sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd = sha256(reference.Canon(contracts/nfa.bas))
+PASS    templates.nft: sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f = sha256(reference.Canon(contracts/nft.bas))
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory 8fe6c4290469…: installed code sha256 5ba105fdda839f17dd69b98b60f0d00dccda4b2eafdec53777b918f5064a7b2a = sha256(reference.Canon(contracts/factory.bas)), 82 lines
+PASS    social dfb40b266bb4…: installed code sha256 33f1e053d362f70228f644f4934cd899b6558e934314199bc1f9e5678efe6152 = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders dfcf670a8e03…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat ccedad641014…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+PASS    extra htlc fe80b3ca0ecd…: installed code sha256 2cc921195be1bb0f442d7aa5a843b0829569b0540727cead603c75426a5c5ad3 = sha256(reference.Canon(contracts/htlc.bas)), 112 lines
+PASS    extra swap cde0d3ddf9dd…: installed code sha256 8b03cedbf393022de4aa87482ac1d341bcf81f657c20934c1467178ee37b3183 = sha256(reference.Canon(contracts/swap.bas)), 85 lines
+PASS    extra board c3e5eb43c429…: installed code sha256 0580308ac89fb5fd408e54f5b7baf9a1c80684b30c21c67c8af40b87bbd59fad = sha256(reference.Canon(contracts/board.bas)), 65 lines
+PASS    extra vault def43f54aefa…: installed code sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d = sha256(reference.Canon(contracts/vault.bas)), 485 lines
+
+== Market templates: every contract in the factory registry
+INFO    registry 8fe6c4290469…: pc=0 lc=0 nc=0: 0 registered contracts, checked against 5 accepted template hashes (current and legacy)
+
+== Roles
+factory 8fe6c4290469… (factory)
+  PASS    owner          ended  must end  (deleted by Renounce at height 482)
+          owner is absent: SetTreasury, SetRegFee and Renounce refuse every signer at their EXISTS guard, and nothing can store an owner again
+          reads: factory.bas:25,39-40,50-51,61-64
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives every registration fee (reg, line 35); cannot act; fixed for ever (SetTreasury needs an owner)
+          reads: factory.bas:26,43,110
+  INFO    regfee         -      parameter regfee=10000
+          fixed for ever (SetRegFee needs an owner)
+          reads: factory.bas:28,52,108
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,32
+social dfb40b266bb4… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders dfcf670a8e03… (founders)
+  INFO    creator        -      inert     dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=500000 maxsupply=500 start=0 reserve=50
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat ccedad641014… (chat)
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+extra htlc fe80b3ca0ecd… (htlc)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: htlc.bas:17,21
+extra swap cde0d3ddf9dd… (swap)
+  INFO    wmin           -      parameter wmin=(absent)
+          the minimum lock width, written only at install: the same code with another wmin has the same code hash, so a companion must read it
+          reads: swap.bas:18,22,45
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: swap.bas:17,23
+extra board c3e5eb43c429… (board)
+  INFO    aw             -      parameter aw=200
+          written only at install
+          reads: board.bas:27,88
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: board.bas:23,28
+extra vault def43f54aefa… (vault)
+  PASS    owner          ended  must end  dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm
+          sealed = 1: SetLimits, AddSigner and Seal refuse the owner; the key stays stored and has no power
+          reads: vault.bas:73,75,104,157,246,257
+  WARN    signers        acts   by design k=2 of na=3 active, n=3 ever added: dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm, dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95, dero1qy36kf7ns8ew5k2v3at5n3d67gm4fyl3sxn3jkxaasmh4ryz0m44qqgv726wx
+          sealed: k signers vote Mint, Released, Veto, Attest, Halt, SetCap, Tighten, SetViewKey, AddSigner2 and Slash — custody of every wrapped unit
+          reads: vault.bas:30,47,163,189,556
+  INFO    treasury       acts   payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          can call ClaimFees, which takes feepool (0) and nothing else; receives regfee and slashed bonds; fixed for ever
+          reads: vault.bas:76,281,491,565
+  INFO    cap            -      parameter cap=1000000 capratio=1000 bondtot=3000
+          changed only by k signer votes (SetCap, never above capratio x bonds) or lowered by Slash
+          reads: vault.bas:77,535,567
+  INFO    limits         -      parameter winmax=0 wdelay=0
+          the owner's SetLimits before Seal; after Seal only k votes to Tighten, in the safe direction
+          reads: vault.bas:107,122,128
+  INFO    halt           -      parameter halted=0
+          a lease k signers set (Halt) that lapses by itself at that height; Burn and Released work while halted
+          reads: vault.bas:41,515
+  INFO    viewkey        -      parameter (empty)
+          published by k signer votes (SetViewKey)
+          reads: vault.bas:146
+  INFO    terms          -      parameter minbond=1000 minburn=1000 wfee=10 mindep=100 regfee=0 bigbps=0 bigdelay=0 capratio=1000
+          written only at install
+          reads: vault.bas:83,85,87
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: vault.bas:54,94
+tela index f4a2b4d1861f… (tela)
+  FAIL    owner          LIVE   must end  dero1qywgdwt9j6la3gfn5859czqqzg7c4cc856f2w5lxusg494ytkaflkqqehzr72
+          installed at ring size 2: this address can call UpdateCode (at ring 2) for ever and replace the whole app; no TELA-INDEX-1 function changes or clears owner, so destroying the key is the only revocation, and the chain cannot show that
+          reads: tela_index_1.bas:21,33-35,53,55,57; transaction_execute.go:430; dvm_functions.go:309
+
+== TELA: the app's INDEX and DOCs
+PASS    index f4a2b4d1861f…: code is the standard TELA-INDEX-1 v1.1.0, token for token (tools/verifydeploy/tela_index_1.bas); 34 DOCs; commit 0 (UpdateCode has replaced the code 0 times)
+INFO    index state f4a2b4d1861f…: commit 0, hash f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad = its SCID: not updated yet
+PASS    docs: all 34 DOCs are the standard TELA-DOC-1, which has no UpdateCode and no UPDATE_SC_CODE: no key can change what they serve
+PASS    DOC1 a590c3360eca…: the entrypoint serves index.html
+PASS    DOC6 config.js 9f564f52da3c…: equals netcfg.ConfigJS(simulator record) after its first line: the app trusts exactly the record's contracts and template hashes
+PASS    DOC13 manifest.json d6a62356cef3…: lists exactly the 33 other served files with their sha256, and the record's contracts
+PASS    DOC25 templates/founders.bas ebed0c8e6bf3…: serves the record's current founders template (sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a)
+PASS    DOC26 templates/launch.bas f8404faa73dd…: serves the record's current launch template (sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4)
+PASS    DOC27 templates/nfa.bas 8bf067394623…: serves the record's current nfa template (sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd)
+PASS    DOC28 templates/nft.bas d874ee70d4a4…: serves the record's current nft template (sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f)
+PASS    DOC29 templates/pool.bas b0bba10b0572…: serves the record's current pool template (sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580)
+PASS    bundle: the INDEX serves exactly the 34 files of the dist bundle $SCRATCH/dist/simulator, each byte for byte
+PASS    tela-record f4a2b4d1861f…: the INDEX's 34 DOCs are exactly the ones $SCRATCH/tela-ring2.json publishes
+
+summary: 1 FAIL, 1 WARN, 17 INFO, 35 PASS — FAILED
+[exit 1]
+
+## 8. the same, with that role allowed on the command line and a written reason -> exit 0, marked ALLOWED
+
+$ verifydeploy -network simulator -networks $SCRATCH/networks.json -contracts $SCRATCH/contracts -extra htlc=fe80b3ca0ecd34b903b5c388b52fbdd3c16c373cd938a9946d92069f5295cba3,swap=cde0d3ddf9ddb6a3f15c05000226a3761661c76b68622464a51efd03e471ffdd,board=c3e5eb43c4292ea4f3784319170563641b23bf1757a794b528213cccb0f048d6,vault=def43f54aefa92602e86614a0b9b6e50d2ab4391c167fb39d253d7c08eda7fbf,tela=f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad -dist $SCRATCH/dist/simulator -tela-record $SCRATCH/tela-ring2.json -allow tela.owner=simulator run: a ring-2 INDEX kept only to show what verifydeploy reports
+DMZ deployment verification (tools/verifydeploy)
+network simulator · daemon 127.0.0.1:20000 (Simulator, height 483, stable 475)
+source  $SCRATCH/contracts · git history unavailable: $SCRATCH/contracts is not in a git checkout, or git is missing (fatal: not a git repository (or any of the parent directories): .git)
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+PASS    templates.nfa: sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd = sha256(reference.Canon(contracts/nfa.bas))
+PASS    templates.nft: sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f = sha256(reference.Canon(contracts/nft.bas))
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory 8fe6c4290469…: installed code sha256 5ba105fdda839f17dd69b98b60f0d00dccda4b2eafdec53777b918f5064a7b2a = sha256(reference.Canon(contracts/factory.bas)), 82 lines
+PASS    social dfb40b266bb4…: installed code sha256 33f1e053d362f70228f644f4934cd899b6558e934314199bc1f9e5678efe6152 = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders dfcf670a8e03…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat ccedad641014…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+PASS    extra htlc fe80b3ca0ecd…: installed code sha256 2cc921195be1bb0f442d7aa5a843b0829569b0540727cead603c75426a5c5ad3 = sha256(reference.Canon(contracts/htlc.bas)), 112 lines
+PASS    extra swap cde0d3ddf9dd…: installed code sha256 8b03cedbf393022de4aa87482ac1d341bcf81f657c20934c1467178ee37b3183 = sha256(reference.Canon(contracts/swap.bas)), 85 lines
+PASS    extra board c3e5eb43c429…: installed code sha256 0580308ac89fb5fd408e54f5b7baf9a1c80684b30c21c67c8af40b87bbd59fad = sha256(reference.Canon(contracts/board.bas)), 65 lines
+PASS    extra vault def43f54aefa…: installed code sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d = sha256(reference.Canon(contracts/vault.bas)), 485 lines
+
+== Market templates: every contract in the factory registry
+INFO    registry 8fe6c4290469…: pc=0 lc=0 nc=0: 0 registered contracts, checked against 5 accepted template hashes (current and legacy)
+
+== Roles
+factory 8fe6c4290469… (factory)
+  PASS    owner          ended  must end  (deleted by Renounce at height 482)
+          owner is absent: SetTreasury, SetRegFee and Renounce refuse every signer at their EXISTS guard, and nothing can store an owner again
+          reads: factory.bas:25,39-40,50-51,61-64
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives every registration fee (reg, line 35); cannot act; fixed for ever (SetTreasury needs an owner)
+          reads: factory.bas:26,43,110
+  INFO    regfee         -      parameter regfee=10000
+          fixed for ever (SetRegFee needs an owner)
+          reads: factory.bas:28,52,108
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,32
+social dfb40b266bb4… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders dfcf670a8e03… (founders)
+  INFO    creator        -      inert     dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=500000 maxsupply=500 start=0 reserve=50
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat ccedad641014… (chat)
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+extra htlc fe80b3ca0ecd… (htlc)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: htlc.bas:17,21
+extra swap cde0d3ddf9dd… (swap)
+  INFO    wmin           -      parameter wmin=(absent)
+          the minimum lock width, written only at install: the same code with another wmin has the same code hash, so a companion must read it
+          reads: swap.bas:18,22,45
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: swap.bas:17,23
+extra board c3e5eb43c429… (board)
+  INFO    aw             -      parameter aw=200
+          written only at install
+          reads: board.bas:27,88
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: board.bas:23,28
+extra vault def43f54aefa… (vault)
+  PASS    owner          ended  must end  dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm
+          sealed = 1: SetLimits, AddSigner and Seal refuse the owner; the key stays stored and has no power
+          reads: vault.bas:73,75,104,157,246,257
+  WARN    signers        acts   by design k=2 of na=3 active, n=3 ever added: dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm, dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95, dero1qy36kf7ns8ew5k2v3at5n3d67gm4fyl3sxn3jkxaasmh4ryz0m44qqgv726wx
+          sealed: k signers vote Mint, Released, Veto, Attest, Halt, SetCap, Tighten, SetViewKey, AddSigner2 and Slash — custody of every wrapped unit
+          reads: vault.bas:30,47,163,189,556
+  INFO    treasury       acts   payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          can call ClaimFees, which takes feepool (0) and nothing else; receives regfee and slashed bonds; fixed for ever
+          reads: vault.bas:76,281,491,565
+  INFO    cap            -      parameter cap=1000000 capratio=1000 bondtot=3000
+          changed only by k signer votes (SetCap, never above capratio x bonds) or lowered by Slash
+          reads: vault.bas:77,535,567
+  INFO    limits         -      parameter winmax=0 wdelay=0
+          the owner's SetLimits before Seal; after Seal only k votes to Tighten, in the safe direction
+          reads: vault.bas:107,122,128
+  INFO    halt           -      parameter halted=0
+          a lease k signers set (Halt) that lapses by itself at that height; Burn and Released work while halted
+          reads: vault.bas:41,515
+  INFO    viewkey        -      parameter (empty)
+          published by k signer votes (SetViewKey)
+          reads: vault.bas:146
+  INFO    terms          -      parameter minbond=1000 minburn=1000 wfee=10 mindep=100 regfee=0 bigbps=0 bigdelay=0 capratio=1000
+          written only at install
+          reads: vault.bas:83,85,87
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: vault.bas:54,94
+tela index f4a2b4d1861f… (tela)
+  ALLOWED owner          LIVE   must end  dero1qywgdwt9j6la3gfn5859czqqzg7c4cc856f2w5lxusg494ytkaflkqqehzr72
+          installed at ring size 2: this address can call UpdateCode (at ring 2) for ever and replace the whole app; no TELA-INDEX-1 function changes or clears owner, so destroying the key is the only revocation, and the chain cannot show that
+          allowed on the command line: simulator run: a ring-2 INDEX kept only to show what verifydeploy reports
+          reads: tela_index_1.bas:21,33-35,53,55,57; transaction_execute.go:430; dvm_functions.go:309
+
+== TELA: the app's INDEX and DOCs
+PASS    index f4a2b4d1861f…: code is the standard TELA-INDEX-1 v1.1.0, token for token (tools/verifydeploy/tela_index_1.bas); 34 DOCs; commit 0 (UpdateCode has replaced the code 0 times)
+INFO    index state f4a2b4d1861f…: commit 0, hash f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad = its SCID: not updated yet
+PASS    docs: all 34 DOCs are the standard TELA-DOC-1, which has no UpdateCode and no UPDATE_SC_CODE: no key can change what they serve
+PASS    DOC1 a590c3360eca…: the entrypoint serves index.html
+PASS    DOC6 config.js 9f564f52da3c…: equals netcfg.ConfigJS(simulator record) after its first line: the app trusts exactly the record's contracts and template hashes
+PASS    DOC13 manifest.json d6a62356cef3…: lists exactly the 33 other served files with their sha256, and the record's contracts
+PASS    DOC25 templates/founders.bas ebed0c8e6bf3…: serves the record's current founders template (sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a)
+PASS    DOC26 templates/launch.bas f8404faa73dd…: serves the record's current launch template (sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4)
+PASS    DOC27 templates/nfa.bas 8bf067394623…: serves the record's current nfa template (sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd)
+PASS    DOC28 templates/nft.bas d874ee70d4a4…: serves the record's current nft template (sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f)
+PASS    DOC29 templates/pool.bas b0bba10b0572…: serves the record's current pool template (sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580)
+PASS    bundle: the INDEX serves exactly the 34 files of the dist bundle $SCRATCH/dist/simulator, each byte for byte
+PASS    tela-record f4a2b4d1861f…: the INDEX's 34 DOCs are exactly the ones $SCRATCH/tela-ring2.json publishes
+
+summary: 1 ALLOWED, 1 WARN, 17 INFO, 35 PASS — no failure
+[exit 0]
+
+## 9. verify AFTER the ceremony with the ring-16 INDEX (owner anon): nothing privileged is left -> PASS, exit 0
+
+$ verifydeploy -network simulator -networks $SCRATCH/networks.json -contracts $SCRATCH/contracts -extra htlc=fe80b3ca0ecd34b903b5c388b52fbdd3c16c373cd938a9946d92069f5295cba3,swap=cde0d3ddf9ddb6a3f15c05000226a3761661c76b68622464a51efd03e471ffdd,board=c3e5eb43c4292ea4f3784319170563641b23bf1757a794b528213cccb0f048d6,vault=def43f54aefa92602e86614a0b9b6e50d2ab4391c167fb39d253d7c08eda7fbf,tela=f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3 -dist $SCRATCH/small/dist/simulator -tela-record $SCRATCH/tela-ring16.json
+DMZ deployment verification (tools/verifydeploy)
+network simulator · daemon 127.0.0.1:20000 (Simulator, height 483, stable 475)
+source  $SCRATCH/contracts · git history unavailable: $SCRATCH/contracts is not in a git checkout, or git is missing (fatal: not a git repository (or any of the parent directories): .git)
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+PASS    templates.nfa: sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd = sha256(reference.Canon(contracts/nfa.bas))
+PASS    templates.nft: sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f = sha256(reference.Canon(contracts/nft.bas))
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory 8fe6c4290469…: installed code sha256 5ba105fdda839f17dd69b98b60f0d00dccda4b2eafdec53777b918f5064a7b2a = sha256(reference.Canon(contracts/factory.bas)), 82 lines
+PASS    social dfb40b266bb4…: installed code sha256 33f1e053d362f70228f644f4934cd899b6558e934314199bc1f9e5678efe6152 = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders dfcf670a8e03…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat ccedad641014…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+PASS    extra htlc fe80b3ca0ecd…: installed code sha256 2cc921195be1bb0f442d7aa5a843b0829569b0540727cead603c75426a5c5ad3 = sha256(reference.Canon(contracts/htlc.bas)), 112 lines
+PASS    extra swap cde0d3ddf9dd…: installed code sha256 8b03cedbf393022de4aa87482ac1d341bcf81f657c20934c1467178ee37b3183 = sha256(reference.Canon(contracts/swap.bas)), 85 lines
+PASS    extra board c3e5eb43c429…: installed code sha256 0580308ac89fb5fd408e54f5b7baf9a1c80684b30c21c67c8af40b87bbd59fad = sha256(reference.Canon(contracts/board.bas)), 65 lines
+PASS    extra vault def43f54aefa…: installed code sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d = sha256(reference.Canon(contracts/vault.bas)), 485 lines
+
+== Market templates: every contract in the factory registry
+INFO    registry 8fe6c4290469…: pc=0 lc=0 nc=0: 0 registered contracts, checked against 5 accepted template hashes (current and legacy)
+
+== Roles
+factory 8fe6c4290469… (factory)
+  PASS    owner          ended  must end  (deleted by Renounce at height 482)
+          owner is absent: SetTreasury, SetRegFee and Renounce refuse every signer at their EXISTS guard, and nothing can store an owner again
+          reads: factory.bas:25,39-40,50-51,61-64
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives every registration fee (reg, line 35); cannot act; fixed for ever (SetTreasury needs an owner)
+          reads: factory.bas:26,43,110
+  INFO    regfee         -      parameter regfee=10000
+          fixed for ever (SetRegFee needs an owner)
+          reads: factory.bas:28,52,108
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,32
+social dfb40b266bb4… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders dfcf670a8e03… (founders)
+  INFO    creator        -      inert     dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=500000 maxsupply=500 start=0 reserve=50
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat ccedad641014… (chat)
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+extra htlc fe80b3ca0ecd… (htlc)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: htlc.bas:17,21
+extra swap cde0d3ddf9dd… (swap)
+  INFO    wmin           -      parameter wmin=(absent)
+          the minimum lock width, written only at install: the same code with another wmin has the same code hash, so a companion must read it
+          reads: swap.bas:18,22,45
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: swap.bas:17,23
+extra board c3e5eb43c429… (board)
+  INFO    aw             -      parameter aw=200
+          written only at install
+          reads: board.bas:27,88
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: board.bas:23,28
+extra vault def43f54aefa… (vault)
+  PASS    owner          ended  must end  dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm
+          sealed = 1: SetLimits, AddSigner and Seal refuse the owner; the key stays stored and has no power
+          reads: vault.bas:73,75,104,157,246,257
+  WARN    signers        acts   by design k=2 of na=3 active, n=3 ever added: dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm, dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95, dero1qy36kf7ns8ew5k2v3at5n3d67gm4fyl3sxn3jkxaasmh4ryz0m44qqgv726wx
+          sealed: k signers vote Mint, Released, Veto, Attest, Halt, SetCap, Tighten, SetViewKey, AddSigner2 and Slash — custody of every wrapped unit
+          reads: vault.bas:30,47,163,189,556
+  INFO    treasury       acts   payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          can call ClaimFees, which takes feepool (0) and nothing else; receives regfee and slashed bonds; fixed for ever
+          reads: vault.bas:76,281,491,565
+  INFO    cap            -      parameter cap=1000000 capratio=1000 bondtot=3000
+          changed only by k signer votes (SetCap, never above capratio x bonds) or lowered by Slash
+          reads: vault.bas:77,535,567
+  INFO    limits         -      parameter winmax=0 wdelay=0
+          the owner's SetLimits before Seal; after Seal only k votes to Tighten, in the safe direction
+          reads: vault.bas:107,122,128
+  INFO    halt           -      parameter halted=0
+          a lease k signers set (Halt) that lapses by itself at that height; Burn and Released work while halted
+          reads: vault.bas:41,515
+  INFO    viewkey        -      parameter (empty)
+          published by k signer votes (SetViewKey)
+          reads: vault.bas:146
+  INFO    terms          -      parameter minbond=1000 minburn=1000 wfee=10 mindep=100 regfee=0 bigbps=0 bigdelay=0 capratio=1000
+          written only at install
+          reads: vault.bas:83,85,87
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: vault.bas:54,94
+tela index f807075ff4a6… (tela)
+  PASS    owner          ended  must end  anon
+          installed at ring size > 2: SIGNER() was 33 zero bytes, address() stored "anon", and UpdateCode refuses every caller at line 10. The INDEX can never change
+          reads: tela_index_1.bas:21,33-35,53,55,57; transaction_execute.go:430; dvm_functions.go:309
+
+== TELA: the app's INDEX and DOCs
+PASS    index f807075ff4a6…: code is the standard TELA-INDEX-1 v1.1.0, token for token (tools/verifydeploy/tela_index_1.bas); 8 DOCs; commit 0 (UpdateCode has replaced the code 0 times)
+PASS    index state f807075ff4a6…: owner "anon" (DERO.GetSC hex 616e6f6e), commit 0, hash and commit-0 hash both equal to its own SCID: the code is the code installed, and UpdateCode can never replace it
+PASS    docs: all 8 DOCs are the standard TELA-DOC-1, which has no UpdateCode and no UPDATE_SC_CODE: no key can change what they serve
+PASS    DOC1 d33c76ab7250…: the entrypoint serves index.html
+PASS    DOC2 config.js b85ee690427d…: equals netcfg.ConfigJS(simulator record) after its first line: the app trusts exactly the record's contracts and template hashes
+PASS    DOC3 manifest.json b077c957501b…: lists exactly the 7 other served files with their sha256, and the record's contracts
+PASS    DOC4 templates/founders.bas a23f78d4d23d…: serves the record's current founders template (sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a)
+PASS    DOC5 templates/launch.bas bbeb72be04d2…: serves the record's current launch template (sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4)
+PASS    DOC6 templates/nfa.bas f9d9afdc3e73…: serves the record's current nfa template (sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd)
+PASS    DOC7 templates/nft.bas c659bf71c4ba…: serves the record's current nft template (sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f)
+PASS    DOC8 templates/pool.bas bec344befb05…: serves the record's current pool template (sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580)
+PASS    bundle: the INDEX serves exactly the 8 files of the dist bundle $SCRATCH/small/dist/simulator, each byte for byte
+PASS    tela-record f807075ff4a6…: the INDEX's 8 DOCs are exactly the ones $SCRATCH/tela-ring16.json publishes
+
+summary: 1 WARN, 16 INFO, 37 PASS — no failure
+[exit 0]
+
+## 10. a contract whose code differs by ONE character (social.bas, "social" -> "sociaL") -> FAIL on it
+
+$ verifydeploy -network simulator -networks $SCRATCH/networks.json -contracts $SCRATCH/contracts -extra social=ed88b24558d34ed0e5401932a002eba8181e213390d73232afe2119f1ab14fd4 -registry=false
+DMZ deployment verification (tools/verifydeploy)
+network simulator · daemon 127.0.0.1:20000 (Simulator, height 483, stable 475)
+source  $SCRATCH/contracts · git history unavailable: $SCRATCH/contracts is not in a git checkout, or git is missing (fatal: not a git repository (or any of the parent directories): .git)
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+PASS    templates.nfa: sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd = sha256(reference.Canon(contracts/nfa.bas))
+PASS    templates.nft: sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f = sha256(reference.Canon(contracts/nft.bas))
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory 8fe6c4290469…: installed code sha256 5ba105fdda839f17dd69b98b60f0d00dccda4b2eafdec53777b918f5064a7b2a = sha256(reference.Canon(contracts/factory.bas)), 82 lines
+PASS    social dfb40b266bb4…: installed code sha256 33f1e053d362f70228f644f4934cd899b6558e934314199bc1f9e5678efe6152 = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders dfcf670a8e03…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat ccedad641014…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+FAIL    extra social ed88b24558d3…: installed code sha256 e4eda82f3bc7c1f4f7e779074e5841c0f4817212c5a1e333096eb147c08685b9 ≠ sha256(reference.Canon(contracts/social.bas)) 33f1e053d362f70228f644f4934cd899b6558e934314199bc1f9e5678efe6152
+        first difference at installed line 3, which is contracts/social.bas:8
+          source: 10 STORE("kind", "social")
+          chain:  10 STORE("kind", "sociaL")
+
+== Roles
+factory 8fe6c4290469… (factory)
+  PASS    owner          ended  must end  (deleted by Renounce at height 482)
+          owner is absent: SetTreasury, SetRegFee and Renounce refuse every signer at their EXISTS guard, and nothing can store an owner again
+          reads: factory.bas:25,39-40,50-51,61-64
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives every registration fee (reg, line 35); cannot act; fixed for ever (SetTreasury needs an owner)
+          reads: factory.bas:26,43,110
+  INFO    regfee         -      parameter regfee=10000
+          fixed for ever (SetRegFee needs an owner)
+          reads: factory.bas:28,52,108
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,32
+social dfb40b266bb4… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders dfcf670a8e03… (founders)
+  INFO    creator        -      inert     dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=500000 maxsupply=500 start=0 reserve=50
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat ccedad641014… (chat)
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+extra social ed88b24558d3… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists) [read with contracts/social.bas's key layout, but the installed code differs: not authoritative]
+          reads: social.bas:9,12
+
+== TELA: the app's INDEX and DOCs
+INFO    index: the record names no TELA INDEX on simulator (tela.index is empty)
+
+summary: 1 FAIL, 15 PASS, 8 INFO — FAILED
+[exit 1]
+
+## 11. the same failure as JSON (-json), the identity check only
+      "message": "installed code sha256 5ba105fdda839f17dd69b98b60f0d00dccda4b2eafdec53777b918f5064a7b2a = sha256(reference.Canon(contracts/factory.bas)), 82 lines"
+      "message": "installed code sha256 33f1e053d362f70228f644f4934cd899b6558e934314199bc1f9e5678efe6152 = sha256(reference.Canon(contracts/social.bas)), 57 lines"
+      "message": "installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines"
+      "message": "installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines"
+      "message": "installed code sha256 e4eda82f3bc7c1f4f7e779074e5841c0f4817212c5a1e333096eb147c08685b9 ≠ sha256(reference.Canon(contracts/social.bas)) 33f1e053d362f70228f644f4934cd899b6558e934314199bc1f9e5678efe6152\nfirst difference at installed line 3, which is contracts/social.bas:8\n  source: 10 STORE(\"kind\", \"social\")\n  chain:  10 STORE(\"kind\", \"sociaL\")"

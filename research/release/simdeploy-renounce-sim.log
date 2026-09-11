@@ -1,0 +1,21 @@
+# simdeploy -renounce on the DERO simulator, 2026-09-11T06:39:44Z
+# a scratch factory from wallet 30017 (treasury 30018); every other contract reused from the simulator record
+scratch factory: ecc5d0e9a961111d1dd0613c98b919e498b994307bd456b0e53fe08fd62e76aa
+before: owner present: true | renounced: absent
+
+== a stranger (wallet 30018) sends -renounce: must be refused, and pay nothing
+renouncing factory ecc5d0e9a961111d1dd0613c98b919e498b994307bd456b0e53fe08fd62e76aa from deto1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqg8g4equ; this cannot be undone
+2026/09/11 16:40:09 DERO.GetGasEstimate: rpc error -32098: Discarded knowingly
+exit status 1
+exit: 1
+after the stranger: owner present: true | renounced: absent
+
+== the owner (wallet 30017) sends -renounce
+renouncing factory ecc5d0e9a961111d1dd0613c98b919e498b994307bd456b0e53fe08fd62e76aa from deto1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq0zyv8n; this cannot be undone
+renounced at height 552 by tx 4640c394b06a4b1fac944c0003b0299c5827f38013df450ada9f293ac8a5af02: the owner key is gone, and SetTreasury and SetRegFee refuse every caller from now on
+exit: 0
+after the owner: owner present: false | renounced: 552
+
+== the owner sends -renounce again: must be a no-op
+factory ecc5d0e9a961111d1dd0613c98b919e498b994307bd456b0e53fe08fd62e76aa was renounced at height 552 already; nothing to do
+exit: 0

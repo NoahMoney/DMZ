@@ -1,0 +1,302 @@
+# A TELA INDEX installed above ring 2 can never be updated: shown on the DERO simulator, 2026-09-11
+#
+# The rebuilt tools/telainstall installed a small dist/simulator bundle (index.html, config.js, manifest.json and
+# five templates) as 8 DOCs at ring 2 and its INDEX at ring 16, from a copy of simulator wallet_21 (RPC 30021).
+# $SCRATCH/tela-ring16.log:
+== telainstall -ringsize 16, small bundle, wallet_21 copy, 2026-09-11T06:12:18Z
+INDEX ring 16: its owner will be "anon" and UpdateCode will refuse every caller; a later release is a new INDEX
+network simulator
+wallet deto1qy5gpycungnm0nj0kqxk9f7km86q925masvdz8eth7dkg64gktuc5qgkcvrcy height 412
+DOC index.html                218 bytes →   1512 on-chain (gzip)  gas  1862  ring 2  scid d33c76ab7250af76c12efbf6b79e7b0684c4c3a2ac76717c3ec64a681cb417e1
+DOC config.js                1565 bytes →   2436 on-chain (gzip)  gas  2782  ring 2  scid b85ee690427d55f66636c4357ae86843c2ed42d3203f4c853d743861224a5de8
+DOC manifest.json            1507 bytes →   2153 on-chain (gzip)  gas  2508  ring 2  scid b077c957501bc2805522b10df1b74d5870166fca04a4335b6719f98089bb85e1
+DOC templates/founders.bas  10398 bytes →   5118 on-chain (gzip)  gas  5494  ring 2  scid a23f78d4d23da0db567973ab9df7241d64b2761cfb7c2e34a78a5672007ed3d2
+DOC templates/launch.bas    15257 bytes →   6636 on-chain (gzip)  gas  7006  ring 2  scid bbeb72be04d2397f5ac9f3820a446b1ca9c9c9ca5f62c1368f0d1f334ed4bd8c
+DOC templates/nfa.bas       14633 bytes →   5720 on-chain (gzip)  gas  6086  ring 2  scid f9d9afdc3e738ce8a6eeb3186bf72c2857d8ddd603d2e0c29f8cbb474be76d93
+DOC templates/nft.bas        3525 bytes →   2727 on-chain (gzip)  gas  3092  ring 2  scid c659bf71c4ba5c564faf725953478190c54ba6094cf862bbb286ba5a3a4486bb
+DOC templates/pool.bas      10604 bytes →   4934 on-chain (gzip)  gas  5302  ring 2  scid bec344befb05c4fa03c47f05fa48c38603c482c4c1f082a4c9b1401029909f84
+INDEX f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3 ring 16 gas 2888 (8 DOCs, 2.15 KB)
+INDEX f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3 dURL dmz.tela owner anon docs 8 commit 0
+exit 0 2026-09-11T06:13:06Z
+
+# Part A: the INDEX on chain, an UpdateCode attempt from the key that installed it, the INDEX again
+== 1. the ring-16 INDEX as DERO.GetSC reports it (2026-09-11T06:17:13Z)
+DERO.GetSC f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3: code 2134 bytes sha256 ee4e417038d7536eae029e78e3c758bb5bd2e6e9832234259dd77a234eb98ed9
+  commit         0
+  dURL           "646d7a2e74656c61"  = "dmz.tela"
+  hash           "66383037303735666634613661633237666336633161393539323334323161666461646164373261656563383564326230346530333566333739366431626333"  = "f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3"
+  owner          "616e6f6e"  = "anon"
+  telaVersion    "312e312e30"  = "1.1.0"
+  uint64 key 0              "66383037303735666634613661633237666336633161393539323334323161666461646164373261656563383564326230346530333566333739366431626333"  = "f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3"
+
+== 2. the replacement code offered to it: the ring-2 INDEX's code (the full 34-DOC app)
+DERO.GetSC f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad: code 4369 bytes sha256 743f1a5a7c885b7cb4f59fb9abdb483ddce1a8d08781c394a361e422d5200649
+  commit         0
+  owner          "6465726f3171797767647774396a366c613367666e35383539637a71717a673763346363383536663277356c7875736734393479746b61666c6b717165687a723732"  = "dero1qywgdwt9j6la3gfn5859czqqzg7c4cc856f2w5lxusg494ytkaflkqqehzr72"
+
+== 3. DERO.GetGasEstimate for UpdateCode from wallet 30021 = wallet_21, the key that installed the ring-16 INDEX
+deto1qy5gpycungnm0nj0kqxk9f7km86q925masvdz8eth7dkg64gktuc5qgkcvrcy
+DERO.GetGasEstimate f807075ff4a6….UpdateCode from 127.0.0.1:30021: refused: DERO.GetGasEstimate: rpc error -32098: Discarded knowingly
+
+== 4. the same UpdateCode sent anyway at ring 2 from 30021, fee 8000, no estimate
+sent f807075ff4a6….UpdateCode from 127.0.0.1:30021 at ring 2 with fee 8000 (no estimate): tx 0c5ed8407ed85a52f0c873a7f8ae16286615bee67d4664cd8dd7aa6dba03524a mined at height 458
+
+== 5. the ring-16 INDEX afterwards (2026-09-11T06:17:32Z)
+DERO.GetSC f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3: code 2134 bytes sha256 ee4e417038d7536eae029e78e3c758bb5bd2e6e9832234259dd77a234eb98ed9
+  commit         0
+  hash           "66383037303735666634613661633237666336633161393539323334323161666461646164373261656563383564326230346530333566333739366431626333"  = "f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3"
+  owner          "616e6f6e"  = "anon"
+  uint64 key 0              "66383037303735666634613661633237666336633161393539323334323161666461646164373261656563383564326230346530333566333739366431626333"  = "f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3"
+installed code byte-identical before and after the UpdateCode attempt (2134 bytes)
+
+# Part B: telainstall's own refusals (GAP-001, GAP-032)
+== telainstall's refusals: none of these opens a wallet or sends a transaction; the mainnet lines contact no daemon
+$ telainstall -network simulator -ringsize 2 -index f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3 -wallet $S/wallet21.db -password= -daemon 127.0.0.1:20000 -app $S/small/dist/simulator
+WARNING: ring-2 INDEX: the installing wallet becomes its owner and can call UpdateCode for ever, replacing the whole app; that key stays a trusted party until it is destroyed, which nobody else can verify
+INDEX f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3 was installed above ring 2: its owner is "anon" and UpdateCode refuses every caller. Install a new INDEX instead
+exit 2
+
+$ telainstall -network mainnet -yes -wallet x.db -app $S/small/dist/simulator -ringsize 2
+mainnet: an INDEX installed at ring 2 is refused. Use -ringsize 16 (or more) for an INDEX nobody can update, or -ringsize 2 -updatable to accept that the installing key can replace the whole app for ever
+exit 2
+
+$ telainstall -network mainnet -yes -wallet x.db -app $S/small/dist/simulator -ringsize 8
+mainnet: an INDEX installed at ring 8 is refused. Use -ringsize 16 (or more) for an INDEX nobody can update, or -ringsize 2 -updatable to accept that the installing key can replace the whole app for ever
+exit 2
+
+$ telainstall -network mainnet -yes -wallet x.db -app $S/small/dist/simulator
+INDEX ring 16: its owner will be "anon" and UpdateCode will refuse every caller; a later release is a new INDEX
+-app $S/small/dist/simulator is not a dist/mainnet bundle; build it with: cd tools && go run ./genconfig -dist -network mainnet, and pass -app ../dist/mainnet
+exit 2
+
+$ telainstall -network simulator -wallet x.db -app $S/small/dist/simulator -ringsize 16 -index f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3
+-index updates an existing INDEX, and only a ring-2 INDEX can be updated: with -ringsize 16 each release is a new INDEX, so omit -index
+exit 2
+
+$ telainstall -network simulator -wallet x.db -app $S/small/dist/simulator -ringsize 16 -updatable
+-updatable asks for a ring-2 INDEX, and -ringsize 16 installs one nobody can update: pass one or the other
+exit 2
+
+$ telainstall -network simulator -wallet x.db -app $S/small/dist/simulator -ringsize 12
+ring sizes are powers of two from 2 to 128 (-ringsize 12, -doc-ringsize 2)
+exit 2
+
+$ telainstall -network simulator -wallet x.db -app $S/app
+WARNING: ring-2 INDEX: the installing wallet becomes its owner and can call UpdateCode for ever, replacing the whole app; that key stays a trusted party until it is destroyed, which nobody else can verify
+-app $S/app is not a dist/simulator bundle; build it with: cd tools && go run ./genconfig -dist -network simulator, and pass -app ../dist/simulator
+exit 2
+
+$ telainstall -network testnet -wallet x.db -app $S/small/dist/simulator
+WARNING: ring-2 INDEX: the installing wallet becomes its owner and can call UpdateCode for ever, replacing the whole app; that key stays a trusted party until it is destroyed, which nobody else can verify
+-app $S/small/dist/simulator is not a dist/testnet bundle; build it with: cd tools && go run ./genconfig -dist -network testnet, and pass -app ../dist/testnet
+exit 2
+
+# Part C: verifydeploy on the ring-16 INDEX; then the contrast, a ring-2 INDEX whose owner replaces its app
+
+## 3. verifydeploy on the ring-16 INDEX and its DOCs
+
+$ verifydeploy -network simulator -networks $SCRATCH/networks.json -contracts $SCRATCH/contracts -extra tela=f807075ff4a6ac27fc6c1a95923421afdadad72aeec85d2b04e035f3796d1bc3 -dist $SCRATCH/small/dist/simulator -tela-record $SCRATCH/tela-ring16.json -registry=false
+DMZ deployment verification (tools/verifydeploy)
+network simulator · daemon 127.0.0.1:20000 (Simulator, height 483, stable 475)
+source  $SCRATCH/contracts · git history unavailable: $SCRATCH/contracts is not in a git checkout, or git is missing (fatal: not a git repository (or any of the parent directories): .git)
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+PASS    templates.nfa: sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd = sha256(reference.Canon(contracts/nfa.bas))
+PASS    templates.nft: sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f = sha256(reference.Canon(contracts/nft.bas))
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory 8fe6c4290469…: installed code sha256 5ba105fdda839f17dd69b98b60f0d00dccda4b2eafdec53777b918f5064a7b2a = sha256(reference.Canon(contracts/factory.bas)), 82 lines
+PASS    social dfb40b266bb4…: installed code sha256 33f1e053d362f70228f644f4934cd899b6558e934314199bc1f9e5678efe6152 = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders dfcf670a8e03…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat ccedad641014…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+
+== Roles
+factory 8fe6c4290469… (factory)
+  PASS    owner          ended  must end  (deleted by Renounce at height 482)
+          owner is absent: SetTreasury, SetRegFee and Renounce refuse every signer at their EXISTS guard, and nothing can store an owner again
+          reads: factory.bas:25,39-40,50-51,61-64
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives every registration fee (reg, line 35); cannot act; fixed for ever (SetTreasury needs an owner)
+          reads: factory.bas:26,43,110
+  INFO    regfee         -      parameter regfee=10000
+          fixed for ever (SetRegFee needs an owner)
+          reads: factory.bas:28,52,108
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,32
+social dfb40b266bb4… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders dfcf670a8e03… (founders)
+  INFO    creator        -      inert     dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=500000 maxsupply=500 start=0 reserve=50
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat ccedad641014… (chat)
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+tela index f807075ff4a6… (tela)
+  PASS    owner          ended  must end  anon
+          installed at ring size > 2: SIGNER() was 33 zero bytes, address() stored "anon", and UpdateCode refuses every caller at line 10. The INDEX can never change
+          reads: tela_index_1.bas:21,33-35,53,55,57; transaction_execute.go:430; dvm_functions.go:309
+
+== TELA: the app's INDEX and DOCs
+PASS    index f807075ff4a6…: code is the standard TELA-INDEX-1 v1.1.0, token for token (tools/verifydeploy/tela_index_1.bas); 8 DOCs; commit 0 (UpdateCode has replaced the code 0 times)
+PASS    index state f807075ff4a6…: owner "anon" (DERO.GetSC hex 616e6f6e), commit 0, hash and commit-0 hash both equal to its own SCID: the code is the code installed, and UpdateCode can never replace it
+PASS    docs: all 8 DOCs are the standard TELA-DOC-1, which has no UpdateCode and no UPDATE_SC_CODE: no key can change what they serve
+PASS    DOC1 d33c76ab7250…: the entrypoint serves index.html
+PASS    DOC2 config.js b85ee690427d…: equals netcfg.ConfigJS(simulator record) after its first line: the app trusts exactly the record's contracts and template hashes
+PASS    DOC3 manifest.json b077c957501b…: lists exactly the 7 other served files with their sha256, and the record's contracts
+PASS    DOC4 templates/founders.bas a23f78d4d23d…: serves the record's current founders template (sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a)
+PASS    DOC5 templates/launch.bas bbeb72be04d2…: serves the record's current launch template (sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4)
+PASS    DOC6 templates/nfa.bas f9d9afdc3e73…: serves the record's current nfa template (sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd)
+PASS    DOC7 templates/nft.bas c659bf71c4ba…: serves the record's current nft template (sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f)
+PASS    DOC8 templates/pool.bas bec344befb05…: serves the record's current pool template (sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580)
+PASS    bundle: the INDEX serves exactly the 8 files of the dist bundle $SCRATCH/small/dist/simulator, each byte for byte
+PASS    tela-record f807075ff4a6…: the INDEX's 8 DOCs are exactly the ones $SCRATCH/tela-ring16.json publishes
+
+summary: 28 PASS, 7 INFO — no failure
+[exit 0]
+
+## 4. contrast: the ring-2 INDEX f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad, whose owner is wallet_20 (RPC 30020)
+deto1qywgdwt9j6la3gfn5859czqqzg7c4cc856f2w5lxusg494ytkaflkqqrw7mmz
+DERO.GetGasEstimate f4a2b4d1861f….UpdateCode from 127.0.0.1:30020: compute 262200 storage 4509
+-- its owner sends UpdateCode with the ring-16 INDEX's code (another app) at ring 2:
+called f4a2b4d1861f….UpdateCode from 127.0.0.1:30020 at ring 2: tx cd09108b410393b6e0a54de3c89c7b5d1f54b42a5eac876f9947755669136bb2 height 484 gas compute 262200 storage 4509
+DERO.GetSC f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad: code 2134 bytes sha256 ee4e417038d7536eae029e78e3c758bb5bd2e6e9832234259dd77a234eb98ed9
+  commit         1
+  hash           "63643039313038623431303339336236653061353464653363383963376235643166353462343261356561633837366639393437373535363639313336626232"  = "cd09108b410393b6e0a54de3c89c7b5d1f54b42a5eac876f9947755669136bb2"
+  owner          "6465726f3171797767647774396a366c613367666e35383539637a71717a673763346363383536663277356c7875736734393479746b61666c6b717165687a723732"  = "dero1qywgdwt9j6la3gfn5859czqqzg7c4cc856f2w5lxusg494ytkaflkqqehzr72"
+  uint64 key 0              "66346132623464313836316637373839393363643064313037356331373634633836333639633463646130333838346464346165653438623038363262346164"  = "f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad"
+  uint64 key 1              "63643039313038623431303339336236653061353464653363383963376235643166353462343261356561633837366639393437373535363639313336626232"  = "cd09108b410393b6e0a54de3c89c7b5d1f54b42a5eac876f9947755669136bb2"
+the ring-2 INDEX's code was replaced: it now lists the small app's 8 DOCs instead of the 34 it was installed with
+
+## 5. verifydeploy on the updated ring-2 INDEX against the bundle it was installed with
+
+$ verifydeploy -network simulator -networks $SCRATCH/networks.json -contracts $SCRATCH/contracts -extra tela=f4a2b4d1861f778993cd0d1075c1764c86369c4cda03884dd4aee48b0862b4ad -dist $SCRATCH/dist/simulator -registry=false
+DMZ deployment verification (tools/verifydeploy)
+network simulator · daemon 127.0.0.1:20000 (Simulator, height 485, stable 477)
+source  $SCRATCH/contracts · git history unavailable: $SCRATCH/contracts is not in a git checkout, or git is missing (fatal: not a git repository (or any of the parent directories): .git)
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+PASS    templates.nfa: sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd = sha256(reference.Canon(contracts/nfa.bas))
+PASS    templates.nft: sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f = sha256(reference.Canon(contracts/nft.bas))
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory 8fe6c4290469…: installed code sha256 5ba105fdda839f17dd69b98b60f0d00dccda4b2eafdec53777b918f5064a7b2a = sha256(reference.Canon(contracts/factory.bas)), 82 lines
+PASS    social dfb40b266bb4…: installed code sha256 33f1e053d362f70228f644f4934cd899b6558e934314199bc1f9e5678efe6152 = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders dfcf670a8e03…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat ccedad641014…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+
+== Roles
+factory 8fe6c4290469… (factory)
+  PASS    owner          ended  must end  (deleted by Renounce at height 482)
+          owner is absent: SetTreasury, SetRegFee and Renounce refuse every signer at their EXISTS guard, and nothing can store an owner again
+          reads: factory.bas:25,39-40,50-51,61-64
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives every registration fee (reg, line 35); cannot act; fixed for ever (SetTreasury needs an owner)
+          reads: factory.bas:26,43,110
+  INFO    regfee         -      parameter regfee=10000
+          fixed for ever (SetRegFee needs an owner)
+          reads: factory.bas:28,52,108
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,32
+social dfb40b266bb4… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders dfcf670a8e03… (founders)
+  INFO    creator        -      inert     dero1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq4mc5zm
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=500000 maxsupply=500 start=0 reserve=50
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat ccedad641014… (chat)
+  INFO    treasury       -      payee     dero1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqga3fp95
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+tela index f4a2b4d1861f… (tela)
+  FAIL    owner          LIVE   must end  dero1qywgdwt9j6la3gfn5859czqqzg7c4cc856f2w5lxusg494ytkaflkqqehzr72
+          installed at ring size 2: this address can call UpdateCode (at ring 2) for ever and replace the whole app; no TELA-INDEX-1 function changes or clears owner, so destroying the key is the only revocation, and the chain cannot show that
+          reads: tela_index_1.bas:21,33-35,53,55,57; transaction_execute.go:430; dvm_functions.go:309
+
+== TELA: the app's INDEX and DOCs
+PASS    index f4a2b4d1861f…: code is the standard TELA-INDEX-1 v1.1.0, token for token (tools/verifydeploy/tela_index_1.bas); 8 DOCs; commit 1 (UpdateCode has replaced the code 1 times)
+INFO    index state f4a2b4d1861f…: commit 1, hash cd09108b410393b6e0a54de3c89c7b5d1f54b42a5eac876f9947755669136bb2: UpdateCode has replaced this INDEX's code 1 times, and default TELA hosts refuse to serve an INDEX whose hash is not its SCID
+PASS    docs: all 8 DOCs are the standard TELA-DOC-1, which has no UpdateCode and no UPDATE_SC_CODE: no key can change what they serve
+PASS    DOC1 d33c76ab7250…: the entrypoint serves index.html
+PASS    DOC2 config.js b85ee690427d…: equals netcfg.ConfigJS(simulator record) after its first line: the app trusts exactly the record's contracts and template hashes
+PASS    DOC3 manifest.json b077c957501b…: lists exactly the 7 other served files with their sha256, and the record's contracts
+PASS    DOC4 templates/founders.bas a23f78d4d23d…: serves the record's current founders template (sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a)
+PASS    DOC5 templates/launch.bas bbeb72be04d2…: serves the record's current launch template (sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4)
+PASS    DOC6 templates/nfa.bas f9d9afdc3e73…: serves the record's current nfa template (sha256 528f7fdc241a590a442e0f7812c8c968baf774a0fb42e884befb944548ea11dd)
+PASS    DOC7 templates/nft.bas c659bf71c4ba…: serves the record's current nft template (sha256 f8b854497f2d52408ca55060fe5be129fcb01926b290532dbfb34b600cd5c01f)
+PASS    DOC8 templates/pool.bas bec344befb05…: serves the record's current pool template (sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580)
+FAIL    DOC1 index.html d33c76ab7250…: the DOC does not serve the bundle's index.html: bundle 4483 bytes sha256 7076111f5f74…, DOC 218 bytes sha256 f30db310e04f…; first difference at byte 2 (line 1): bundle "DOCTYPE html>\n<html lang=\"en\">\n<head>\n<m", DOC "doctype html>\n<meta charset=\"utf-8\">\n<ti"
+FAIL    DOC2 config.js b85ee690427d…: the DOC does not serve the bundle's config.js: bundle 1565 bytes sha256 a12e6488557d…, DOC 1565 bytes sha256 ea2d79e996cf…; first difference at byte 86 (line 1): bundle "5:48:51Z for simulator.\n// Template hash", DOC "6:04:00Z for simulator.\n// Template hash"
+FAIL    DOC3 manifest.json b077c957501b…: the DOC does not serve the bundle's manifest.json: bundle 5462 bytes sha256 24e92ecf9d0f…, DOC 1507 bytes sha256 d81fb3996637…; first difference at byte 5 (line 2): bundle "daemon\": \"127.0.0.1:20000\",\n  \"factory\":", DOC "board\": \"\",\n  \"daemon\": \"127.0.0.1:20000"
+FAIL    amm.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    app.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    chart.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    chat.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    desk.css: in the dist bundle but served by no DOC of the INDEX
+FAIL    feed.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    forms.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    founders.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    home.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    live.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    markets.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    nfas.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    nft.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    nfts.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    notice.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    parts.css: in the dist bundle but served by no DOC of the INDEX
+FAIL    rpc.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    screens.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    sheets.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    stats.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    styles.css: in the dist bundle but served by no DOC of the INDEX
+FAIL    token.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    ui.css: in the dist bundle but served by no DOC of the INDEX
+FAIL    ui.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    wrap.js: in the dist bundle but served by no DOC of the INDEX
+FAIL    xswd.js: in the dist bundle but served by no DOC of the INDEX
+
+summary: 24 PASS, 30 FAIL, 8 INFO — FAILED
+[exit 1]

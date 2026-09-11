@@ -41,5 +41,15 @@
       "untracked": []
     }
   },
+  "crates": {
+    "research/crosschain/poc/vendor/bulletproofs": {
+      "crate": "bulletproofs",
+      "version": "5.0.0",
+      "sha256": "012e2e5f88332083bd4235d445ae78081c00b2558443821a9ca5adfe1070073d",
+      "patch": "research/crosschain/poc/proof-xmr/patches/bulletproofs-5.0.0-r1cs-ctoption.patch",
+      "fetch": "research/crosschain/poc/proof-xmr/fetch-bulletproofs.sh",
+      "tree": "689ed837a4759654455c4e7abd6ea8f6a4b4a6c4f069bb8f5ff2f722e546f4e2"
+    }
+  },
   "build": "every Go build inside a vendored module uses -mod=vendor; add -trimpath for release binaries; deploy/binaries.lock holds sha256 of vendor/bin/*.exe (verifyvendor -write-binaries)"
 }

@@ -26,8 +26,25 @@ research/frost/
 research/mycelium/
 research/xmr-btc-swap/
 
-# signer daemon local state: vote memory and release intents, one file per signer per vault
+# signer daemon local state: vote memory and release intents, one file per signer per vault. Signer state is
+# never tracked, wherever it was written (testnet/signer-*.json was, and named a vault that no longer exists).
 tools/vaultsigner-*.json
+signer-*.json
+# the Monero swap companion's own files (tools/xmrswap/cmd/xmrswap): its state holds this party's key share in
+# plaintext (-state, default <role>.json), then its lock file, the used-secret register and the rendezvous
+# directory (-channel, default ./swap-channel). Monero wallet key files, should a wallet-dir land in the tree.
+bob.json
+alice.json
+*.json.lock
+xmrswap-used.json
+swap-channel/
+*.keys
+# the Zcash swap companion's own files (tools/zecswap): the maker's state holds the swap secret s and the taker's
+# holds her refund; the used-hash register; pre-signed refund transactions (GAP-028)
+maker.json
+taker.json
+zecswap-used.json
+*.refund.txt
 # built binaries
 tools/*.exe
 research/crosschain/poc/sim-*.json

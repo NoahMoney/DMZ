@@ -1,0 +1,22 @@
+The one local change to bulletproofs 5.0.0 (crates.io, sha256 of the .crate file
+012e2e5f88332083bd4235d445ae78081c00b2558443821a9ca5adfe1070073d) that proof-xmr builds against, applied by
+../fetch-bulletproofs.sh. curve25519-dalek 4 returns CtOption from Scalar::from_canonical_bytes, and the crate's
+yoloproofs R1CS deserializer still calls .ok_or on it as if it were an Option, so it does not compile with the
+features proof-xmr needs. The change converts each CtOption to an Option before .ok_or; a non-canonical scalar is
+still refused with R1CSError::FormatError, exactly as upstream intends. It changes no arithmetic and no transcript.
+
+--- a/src/r1cs/proof.rs
++++ b/src/r1cs/proof.rs
+@@ -177,9 +177,9 @@
+         let T_4 = CompressedRistretto(read32!());
+         let T_5 = CompressedRistretto(read32!());
+         let T_6 = CompressedRistretto(read32!());
+-        let t_x = Scalar::from_canonical_bytes(read32!()).ok_or(R1CSError::FormatError)?;
+-        let t_x_blinding = Scalar::from_canonical_bytes(read32!()).ok_or(R1CSError::FormatError)?;
+-        let e_blinding = Scalar::from_canonical_bytes(read32!()).ok_or(R1CSError::FormatError)?;
++        let t_x = Option::<Scalar>::from(Scalar::from_canonical_bytes(read32!())).ok_or(R1CSError::FormatError)?;
++        let t_x_blinding = Option::<Scalar>::from(Scalar::from_canonical_bytes(read32!())).ok_or(R1CSError::FormatError)?;
++        let e_blinding = Option::<Scalar>::from(Scalar::from_canonical_bytes(read32!())).ok_or(R1CSError::FormatError)?;
+
+         // XXX: IPPProof from_bytes gives ProofError.
+         let ipp_proof = InnerProductProof::from_bytes(slice).map_err(|_| R1CSError::FormatError)?;

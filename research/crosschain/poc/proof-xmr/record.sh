@@ -3,7 +3,7 @@
 # verify timings, the proof size, and every exit path. Writes vector.txt (secret, H, S, proof — the worked vector
 # README.md annotates and tests/vector.rs verifies) only when it does not exist yet, so a re-recording of the
 # timings does not silently change the vector the README explains. Run from WSL; from Git Bash:
-#   MSYS_NO_PATHCONV=1 wsl.exe -e bash -lc 'export REPO=/mnt/c/Users/Wilma/Desktop/fomo; bash $REPO/research/crosschain/poc/proof-xmr/record.sh'
+#   MSYS_NO_PATHCONV=1 wsl.exe -e bash -lc 'export REPO=<repo>; bash $REPO/research/crosschain/poc/proof-xmr/record.sh'
 set -euo pipefail
 : "${REPO:?set REPO to the repository path as seen from this shell (WSL: /mnt/c/.../repo)}"
 poc="$REPO/research/crosschain/poc"

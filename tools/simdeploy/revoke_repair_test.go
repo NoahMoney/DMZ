@@ -135,7 +135,9 @@ func TestFoundersPassDescriptionPromisesOnlyWhatTheContractsDo(t *testing.T) {
 			t.Errorf("the default description still says %q: %s", s, passDescrDefault)
 		}
 	}
-	for _, s := range []string{"no contract forces it", "wrapped asset"} {
+	// "other than DERO": founders.bas pays DERO only, so a fee in any other quote — a wrapped asset where a vault
+	// exists, or any asset a pool is quoted in (BL-90) — reaches no holder, and the sentence says so for all of them.
+	for _, s := range []string{"no contract forces it", "other than DERO do not reach holders"} {
 		if !strings.Contains(passDescrDefault, s) {
 			t.Errorf("the default description does not say %q: %s", s, passDescrDefault)
 		}

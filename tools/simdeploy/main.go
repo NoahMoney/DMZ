@@ -36,6 +36,11 @@ var (
 	social    = flag.String("social", "", "reuse an existing social scid instead of installing")
 	founders  = flag.String("founders", "", "reuse an existing founders scid instead of installing")
 	chat      = flag.String("chat", "", "reuse an existing chat scid instead of installing")
+	htlcF     = flag.String("htlc", "", "reuse an existing htlc.bas scid (the Monero swap's DERO leg) instead of installing")
+	swapF     = flag.String("swap", "", "reuse an existing swap.bas scid (the Zcash swap's DERO leg) instead of installing")
+	boardF    = flag.String("board", "", "reuse an existing board.bas scid (the Zcash market's offers) instead of installing")
+	renounce  = flag.Bool("renounce", false, "do nothing but end the ownership of -factory: call Renounce from the owner wallet (-w0), then read back that owner is gone. It cannot be undone (docs/MAINNET_DEPLOYMENT.md §5 step 8)")
+	swapWmin  = flag.Uint64("swap-wmin", 1600, "swap.bas install argument: the minimum escrow width in blocks (Z-D; 1,600 for the ZEC market, docs/ZEC_SWAP.md §5). Fixed for the life of the contract; the taker's companion refuses a swap.bas whose wmin is below its policy")
 	chatFee   = flag.Uint64("chat-fee", 10000, "fee to post one message, in atomic units — the only spam control there is")
 	chatMax   = flag.Uint64("chat-maxlen", 280, "longest message the contract will store")
 	legacy    = flag.String("legacy", "", "comma-separated kind:sha256 of older template versions the app keeps accepting")
@@ -62,10 +67,46 @@ var (
 // every fee; a wrapped-asset fee can never be paid out in DERO; and no contract obliges the treasury to deposit
 // anything at all. founders.bas stores its headers once and defines no setter, so whatever goes in here is on
 // chain for the life of the contract and app/nfts.js renders it under the mint button. The wording tracks
-// app/notice.js, the page the app declares authoritative and which no other surface may contradict.
-const passDescrDefault = "Register a pass to earn a share of the DERO trading fees the treasury claims from DMZ markets. " +
-	"The share is fixed in this contract; the deposit is made by the treasury's own bot, and no contract forces it. " +
-	"Fees earned in a wrapped asset do not reach holders."
+// app/notice.js, the page the app declares authoritative and which no other surface may contradict. It must also
+// fit founders.bas's 240-byte limit (checkPassHeaders): the previous wording ran to 258 bytes, and every founders
+// install made from it was refused at the gas estimate, after the factory and social contracts had been paid for.
+const passDescrDefault = "Register a pass for a fixed share of the DERO trading fees the treasury claims from DMZ markets. " +
+	"The treasury's bot makes each deposit; no contract forces it. " +
+	"Fees in any asset other than DERO do not reach holders."
+
+// checkSwapWmin refuses, before anything is installed, a minimum width swap.bas Initialize would refuse
+// (swap.bas line 6, `wmin == 0 || wmin > 1000000`; TestSwapWminBoundsAreTheContracts holds the two in step).
+func checkSwapWmin() error {
+	if *swapWmin == 0 || *swapWmin > 1000000 {
+		return fmt.Errorf("-swap-wmin is %d; swap.bas takes 1 to 1000000", *swapWmin)
+	}
+	return nil
+}
+
+// checkPassHeaders refuses, before anything is installed, a Founders Pass that founders.bas InitializePrivate would
+// refuse (founders.bas:22-24; TestPassLimitsAreTheContracts holds the two in step). The contract's refusal surfaces
+// only at the gas estimate, by which time the factory and social contracts are already installed and paid for.
+func checkPassHeaders() error {
+	switch {
+	case len(*passName) == 0 || len(*passName) > 64:
+		return fmt.Errorf("-pass-name is %d bytes; founders.bas takes 1 to 64", len(*passName))
+	case len(*passDescr) > 240:
+		return fmt.Errorf("-pass-descr is %d bytes; founders.bas takes at most 240", len(*passDescr))
+	case len(*passImage) > 200:
+		return fmt.Errorf("-pass-image is %d bytes; founders.bas takes at most 200", len(*passImage))
+	case *passMax == 0 || *passMax > 100000:
+		return fmt.Errorf("-pass-max is %d; founders.bas takes 1 to 100000", *passMax)
+	case *passPrice > 10000000000000:
+		return fmt.Errorf("-pass-price is %d; founders.bas takes at most 10000000000000", *passPrice)
+	case *passReserve > *passMax/5:
+		return fmt.Errorf("-pass-reserve is %d; founders.bas takes at most -pass-max / 5 = %d", *passReserve, *passMax/5)
+	case *passShare > 10000:
+		return fmt.Errorf("-pass-share is %d bps; founders.bas takes at most 10000", *passShare)
+	case *passMfee > 1000:
+		return fmt.Errorf("-pass-mfee is %d bps; founders.bas takes at most 1000", *passMfee)
+	}
+	return nil
+}
 
 // read returns the source a contract is installed with, which is also the source written to app/templates and
 // hashed into config.js: ref.Canon drops whole-line comments and blank lines, so the template hash a user
@@ -87,10 +128,26 @@ func main() {
 		fmt.Println(err)
 		os.Exit(2)
 	}
+	if *founders == "" {
+		if err := checkPassHeaders(); err != nil {
+			fmt.Println(err)
+			os.Exit(2)
+		}
+	}
+	if *swapF == "" {
+		if err := checkSwapWmin(); err != nil {
+			fmt.Println(err)
+			os.Exit(2)
+		}
+	}
 	c := &rpc.Client{Daemon: *daemon, Timeout: *timeout}
 	if testnet, name := c.Info(); (*network == "mainnet") == testnet {
 		fmt.Printf("-network %s but the daemon at %s reports %q (testnet=%v)\n", *network, *daemon, name, testnet)
 		os.Exit(2)
+	}
+	if *renounce {
+		renounceFactory(c, *w0, rpc.Address(*w0), *factory)
+		return
 	}
 	owner, treasury := rpc.Address(*w0), rpc.Address(*w2)
 	fmt.Printf("owner %s\ntreasury %s\n", owner, treasury)
@@ -114,10 +171,23 @@ func main() {
 		*chat, _, _ = c.Send(*w0, owner, read(filepath.Join(*contracts, "chat.bas")), "", nil, []rpc.Arg{
 			rpc.S("treasury", treasury), rpc.U("fee", *chatFee), rpc.U("maxlen", *chatMax)})
 	}
+	// The swap contracts hold no role: Initialize sets their counters, and swap.bas's its fixed minimum width. The
+	// install's signer is recorded nowhere in their storage. One instance per network serves every swap (GAP-002).
+	for _, s := range []struct {
+		name string
+		scid *string
+		args []rpc.Arg
+	}{{"htlc.bas", htlcF, nil}, {"swap.bas", swapF, []rpc.Arg{rpc.U("wmin", *swapWmin)}}, {"board.bas", boardF, nil}} {
+		if *s.scid == "" {
+			fmt.Println("installing", s.name)
+			*s.scid, _, _ = c.Send(*w0, owner, read(filepath.Join(*contracts, s.name)), "", nil, s.args)
+		}
+	}
 	if *migrate != "" && *migrate != *factory {
 		migrateRegistry(c, owner, *migrate, *factory)
 	}
-	fmt.Printf("factory  %s\nsocial   %s\nfounders %s\nchat     %s\n", *factory, *social, *founders, *chat)
+	fmt.Printf("factory  %s\nsocial   %s\nfounders %s\nchat     %s\nhtlc     %s\nswap     %s\nboard    %s\n",
+		*factory, *social, *founders, *chat, *htlcF, *swapF, *boardF)
 
 	rpc.Must(os.MkdirAll(filepath.Join(*app, "templates"), 0o755))
 	hashes := map[string]string{}
@@ -242,6 +312,7 @@ func record(hashes map[string]string, old, rev map[string]map[string]bool) *netc
 		f.Networks[*network] = n
 	}
 	n.Daemon, n.Factory, n.Social, n.Founders, n.Chat = *daemon, *factory, *social, *founders, *chat
+	n.Htlc, n.Swap, n.Board = *htlcF, *swapF, *boardF
 	n.FeeBps, n.PfeeBps, n.LaunchPfeeBps = 50, 5000, 5000
 	if n.Templates == nil {
 		n.Templates = map[string]netcfg.Template{}
@@ -337,6 +408,36 @@ func migrateRegistry(c *rpc.Client, owner, oldF, newF string) {
 }
 
 // scidVar reads a string variable holding a 64-hex SCID, whether the daemon returns it raw or hex-encoded.
+// renounceFactory is the last step of a deployment: factory.bas Renounce from the owner wallet, and then the proof,
+// read from the chain, that ownership is over (owner absent, renounced set). It sends nothing to a contract with no
+// owner key. factory.bas refuses any signer but the owner, so a wrong wallet fails at the gas estimate and pays
+// nothing (MT-E05; docs/MAINNET_DEPLOYMENT.md §5 step 8).
+func renounceFactory(c *rpc.Client, wallet, signer, f string) {
+	if !is64hex(f) {
+		fmt.Println("-renounce needs -factory <scid>")
+		os.Exit(2)
+	}
+	st := c.GetSC(f, false)
+	if _, ok := st.StringKeys["owner"]; !ok {
+		if at, done := st.StringKeys["renounced"]; done {
+			fmt.Printf("factory %s was renounced at height %v already; nothing to do\n", f, at)
+			return
+		}
+		fmt.Printf("factory %s has neither an owner nor a renounced key: it is not a factory.bas with Renounce\n", f)
+		os.Exit(1)
+	}
+	fmt.Printf("renouncing factory %s from %s; this cannot be undone\n", f, signer)
+	txid, _, h := c.Send(wallet, signer, "", f, nil, []rpc.Arg{rpc.S("entrypoint", "Renounce")})
+	st = c.GetSC(f, false)
+	_, still := st.StringKeys["owner"]
+	at, done := st.StringKeys["renounced"]
+	if still || !done {
+		fmt.Printf("Renounce tx %s (height %d) did not end the ownership: owner present %v, renounced present %v\n", txid, h, still, done)
+		os.Exit(1)
+	}
+	fmt.Printf("renounced at height %v by tx %s: the owner key is gone, and SetTreasury and SetRegFee refuse every caller from now on\n", at, txid)
+}
+
 func scidVar(st rpc.SCState, k string) string {
 	v, ok := st.StringKeys[k]
 	if !ok {

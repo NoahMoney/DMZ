@@ -12,12 +12,12 @@ measured on 2026-09-06 and are frozen: a proof made by one build must verify und
 ## Build and run (WSL)
 
 ```
-wsl.exe -e bash -lc 'REPO=/mnt/c/Users/Wilma/Desktop/fomo research/crosschain/poc/wsl/build.sh proof-xmr build --release'
-wsl.exe -e bash -lc 'REPO=/mnt/c/Users/Wilma/Desktop/fomo research/crosschain/poc/wsl/build.sh proof-xmr test --release'
+wsl.exe -e bash -lc 'REPO=<repo> research/crosschain/poc/wsl/build.sh proof-xmr build --release'
+wsl.exe -e bash -lc 'REPO=<repo> research/crosschain/poc/wsl/build.sh proof-xmr test --release'
 ```
 
-The binary lands in `/home/wilma/target/proof-xmr/release/proof-xmr`; the companion invokes it as
-`wsl.exe -e /home/wilma/target/proof-xmr/release/proof-xmr …` (`tools/xmrswap`, `NewProverCLI`). Run the tests
+The binary lands in `/home/<user>/target/proof-xmr/release/proof-xmr`; the companion invokes it as
+`wsl.exe -e /home/<user>/target/proof-xmr/release/proof-xmr …` (`tools/xmrswap`, `NewProverCLI`). Run the tests
 with `--release`: the prover is seconds in release and minutes in debug (`Cargo.toml` sets `opt-level = 3` for the
 dev profile too, so an unflagged `cargo test` is merely slow rather than hopeless).
 
