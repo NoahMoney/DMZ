@@ -41,6 +41,22 @@
       "untracked": []
     }
   },
+  "modules": {
+    "vendor/tela": {
+      "_": "vendor/tela builds in module mode (tools/telainstall/build.sh, -mod=readonly): its go.mod replaces derohe with the civilware fork, which the go command fetches from the module proxy and which no checkout here holds. So the fork is pinned by version, commit and go.sum hashes (GAP-017). verifyvendor checks: the go.mod replace directives are exactly these; go.sum lists exactly these hashes for each replacement and no other version of it; every module-cache copy of a go.sum module hashes to its go.sum line; each binary listed embeds only go.sum's modules and hashes, and this replace. vendor/derohe-civilware (433c4559, the XSWD wallet's fork) is a later commit of the same fork, not this one.",
+      "replace": [
+        {
+          "old": "github.com/deroproject/derohe",
+          "new": "github.com/civilware/derohe",
+          "version": "v0.0.0-20240909003240-fa76d6016cc6",
+          "commit": "fa76d6016cc6b6158847c420455dc7d8dc4ab885",
+          "sum": "h1:hcCFU5eXd7CPu4AXJnaihhzOgC0SNscmQ+nrgDjKaWo=",
+          "gomodSum": "h1:EWHh1VkXRnCHvyGML98kXhngDFYebmOhk/9kZ1ATJ1c="
+        }
+      ],
+      "binaries": ["vendor/bin/telainstall.exe", "vendor/bin/tela-cli.exe"]
+    }
+  },
   "crates": {
     "research/crosschain/poc/vendor/bulletproofs": {
       "crate": "bulletproofs",
@@ -51,5 +67,5 @@
       "tree": "689ed837a4759654455c4e7abd6ea8f6a4b4a6c4f069bb8f5ff2f722e546f4e2"
     }
   },
-  "build": "every Go build inside a vendored module uses -mod=vendor; add -trimpath for release binaries; deploy/binaries.lock holds sha256 of vendor/bin/*.exe (verifyvendor -write-binaries)"
+  "build": "every Go build inside a vendored module uses -mod=vendor, except vendor/tela, which builds with -mod=readonly against the modules pinned under \"modules\" and its own go.sum; add -trimpath for release binaries; deploy/binaries.lock holds sha256 of vendor/bin/*.exe (verifyvendor -write-binaries)"
 }

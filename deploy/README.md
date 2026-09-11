@@ -24,7 +24,7 @@ research/crosschain/poc/proof-xmr/fetch-bulletproofs.sh   # the Monero prover's 
 cd tools && go run ./verifyvendor -root .. && cd ..         # refuses anything but the pinned commits and the locked changes
 cd vendor/derohe && go build -mod=vendor -o ../bin/simulator.exe ./cmd/simulator && cd ../..
 cd vendor/derohe-civilware && go build -o ../bin/dero-wallet-cli-xswd.exe ./cmd/dero-wallet-cli && cd ../..
-cd vendor/tela/cmd/tela-cli && GOFLAGS=-mod=mod go build -o ../../../bin/tela-cli.exe . && cd ../../../..
+cd vendor/tela/cmd/tela-cli && go build -mod=readonly -trimpath -o ../../../bin/tela-cli.exe . && cd ../../../..   # read-only against vendor/tela/go.sum (GAP-017); verifyvendor checks the result
 ```
 (If the derohe checkout aborts on a non-ASCII vendored filename, `git restore --source=HEAD :/` inside the clone; the
 missing file is documentation only.)

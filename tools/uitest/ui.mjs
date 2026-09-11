@@ -1,15 +1,31 @@
 // Headless browser test of the Veil app against a live simulator.
-//   node tools/uitest/ui.mjs http://127.0.0.1:8082/index.html <outdir> [--wallet] [--follow=<address>] [--mainnet]
+//   node tools/uitest/ui.mjs http://127.0.0.1:8082/index.html <outdir> [--wallet] [--follow=<address>] [--mainnet] [--perf [--runs=5]]
+// --perf: app start and first render, cold and warm, measured against the node the build names (perfPass, at the
+// foot of this file); writes perf.json and perf-<width>-<cold|warm>.png. ZSEED (default .sim/zswap-seed.json)
+// names offers seeded on the swap board, which the ZEC swap checks open when the file matches this build's board.
 // --mainnet: the same app under a mainnet-shaped config (network "mainnet", no vault), served by rewriting the
 // config.js response inside the browser; writes mainnet-<width>-<screen>.png and checks the no-vault copy.
 // PW_DIR must point at a directory with playwright installed (node_modules/playwright), i.e.
 // (any directory where `npm i playwright` and `npx playwright install chromium` were run).
 // Read-only pass: every tab renders without console errors. --wallet: connect over XSWD (an auto-approving wallet
 // must listen on 44326), launch a token from the form, buy with "Post this trade" on, and verify the feed shows it.
+// The pass runs against one pinned Playwright (MT-H03, tools/uitest/README.md): it prints the Playwright version and the
+// browser build it drives, and refuses any other Playwright unless --any-playwright (or PW_ANY=1) is given.
 import { createRequire } from "node:module";
 import fs from "node:fs";
-const require = createRequire((process.env.PW_DIR || ".") + "/package.json");
+import crypto from "node:crypto";
+const PLAYWRIGHT_PIN = "1.62.0"; // drives Chromium 151.0.7922.34 (Playwright browser revision 1234)
+const CHROMIUM_PIN = "151.0.7922.34";
+const pwDir = process.env.PW_DIR || ".";
+const require = createRequire(pwDir + "/package.json");
 const { chromium } = require("playwright");
+const pwVersion = require("playwright/package.json").version;
+const anyPlaywright = process.argv.includes("--any-playwright") || process.env.PW_ANY === "1";
+console.log(`• playwright ${pwVersion} (pinned ${PLAYWRIGHT_PIN}) from ${pwDir}`);
+if (pwVersion !== PLAYWRIGHT_PIN && !anyPlaywright) {
+  console.error(`FAIL: playwright ${pwVersion} is not the pinned ${PLAYWRIGHT_PIN}. In PW_DIR: npm i playwright@${PLAYWRIGHT_PIN} && npx playwright install chromium; or pass --any-playwright to run anyway`);
+  process.exit(2);
+}
 
 const url = process.argv[2], out = process.argv[3] || ".";
 const withWallet = process.argv.includes("--wallet");
@@ -21,8 +37,26 @@ const portfolioOnly = process.argv.includes("--portfolio-only"); // wallet flow:
 const followArg = (process.argv.find((a) => a.startsWith("--follow=")) || "").slice(9);
 // --mainnet: only the mainnet-shaped pass (mainnetPass, at the foot of this file). app/config.js is never edited.
 const mainnetMode = process.argv.includes("--mainnet");
+const perfMode = process.argv.includes("--perf");
+// offers seeded on the simulator's swap board by two wallets that are not the one under test: JSON with board,
+// open, accepted and locked (offer ids), lock (its swap.bas id) and secret (that lock's s, for Claim for the taker)
+const zseed = (() => { try { return JSON.parse(fs.readFileSync(process.env.ZSEED || ".sim/zswap-seed.json", "utf8")); } catch (e) { return null; } })();
+// a Zcash transparent address with a valid checksum, for the form checks: 0x1d25 tm (key), 0x1cba t2 (script)
+const zaddr = (pre) => {
+  const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz", sha = (b) => crypto.createHash("sha256").update(b).digest();
+  const p = Buffer.concat([Buffer.from(pre), crypto.randomBytes(20)]), b = Buffer.concat([p, sha(sha(p)).subarray(0, 4)]);
+  let n = BigInt("0x" + b.toString("hex")), s = "";
+  while (n > 0n) { s = B58[Number(n % 58n)] + s; n /= 58n; }
+  return s;
+};
 fs.mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
+console.log(`• browser: chromium ${browser.version()} (pinned ${CHROMIUM_PIN})`);
+if (browser.version() !== CHROMIUM_PIN && !anyPlaywright) {
+  console.error(`FAIL: chromium ${browser.version()} is not the build Playwright ${PLAYWRIGHT_PIN} pins (${CHROMIUM_PIN}); pass --any-playwright to run anyway`);
+  await browser.close();
+  process.exit(2);
+}
 // The app ships a strict Content Security Policy (script-src 'self'). It is checked first in a normal page: an
 // injected inline script must NOT run. The functional pass then uses bypassCSP so Playwright's own injected
 // helpers (waitForFunction polls through eval) can work.
@@ -55,6 +89,12 @@ if (mainnetMode) {
   try { await mainnetPass(); } catch (e) { fail(e.stack || String(e)); }
   await browser.close();
   console.log(process.exitCode ? "UI TEST FAILED" : "UI TEST OK (mainnet-shaped)");
+  process.exit(process.exitCode || 0);
+}
+if (perfMode) {
+  try { await perfPass(); } catch (e) { fail(e.stack || String(e)); }
+  await browser.close();
+  console.log(process.exitCode ? "UI TEST FAILED" : "UI TEST OK (perf)");
   process.exit(process.exitCode || 0);
 }
 
@@ -290,6 +330,101 @@ try {
     await page.keyboard.press("Escape"); await sleep(300);
   }
 
+  // MT-D05: the ZEC swap board (docs/ZEC_SWAP.md §8). The §1 privacy statement stands above every field of both
+  // forms, every time either opens; a shielded or script address is refused before anything is built; a secret is
+  // shown once and kept nowhere; a wrong secret is refused before anything is sent; a deadline is a block and a time.
+  const cfgBoard = await page.evaluate(() => window.Veil.data.cfg.board || "");
+  if (/^[0-9a-f]{64}$/.test(cfgBoard)) {
+    const privacyFirst = () => page.evaluate(() => {
+      const s = document.getElementById("sheet"), p = [...s.querySelectorAll("b")].find((b) => /visible on the Zcash chain forever/.test(b.textContent)), f = s.querySelector("input");
+      return !p ? "missing" : !f ? "no field" : p.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING ? "above" : "below";
+    });
+    const lastToast = () => page.evaluate(() => { const t = [...document.querySelectorAll(".toast")]; return t.length ? t[t.length - 1].textContent : ""; });
+    // the refusal toasts are evidence in their own shot, and cover the next page's header in the one after: clear them
+    const closeSheet = () => page.evaluate(() => { window.Veil.ui.closeSheet(); document.getElementById("toasts").replaceChildren(); });
+    await page.evaluate(() => { location.hash = "#zswap"; }); await sleep(3000); await shot("02d-zswap");
+    const zt = await text();
+    step("zswap: " + zt.slice(0, 150));
+    if (!/Read from your node at block \d+, \d+[smhd] ago/.test(zt)) fail("the ZEC swap screen does not say when and at which block its figures were read: " + zt.slice(-300));
+    if (!/neither has yet run on a public test network/.test(zt)) fail("the ZEC swap screen does not say the swap has not run on a public test network");
+    if (/\btrustless\b/i.test(zt)) fail("the ZEC swap screen calls something trustless");
+    await page.getByRole("button", { name: "Sell for ZEC", exact: true }).click(); await sleep(500);
+    const pos = await privacyFirst(); step("post form: privacy statement " + pos + " the fields");
+    if (pos !== "above") fail("the Post form's privacy statement is " + pos + " its fields");
+    await page.getByRole("button", { name: "Generate a secret here instead" }).click(); await sleep(400);
+    const sec = await page.evaluate(() => {
+      const s = document.getElementById("sheet"), shown = [...s.querySelectorAll("button.mono")].map((b) => b.textContent).find((t) => /^[0-9a-f]{64}$/.test(t)) || "";
+      return { s: shown, hash: [...s.querySelectorAll("input")].map((i) => i.value).find((v) => /^[0-9a-f]{64}$/.test(v)) || "", kept: JSON.stringify(localStorage) + JSON.stringify(sessionStorage) + location.href, note: s.innerText.replace(/\s+/g, " ") };
+    });
+    if (!sec.s || !sec.hash) fail("Generate did not show a secret and fill in its hash");
+    else if (crypto.createHash("sha256").update(Buffer.from(sec.s, "hex")).digest("hex") !== sec.hash) fail("the hash filled in is not SHA-256 of the secret shown");
+    else if (sec.kept.includes(sec.s)) fail("the generated secret reached localStorage, sessionStorage or the URL");
+    if (!/a lost secret costs a refund, not the coins/.test(sec.note) || !/never stored and never sent/.test(sec.note)) fail("the generated-secret note does not say where the secret lives and what losing it costs: " + sec.note.slice(0, 300));
+    step("post form: secret generated, its hash filled in, stored nowhere");
+    const f = page.locator("#sheet input");
+    await f.nth(1).fill("1"); await f.nth(2).fill("0.25");
+    for (const [addr, want] of [["zs1" + "q".repeat(75), /shielded or unified/], [zaddr([0x1c, 0xba]), /script \(P2SH\) address/]]) {
+      await f.nth(3).fill(addr); await page.getByRole("button", { name: "Post the offer" }).click(); await sleep(500);
+      const t = await lastToast(); if (!want.test(t)) fail("the Post form did not refuse " + addr.slice(0, 12) + "…: " + t);
+    }
+    await shot("02e-zswap-post"); await closeSheet(); await sleep(300);
+    step("post form: a shielded and a script address refused before anything was built");
+    if (zseed && zseed.board === cfgBoard) {
+      // an open offer: the Accept form, statement first, and its refund-address check
+      await page.evaluate((i) => { location.hash = "#zswap/" + i; }, zseed.open); await sleep(2500); await shot("02f-zswap-open");
+      const ot = await text(); step("zswap #" + zseed.open + " (open): " + ot.slice(0, 150));
+      // the eyebrow labels are set in uppercase by CSS, and innerText follows it: match any case
+      for (const want of [/Open until block \d+ · about /, /Pay the ZEC to/i, /Nothing is locked until an offer is accepted/]) if (!want.test(ot)) fail("the open offer's page is missing " + want);
+      await page.getByRole("button", { name: "Accept: buy with ZEC" }).click(); await sleep(500);
+      const apos = await privacyFirst(); step("accept form: privacy statement " + apos + " the fields");
+      if (apos !== "above") fail("the Accept form's privacy statement is " + apos + " its fields");
+      await f.nth(1).fill("1200"); await sleep(200);
+      if (!/Zcash block 1296/.test(await page.locator("#sheet").innerText())) fail("the Accept form does not compute the refund height as the Zcash height + 96");
+      await f.nth(0).fill("zs1" + "q".repeat(75)); await page.getByRole("button", { name: "Accept the offer" }).click(); await sleep(500);
+      if (!/shielded or unified/.test(await lastToast())) fail("the Accept form did not refuse a shielded refund address");
+      await shot("02g-zswap-accept"); await closeSheet(); await sleep(300);
+      // accepted and never locked: the deadline by which the maker must lock, as a block and a time
+      await page.evaluate((i) => { location.hash = "#zswap/" + i; }, zseed.accepted); await sleep(2500); await shot("02h-zswap-accepted");
+      const at = await text(); step("zswap #" + zseed.accepted + " (accepted): " + at.slice(0, 150));
+      if (!/Accepted · the maker must lock by block \d+|Dead since block \d+/.test(at) || !/Maker must lock by block \d+ · (about|passed)/.test(at)) fail("the accepted offer's page does not give its lock deadline as a block and a time");
+      // locked: the DERO leg live from swap.bas, Claim for the taker, a wrong secret refused before anything is sent
+      await page.evaluate((i) => { location.hash = "#zswap/" + i; }, zseed.locked); await sleep(2500);
+      const lt = await text(); step("zswap #" + zseed.locked + " (locked): " + lt.slice(0, 150));
+      if (/Claim for the taker/.test(lt)) {
+        for (const want of [/Claimable until \(T_dero\) block \d+ · about /, /It pays the taker named in the lock, \S+, never you/, /Lock #\d+/]) if (!want.test(lt)) fail("the locked offer's page is missing " + want);
+        await page.locator("#screen input").last().fill(crypto.randomBytes(32).toString("hex"));
+        await page.getByRole("button", { name: "Claim for the taker", exact: true }).click(); await sleep(600);
+        if (!/not this lock's secret.*Nothing was sent/.test(await lastToast())) fail("a wrong secret was not refused before sending: " + (await lastToast()));
+        step("claim form: a wrong secret refused before anything was sent");
+      } else step("the seeded lock is no longer open (" + (lt.match(/Swapped|Refunded|expired/) || ["?"])[0] + "): Claim for the taker not shown");
+      await shot("02i-zswap-locked");
+    } else step("no swap-board seed for this build (" + (process.env.ZSEED || ".sim/zswap-seed.json") + "): offer pages not exercised");
+  }
+
+  // BL-129: when the node stops answering, the figures on screen are the last good read, and every screen says how
+  // old they are. The node is made to refuse every read, a refresh is forced, and the banner must say so with an age;
+  // the node is given back, and the banner must go.
+  {
+    await page.evaluate(() => { location.hash = "#markets"; }); await sleep(800);
+    const down = await page.evaluate(async () => {
+      const n = window.Veil.node, D = window.Veil.data, saved = (window.__nodeSaved = {});
+      for (const k of Object.keys(n)) if (typeof n[k] === "function" && !/^set/.test(k)) { saved[k] = n[k]; n[k] = () => Promise.reject(new Error("test: the node refused")); }
+      await D.refresh(true).catch(() => {});
+      const b = document.getElementById("stale");
+      return { shown: !!b && !b.hidden, text: b ? b.innerText.replace(/\s+/g, " ") : "" };
+    });
+    await sleep(1500); await shot("02j-stale");
+    step("stale banner with the node refusing: " + (down.shown ? down.text.slice(0, 160) : "NOT SHOWN"));
+    if (!down.shown || !/did not answer the last read/.test(down.text) || !/were read \d+[smhd] ago/.test(down.text)) fail("no stale-data banner with an age while the node refuses: " + JSON.stringify(down));
+    const up = await page.evaluate(async () => {
+      const n = window.Veil.node; Object.assign(n, window.__nodeSaved);
+      await window.Veil.data.refresh(true).catch(() => {});
+      return !document.getElementById("stale").hidden;
+    });
+    step("stale banner once the node answers again: " + (up ? "STILL SHOWN" : "gone"));
+    if (up) fail("the stale-data banner stays after the node answers again");
+  }
+
   // desktop: the same app in a sidebar shell, chosen by viewport (not user agent); must render without errors
   {
     const d = await browser.newPage({ viewport: { width: 1280, height: 860 }, bypassCSP: true });
@@ -303,6 +438,12 @@ try {
     const side = await d.evaluate(() => { const t = document.querySelector(".tabs"); return getComputedStyle(t).flexDirection === "column" && t.getBoundingClientRect().left < 300 && t.getBoundingClientRect().height > 500; });
     step("desktop 1280px: sidebar shell " + (side ? "on" : "MISSING"));
     if (!side) fail("desktop layout not applied at 1280px");
+    // the ZEC swap board has a rail tab on a desktop when the build names a board, and none on a phone
+    if (/^[0-9a-f]{64}$/.test(cfgBoard)) {
+      const zt = await d.evaluate(() => { const t = document.querySelector('.tab[data-tab="zswap"]'); return !!t && getComputedStyle(t).display !== "none"; });
+      if (!zt) fail("no ZEC swap tab in the desktop rail");
+      await d.click('.tab[data-tab="zswap"]'); await sleep(2500); await d.screenshot({ path: `${out}/desk-zswap.png` });
+    }
     // 1024 is inside the band where the fixed side rails used to leave the main column narrower than a phone
     {
       const n = await browser.newPage({ viewport: { width: 1024, height: 860 }, bypassCSP: true });
@@ -487,6 +628,46 @@ try {
     step("registered pass units on chain: " + reg);
     if (reg === "0") fail("pass not registered");
     }
+
+    // MT-D05 with a wallet: Claim for the taker on the seeded lock, sent by this wallet, which is neither side of
+    // the swap; then an offer posted from the form with a secret generated here, and cancelled by its maker.
+    if (!portfolioOnly && !passOnly && zseed && zseed.board === cfgBoard) {
+      await page.evaluate((i) => { location.hash = "#zswap/" + i; }, zseed.locked); await sleep(3000);
+      if (/Claim for the taker/.test(await text())) {
+        step("zswap: claim lock #" + zseed.lock + " for its taker with the secret, from a wallet that is neither side");
+        await page.locator("#screen input").last().fill(zseed.secret);
+        await page.getByRole("button", { name: "Claim for the taker", exact: true }).click();
+        await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some((t) => /Claim for the taker (confirmed|included in block)/.test(t.textContent)), null, { timeout: 240000 });
+        const ok = await page.evaluate(() => [...document.querySelectorAll(".toast")].some((t) => /Claim for the taker confirmed/.test(t.textContent)));
+        await sleep(2500); await page.evaluate(() => { location.hash = "#zswap"; }); await sleep(800);
+        await page.evaluate((i) => { location.hash = "#zswap/" + i; }, zseed.locked); await sleep(3000); await shot("23-zswap-claimed");
+        const ct = await text(); step("zswap after the claim (" + (ok ? "confirmed by the state probe" : "NOT confirmed") + "): " + ct.slice(0, 150));
+        if (!ok) fail("Claim for the taker was not confirmed by its state probe");
+        if (!/Swapped: the taker's DERO is claimed/.test(ct) || !ct.includes(zseed.secret)) fail("after the claim the page does not show the swap closed and the secret it published");
+      } else step("zswap: the seeded lock is not open any more; Claim for the taker not sent");
+      step("zswap: post an offer from the form with a secret generated here, then cancel it");
+      await page.evaluate(() => { location.hash = "#zswap"; }); await sleep(2500);
+      await page.getByRole("button", { name: "Sell for ZEC", exact: true }).click(); await sleep(500);
+      const f = page.locator("#sheet input");
+      await f.nth(1).fill("0.1"); await f.nth(2).fill("0.02"); await f.nth(3).fill(zaddr([0x1d, 0x25]));
+      await page.getByRole("button", { name: "Generate a secret here instead" }).click(); await sleep(300);
+      await page.getByRole("button", { name: "Post the offer" }).click();
+      await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some((t) => /Post a ZEC offer (confirmed|included in block)/.test(t.textContent)), null, { timeout: 240000 });
+      if (!(await page.evaluate(() => [...document.querySelectorAll(".toast")].some((t) => /Post a ZEC offer confirmed/.test(t.textContent))))) fail("Post was not confirmed by its state probe");
+      await sleep(2000);
+      const mine = await page.evaluate(() => { const Z = window.Veil.zswap, me = window.Veil.wallet.canon; const o = Z.offers.filter((x) => x.maker === me && x.st === 0n).pop(); return o ? o.id : null; });
+      if (mine === null) fail("the posted offer is not on the board as this wallet's");
+      else {
+        await page.evaluate((i) => { location.hash = "#zswap/" + i; }, mine); await sleep(2500); await shot("24-zswap-posted");
+        if (await page.getByRole("button", { name: /^Accept/ }).count()) fail("the maker is offered Accept on their own offer");
+        await page.getByRole("button", { name: "Cancel the offer" }).click();
+        await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some((t) => /Cancel offer #\d+ (confirmed|included in block)/.test(t.textContent)), null, { timeout: 240000 });
+        await sleep(2500); await page.evaluate(() => { location.hash = "#zswap"; }); await sleep(800);
+        await page.evaluate((i) => { location.hash = "#zswap/" + i; }, mine); await sleep(2500); await shot("25-zswap-cancelled");
+        const xt = await text(); step("zswap #" + mine + " after Cancel: " + xt.slice(0, 120));
+        if (!/Cancelled by the maker/.test(xt)) fail("the cancelled offer does not read as cancelled");
+      }
+    }
   }
 
   const bad = errors.filter((e) => !/favicon|net::ERR_/.test(e));
@@ -539,7 +720,7 @@ async function mainnetPass() {
     const gate = await p.evaluate(() => window.Veil.app.netGate());
     step("signing gate: " + String(gate).slice(0, 150));
     if (!gate) fail("a mainnet-labelled build reading a simulator node would open a signing flow");
-    for (const tab of ["wrap", "home", "markets", "trade", "portfolio", "notice"]) {
+    for (const tab of ["wrap", "home", "markets", "trade", "zswap", "portfolio", "notice"]) {
       await p.evaluate((t) => { location.hash = "#" + t; }, tab); await sleep(1500);
       await p.screenshot({ path: `${out}/mainnet-${width}-${tab}.png`, fullPage: true });
       const tt = (await p.locator("#screen").innerText()).replace(/\s+/g, " ");
@@ -551,7 +732,8 @@ async function mainnetPass() {
         if (at < 0 || at > 80) fail("the Wrap screen does not open with 'not offered on this network' (found at " + at + "): " + tt.slice(0, 200));
         for (const want of [/federation/i, /atomic swap/i, /named people/i]) if (!want.test(tt)) fail("the Wrap screen does not say why: missing " + want);
         for (const bad of [/minimum deposit/i, /burn and withdraw/i, /register a deposit index/i, /deposit address/i, /could not be verified/i, /\btrustless\b/i]) if (bad.test(tt)) fail("the Wrap screen on a build with no vault shows " + bad);
-        const ctl = await p.evaluate(() => ({ inputs: document.querySelectorAll("#screen input").length, buttons: [...document.querySelectorAll("#screen button")].map((b) => b.innerText.trim()) }));
+        // the one button allowed is the way to the ZEC swap board: it navigates and signs nothing
+        const ctl = await p.evaluate(() => ({ inputs: document.querySelectorAll("#screen input").length, buttons: [...document.querySelectorAll("#screen button")].map((b) => b.innerText.trim()).filter((b) => b !== "Open the ZEC swap board") }));
         if (ctl.inputs || ctl.buttons.length) fail("the Wrap screen on a build with no vault draws controls: " + JSON.stringify(ctl));
       }
       if (tab === "notice") {
@@ -559,6 +741,7 @@ async function mainnetPass() {
         if (!/not offered on this network/i.test(tt)) fail("the dev message does not say wrapped assets are not offered here");
       }
       if (tab === "trade" && /against a wrapped asset/i.test(tt)) fail("the Trade hub offers markets against a wrapped asset on a build with none");
+      if (tab === "zswap" && (!/ZEC swap/.test(tt) || /\btrustless\b/i.test(tt))) fail("the ZEC swap screen under the mainnet shape: " + tt.slice(0, 200));
       const over = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       if (over > 1) fail("the mainnet-shaped " + tab + " overflows horizontally by " + over + "px at " + width);
     }
@@ -574,4 +757,77 @@ async function mainnetPass() {
     if (bad.length) fail("console errors under the mainnet-shaped config at " + width + "px:\n" + bad.join("\n"));
     await p.close();
   }
+}
+
+// --perf (MT-M02). App start and first render, against the node this build names. Each run opens the app in a new
+// browser context (cold: no HTTP cache and no storage, so the first-run intro shows too), then reloads it in the
+// same context (warm: the HTTP cache and the stored settings kept). Every mark is page time from navigation start:
+// dcl and load (Navigation Timing), fp and fcp (Paint Timing), and three of the app's own, sampled on every
+// animation frame by a script injected before the app's: shell (#screen holds its first element: the scripts ran
+// and the router drew), node (the pill shows a height: the node answered) and data (the registry read has landed
+// and #screen holds no skeleton: the first screen with figures on it). rpc counts the node calls started before
+// data; files and kb are the app's scripts and styles and the bytes they cost over the wire. A median of --runs
+// runs (default 5) per width, 430 and 1280. The node's own round trip is measured first, for scale.
+async function perfPass() {
+  const runs = Math.max(1, +((process.argv.find((a) => a.startsWith("--runs=")) || "").slice(7)) || 5);
+  const daemon = await (async () => { const p = await browser.newPage(); await p.goto(url, { waitUntil: "domcontentloaded" }); const d = await p.evaluate(() => window.VEIL_CONFIG && window.VEIL_CONFIG.daemon); await p.close(); return d; })();
+  const rtt = [];
+  for (let i = 0; i < 7; i++) {
+    const t = performance.now();
+    await fetch("http://" + daemon + "/json_rpc", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"jsonrpc":"2.0","id":1,"method":"DERO.GetInfo"}' }).then((r) => r.text()).catch(() => "");
+    rtt.push(performance.now() - t);
+  }
+  const med = (a) => { const s = a.filter((x) => typeof x === "number" && isFinite(x)).sort((x, y) => x - y); return s.length ? Math.round(s[Math.floor(s.length / 2)] * 10) / 10 : null; };
+  step("node " + daemon + ": DERO.GetInfo round trip, median of 7: " + med(rtt) + " ms");
+  const probe = () => {
+    const m = (window.__perf = { sent: [] });
+    // the app reads its node over a WebSocket (rpc.js), so a node call is a frame sent, not a resource entry
+    const send = WebSocket.prototype.send;
+    WebSocket.prototype.send = function (d) { m.sent.push(performance.now()); return send.call(this, d); };
+    const tick = () => {
+      const now = performance.now(), sc = document.getElementById("screen"), net = document.getElementById("net"), D = window.Veil && window.Veil.data;
+      if (!m.shell && sc && sc.children.length) m.shell = now;
+      if (!m.node && net && /\d/.test(net.textContent)) m.node = now;
+      if (!m.reg && D && D.lastRefresh) m.reg = now;
+      if (!m.data && m.reg && sc && sc.children.length && !sc.querySelector(".skel")) m.data = now;
+      if (!m.data) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  };
+  const read = (p) => p.evaluate(() => {
+    const n = performance.getEntriesByType("navigation")[0] || {}, m = window.__perf || {};
+    const paint = Object.fromEntries(performance.getEntriesByType("paint").map((e) => [e.name, e.startTime]));
+    const res = performance.getEntriesByType("resource"), own = res.filter((r) => /\.(js|css)(\?|$)/.test(r.name));
+    return { dcl: n.domContentLoadedEventEnd, load: n.loadEventEnd, fp: paint["first-paint"], fcp: paint["first-contentful-paint"], shell: m.shell, node: m.node, reg: m.reg, data: m.data,
+      rpc: (m.sent || []).filter((t) => !m.data || t < m.data).length + res.filter((r) => /json_rpc/.test(r.name) && (!m.data || r.startTime < m.data)).length, files: own.length, kb: Math.round(own.reduce((a, r) => a + (r.transferSize || 0), 0) / 102.4) / 10 };
+  });
+  const rows = [], fields = ["dcl", "load", "fp", "fcp", "shell", "node", "reg", "data", "rpc", "files", "kb"];
+  for (const width of [430, 1280]) {
+    for (let i = 0; i < runs; i++) {
+      const ctx = await browser.newContext({ viewport: { width, height: 860 }, bypassCSP: true });
+      await ctx.addInitScript(probe);
+      const p = await ctx.newPage(), perr = [];
+      p.on("pageerror", (e) => perr.push(e.message));
+      for (const kind of ["cold", "warm"]) {
+        if (kind === "cold") await p.goto(url, { waitUntil: "load" }); else await p.reload({ waitUntil: "load" });
+        await p.waitForFunction(() => window.__perf && window.__perf.data, null, { timeout: 60000 }).catch(() => {});
+        const r = Object.assign({ width, kind, run: i + 1 }, await read(p));
+        rows.push(r);
+        step(width + "px " + kind + " #" + (i + 1) + ": " + fields.map((k) => k + " " + (typeof r[k] === "number" ? Math.round(r[k] * 10) / 10 : "—")).join(" · "));
+        if (i === 0) await p.screenshot({ path: `${out}/perf-${width}-${kind}.png` });
+        if (kind === "cold") await p.locator("#introOk").click({ timeout: 3000 }).catch(() => {});
+      }
+      if (perr.length) fail("page errors during the perf run: " + perr.join("; "));
+      await ctx.close();
+    }
+  }
+  const summary = [];
+  for (const width of [430, 1280]) for (const kind of ["cold", "warm"]) {
+    const rs = rows.filter((r) => r.width === width && r.kind === kind), s = { width, kind, runs: rs.length };
+    for (const k of fields) s[k] = med(rs.map((r) => r[k]));
+    summary.push(s);
+    step("MEDIAN " + width + "px " + kind + " (" + rs.length + " runs): " + fields.map((k) => k + " " + s[k]).join(" · ") + " (ms, calls, files, kB)");
+  }
+  fs.writeFileSync(out + "/perf.json", JSON.stringify({ url, daemon, when: new Date().toISOString(), rttMs: rtt, summary, rows }, null, 2));
+  if (rows.some((r) => !r.data)) fail(rows.filter((r) => !r.data).length + " run(s) never reached a first render with data within 60 s");
 }
