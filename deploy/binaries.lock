@@ -9,14 +9,14 @@
     "netwallet.exe": "c00d9610483aed22d6e0c715e2924587d024feef088e5a20bb1033721c26415f",
     "simulator.exe": "3d0469693d972734def034201968088439a42f510e58f1b36459db6dbd5f3894",
     "tela-cli.exe": "0c0de9a87df43074d199e766a65b4d13394902646d1937e838c6ac02a20612db",
-    "telainstall.exe": "8a925841ce554fa5f858be39b3a27708fd0041b1d2a4b291c948ab1a81c02677",
+    "telainstall.exe": "8706cd9552e8440d0470aaaff13a5e1bf6e49831ec16151f2d2be89ab4664020",
     "xswdwallet.exe": "3f51ae0139d0eeec1a5e2c5634f14ebc899732f53eb7acda53c247819691822a"
   },
   "sources": {
     "genesistx": "5fff87de294ffbf9d347167abedd795b9156dcf6a45ceebd707e860e3f4f4cf2",
     "netwallet": "183f16039c53a0b25b0a242fa329cb258ecf67bef0dbc5cfcc8fdc5fe48aa1d2",
-    "simrpc": "ce2a1883d32b84abad0be54f48972f2779fca52743b375deb6a6e1939dde91b7",
-    "telainstall": "7e245179e32fe3d9504e3614e09465deebc8528009db9fd0a008469c667442e3",
+    "simrpc": "52cf2fe717c58156453fd8cd167b100433fc5e91d7299d35ecffdc6b00950d00",
+    "telainstall": "9a00bda5b6875eb8c558202ad799fb8dd4465c159b4fbee2a2ca44ddc861f162",
     "xswdwallet": "bb6f33418e3f711580755ad2b6e8e81fab72a597fe6593172f6ec052804636e2"
   },
   "go": "go1.26.2"
