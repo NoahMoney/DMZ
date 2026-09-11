@@ -2,6 +2,16 @@
 // The DVM has no cross-contract reads, so registration is a paid hint: the app verifies every registered SCID
 // (code equal to the shipped template, treasury equal to "treasury" here) before listing it.
 // Keys: owner treasury tstr regfee pc pool_<n> lc launch_<n> nc nft_<n> nfa_<n>   (SCIDs stored as hex strings)
+//       renounced (the height Renounce ran at; owner is absent from then on)
+// Privileged paths, each owner-only and each ended for ever by Renounce:
+//   SetTreasury - corrects the treasury pointer during deployment, before the app's config is published against it.
+//   SetRegFee   - sets the anti-spam registration fee during deployment, before the registry is opened to users.
+//   Renounce    - the owner's own act: owner is deleted, after which no signer, the old owner included, can call
+//                 either setter or Renounce again, and nothing can store an owner (Initialize refuses a second run).
+// There is no transfer of ownership (TransferOwnership/ClaimOwnership removed 2026-09-11, SEC-K-02): a transfer to a
+// burn address could never complete, and a key feared exposed is answered by Renounce, not by moving it. Owner is
+// deleted rather than set to a marker because SIGNER() above ring 2 is 33 zero bytes: a stored zero key would make
+// every anonymous caller the owner.
 
 Function Initialize(treasury String, regfee Uint64) Uint64
 5 IF EXISTS("initd") != 0 THEN GOTO 900
@@ -26,6 +36,7 @@ End Function
 
 Function SetTreasury(treasury String) Uint64
 10 DIM t as String
+15 IF EXISTS("owner") == 0 THEN GOTO 900
 20 IF SIGNER() != LOAD("owner") THEN GOTO 900
 21 LET t = ADDRESS_RAW(treasury)
 22 IF IS_ADDRESS_VALID(t) == 0 THEN GOTO 900
@@ -36,27 +47,21 @@ Function SetTreasury(treasury String) Uint64
 End Function
 
 Function SetRegFee(regfee Uint64) Uint64
+5 IF EXISTS("owner") == 0 THEN GOTO 900
 10 IF SIGNER() != LOAD("owner") THEN GOTO 900
 20 STORE("regfee", regfee)
 30 RETURN 0
 900 RETURN 1
 End Function
 
-Function TransferOwnership(newowner String) Uint64
-10 DIM t as String
+// The owner ends ownership, once and for ever: owner is deleted, so SetTreasury and SetRegFee refuse every caller at
+// their EXISTS guard (15 / 5), Renounce refuses a second run at 10, and no function can store owner again. The
+// treasury and regfee of that moment stay for the life of the factory. Registration is unaffected.
+Function Renounce() Uint64
+10 IF EXISTS("owner") == 0 THEN GOTO 900
 20 IF SIGNER() != LOAD("owner") THEN GOTO 900
-21 LET t = ADDRESS_RAW(newowner)
-22 IF IS_ADDRESS_VALID(t) == 0 THEN GOTO 900
-30 STORE("tmpowner", t)
-40 RETURN 0
-900 RETURN 1
-End Function
-
-Function ClaimOwnership() Uint64
-10 IF EXISTS("tmpowner") == 0 THEN GOTO 900
-20 IF SIGNER() != LOAD("tmpowner") THEN GOTO 900
-30 STORE("owner", SIGNER())
-31 DELETE("tmpowner")
+30 DELETE("owner")
+31 STORE("renounced", BLOCK_HEIGHT())
 40 RETURN 0
 900 RETURN 1
 End Function

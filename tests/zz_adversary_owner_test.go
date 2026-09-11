@@ -10,13 +10,13 @@ import (
 	"github.com/deroproject/derohe/veil/tests/harness"
 )
 
-// ADV-5. There is no state in which factory.bas has no owner. TransferOwnership only
-// arms tmpowner; the transfer completes when the NEW owner signs ClaimOwnership. A
-// transfer to a key nobody holds therefore never completes, and the old key keeps
-// SetTreasury and SetRegFee for ever — while the chain shows a pending transfer that a
-// reader may mistake for a completed revocation. The old owner can also re-arm tmpowner
-// at will, so even the pending state is not a commitment.
-func TestFactoryOwnershipCannotBeRevoked(t *testing.T) {
+// ADV-5 / SEC-K-02 (was TestFactoryOwnershipCannotBeRevoked). TransferOwnership used to arm tmpowner only, and the
+// transfer completed when the NEW owner signed ClaimOwnership, so the planned transfer to a burn address could never
+// complete and left the old key in full control behind a pending transfer a reader could take for a revocation.
+// The transfer is gone (a key feared exposed is answered by Renounce, not by moving it). Renounce is the owner's own
+// act and deletes owner; after it SetTreasury and SetRegFee refuse every caller for ever (TestFactoryRenounce has
+// the full matrix).
+func TestFactoryOwnershipEndsOnlyByRenounce(t *testing.T) {
 	c := harness.New()
 	owner, treasury := c.NewAccount(), c.NewAccount()
 	code := readContract(t, "factory.bas")
@@ -24,25 +24,30 @@ func TestFactoryOwnershipCannotBeRevoked(t *testing.T) {
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}
-	// "burn": a well-formed address whose key nobody will ever use to sign.
+	// "burn": a well-formed address whose key nobody will ever use to sign. Nothing can hand it the factory.
 	burn := c.NewAccount()
-	mustOK(t, c.Call(scid, "TransferOwnership", rpc.Arguments{harness.S("newowner", burn.String())}, nil, owner), "transfer to burn")
-
-	// The chain now shows a pending transfer, and the old key still holds every power.
+	if r := c.Call(scid, "TransferOwnership", rpc.Arguments{harness.S("newowner", burn.String())}, nil, owner); r.OK() || c.Exists(scid, "tmpowner") {
+		t.Fatal("a transfer of ownership is still possible")
+	}
+	// Until the owner renounces, the setters are the owner's: the deployment window.
 	newTreasury := c.NewAccount()
-	mustOK(t, c.Call(scid, "SetTreasury", rpc.Arguments{harness.S("treasury", newTreasury.String())}, nil, owner), "SetTreasury after 'revocation'")
-	mustOK(t, c.Call(scid, "SetRegFee", rpc.Arguments{harness.U("regfee", 1)}, nil, owner), "SetRegFee after 'revocation'")
-	if c.S(scid, "tstr") != newTreasury.String() {
-		t.Fatalf("treasury not moved: %s", c.S(scid, "tstr"))
+	mustOK(t, c.Call(scid, "SetTreasury", rpc.Arguments{harness.S("treasury", newTreasury.String())}, nil, owner), "SetTreasury before Renounce")
+	mustOK(t, c.Call(scid, "SetRegFee", rpc.Arguments{harness.U("regfee", 1)}, nil, owner), "SetRegFee before Renounce")
+
+	// The owner renounces, and every power goes with it.
+	mustOK(t, c.Call(scid, "Renounce", nil, nil, owner), "renounce")
+	for _, who := range []*rpc.Address{owner, burn, nil} {
+		if r := c.Call(scid, "SetTreasury", rpc.Arguments{harness.S("treasury", treasury.String())}, nil, who); r.OK() {
+			t.Fatal("SetTreasury accepted after Renounce")
+		}
+		if r := c.Call(scid, "SetRegFee", rpc.Arguments{harness.U("regfee", 5)}, nil, who); r.OK() {
+			t.Fatal("SetRegFee accepted after Renounce")
+		}
 	}
-	// And the old owner can re-arm the pending transfer to itself or anyone else.
-	someone := c.NewAccount()
-	mustOK(t, c.Call(scid, "TransferOwnership", rpc.Arguments{harness.S("newowner", someone.String())}, nil, owner), "re-arm tmpowner")
-	mustOK(t, c.Call(scid, "ClaimOwnership", nil, nil, someone), "claim by the new key")
-	if r := c.Call(scid, "SetRegFee", rpc.Arguments{harness.U("regfee", 5)}, nil, owner); r.OK() {
-		t.Fatal("the old owner still had power after a COMPLETED transfer")
+	if c.S(scid, "tstr") != newTreasury.String() || c.U(scid, "regfee") != 1 || c.Exists(scid, "owner") {
+		t.Fatal("state moved after Renounce")
 	}
-	t.Log("ADV-5 CONFIRMED: a transfer to an unclaimable address leaves the old key in full control; only a transfer to a LIVE key ever removes it, so no no-owner state exists (BL-241 / BL-147 / D-10 plan a ceremony the code cannot perform)")
+	t.Log("ADV-5 REPAIRED: no transfer of the factory exists, and Renounce leaves no owner: SetTreasury and SetRegFee refuse the old key, a stranger and an anonymous caller, for ever")
 }
 
 // ADV-6. SetRegFee is unbounded. One owner call freezes the registry: no pool, launch,

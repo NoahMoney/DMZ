@@ -30,6 +30,17 @@ func preimage(seed byte) (secret, hash string) {
 // A well-formed secret that hashes to none of the three: the shape the contract must refuse on content, not length.
 var wrongSecret = strings.Repeat("00", 32)
 
+// htlcOneCapital is h with its first letter in capitals and everything else as it was: the smallest change that
+// makes a hash no lower-case preimage hash can equal (a leading digit has no capital, so the first letter is used).
+func htlcOneCapital(h string) string {
+	for i, c := range h {
+		if c >= 'a' && c <= 'f' {
+			return h[:i] + strings.ToUpper(string(c)) + h[i+1:]
+		}
+	}
+	return h
+}
+
 // htlcEnv is one installed htlc.bas and the parties of one swap: bob makes (he has the DERO), alice takes (she has
 // the XMR), carol is nobody. Every test installs its own, so a closing balance of zero means "this path left nothing".
 type htlcEnv struct {
@@ -55,7 +66,7 @@ func newHtlc(t *testing.T) *htlcEnv {
 	if res.GasStorage >= 20000 {
 		t.Fatalf("install storage gas %d does not fit the 20,000 cap", res.GasStorage)
 	}
-	if c.S(e.scid, "kind") != "htlc" || c.U(e.scid, "v") != 1 || c.U(e.scid, "n") != 0 {
+	if c.S(e.scid, "kind") != "htlc" || c.U(e.scid, "v") != 2 || c.U(e.scid, "n") != 0 {
 		t.Fatal("Initialize did not write kind/v/n")
 	}
 	e.sa, e.ha = preimage(3)
@@ -147,7 +158,8 @@ func TestHtlcClaim(t *testing.T) {
 		t.Fatalf("claim: %v paid %d st %d", r.Err, r.Sent(zero, e.alice), c.U(e.scid, "st_0"))
 	}
 	e.empty(t, zero)
-	t.Logf("claim compute gas %d", r.GasCompute)
+	// the Claim's storage gas is what the companion's estimate (gas + 200) and so the maker's stipend are sized on
+	t.Logf("claim storage gas %d, compute gas %d", r.GasStorage, r.GasCompute)
 	// Nothing twice, and the other two exits are closed to a claimed lock even inside their own windows.
 	if r := e.claim(0, e.sa, e.kb, nil, e.alice); r.OK() {
 		t.Fatal("double claim accepted")
@@ -248,8 +260,9 @@ func TestHtlcRefund(t *testing.T) {
 	e.empty(t, zero)
 }
 
-// From t2 Alice takes the DERO with no secret: Bob had [t1, t2) to refund and did not. Nobody else, not a block
-// earlier, and never once the lock has already been claimed or refunded (those are asserted where they happen).
+// From t2 Alice takes the DERO with no secret: Bob had [t1, t2) to refund and did not. Not a block earlier, and
+// never once the lock has already been claimed or refunded (those are asserted where they happen). Who may send
+// it is v2's change and has its own test (htlc_v2_test.go): anyone, and it still pays only the taker.
 func TestHtlcPunish(t *testing.T) {
 	e := newHtlc(t)
 	c := e.c
@@ -265,8 +278,6 @@ func TestHtlcPunish(t *testing.T) {
 	}
 	c.Height = t2
 	for _, tc := range []refusal{
-		{"punish by the maker", func() harness.Result { return e.punish(0, nil, e.bob) }},
-		{"punish by a stranger", func() harness.Result { return e.punish(0, nil, e.carol) }},
 		{"punish at ring size > 2", func() harness.Result { return e.punish(0, nil, nil) }},
 		{"punish with DERO attached", func() harness.Result { return e.punish(0, dero, e.alice) }},
 		{"punish of a lock that does not exist", func() harness.Result { return e.punish(1, nil, e.alice) }},
@@ -327,6 +338,10 @@ func TestHtlcLockRefusals(t *testing.T) {
 		{"lock with a short ha", func() harness.Result { return lock(e.ha[:63], e.hk, e.hb, al, h+50, h+100, "", dero, e.bob) }},
 		{"lock with no hk", func() harness.Result { return lock(e.ha, "", e.hb, al, h+50, h+100, "", dero, e.bob) }},
 		{"lock with a long hb", func() harness.Result { return lock(e.ha, e.hk, e.hb+"0", al, h+50, h+100, "", dero, e.bob) }},
+		// v2: a hash no preimage can match — capitals, or not hex — is refused, since HEX(SHA256(raw)) is lower case
+		{"lock with an upper-case ha", func() harness.Result { return lock(strings.ToUpper(e.ha), e.hk, e.hb, al, h+50, h+100, "", dero, e.bob) }},
+		{"lock with a mixed-case hk", func() harness.Result { return lock(e.ha, htlcOneCapital(e.hk), e.hb, al, h+50, h+100, "", dero, e.bob) }},
+		{"lock with a non-hex hb", func() harness.Result { return lock(e.ha, e.hk, strings.Repeat("zz", 32), al, h+50, h+100, "", dero, e.bob) }},
 		{"lock with both DERO and an asset", func() harness.Result {
 			return lock(e.ha, e.hk, e.hb, al, h+50, h+100, assetHex, map[crypto.Hash]uint64{asset: 5000, zero: 1}, e.bob)
 		}},

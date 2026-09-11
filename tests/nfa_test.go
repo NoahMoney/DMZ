@@ -15,9 +15,9 @@ import (
 	"github.com/deroproject/derohe/veil/tests/harness"
 )
 
-// The standard's donation address (init line 40). The harness knows only the accounts it created and
-// ProcessExternal panics on a send to an address missing from the balance tree, so newNFAEnv registers it the
-// one way the harness offers: as the signer of a burn.
+// The standard's donation address (init line 40). The harness knows only the accounts it created, and a PayOwed to
+// an address missing from the balance tree is refused, so newNFAEnv registers it the one way the harness offers: as
+// the signer of a burn. newNFAEnvReg(..., false) leaves it unregistered, as it is on every chain but mainnet.
 const artificerAddr = "dero1qy0khp9s9yw2h0eu20xmy9lth3zp5cacmx3rwt6k45l568d2mmcf6qgcsevzx"
 
 // BuyItNow 65 and Bid 85 refund anything above this: floor((2^64 - 1) / 10000), the largest amount every product
@@ -31,6 +31,9 @@ type nfaEnv struct {
 	royalty, artificerFee, protoFee                    uint64
 	held                                               uint64 // units of the NFA in wallets, kept from the transfers the chain made
 	names                                              map[string]string
+	owed                                               map[string]uint64 // ow_<address> the contract should hold, kept by checkSettlement and payOwed
+	t                                                  *testing.T        // the test that owns the env: call() checks conservation with it
+	addrs                                              []*rpc.Address    // every address that can be owed, which conserved() sums over
 }
 
 func raw(a *rpc.Address) string { return string(a.Compressed()) }
@@ -53,7 +56,14 @@ func nfaArgs(quote string, royalty, artificerFee, ownerCanUpdate, protoFee uint6
 // install itself: gas under the cap, the single unit minted to the creator.
 func newNFAEnv(t *testing.T, wrapped bool, royalty, artificerFee, protoFee uint64) *nfaEnv {
 	t.Helper()
-	e := &nfaEnv{c: harness.New(), royalty: royalty, artificerFee: artificerFee, protoFee: protoFee, names: map[string]string{}}
+	return newNFAEnvReg(t, wrapped, royalty, artificerFee, protoFee, true)
+}
+
+// newNFAEnvReg is newNFAEnv with a choice: registerArtificer false leaves the standard's hard-coded artificer
+// address with no account, as it is on any chain where that key never transacted (LIV-01).
+func newNFAEnvReg(t *testing.T, wrapped bool, royalty, artificerFee, protoFee uint64, registerArtificer bool) *nfaEnv {
+	t.Helper()
+	e := &nfaEnv{c: harness.New(), royalty: royalty, artificerFee: artificerFee, protoFee: protoFee, names: map[string]string{}, owed: map[string]uint64{}}
 	e.creator, e.alice, e.bob, e.carol = e.c.NewAccount(), e.c.NewAccount(), e.c.NewAccount(), e.c.NewAccount()
 	e.treasury, e.charity = e.c.NewAccount(), e.c.NewAccount()
 	art, err := rpc.NewAddress(artificerAddr)
@@ -61,8 +71,9 @@ func newNFAEnv(t *testing.T, wrapped bool, royalty, artificerFee, protoFee uint6
 		t.Fatal(err)
 	}
 	e.art = art
+	e.t = t
 	for n, a := range map[string]*rpc.Address{"creator": e.creator, "alice": e.alice, "bob": e.bob, "carol": e.carol, "treasury": e.treasury, "charity": e.charity, "artificer": e.art} {
-		e.names[raw(a)] = n
+		e.name(a, n)
 	}
 	var res harness.Result
 	e.wxmr, res = e.c.Install(assetCode, nil, nil, e.creator, harness.MaxStorageGas)
@@ -74,10 +85,9 @@ func newNFAEnv(t *testing.T, wrapped bool, royalty, artificerFee, protoFee uint6
 			t.Fatalf("mint: %v", r.Err)
 		}
 	}
-	// a DERO burn signed by the artificer address registers it in the balance tree (harness.exec), which is what a
-	// send to it needs; the unit of DERO stranded in the asset contract is irrelevant to every assertion below
-	if r := e.c.Call(e.wxmr, "Mint", rpc.Arguments{harness.U("amount", 1)}, map[crypto.Hash]uint64{zero: 1}, e.art); !r.OK() {
-		t.Fatalf("registering the artificer address: %v", r.Err)
+	// the artificer address gets an account, which is what PayOwed to it needs
+	if registerArtificer {
+		e.register(t, e.art)
 	}
 	quote := ""
 	if wrapped {
@@ -101,7 +111,8 @@ func newNFAEnv(t *testing.T, wrapped bool, royalty, artificerFee, protoFee uint6
 }
 
 // call is every call to the NFA. On success it moves the unit ledger by what the chain did: units burned in
-// leave a wallet, units the contract sent out reach one.
+// leave a wallet, units the contract sent out reach one. After every call, accepted or refused, the per-asset
+// conservation invariant is asserted (conserved).
 func (e *nfaEnv) call(entry string, args rpc.Arguments, in map[crypto.Hash]uint64, who *rpc.Address) harness.Result {
 	r := e.c.Call(e.nfa, entry, args, in, who)
 	if r.OK() {
@@ -112,6 +123,7 @@ func (e *nfaEnv) call(entry string, args rpc.Arguments, in map[crypto.Hash]uint6
 			}
 		}
 	}
+	e.conserved("after " + entry)
 	return r
 }
 
@@ -137,6 +149,92 @@ func (e *nfaEnv) money(v uint64) map[crypto.Hash]uint64 {
 		return nil
 	}
 	return map[crypto.Hash]uint64{e.quote: v}
+}
+
+// register gives a an account on chain the one way the harness offers: as the signer of a DERO burn (harness.exec
+// registers a signer in every asset tree it burns from). The unit of DERO left in the asset contract is irrelevant
+// to every assertion.
+func (e *nfaEnv) register(t *testing.T, a *rpc.Address) {
+	t.Helper()
+	if r := e.c.Call(e.wxmr, "Mint", rpc.Arguments{harness.U("amount", 1)}, map[crypto.Hash]uint64{zero: 1}, a); !r.OK() {
+		t.Fatalf("registering %s: %v", e.who(raw(a)), r.Err)
+	}
+}
+
+// owedKey is ow_<address>, what the contract owes that payee (0 when nothing); op_ is what it has paid it.
+func (e *nfaEnv) owedKey(a string) uint64 {
+	if v, ok := e.c.Var(e.nfa, "ow_"+a).(uint64); ok {
+		return v
+	}
+	return 0
+}
+func (e *nfaEnv) owedTo(a *rpc.Address) uint64 { return e.owedKey(a.String()) }
+func (e *nfaEnv) paidTo(a *rpc.Address) uint64 {
+	if v, ok := e.c.Var(e.nfa, "op_"+a.String()).(uint64); ok {
+		return v
+	}
+	return 0
+}
+
+// payOwed calls PayOwed(payee) as caller (nil: ring size > 2, no signer) and asserts the whole balance owed went
+// to the payee in one transfer, to nobody else, and left the ledger.
+func (e *nfaEnv) payOwed(t *testing.T, caller, payee *rpc.Address) {
+	t.Helper()
+	want, paid, total := e.owedTo(payee), e.paidTo(payee), e.c.U(e.nfa, "owed")
+	if want == 0 {
+		t.Fatalf("nothing is owed to %s", e.who(raw(payee)))
+	}
+	r := e.call("PayOwed", rpc.Arguments{harness.S("payee", payee.String())}, nil, caller)
+	if !r.OK() || len(r.Transfers) != 1 || r.Sent(e.quote, payee) != want {
+		t.Fatalf("PayOwed(%s): %v, transfers %+v, want %d to the payee", e.who(raw(payee)), r.Err, r.Transfers, want)
+	}
+	if e.c.Exists(e.nfa, "ow_"+payee.String()) || e.c.U(e.nfa, "owed") != total-want || e.paidTo(payee) != paid+want {
+		t.Fatalf("PayOwed(%s): ledger after: ow_ present %v, owed %d (want %d), op_ %d (want %d)", e.who(raw(payee)),
+			e.c.Exists(e.nfa, "ow_"+payee.String()), e.c.U(e.nfa, "owed"), total-want, e.paidTo(payee), paid+want)
+	}
+	delete(e.owed, payee.String())
+}
+
+// drain pays every payee what it is owed, from a caller that is none of them, and asserts the contract is left
+// holding none of the quote. Only between listings: a live auction's bid is quote the contract holds too.
+func (e *nfaEnv) drain(t *testing.T) {
+	t.Helper()
+	for _, p := range []*rpc.Address{e.art, e.charity, e.treasury} {
+		if e.owedTo(p) > 0 {
+			e.payOwed(t, nil, p)
+		}
+	}
+	if b := e.c.SCBalance(e.nfa, e.quote); b != 0 || e.c.U(e.nfa, "owed") != 0 {
+		t.Fatalf("after paying every payee the contract holds %d of the quote and records owed %d", b, e.c.U(e.nfa, "owed"))
+	}
+}
+
+// name gives a test-made address a name in failure messages and adds it to the addresses conserved() sums over.
+func (e *nfaEnv) name(a *rpc.Address, n string) {
+	e.names[raw(a)] = n
+	e.addrs = append(e.addrs, a)
+}
+
+// conserved is the per-asset conservation invariant: what the contract owes users of an asset never exceeds what it
+// holds of that asset. In the quote it owes every ow_<address> plus a standing bid, and the ow_ balances must sum to
+// the owed counter. It owes nothing in any other asset (stray value only ever adds to what it holds), and of its own
+// asset exactly one unit exists (oneUnit).
+func (e *nfaEnv) conserved(tag string) {
+	e.t.Helper()
+	var sum uint64
+	for _, a := range e.addrs {
+		sum += e.owedTo(a)
+	}
+	if u, _ := e.c.Var(e.nfa, "owed").(uint64); u != sum {
+		e.t.Fatalf("%s: the ow_ balances sum to %d but owed reads %d", tag, sum, u)
+	}
+	var bid uint64
+	if v, ok := e.c.Var(e.nfa, "currBidAmt").(uint64); ok {
+		bid = v
+	}
+	if held := e.c.SCBalance(e.nfa, e.quote); sum+bid > held {
+		e.t.Fatalf("%s: the contract owes %d of the quote (ow_ %d, standing bid %d) and holds %d", tag, sum+bid, sum, bid, held)
+	}
 }
 
 func (e *nfaEnv) start(who *rpc.Address, listType string, hours, price uint64, charityAddr string, charityPerc uint64, unit bool) harness.Result {
@@ -168,9 +266,11 @@ func (e *nfaEnv) claim(t *testing.T, who *rpc.Address) {
 }
 
 // checkSettlement asserts one sale or auction close to the unit: the standard's shares (processDEROFinalPayment
-// 65, 85, 105, every one floored) and protoFee at 114, the owner's remainder, the unit to the buyer, nothing in
-// any other asset, nothing left in the contract. extra names quote transfers the same call makes for other
-// reasons (a refund to a late bidder).
+// 65, 85, 105, every one floored) and protoFee at 114. The royalty and the owner's remainder are sent in the call,
+// to the two addresses that signed a transaction here; the artificer, charity and protocol shares are credited to
+// ow_<address> for PayOwed (nfa.bas header item 5), so the call sends them nowhere and the contract is left holding
+// exactly what it owes. The unit goes to the buyer, nothing moves in any other asset, no bid record survives.
+// extra names quote transfers the same call makes for other reasons (a refund to a late bidder).
 func (e *nfaEnv) checkSettlement(t *testing.T, tag string, r harness.Result, amt uint64, seller, buyer *rpc.Address, charityPerc uint64, extra map[*rpc.Address]uint64) {
 	t.Helper()
 	if !r.OK() {
@@ -181,14 +281,24 @@ func (e *nfaEnv) checkSettlement(t *testing.T, tag string, r harness.Result, amt
 	want := map[string]uint64{}
 	add := func(a *rpc.Address, v uint64) { want[raw(a)] += v }
 	add(e.creator, royalty)
-	add(e.art, art)
-	add(e.charity, charity)
-	add(e.treasury, proto)
 	add(seller, payout)
-	total := amt
+	total := royalty + payout
 	for a, v := range extra {
 		add(a, v)
 		total += v
+	}
+	e.owed[e.art.String()] += art
+	e.owed[e.charity.String()] += charity
+	e.owed[e.treasury.String()] += proto
+	var owed uint64
+	for a, v := range e.owed {
+		if got := e.owedKey(a); got != v {
+			t.Fatalf("%s: ow_%s… is %d, want %d (sale %d: artificer %d charity %d proto %d)", tag, a[:12], got, v, amt, art, charity, proto)
+		}
+		owed += v
+	}
+	if got := e.c.U(e.nfa, "owed"); got != owed {
+		t.Fatalf("%s: owed %d, want %d", tag, got, owed)
 	}
 	seen := map[string]bool{}
 	for _, p := range []*rpc.Address{e.creator, e.art, e.charity, e.treasury, seller, buyer, e.alice, e.bob, e.carol} {
@@ -223,9 +333,12 @@ func (e *nfaEnv) checkSettlement(t *testing.T, tag string, r harness.Result, amt
 	if e.c.U(e.nfa, "scBalance") != 0 || e.c.S(e.nfa, "listType") != "" || e.c.U(e.nfa, "active") != 0 || e.c.U(e.nfa, "charityDonatePerc") != 0 || e.c.U(e.nfa, "startPrice") != 0 {
 		t.Fatalf("%s: listing state not reset", tag)
 	}
+	if e.c.Exists(e.nfa, "currBidAddr") || e.c.Exists(e.nfa, "currBidAmt") {
+		t.Fatalf("%s: a bid record outlived the listing", tag)
+	}
 	e.oneUnit(t, tag)
-	if b := e.c.SCBalance(e.nfa, e.quote); b != 0 {
-		t.Fatalf("%s: %d of the quote stranded in the contract", tag, b)
+	if b := e.c.SCBalance(e.nfa, e.quote); b != owed {
+		t.Fatalf("%s: the contract holds %d of the quote and owes %d", tag, b, owed)
 	}
 }
 
@@ -253,7 +366,7 @@ func TestNFAInstall(t *testing.T) {
 		}
 		// the standard's constants and version, and every header by its exact key
 		for k, v := range map[string]uint64{"active": 0, "scBalance": 0, "cancelBuffer": 300, "startBlockTime": 0, "endBlockTime": 0,
-			"bidCount": 0, "staticBidIncr": 10000, "percentBidIncr": 1000, "charityDonatePerc": 0, "startPrice": 0, "currBidPrice": 0} {
+			"bidCount": 0, "staticBidIncr": 10000, "percentBidIncr": 1000, "charityDonatePerc": 0, "startPrice": 0, "currBidPrice": 0, "owed": 0} {
 			if c.U(e.nfa, k) != v {
 				t.Fatalf("%s = %d, want %d", k, c.U(e.nfa, k), v)
 			}
@@ -414,6 +527,7 @@ func TestNFASale(t *testing.T) {
 			t.Fatalf("%s: cancel: %v", tag, r.Err)
 		}
 		e.oneUnit(t, tag+" end")
+		e.drain(t)
 	}
 }
 
@@ -483,8 +597,8 @@ func TestNFAAuction(t *testing.T) {
 			if c.U(e.nfa, raw(who)+"-bidDate") != c.Timestamp {
 				t.Fatalf("%s %s: bidDate %d, want this block's %d", tag, step, c.U(e.nfa, raw(who)+"-bidDate"), c.Timestamp)
 			}
-			if b := c.SCBalance(e.nfa, e.quote); b != amt {
-				t.Fatalf("%s %s: contract holds %d of the quote, want the winning bid %d", tag, step, b, amt)
+			if b, owed := c.SCBalance(e.nfa, e.quote), c.U(e.nfa, "owed"); b != amt+owed {
+				t.Fatalf("%s %s: contract holds %d of the quote, want the winning bid %d plus the %d owed from earlier settlements", tag, step, b, amt, owed)
 			}
 		}
 		// bob 1.0: next price is the lesser of +10 % and +10000
@@ -558,6 +672,7 @@ func TestNFAAuction(t *testing.T) {
 			t.Fatalf("%s: close without bids: %v", tag, r.Err)
 		}
 		e.oneUnit(t, tag+" end")
+		e.drain(t)
 	}
 }
 
@@ -700,4 +815,187 @@ func TestNFAAmountBound(t *testing.T) {
 	}
 	c.Timestamp = c.U(e.nfa, "endBlockTime")
 	e.checkSettlement(t, "close at the bound", e.call("CloseListing", nil, nil, e.bob), nfaMaxAmt, e.bob, e.carol, 0, nil)
+	e.drain(t)
+}
+
+// ---- what the contract owes: PayOwed ---------------------------------------------------------------------------
+
+// PayOwed: anyone, at any ring size, sends one payee exactly what is owed to it, in the quote, in one transfer and to
+// nobody else; it refuses anything attached, an argument that is not an address string, and a payee owed nothing.
+func TestNFAPayOwed(t *testing.T) {
+	for _, wrapped := range []bool{false, true} {
+		tag := "dero"
+		if wrapped {
+			tag = "wrapped"
+		}
+		e := newNFAEnv(t, wrapped, 10, 5, 250)
+		c := e.c
+		pay := func(payee string, in map[crypto.Hash]uint64, who *rpc.Address) harness.Result {
+			return e.call("PayOwed", rpc.Arguments{harness.S("payee", payee)}, in, who)
+		}
+		if r := pay(e.treasury.String(), nil, e.bob); r.OK() {
+			t.Fatalf("%s: PayOwed with nothing owed was accepted", tag)
+		}
+		e.claim(t, e.alice)
+		if r := e.start(e.alice, "sale", 24, 1_000_000, e.charity.String(), 20, true); !r.OK() {
+			t.Fatalf("%s: start: %v", tag, r.Err)
+		}
+		e.checkSettlement(t, tag+" sale", e.buy(e.bob, 1_000_000), 1_000_000, e.alice, e.bob, 20, nil)
+		owed := c.U(e.nfa, "owed")
+		for _, x := range []struct {
+			why, payee string
+			in         map[crypto.Hash]uint64
+		}{
+			{"DERO attached", e.treasury.String(), map[crypto.Hash]uint64{zero: 1}},
+			{"the quote attached", e.treasury.String(), e.money(1)},
+			{"the unit attached", e.treasury.String(), map[crypto.Hash]uint64{e.nfa: 1}},
+			{"a payee that is not an address", "dero1notanaddress", nil},
+			{"a payee given as raw key bytes", raw(e.treasury), nil},
+			{"a payee owed nothing", e.carol.String(), nil},
+		} {
+			if r := pay(x.payee, x.in, e.bob); r.OK() {
+				t.Fatalf("%s: PayOwed with %s was accepted: %+v", tag, x.why, r.Transfers)
+			}
+			if c.U(e.nfa, "owed") != owed || c.SCBalance(e.nfa, e.quote) != owed {
+				t.Fatalf("%s: a refused PayOwed (%s) moved the ledger", tag, x.why)
+			}
+		}
+		// anyone: a caller at ring size > 2, a stranger, the payee itself; the payee is paid every time
+		e.payOwed(t, nil, e.treasury)
+		e.payOwed(t, e.bob, e.charity)
+		e.payOwed(t, e.art, e.art)
+		if r := pay(e.treasury.String(), nil, e.bob); r.OK() {
+			t.Fatalf("%s: a second PayOwed for a payee already paid was accepted", tag)
+		}
+		// op_ only grows: a second sale owes the treasury again and what it has been paid adds up
+		first := e.paidTo(e.treasury)
+		if r := e.start(e.bob, "sale", 24, 2_000_000, "", 0, true); !r.OK() {
+			t.Fatalf("%s: relist: %v", tag, r.Err)
+		}
+		e.checkSettlement(t, tag+" second sale", e.buy(e.carol, 2_000_000), 2_000_000, e.bob, e.carol, 0, nil)
+		e.payOwed(t, e.carol, e.treasury)
+		if got := e.paidTo(e.treasury); first != 250*1_000_000/10000 || got != first+250*2_000_000/10000 {
+			t.Fatalf("%s: op_ for the treasury %d after %d", tag, got, first)
+		}
+		e.drain(t)
+	}
+}
+
+// LIV-01 / DVM-1. No settlement names an address that may have no account. On a chain where the standard's
+// artificer address has never been registered, with a charity address nobody has ever used, a sale and an auction
+// both pay the seller the whole remainder, the creator the royalty and the buyer the unit, in one call; the
+// artificer's, the charity's and the treasury's shares wait under ow_. PayOwed to an unregistered payee is refused
+// whole (its one transfer is the call's last, so SanityCheckExternalTransfers returns that account's lookup error)
+// and changes nothing, until the account exists.
+func TestNFAUnregisteredPayeesCannotCostTheSeller(t *testing.T) {
+	for _, wrapped := range []bool{false, true} {
+		tag := "dero"
+		if wrapped {
+			tag = "wrapped"
+		}
+		e := newNFAEnvReg(t, wrapped, 10, 5, 250, false)
+		c := e.c
+		if c.AccountRecord(zero, e.art) != "" {
+			t.Fatalf("%s: the artificer address has an account; the case is not set up", tag)
+		}
+		ghost := ghostAddress()
+		e.name(ghost, "ghost charity")
+		e.charity = ghost // checkSettlement expects the charity share owed to it
+		e.claim(t, e.alice)
+		if r := e.start(e.alice, "sale", 24, 1_000_000, ghost.String(), 20, true); !r.OK() {
+			t.Fatalf("%s: start: %v", tag, r.Err)
+		}
+		e.checkSettlement(t, tag+" sale", e.buy(e.bob, 1_000_000), 1_000_000, e.alice, e.bob, 20, nil)
+		c.NextBlock()
+		if r := e.start(e.bob, "auction", 1, 1_000_000, ghost.String(), 3, true); !r.OK() {
+			t.Fatalf("%s: auction start: %v", tag, r.Err)
+		}
+		if r := e.bid(e.carol, 2_000_000); !r.OK() {
+			t.Fatalf("%s: bid: %v", tag, r.Err)
+		}
+		c.Timestamp = c.U(e.nfa, "endBlockTime")
+		e.checkSettlement(t, tag+" auction", e.call("CloseListing", nil, nil, e.bob), 2_000_000, e.bob, e.carol, 3, nil)
+		for _, p := range []*rpc.Address{e.art, ghost} {
+			owed := e.owedTo(p)
+			if r := e.call("PayOwed", rpc.Arguments{harness.S("payee", p.String())}, nil, e.bob); r.OK() {
+				t.Fatalf("%s: PayOwed to the unregistered %s was accepted", tag, e.who(raw(p)))
+			}
+			if owed == 0 || e.owedTo(p) != owed || c.AccountRecord(zero, p) != "" {
+				t.Fatalf("%s: a refused PayOwed to %s moved something (owed %d -> %d)", tag, e.who(raw(p)), owed, e.owedTo(p))
+			}
+		}
+		e.payOwed(t, nil, e.treasury) // the treasury has an account: its share leaves at once
+		e.register(t, e.art)
+		e.register(t, ghost)
+		e.payOwed(t, e.carol, e.art)
+		e.payOwed(t, e.carol, ghost)
+		if b := c.SCBalance(e.nfa, e.quote); b != 0 || c.U(e.nfa, "owed") != 0 {
+			t.Fatalf("%s: %d of the quote left, owed %d", tag, b, c.U(e.nfa, "owed"))
+		}
+		t.Logf("%s: the seller was paid in full on both settlements with the artificer and the charity unregistered; their shares waited under ow_ until their accounts existed", tag)
+	}
+}
+
+// The per-asset conservation invariant after every fee path nfa.bas has: a sale with every share non-zero, an
+// outbid refund, an auction closed by its owner, one closed by a late bid that is refunded in the same call, one
+// closed by a stranger's empty BuyItNow, a cancel that refunds a standing bid, PayOwed refused and PayOwed paid to
+// each payee. call() asserts conserved() after each; this walks every one on purpose, on both quotes, and also
+// asserts the exact form — with no stray value, what the contract holds of the quote is what it owes plus a
+// standing bid, to the unit.
+func TestNFAConservationAfterEveryFeePath(t *testing.T) {
+	for _, wrapped := range []bool{false, true} {
+		tag := "dero"
+		if wrapped {
+			tag = "wrapped"
+		}
+		e := newNFAEnv(t, wrapped, 7, 3, 125)
+		c := e.c
+		step := func(what string, r harness.Result) {
+			t.Helper()
+			if !r.OK() {
+				t.Fatalf("%s %s: %v", tag, what, r.Err)
+			}
+			e.conserved(tag + " " + what)
+			var bid uint64
+			if v, ok := c.Var(e.nfa, "currBidAmt").(uint64); ok {
+				bid = v
+			}
+			if held := c.SCBalance(e.nfa, e.quote); held != c.U(e.nfa, "owed")+bid {
+				t.Fatalf("%s %s: holds %d of the quote, owes %d and a bid of %d", tag, what, held, c.U(e.nfa, "owed"), bid)
+			}
+		}
+		e.claim(t, e.alice)
+		step("start sale", e.start(e.alice, "sale", 24, 1_234_567, e.charity.String(), 11, true))
+		step("sale", e.buy(e.bob, 1_234_567))
+		step("start auction 1", e.start(e.bob, "auction", 1, 1_000_000, e.charity.String(), 5, true))
+		step("bid by carol", e.bid(e.carol, 1_000_000))
+		step("outbid by alice, carol refunded", e.bid(e.alice, 2_000_000))
+		c.Timestamp = c.U(e.nfa, "endBlockTime")
+		step("owner's CloseListing", e.call("CloseListing", nil, nil, e.bob))
+		c.NextBlock()
+		step("start auction 2", e.start(e.alice, "auction", 1, 500_000, "", 0, true))
+		step("bid by bob", e.bid(e.bob, 700_000))
+		c.Timestamp = c.U(e.nfa, "endBlockTime")
+		step("late bid refunded while it settles", e.bid(e.carol, 900_000))
+		c.NextBlock()
+		step("start auction 3", e.start(e.bob, "auction", 1, 300_000, e.charity.String(), 2, true))
+		step("bid by carol", e.bid(e.carol, 333_333))
+		c.Timestamp = c.U(e.nfa, "endBlockTime")
+		step("stranger's empty BuyItNow settles", e.buy(e.alice, 0))
+		c.NextBlock()
+		step("start auction 4", e.start(e.carol, "auction", 24, 100_000, "", 0, true))
+		step("bid by alice", e.bid(e.alice, 150_000))
+		step("CancelListing refunds the bid", e.call("CancelListing", nil, nil, e.carol))
+		if r := e.call("PayOwed", rpc.Arguments{harness.S("payee", e.alice.String())}, nil, e.bob); r.OK() {
+			t.Fatalf("%s: PayOwed to a payee owed nothing was accepted", tag)
+		}
+		for _, p := range []*rpc.Address{e.art, e.charity, e.treasury} {
+			e.payOwed(t, e.bob, p)
+			e.conserved(tag + " PayOwed")
+		}
+		if c.SCBalance(e.nfa, e.quote) != 0 || c.U(e.nfa, "owed") != 0 {
+			t.Fatalf("%s: after every payee was paid the contract holds %d and owes %d", tag, c.SCBalance(e.nfa, e.quote), c.U(e.nfa, "owed"))
+		}
+		t.Logf("%s: conservation held after a sale, an outbid refund, three auction closes (owner, late bid, empty BuyItNow), a refunding cancel and every PayOwed; the contract ends holding 0", tag)
+	}
 }

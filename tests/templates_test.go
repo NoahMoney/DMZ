@@ -185,7 +185,9 @@ func TestTheMainnetRunbookDoesNotOfferTheFileBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(b)
-	i := strings.Index(doc, "Start the signers")
+	// No vault is deployed on mainnet, so the runbook's signer step is the paragraph that says there is none to
+	// sign for, and it must still refuse the file backend in the words below if a vault is ever installed.
+	i := strings.Index(doc, "there is no vault to sign for")
 	if i < 0 {
 		t.Fatal("deploy/README.md has no signer step")
 	}

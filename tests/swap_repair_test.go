@@ -42,7 +42,7 @@ func TestSwapLockRefusesAHashItCouldNeverMatch(t *testing.T) {
 	c := harness.New()
 	maker, taker := c.NewAccount(), c.NewAccount()
 	code := readContract(t, "swap.bas")
-	scid, res := c.Install(code, nil, nil, maker, harness.MaxStorageGas)
+	scid, res := c.Install(code, nil, swapInit(), maker, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}
@@ -61,8 +61,8 @@ func TestSwapLockRefusesAHashItCouldNeverMatch(t *testing.T) {
 			t.Fatalf("Lock accepted %s…, a hash Claim can never match", hash[:16])
 		}
 	}
-	// Line 26 jumps over the taker block, so the check has to sit on that path too: an anonymous lock is the
-	// one a maker posts to a public board.
+	// A lock that names no taker is refused before the hash is looked at (GAP-024), so there is no second path for
+	// the check to guard; the refusal still holds.
 	if r := lock(upper, ""); r.OK() {
 		t.Fatal("Lock with no taker named accepted an upper-case hash")
 	}

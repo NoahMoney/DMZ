@@ -17,18 +17,53 @@
 //     does exactly what the standard does. On any other quote, DERO burned on a market call (Start, BuyItNow, Bid,
 //     CloseListing, CancelListing) would sit in the contract forever, so it is refused with RETURN 1, which
 //     refunds the whole call, as pool.bas does.
-//  3. processDEROFinalPayment also pays protoFee to treasury, in the quote, in the same settlement as royalty,
+//  3. processDEROFinalPayment also takes protoFee for treasury, in the quote, in the same settlement as royalty,
 //     artificerFee and charity. protoFee + 100 * (royalty + artificerFee + charityDonatePerc) <= 10000: init
 //     checks it, and Start clamps the charity share to the room left exactly as the standard clamps against 100.
 //  4. BuyItNow and Bid refund any amount above 1844674407370955 = floor((2^64 - 1) / 10000). Every product in
 //     this contract is an amount times a number <= 10000, so under that bound none can wrap; above it the
 //     standard's own royalty arithmetic already wraps. That is 18.4 billion DERO, unreachable, and 1,844 units of
 //     a 12-decimal quote.
-// Line numbers are the standard's. The new lines sit in gaps the standard left (init 200-295, BuyItNow 12-17 and
-// 65, Bid 12-21 and 85, CloseListing 5, CancelListing 20, processDEROFinalPayment 15-16 and 112-118); only Start
-// 150-165 are rewritten, for the bps bound. No function is renumbered. The standard's four-space indentation is
-// dropped: the chain is charged for every source byte, and tests/sendorder_test.go reads statements at column 0.
-// Keys: the standard's, plus quote (raw 32 bytes) protoFee treasury (raw address).
+//  5. A settlement sends only to addresses that have signed a transaction: the buyer or winning bidder (the unit),
+//     creatorAddr (royalty, the installer) and owner (the remainder). The artificerFee, charity and protoFee shares
+//     are credited to ow_<address> by owe() and leave through PayOwed(payee), which anyone may call and which makes
+//     exactly one transfer. Why: the DVM checks a call's transfer destinations against the account registry but
+//     keeps only the LAST lookup's error (dvm/simulator.go SanityCheckExternalTransfers, 227-238), then commits
+//     the state and panics at the first unregistered destination (ProcessExternal 356-359), and the node recovers
+//     and keeps the block. The standard paid artificerAddr (hard-coded, unregistered on any chain but mainnet) and
+//     charityDonateAddr (typed by the seller) before the owner, so one unregistered address completed the sale and
+//     destroyed every share after it, the seller's included. A PayOwed to an unregistered address is refused whole
+//     (its one transfer is the last) and the share waits until that account exists. The arithmetic of every share
+//     is unchanged.
+//  6. BuyItNow on an ENDED auction settles it to the highest bidder through processHighestBidder, as an empty Bid
+//     does. The standard sent the unit back to the owner and left the winning bid in the contract under
+//     currBidAddr/currBidAmt, which resetVars never clears, and a later empty Bid settled another listing to that
+//     stale bid. Now every way an auction ends settles its bid (processHighestBidder, from CloseListing, Bid or
+//     BuyItNow) or refunds it (CancelListing 460), and a sale never takes one, so no bid outlives its listing.
+//     resetVars stays as it is: it runs after those DELETEs, and a key DELETEd earlier in the same call makes
+//     EXISTS or LOAD of it panic in the DVM (dvm_store.go 81-98), so it cannot look for a bid itself.
+//  7. Start stores a clamped charity share only after the charity address has been checked. The standard stored it
+//     first, and its refusal path (400) returns 0, so a refused Start left a share with no address and every later
+//     settlement reverted.
+//  8. Every entrypoint refuses, with RETURN 1, any asset it does not take, where the standard kept it for ever: DERO
+//     or the quote on ClaimOwnership and Start (they take the unit), anything on Update, CloseListing, CancelListing
+//     and PayOwed, the unit on BuyItNow and Bid (their DERO guard, item 2, stays for a wrapped quote). A refused call
+//     at ring 2 hands every attached asset back to the signer. Above ring 2 there is no signer to hand it to, so
+//     ClaimOwnership and Start check after their ring>2 branch, which keeps the standard's path of sending the unit
+//     to the recorded owner; only what else was attached to such a call stays in the contract.
+// Line numbers are the standard's. The new lines sit in gaps the standard left (init 190-295, ClaimOwnership 25,
+// Update 5, Start 35, BuyItNow 12-17, 65 and 512-516, Bid 12-21 and 85, CloseListing 5, CancelListing 20,
+// processDEROFinalPayment 15-16 and 112-118);
+// Start 150-165 are rewritten for the bps bound and 170 now jumps to the address check (175-185 are gone); BuyItNow
+// 510 and processDEROFinalPayment 90 and 110 keep their numbers with new statements. PayOwed and owe() are new. No
+// function is renumbered. The standard's four-space indentation is dropped: the chain is charged for every source
+// byte, and tests/sendorder_test.go reads statements at column 0.
+// Keys: the standard's, plus quote (raw 32 bytes) protoFee treasury (raw address) owed (total credited and not yet
+// paid) ow_<address> (owed to that address) op_<address> (paid to it, only grows). The contract's quote balance is
+// owed plus currBidAmt while an auction holds a bid.
+// The one party this template adds is the treasury, and it holds no power here: it receives protoFee through
+// PayOwed, which anyone may call. Every other gated call is the standard's (Update for creatorAddr, and for the
+// owner if ownerCanUpdate is 1; Start, CloseListing and CancelListing for the asset's owner).
 
 Function InitializePrivate(artificerFee Uint64, royalty Uint64, ownerCanUpdate Uint64, nameHdr String, descrHdr String, typeHdr String, iconURLHdr String, tagsHdr String, fileCheckC String, fileCheckS String, fileURL String, fileSignURL String, coverURL String, collection String, quote String, protoFee Uint64, treasury String) Uint64
 10  IF EXISTS("owner") == 0 THEN GOTO 300 ELSE GOTO 999
@@ -72,6 +107,7 @@ Function init(quote String, protoFee Uint64, treasury String) Uint64
 160 STORE("startPrice", 0)
 170 STORE("currBidPrice", 0)
 180 STORE("version", "1.1.1")
+190 STORE("owed", 0)
 200 IF STRLEN(quote) == 0 THEN GOTO 210 ELSE GOTO 220
 210 STORE("quote", DERO())
 215 GOTO 240
@@ -90,9 +126,12 @@ Function init(quote String, protoFee Uint64, treasury String) Uint64
 999 RETURN 1
 End Function
 
+// 25: anything attached but the unit is refused, after the ring>2 branch (20 -> 500): above ring 2 a refusal refunds
+// nobody and would destroy the only unit, so that call keeps the standard's path to the recorded owner.
 Function ClaimOwnership() Uint64
 10  IF ASSETVALUE(SCID()) == 1 THEN GOTO 20 ELSE GOTO 999
 20  IF ADDRESS_STRING(SIGNER()) == "" THEN GOTO 500
+25  IF DEROVALUE() != 0 || ASSETVALUE(LOAD("quote")) != 0 THEN GOTO 999
 30  transferOwnership(SIGNER())
 40  SEND_ASSET_TO_ADDRESS(SIGNER(), 1, SCID())
 50  RETURN 0
@@ -102,6 +141,7 @@ Function ClaimOwnership() Uint64
 End Function
 
 Function Update(iconURL String, coverURL String, fileURL String, fileSignURL String, tags String) Uint64
+5   IF DEROVALUE() != 0 || ASSETVALUE(LOAD("quote")) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 999
 10  IF LOAD("creatorAddr") == SIGNER() THEN GOTO 40 ELSE GOTO 20
 20  IF LOAD("ownerCanUpdate") == 1 THEN GOTO 30 ELSE GOTO 999
 30  IF LOAD("owner") == SIGNER() THEN GOTO 40 ELSE GOTO 999
@@ -122,12 +162,15 @@ End Function
 // 150-165: the standard clamps charityDonatePerc so that charity + artificerFee + royalty <= 100. With protoFee
 // in bps the room left is (10000 - protoFee - 100 * artificerFee - 100 * royalty) / 100 percent, which is the
 // standard's 100 - artificerFee - royalty when protoFee is 0. Comparing the argument instead of adding to it
-// also means a caller's absurd charityDonatePerc can no longer wrap the sum past the check.
+// also means a caller's absurd charityDonatePerc can no longer wrap the sum past the check. 170: the clamped share
+// goes through the same address check as an unclamped one (195) and is stored only after it (200-205); the
+// standard stored it at 170, before the check, and the refusal at 400 committed it. 35: DERO or the quote attached
+// is refused, after the ring>2 branch (30 -> 600) for the same reason as ClaimOwnership 25.
 Function Start(listType String, duration Uint64, startPrice Uint64, charityDonateAddr String, charityDonatePerc Uint64) Uint64
 10  dim tempPercCount as Uint64
 20  dim err as String
-25  IF LOAD("quote") != DERO() && DEROVALUE() != 0 THEN GOTO 999
 30  IF ADDRESS_STRING(SIGNER()) == "" THEN GOTO 600
+35  IF DEROVALUE() != 0 || ASSETVALUE(LOAD("quote")) != 0 THEN GOTO 999
 40  IF ASSETVALUE(SCID()) == 1 THEN GOTO 70 ELSE GOTO 400
 70  IF listType == "auction" THEN GOTO 100 ELSE GOTO 80
 80  IF listType == "sale" THEN GOTO 100 ELSE GOTO 400
@@ -136,10 +179,7 @@ Function Start(listType String, duration Uint64, startPrice Uint64, charityDonat
 150 LET tempPercCount = (10000 - LOAD("protoFee") - LOAD("artificerFee") * 100 - LOAD("royalty") * 100) / 100
 155 IF charityDonatePerc > tempPercCount THEN GOTO 165 ELSE GOTO 190
 165 LET charityDonatePerc = tempPercCount
-170 STORE("charityDonatePerc", charityDonatePerc)
-175 IF IS_ADDRESS_VALID(ADDRESS_RAW(charityDonateAddr)) == 1 THEN GOTO 180 ELSE GOTO 400
-180 STORE("charityDonateAddr", ADDRESS_RAW(charityDonateAddr))
-185 GOTO 210
+170 GOTO 195
 190 IF charityDonatePerc > 0 THEN GOTO 195 ELSE GOTO 210
 195 IF IS_ADDRESS_VALID(ADDRESS_RAW(charityDonateAddr)) == 1 THEN GOTO 200 ELSE GOTO 400
 200 STORE("charityDonatePerc", charityDonatePerc)
@@ -160,12 +200,16 @@ Function Start(listType String, duration Uint64, startPrice Uint64, charityDonat
 999 RETURN 1
 End Function
 
+// 512-516: checkActive answers 111 for any ended listing before it compares the type, so an ended auction reaches
+// this branch too. An auction is settled to its highest bidder (or back to the owner if nobody bid), exactly as an
+// empty Bid after the end settles it; only an ended sale sends the unit back at 520. The caller's own attachment is
+// refunded at 920 either way.
 Function BuyItNow() Uint64
 10  dim activeFlag as Uint64
 12  dim q as String
 15  IF ADDRESS_STRING(SIGNER()) == "" THEN GOTO 999
 16  LET q = LOAD("quote")
-17  IF q != DERO() && DEROVALUE() != 0 THEN GOTO 999
+17  IF (q != DERO() && DEROVALUE() != 0) || ASSETVALUE(SCID()) != 0 THEN GOTO 999
 20  IF LOAD("owner") == SIGNER() THEN GOTO 920 ELSE GOTO 30
 30  LET activeFlag = checkActive("sale")
 40  IF activeFlag == 0 THEN GOTO 50 ELSE GOTO 500
@@ -180,7 +224,10 @@ Function BuyItNow() Uint64
 97  STORE("previousSalePrice", ASSETVALUE(q))
 100 RETURN 0
 500 IF activeFlag == 999 THEN GOTO 920 ELSE GOTO 510
-510 IF activeFlag == 111 THEN GOTO 520 ELSE GOTO 920
+510 IF activeFlag == 111 THEN GOTO 512 ELSE GOTO 920
+512 IF LOAD("listType") != "auction" THEN GOTO 520
+514 processHighestBidder()
+516 GOTO 920
 520 SEND_ASSET_TO_ADDRESS(LOAD("owner"), LOAD("scBalance"), SCID())
 530 STORE("scBalance", 0)
 540 resetVars(1)
@@ -195,7 +242,7 @@ Function Bid() Uint64
 12  dim q as String
 15  IF ADDRESS_STRING(SIGNER()) == "" THEN GOTO 999
 20  LET q = LOAD("quote")
-21  IF q != DERO() && DEROVALUE() != 0 THEN GOTO 999
+21  IF (q != DERO() && DEROVALUE() != 0) || ASSETVALUE(SCID()) != 0 THEN GOTO 999
 25  LET bidAmt = ASSETVALUE(q)
 30  IF LOAD("owner") == SIGNER() THEN GOTO 920 ELSE GOTO 35
 35  LET activeFlag = checkActive("auction")
@@ -228,7 +275,7 @@ Function Bid() Uint64
 End Function
 
 Function CloseListing() Uint64
-5   IF LOAD("quote") != DERO() && DEROVALUE() != 0 THEN GOTO 999
+5   IF DEROVALUE() != 0 || ASSETVALUE(LOAD("quote")) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 999
 10  IF LOAD("owner") == SIGNER() THEN GOTO 20 ELSE GOTO 999
 20  IF checkActive(LOAD("listType")) == 111 THEN GOTO 30 ELSE GOTO 999
 30  IF LOAD("listType") == "auction" THEN GOTO 40 ELSE GOTO 200
@@ -245,7 +292,7 @@ End Function
 
 Function CancelListing() Uint64
 10  dim tempCounter as Uint64
-20  IF LOAD("quote") != DERO() && DEROVALUE() != 0 THEN GOTO 999
+20  IF DEROVALUE() != 0 || ASSETVALUE(LOAD("quote")) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 999
 30  IF LOAD("owner") == SIGNER() THEN GOTO 50 ELSE GOTO 999
 50  IF checkActive(LOAD("listType")) == 0 THEN GOTO 60 ELSE GOTO 999
 60  IF (LOAD("startBlockTime") + LOAD("cancelBuffer")) >= BLOCK_TIMESTAMP() THEN GOTO 460 ELSE GOTO 999
@@ -325,7 +372,10 @@ Function outbidReturns() Uint64
 End Function
 
 // The settlement, in the quote. Each share floors, so the four together never exceed saleAmt and the owner's
-// remainder cannot wrap; the bound on saleAmt (BuyItNow 65, Bid 85) keeps every product under 2^64.
+// remainder cannot wrap; the bound on saleAmt (BuyItNow 65, Bid 85) keeps every product under 2^64. The royalty
+// and the remainder are sent now: creatorAddr and owner are addresses that signed a transaction here (init 30;
+// ClaimOwnership 30, BuyItNow 95 and processHighestBidder 350 record only a signer), so the account exists. The
+// other three are owed (90, 110, 118) and paid by PayOwed.
 Function processDEROFinalPayment(saleAmt Uint64) Uint64
 10  dim payoutAmt, royaltyPaymt, artificerPaymt, charityPaymt, protoPaymt as Uint64
 15  dim q as String
@@ -338,19 +388,55 @@ Function processDEROFinalPayment(saleAmt Uint64) Uint64
 80  IF LOAD("artificerFee") > 0 THEN GOTO 85 ELSE GOTO 100
 85  LET artificerPaymt = LOAD("artificerFee") * saleAmt / 100
 86  IF artificerPaymt > 0 THEN GOTO 90 ELSE GOTO 100
-90  SEND_ASSET_TO_ADDRESS(LOAD("artificerAddr"), artificerPaymt, q)
+90  owe(LOAD("artificerAddr"), artificerPaymt)
 100 IF LOAD("charityDonatePerc") > 0 THEN GOTO 105 ELSE GOTO 112
 105 LET charityPaymt = LOAD("charityDonatePerc") * saleAmt / 100
 106 IF charityPaymt > 0 THEN GOTO 110 ELSE GOTO 112
-110 SEND_ASSET_TO_ADDRESS(LOAD("charityDonateAddr"), charityPaymt, q)
+110 owe(LOAD("charityDonateAddr"), charityPaymt)
 112 IF LOAD("protoFee") > 0 THEN GOTO 114 ELSE GOTO 120
 114 LET protoPaymt = LOAD("protoFee") * saleAmt / 10000
 116 IF protoPaymt > 0 THEN GOTO 118 ELSE GOTO 120
-118 SEND_ASSET_TO_ADDRESS(LOAD("treasury"), protoPaymt, q)
+118 owe(LOAD("treasury"), protoPaymt)
 120 LET payoutAmt = saleAmt - royaltyPaymt - artificerPaymt - charityPaymt - protoPaymt
 125 IF payoutAmt > 0 THEN GOTO 130 ELSE GOTO 200
 130 SEND_ASSET_TO_ADDRESS(LOAD("owner"), payoutAmt, q)
 200 RETURN 0
+End Function
+
+// Credits amt of the quote to payee (a raw address that init or Start validated). Internal: the DVM refuses an
+// entrypoint whose name does not start with a capital letter.
+Function owe(payee String, amt Uint64) Uint64
+10  dim k as String
+20  LET k = ADDRESS_STRING(payee)
+30  IF EXISTS("ow_" + k) == 0 THEN GOTO 60
+40  STORE("ow_" + k, LOAD("ow_" + k) + amt)
+50  GOTO 70
+60  STORE("ow_" + k, amt)
+70  STORE("owed", LOAD("owed") + amt)
+80  RETURN 0
+End Function
+
+// Pays payee (an address string) everything owed to it, in the quote. Anyone may call it, at any ring size: the
+// transfer goes to the payee, never to the caller. It is the call's only transfer, so if the payee's account does
+// not exist yet the DVM refuses the whole call and the share stays owed until it does. Nothing may be attached.
+Function PayOwed(payee String) Uint64
+10  dim a, k as String
+20  dim amt as Uint64
+30  IF DEROVALUE() != 0 || ASSETVALUE(LOAD("quote")) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 999
+40  LET a = ADDRESS_RAW(payee)
+50  IF IS_ADDRESS_VALID(a) == 0 THEN GOTO 999
+60  LET k = ADDRESS_STRING(a)
+70  IF EXISTS("ow_" + k) == 0 THEN GOTO 999
+80  LET amt = LOAD("ow_" + k)
+90  DELETE("ow_" + k)
+100 STORE("owed", LOAD("owed") - amt)
+110 IF EXISTS("op_" + k) == 0 THEN GOTO 140
+120 STORE("op_" + k, LOAD("op_" + k) + amt)
+130 GOTO 150
+140 STORE("op_" + k, amt)
+150 SEND_ASSET_TO_ADDRESS(a, amt, LOAD("quote"))
+160 RETURN 0
+999 RETURN 1
 End Function
 
 Function resetVars(forceReset Uint64) Uint64

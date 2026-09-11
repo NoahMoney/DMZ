@@ -9,9 +9,10 @@ import (
 	"github.com/deroproject/derohe/veil/tests/harness"
 )
 
-// board.bas v2 (docs/ZEC_SWAP.md §4): the maker's hash travels with the offer, the taker answers with the refund
+// board.bas (docs/ZEC_SWAP.md §4): the maker's hash travels with the offer, the taker answers with the refund
 // key hash and the refund height of the counter-chain script, and an accepted offer can be cancelled once it
-// has expired — nothing on the board ever needs a human to leave it.
+// has expired — nothing on the board ever needs a human to leave it. v3's acceptance deadline is in
+// tests/board_v3_test.go; every rule this test pins held in v2 and still holds.
 func TestSwapBoard(t *testing.T) {
 	c := harness.New()
 	alice, bob := c.NewAccount(), c.NewAccount()
@@ -21,8 +22,8 @@ func TestSwapBoard(t *testing.T) {
 		t.Fatalf("install: %v", res.Err)
 	}
 	t.Logf("board.bas: %d bytes, install storage gas %d", len(code), res.GasStorage)
-	if c.U(scid, "v") != 2 {
-		t.Fatalf("board version %d, want 2", c.U(scid, "v"))
+	if c.U(scid, "v") != 3 {
+		t.Fatalf("board version %d, want 3", c.U(scid, "v"))
 	}
 	exp := c.Height + 100
 	hash := strings.Repeat("ab", 32)

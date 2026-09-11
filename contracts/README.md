@@ -12,14 +12,15 @@ a few hundred units, measured where given):
 |---|---|---|---|
 | `pool.bas` | 13 262 | ~13 520 | 409 000 |
 | `launch.bas` | 16 416 | ~16 680 | ~1 200 000 |
-| `founders.bas` | 12 637 | ~12 900 | — |
+| `founders.bas` | 10 398 | 10 795 (measured 2026-09-11) | — |
 | `vault.bas` | 19 059 | 19 400 of 20 000 (measured) | — |
-| `nft.bas` | 4 184 | ~4 760 | — |
+| `nft.bas` | 3 873 (2026-09-11) | 4 489 (measured) | — |
 | `swap.bas` | 3 599 | — | — |
 | `htlc.bas` | 5 798 (3 561 installed) | 3 598 (measured) | — |
-| `factory.bas` | 2 852 | ~3 100 | — |
+| `factory.bas` | 2 260 (2026-09-11) | 2 531 (measured) | — |
+| `nfa.bas` | 14 937 (2026-09-11) | 15 876 DERO-quoted, 15 941 wrapped (measured) | ~1 050 000 (install) |
 | `board.bas` | 2 848 | — | — |
-| `social.bas` | 2 062 | — | — |
+| `social.bas` | 1 736 (2026-09-11) | — | — |
 
 `vault.bas` has 771 gas units of headroom under the 20 000 cap, comments included: any change to it must be
 byte-neutral or shrink something. Re-measure with `DERO.GetGasEstimate` before deploying rather than trusting an
@@ -129,19 +130,37 @@ rpool locked stot sacc gh tc pc lh lt t_<n> p_<n> st_<addr> sd_<addr>`.
 
 ---
 
-## factory.bas — registry + treasury pointer (owner-operated, minimal mutability)
+## factory.bas — registry + treasury pointer (owner-operated until Renounce)
 
-`Initialize(treasury S, regfee U)`. Owner = installer. `SetTreasury`, `SetRegFee`, `TransferOwnership` /
-`ClaimOwnership` (two-step). `RegisterPool(scid H)`, `RegisterLaunch(scid H)`, `RegisterNFT(scid H)`: pay ≥ `regfee`
-DERO (forwarded to the treasury at once), append the SCID hex under `pool_<n>` / `launch_<n>` / `nft_<n>` with counters
-`pc` / `lc` / `nc`. Registrations are hints: the DVM cannot read other contracts, so the **app verifies** each SCID's
-code equals the shipped template and its `treasury` equals `tstr` before listing it (DECISIONS §10.1, RISKS R-3).
+`Initialize(treasury S, regfee U)`. Owner = installer. `RegisterPool(scid H)`, `RegisterLaunch(scid H)`,
+`RegisterNFT(scid H)`, `RegisterNFA(scid H)`: pay ≥ `regfee` DERO (forwarded to the treasury in the same call, so the
+factory never holds a balance), append the SCID hex under `pool_<n>` / `launch_<n>` / `nft_<n>` / `nfa_<n>` with
+counters `pc` / `lc` / `nc` (NFTs and NFAs share `nc`). Registrations are hints: the DVM cannot read other contracts,
+so the **app verifies** each SCID's code equals the shipped template and its `treasury` equals `tstr` before listing
+it (DECISIONS §10.1, RISKS R-3).
+
+Owner powers — all owner-only, all ended for ever by `Renounce` (2026-09-11, FINDINGS_2026-09-10 SEC-K-02 / LIV-08):
+
+| Entry | What it can change | Why it exists |
+|---|---|---|
+| `SetTreasury(treasury S)` | `treasury`, `tstr` — the address the app compares every listed market against | to correct the pointer during deployment, before the app's config is published against it |
+| `SetRegFee(regfee U)` | `regfee` (unbounded) | to set the anti-spam registration fee during deployment, before the registry opens |
+| `Renounce()` | deletes `owner`, stores `renounced` = the height | the revocation: afterwards the two setters and `Renounce` itself refuse every signer, the old owner included, and nothing can store an owner again (`Initialize` refuses a second run) |
+
+There is no transfer of ownership. `TransferOwnership` / `ClaimOwnership` were removed: a transfer to a burn address
+could never complete (the new owner has to sign the claim), and a key feared exposed is answered by `Renounce`, not
+by moving it. `owner` is deleted rather than set to a marker because `SIGNER()` above ring 2 is 33 zero bytes (rule
+5): a stored zero key would make every anonymous caller the owner. `Renounce` fixes the treasury and the regfee of
+that moment for the life of the factory, so the ceremony sets both first. Tests: `tests/registry_test.go`
+`TestFactoryRenounce` (every formerly owner-gated function, and `Initialize`, called by the old owner, a stranger and
+a ring>2 caller at three heights: all refused, state unchanged, the factory holding 0), `tests/zz_adversary_owner_test.go`.
 
 ## social.bas — profiles and follows
 
 `Profile(name ≤ 32, bio ≤ 160, avatar ≤ 200)` → `pn_ pb_ pa_` + address. `Follow(target)` → `f_<me>_<target> = height`,
 `fl_<me>_<i> = target`, `fc_<me>`, `fr_<target>`. `Unfollow(target)` deletes `f_` and decrements `fr_`
-(`fl_` entries stay; the app filters on `f_`).
+(`fl_` entries stay; the app filters on `f_`). No entrypoint takes value; each refuses DERO attached (2026-09-11,
+GAP-027). As everywhere, an asset the contract cannot name is not seen, and is kept.
 
 ## nft.bas — holder NFT collection (ART-NFA headers)
 
@@ -152,8 +171,34 @@ which `Unlock` never clears: lock → mint → unlock → lock again mints nothi
 `minted < maxsupply`, paying ≥ `price` DERO (excess refunded; `fee` bps to `fd`, rest to `cacc`) sends **1 unit of
 the contract's own asset** = one edition and records `ed_<n> = minter`. `Unlock()` returns the tokens at any time
 and clears the lock. `ClaimCreator()` (the creator, ringsize 2) and `ClaimFees()` (anyone, any ring size, pays
-the treasury the `fd` DERO; there is no asset leg and no `fc` counter here).
+the treasury the `fd` DERO; there is no asset leg and no `fc` counter here). Every entrypoint refuses value it does
+not take (2026-09-11, GAP-027): `Lock` takes only the token, `Mint` only DERO, `Unlock`, `ClaimCreator` and
+`ClaimFees` nothing, none an edition. Invariants: DERO = `fd` + `cacc`, token = Σ `lk_`, editions out = `minted`
+(`tests/zzconservation_test.go`).
 
+## nfa.bas — one ART-NFA-MS1 asset per contract, priced in a quote
+
+The standard's contract (civilware ART-NFA-MS1 v1.1.1) with a quote asset and a protocol fee: `docs/NFA_BUILD.md`,
+`docs/NFA.md`. Entrypoints are the standard's — `InitializePrivate`, `ClaimOwnership`, `Update`, `Start`, `BuyItNow`,
+`Bid`, `CloseListing`, `CancelListing` — plus `PayOwed(payee S)`. Four behaviours diverge from the standard
+(2026-09-11, `docs/NFA.md` §2.5):
+
+- A settlement sends only the royalty (to `creatorAddr`) and the remainder (to `owner`), both signers, and the unit
+  to the buyer; the artificer's, the charity's and the protocol's shares are credited under `ow_<address>` and paid
+  by `PayOwed` — anyone, any ring size, nothing attached, one transfer. The DVM keeps only the last registry lookup of
+  a call's transfer list and half-commits a call whose unregistered destination is not the last (FINDINGS_2026-09-10
+  DVM-1, LIV-01), so no settlement may name an address that has never signed; a `PayOwed` to one reverts whole and
+  the share waits.
+- `BuyItNow` on an ended auction settles it to the winner, as `Bid` does (NFA-1, LIV-02, ADV-PRICE-01).
+- `Start` stores a clamped charity share only after checking the address (DVM-2).
+- Every entrypoint refuses, with `RETURN 1`, value it does not take (NFA-4); `ClaimOwnership` and `Start` check it
+  after their ring>2 branch, which sends the unit to the recorded owner, so a refusal can never destroy the unit.
+
+Quote balance = `owed` + `currBidAmt` while an auction holds a bid (`tests/nfa_test.go` asserts it after every call).
+Gated calls are all the standard's: `Update` (the creator; the owner too if `ownerCanUpdate` = 1) and the asset
+owner's `Start` / `CloseListing` / `CancelListing`. The treasury receives and controls nothing. A DVM hazard the
+repair ran into: a key `DELETE`d earlier in a call makes a later `EXISTS` or `LOAD` of it in the same call panic
+(`dvm_store.go` 81-98), so no function may look a key up after deleting it.
 
 ## founders.bas — Founders Pass
 
@@ -177,6 +222,24 @@ holder's pending reward is `floor(hu·(acc − hd) / 2^32)`, capped at `rpool`. 
 of the editions): DERO that arrives earlier waits in `und`, so the first registrant of one unit cannot sweep what
 accrued before anyone held the pass (2026-09-06). Tested in `tests/founders_test.go` (rules, gas, 3 000-step
 randomised run against a big.Int model).
+
+No function in `founders.bas` is privileged: the installer's only advantage is the `reserve` editions minted to it
+at install, the treasury only receives `Mint` proceeds, and `Deposit`, `Distribute` and `PayBatch` are open to anyone.
+
+**Open, and deliberately not changed on 2026-09-11** (FINDINGS_2026-09-10 FEE-01, FEE-02): at 20 editions `minhst`
+is 1, so the floor is void and the first single registrant takes everything waiting in `und`; and at any size `und`
+carries no time weighting, so whoever registers the stake that crosses the floor shares the whole backlog. Every
+repair needs a distribution-policy choice the finding does not make:
+(a) delete the floor and refuse `Deposit` while `hst` is 0 — but `Buy` fees still reach `und` at `hst` 0 (a rule is
+needed for them), the treasury must then hold fees until the first registration and the first registrant takes that
+backlog when it is deposited, and `tools/treasurybot` and `app/founders.js` read `minhst`;
+(b) a floor that is a fraction of *minted* supply, evaluated at `distribute` — the fraction is the choice, and the
+crossing stake still shares the backlog;
+(c) time weighting — release `und` over N blocks after the floor is crossed, or a registration lock of L blocks
+before a unit earns (which also closes the just-in-time case, P7-11) — N or L is the choice, at the cost of storage
+and `settle` gas (`PayBatch` settles 15 holders at about 0.41 M compute each);
+(d) no contract change: the deployment keeps the treasury from depositing before a meaningful stake is registered —
+which makes the operator the party trusted to be fair.
 
 ## swap.bas — hash-time-locked escrow (atomic swaps)
 

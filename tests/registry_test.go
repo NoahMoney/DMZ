@@ -68,21 +68,18 @@ func TestFactory(t *testing.T) {
 	if r := c.Call(scid, "SetTreasury", rpc.Arguments{harness.S("treasury", t2.String())}, nil, owner); !r.OK() || c.S(scid, "tstr") != t2.String() {
 		t.Fatal("owner set treasury")
 	}
-	// two-step ownership transfer
-	if r := c.Call(scid, "ClaimOwnership", nil, nil, alice); r.OK() {
-		t.Fatal("claim without transfer")
+	// ownership cannot be handed on: the two-step transfer is gone and Renounce is the only way it ends
+	// (TestFactoryRenounce)
+	for _, entry := range []string{"TransferOwnership", "ClaimOwnership"} {
+		if r := c.Call(scid, entry, rpc.Arguments{harness.S("newowner", alice.String())}, nil, owner); r.OK() {
+			t.Fatalf("%s is still an entrypoint", entry)
+		}
+		if r := c.Call(scid, entry, nil, nil, alice); r.OK() {
+			t.Fatalf("%s is still an entrypoint", entry)
+		}
 	}
-	if r := c.Call(scid, "TransferOwnership", rpc.Arguments{harness.S("newowner", alice.String())}, nil, owner); !r.OK() {
-		t.Fatal("transfer")
-	}
-	if r := c.Call(scid, "ClaimOwnership", nil, nil, t2); r.OK() {
-		t.Fatal("wrong claimant")
-	}
-	if r := c.Call(scid, "ClaimOwnership", nil, nil, alice); !r.OK() || c.S(scid, "owner") != string(alice.Compressed()) || c.Exists(scid, "tmpowner") {
-		t.Fatal("claim")
-	}
-	if r := c.Call(scid, "SetRegFee", rpc.Arguments{harness.U("regfee", 5)}, nil, owner); r.OK() {
-		t.Fatal("old owner still owner")
+	if c.S(scid, "owner") != string(owner.Compressed()) || c.Exists(scid, "tmpowner") {
+		t.Fatal("owner moved")
 	}
 }
 
@@ -352,4 +349,91 @@ func TestFactoryRegisterNFA(t *testing.T) {
 	if r := c.Call(scid, "RegisterNFA", rpc.Arguments{harness.H("scid", nfa)}, map[crypto.Hash]uint64{zero: 10000}, nil); !r.OK() || c.U(scid, "nc") != 3 || c.S(scid, "nfa_2") != hex.EncodeToString(nfa[:]) {
 		t.Fatalf("anonymous paid NFA registration: %v", r.Err)
 	}
+}
+
+// SEC-K-02 / LIV-08. The owner can end its own powers by its own act, and nothing brings them back. After Renounce
+// every function that was ever owner-gated (SetTreasury, SetRegFee, Renounce; TransferOwnership and ClaimOwnership,
+// which no longer exist) and the one function that ever stored owner (Initialize) is refused — the DVM discards the
+// call, so it commits nothing — for the old owner, a stranger, and an anonymous caller at ring size > 2, whose
+// SIGNER() is 33 zero bytes (the reason owner is deleted rather than overwritten with a zero key, which that caller
+// would match), at this height and later ones, and the stored state stays exactly as Renounce left it. Registration
+// goes on, forwarding every fee in the call, so the factory holds nothing it could owe.
+func TestFactoryRenounce(t *testing.T) {
+	c := harness.New()
+	owner, treasury, t2, alice := c.NewAccount(), c.NewAccount(), c.NewAccount(), c.NewAccount()
+	code := readContract(t, "factory.bas")
+	scid, res := c.Install(code, nil, rpc.Arguments{harness.S("treasury", treasury.String()), harness.U("regfee", 10000)}, owner, harness.MaxStorageGas)
+	if !res.OK() {
+		t.Fatalf("install: %v", res.Err)
+	}
+	for _, who := range []*rpc.Address{alice, nil} {
+		if r := c.Call(scid, "Renounce", nil, nil, who); r.OK() {
+			t.Fatal("Renounce by a non-owner was accepted")
+		}
+	}
+	c.NextBlock()
+	if r := c.Call(scid, "Renounce", nil, nil, owner); !r.OK() {
+		t.Fatalf("renounce: %v", r.Err)
+	}
+	if c.Exists(scid, "owner") || c.U(scid, "renounced") != c.Height {
+		t.Fatalf("after Renounce: owner present %v, renounced %v", c.Exists(scid, "owner"), c.Var(scid, "renounced"))
+	}
+	state := func() [7]interface{} {
+		return [7]interface{}{c.Var(scid, "owner"), c.Var(scid, "tmpowner"), c.Var(scid, "treasury"), c.Var(scid, "tstr"),
+			c.Var(scid, "regfee"), c.Var(scid, "renounced"), c.Var(scid, "initd")}
+	}
+	after := state()
+	calls := []struct {
+		entry string
+		args  rpc.Arguments
+	}{
+		{"SetTreasury", rpc.Arguments{harness.S("treasury", t2.String())}},
+		{"SetRegFee", rpc.Arguments{harness.U("regfee", 0)}},
+		{"Renounce", nil},
+		{"Initialize", rpc.Arguments{harness.S("treasury", t2.String()), harness.U("regfee", 0)}},
+		{"TransferOwnership", rpc.Arguments{harness.S("newowner", alice.String())}},
+		{"ClaimOwnership", nil},
+	}
+	seen := map[string]string{}
+	for round := 0; round < 3; round++ {
+		for _, who := range []*rpc.Address{owner, alice, nil} {
+			name := "an anonymous caller"
+			if who != nil {
+				name = e2name(who, owner)
+			}
+			for _, x := range calls {
+				r := c.Call(scid, x.entry, x.args, nil, who)
+				if r.OK() || r.Err == nil {
+					t.Fatalf("round %d: %s by %s was accepted after Renounce", round, x.entry, name)
+				}
+				if state() != after {
+					t.Fatalf("round %d: %s by %s moved the factory's state after Renounce", round, x.entry, name)
+				}
+				seen[x.entry] = r.Err.Error()
+			}
+		}
+		c.NextBlock()
+	}
+	for _, x := range calls {
+		t.Logf("after Renounce, %s from the old owner, a stranger and a ring>2 caller: refused (%.60s)", x.entry, seen[x.entry])
+	}
+	// registration is untouched and forwards the whole fee to the treasury fixed at the renunciation: the factory
+	// never holds a balance, so there is nothing it owes that it could fail to hold
+	var fake crypto.Hash
+	fake[0] = 7
+	r := c.Call(scid, "RegisterPool", rpc.Arguments{harness.H("scid", fake)}, map[crypto.Hash]uint64{zero: 12000}, alice)
+	if !r.OK() || r.Sent(zero, treasury) != 12000 || c.U(scid, "pc") != 1 || c.SCBalance(scid, zero) != 0 {
+		t.Fatalf("registration after Renounce: %v sent %d, factory holds %d", r.Err, r.Sent(zero, treasury), c.SCBalance(scid, zero))
+	}
+	if r := c.Call(scid, "RegisterNFA", rpc.Arguments{harness.H("scid", fake)}, map[crypto.Hash]uint64{zero: 10000}, nil); !r.OK() || c.SCBalance(scid, zero) != 0 {
+		t.Fatalf("anonymous NFA registration after Renounce: %v, factory holds %d", r.Err, c.SCBalance(scid, zero))
+	}
+	t.Logf("factory renounced at height %d: owner absent, every owner power refused to every caller over three heights; registration still pays the treasury and the factory holds 0", c.U(scid, "renounced"))
+}
+
+func e2name(who, owner *rpc.Address) string {
+	if who.String() == owner.String() {
+		return "the old owner"
+	}
+	return "a stranger"
 }

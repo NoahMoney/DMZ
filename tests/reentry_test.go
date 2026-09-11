@@ -20,7 +20,7 @@ func TestInitializeNotCallable(t *testing.T) {
 		args  rpc.Arguments
 		key   string // a key the init writes; must be unchanged afterwards
 	}{
-		{"swap.bas", "Initialize", nil, "n"},
+		{"swap.bas", "Initialize", rpc.Arguments{harness.U("wmin", 20)}, "n"},
 		{"board.bas", "Initialize", nil, "n"},
 		{"social.bas", "Initialize", nil, "kind"},
 		{"factory.bas", "Initialize", rpc.Arguments{harness.S("treasury", treasury.String()), harness.U("regfee", 10000)}, "owner"},
@@ -50,7 +50,7 @@ func TestInitializeNotCallable(t *testing.T) {
 		// make the state differ from a fresh install where possible, so a reset would be visible
 		switch tc.file {
 		case "swap.bas":
-			if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", "4dea5fcbba8169ebf2df6bb21fa84d77d13f0d8acbcb7a81041e7f5052a3e136"), harness.S("taker", ""), harness.U("expiry", c.Height+10), harness.S("asset", "")}, map[crypto.Hash]uint64{zero: 100000}, owner); !r.OK() {
+			if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", "4dea5fcbba8169ebf2df6bb21fa84d77d13f0d8acbcb7a81041e7f5052a3e136"), harness.S("taker", stranger.String()), harness.U("expiry", c.Height+30), harness.S("asset", "")}, map[crypto.Hash]uint64{zero: 100000}, owner); !r.OK() {
 				t.Fatalf("swap lock: %v", r.Err)
 			}
 		case "board.bas":

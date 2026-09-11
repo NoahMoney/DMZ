@@ -117,47 +117,57 @@ func TestBurnRefundToAnUnregisteredAddressCanNeverBeReturned(t *testing.T) {
 		"contract still permits (Released) hands the burner nothing.", c.U(scid, "sup"))
 }
 
-// L5. The same unregistered-address hazard, but where the failing transfer is NOT the last one the call emits.
-// SanityCheckExternalTransfers assigns its lookup result to the NAMED return err and treats ErrNotFound as
-// "everything is okay" (simulator.go 227-238), so a later registered destination overwrites err with nil and
-// the check passes. ProcessExternal then commits every state entry (simulator.go 306-326) and panics part way
-// through the transfer loop (355-359); blockchain.process_transaction_sc recovers (transaction_execute.go
-// 275-280) and the block goes on. nfa.bas Start takes charityDonateAddr from the owner with only
-// IS_ADDRESS_VALID (line 175/195) and processDEROFinalPayment pays charity BEFORE protoFee and before the
-// owner, so a sale settles with the buyer owning the asset and the seller paid nothing.
-func TestNFAUnregisteredCharityAddressSettlesTheSaleAndDestroysTheSellersProceeds(t *testing.T) {
+// L5 (was TestNFAUnregisteredCharityAddressSettlesTheSaleAndDestroysTheSellersProceeds). The unregistered-address
+// hazard where the failing transfer is NOT the last one the call emits. SanityCheckExternalTransfers assigns its
+// lookup result to the NAMED return err and treats ErrNotFound as "everything is okay" (simulator.go 227-238), so a
+// later registered destination overwrites err with nil and the check passes; ProcessExternal then commits every
+// state entry (306-326) and panics part way through the transfer loop (355-359), and blockchain.process_transaction_sc
+// recovers (transaction_execute.go 275-280). nfa.bas used to pay the charity before protoFee and before the owner,
+// so a sale settled with the seller paid nothing. The charity's share is now owed, not sent (nfa.bas header item 5):
+// the sale pays the seller in full, and the charity's share waits until its account exists.
+func TestNFAUnregisteredCharityAddressNoLongerCostsTheSeller(t *testing.T) {
 	e := newNFAEnv(t, false, 10, 0, 250) // DERO quote, 10% royalty, 2.5% protocol fee
 	c := e.c
 	ghost := unregisteredAddress()
+	e.name(ghost, "ghost charity")
 	if r := e.start(e.creator, "sale", 24, 1000000, ghost.String(), 5, true); !r.OK() {
-		t.Fatalf("Start accepted no unregistered charity address: %v", r.Err)
+		t.Fatalf("Start refused the unregistered charity address: %v", r.Err)
 	}
 	if c.S(e.nfa, "charityDonateAddr") != string(ghost.Compressed()) || c.U(e.nfa, "charityDonatePerc") != 5 {
 		t.Fatal("charity not stored")
 	}
+	var r harness.Result
 	panicked := func() (p interface{}) {
 		defer func() { p = recover() }()
-		e.call("BuyItNow", nil, map[crypto.Hash]uint64{zero: 1000000}, e.bob)
+		r = e.call("BuyItNow", nil, map[crypto.Hash]uint64{zero: 1000000}, e.bob)
 		return nil
 	}()
-	if panicked == nil {
-		t.Fatal("expected the chain to panic part way through the transfer loop")
+	if panicked != nil {
+		t.Fatalf("ProcessExternal panicked: a settlement still names an address that may have no account: %v", panicked)
 	}
-	t.Logf("ProcessExternal panicked exactly as the node does, after committing the state: %v", panicked)
-	// The state the DVM had already written is durable: the sale completed.
-	if c.S(e.nfa, "owner") != raw(e.bob) || c.U(e.nfa, "scBalance") != 0 || c.U(e.nfa, "previousSalePrice") != 1000000 {
-		t.Fatalf("owner %s scBalance %d - the sale did not commit", e.who(c.S(e.nfa, "owner")), c.U(e.nfa, "scBalance"))
+	if !r.OK() || c.S(e.nfa, "owner") != raw(e.bob) || r.Sent(e.nfa, e.bob) != 1 || c.U(e.nfa, "previousSalePrice") != 1000000 {
+		t.Fatalf("the sale did not complete: %v", r.Err)
 	}
-	t.Logf("SETTLED AND UNPAID: owner is now the buyer, scBalance 0, previousSalePrice %d. The transfer loop stopped "+
-		"at the charity send, so the protocol fee and the WHOLE seller payout (%d of 1000000) were never made.",
-		c.U(e.nfa, "previousSalePrice"), 1000000-100000-50000-25000)
+	// the creator is the seller here: the royalty 100000 and the remainder 825000 (1000000 - 10% - 5% - 2.5%)
+	if got := r.Sent(zero, e.creator); got != 100000+825000 {
+		t.Fatalf("the seller received %d, want 925000", got)
+	}
+	if r.Sent(zero, ghost) != 0 || e.owedTo(ghost) != 50000 || e.owedTo(e.treasury) != 25000 || c.SCBalance(e.nfa, zero) != 75000 {
+		t.Fatalf("owed charity %d treasury %d, held %d", e.owedTo(ghost), e.owedTo(e.treasury), c.SCBalance(e.nfa, zero))
+	}
+	if rr := e.call("PayOwed", rpc.Arguments{harness.S("payee", ghost.String())}, nil, e.carol); rr.OK() || e.owedTo(ghost) != 50000 {
+		t.Fatal("PayOwed to the unregistered charity was accepted or moved its share")
+	}
+	t.Logf("PAID: owner is now the buyer and the seller received 925000 in the call; the charity's 50000 waits under ow_ " +
+		"until its account exists, and PayOwed to it is refused whole")
 }
 
-// L3. nfa.bas BuyItNow 500-540: on an ENDED auction any non-owner may call BuyItNow with nothing attached. That
-// path returns the unit to the owner and resets the listing, but never touches currBidAddr/currBidAmt - only
-// outbidReturns and processHighestBidder delete those, and neither can be reached any more. The winning
-// bidder payment stays in the contract and only the owner, by relisting, can ever release it.
-func TestAStrangerCanStrandAnAuctionWinnersPayment(t *testing.T) {
+// L3 (was TestAStrangerCanStrandAnAuctionWinnersPayment). nfa.bas BuyItNow 500-540: on an ENDED auction any
+// non-owner may call BuyItNow with nothing attached. That path used to return the unit to the owner and reset the
+// listing without touching currBidAddr/currBidAmt, leaving the winner's payment in the contract with only the owner
+// able to release it. BuyItNow 512-516 now settle the auction to its winner, so the stranger's call completes the
+// sale the winner won.
+func TestAStrangerCannotStrandAnAuctionWinnersPayment(t *testing.T) {
 	e := newNFAEnv(t, true, 10, 0, 250) // wrapped quote: this is a wXMR-priced NFA
 	c := e.c
 	if r := e.start(e.creator, "auction", 24, 1000000, "", 0, true); !r.OK() {
@@ -172,60 +182,20 @@ func TestAStrangerCanStrandAnAuctionWinnersPayment(t *testing.T) {
 	c.Timestamp = c.U(e.nfa, "endBlockTime") // the auction has ended; alice has won
 
 	// Carol has no stake at all. One call, no value attached, gas only.
-	r := e.call("BuyItNow", nil, nil, e.carol)
-	if !r.OK() {
-		t.Fatalf("the grief call was refused: %v", r.Err)
+	e.checkSettlement(t, "carol's empty BuyItNow", e.call("BuyItNow", nil, nil, e.carol), 5000000, e.creator, e.alice, 0, nil)
+	// Nothing of alice's is left in the contract: it holds only the protocol fee owed to the treasury.
+	if c.SCBalance(e.nfa, e.quote) != e.owedTo(e.treasury) || c.Exists(e.nfa, "currBidAmt") {
+		t.Fatalf("held %d with %d owed; currBidAmt present %v", c.SCBalance(e.nfa, e.quote), e.owedTo(e.treasury), c.Exists(e.nfa, "currBidAmt"))
 	}
-	if r.Sent(e.nfa, e.creator) != 1 || c.U(e.nfa, "scBalance") != 0 || c.S(e.nfa, "owner") != raw(e.creator) {
-		t.Fatalf("the unit did not go back to the seller: sent %d scBalance %d", r.Sent(e.nfa, e.creator), c.U(e.nfa, "scBalance"))
-	}
-	if r.Sent(e.quote, e.alice) != 0 {
-		t.Fatalf("alice was refunded %d", r.Sent(e.quote, e.alice))
-	}
-	if c.SCBalance(e.nfa, e.quote) != 5000000 || !c.Exists(e.nfa, "currBidAmt") {
-		t.Fatalf("bid state after the grief: held %d, currBidAmt present %v", c.SCBalance(e.nfa, e.quote), c.Exists(e.nfa, "currBidAmt"))
-	}
-
-	// Alice cannot get it back. Nothing she can call reaches outbidReturns or processHighestBidder.
-	for _, step := range []struct {
-		name string
-		run  func() harness.Result
-	}{
-		{"Bid", func() harness.Result { return e.call("Bid", nil, nil, e.alice) }},
-		{"BuyItNow", func() harness.Result { return e.call("BuyItNow", nil, nil, e.alice) }},
-		{"CloseListing", func() harness.Result { return e.call("CloseListing", nil, nil, e.alice) }},
-		{"CancelListing", func() harness.Result { return e.call("CancelListing", nil, nil, e.alice) }},
-	} {
-		if r := step.run(); r.Sent(e.quote, e.alice) != 0 {
-			t.Fatalf("%s refunded alice %d", step.name, r.Sent(e.quote, e.alice))
-		}
-	}
-	// The seller cannot release it either without starting a whole new listing.
-	for _, step := range []string{"CloseListing", "CancelListing"} {
-		if r := e.call(step, nil, nil, e.creator); r.Sent(e.quote, e.alice) != 0 {
-			t.Fatalf("%s by the owner refunded alice", step)
-		}
-	}
-	if c.SCBalance(e.nfa, e.quote) != 5000000 {
-		t.Fatalf("held %d", c.SCBalance(e.nfa, e.quote))
-	}
-	t.Logf("STRANDED: %d of the quote asset held by the NFA, owed to alice, with the seller holding the unit again. "+
-		"The only release is the owner starting a NEW auction and someone bidding (outbidReturns), or an empty Bid on an "+
-		"expired new auction, which would hand alice the asset at her old price.", c.SCBalance(e.nfa, e.quote))
-
-	// Proof that the only exit runs through the owner: a fresh auction plus any bid refunds her.
-	c.NextBlock()
-	if r := e.start(e.creator, "auction", 1, 1, "", 0, true); !r.OK() {
-		t.Fatal(r.Err)
-	}
-	if r := e.bid(e.bob, 1); !r.OK() || r.Sent(e.quote, e.alice) != 5000000 {
-		t.Fatalf("relist + bid did not refund alice: %v sent %d", r.Err, r.Sent(e.quote, e.alice))
-	}
+	t.Logf("SETTLED: the stranger's call handed alice the unit for her 5000000 and paid the seller; no bid is held")
 }
 
-// L4. htlc.bas: past t2 the ONLY exit is Punish by the named taker (120-136); Refund window closes at t2
-// (line 25). A taker who stops answering leaves the maker DERO in the contract with no permissionless exit.
-func TestHtlcPastT2NeedsTheTakerOrTheFundsNeverMove(t *testing.T) {
+// L4, inverted for htlc.bas v2 (LIV-07; this was TestHtlcPastT2NeedsTheTakerOrTheFundsNeverMove). In v1, past t2
+// the only exit was Punish by the named taker and the Refund window had closed, so a taker who stopped answering
+// left the maker's DERO in the contract with no permissionless exit: reproduced with 100,000 DERO still held ten
+// million blocks past t2. v2's Punish may be sent by anyone and still pays only the stored taker, so the same
+// abandoned lock is closed by a stranger with no human on either side, and nothing stays in the contract.
+func TestHtlcPastT2AnyoneClosesTheLockForTheTaker(t *testing.T) {
 	c := harness.New()
 	maker, taker, stranger := c.NewAccount(), c.NewAccount(), c.NewAccount()
 	scid, res := c.Install(readContract(t, "htlc.bas"), nil, nil, maker, harness.MaxStorageGas)
@@ -233,35 +203,45 @@ func TestHtlcPastT2NeedsTheTakerOrTheFundsNeverMove(t *testing.T) {
 		t.Fatal(res.Err)
 	}
 	h := "0000000000000000000000000000000000000000000000000000000000000000"
+	t2 := c.Height + 20
 	mustOK(t, c.Call(scid, "Lock", rpc.Arguments{harness.S("ha", h), harness.S("hk", h), harness.S("hb", h),
-		harness.S("taker", taker.String()), harness.U("t1", c.Height+10), harness.U("t2", c.Height+20), harness.S("asset", "")},
+		harness.S("taker", taker.String()), harness.U("t1", c.Height+10), harness.U("t2", t2), harness.S("asset", "")},
 		map[crypto.Hash]uint64{zero: 100000}, maker), "lock")
 
-	c.Height += 25 // past t2
+	// before t2 a stranger's Punish is refused: the lock is still the taker's to claim or the maker's to refund
+	c.Height = t2 - 1
+	if r := c.Call(scid, "Punish", rpc.Arguments{harness.U("id", 0)}, nil, stranger); r.OK() {
+		t.Fatal("a stranger's Punish before t2 was accepted")
+	}
+	c.Height += 10000000 // abandoned: nobody has touched it for ten million blocks past t2
 	for _, who := range []*rpc.Address{maker, stranger} {
-		if r := c.Call(scid, "Punish", rpc.Arguments{harness.U("id", 0)}, nil, who); r.OK() {
-			t.Fatal("Punish is not taker-only")
-		}
 		if r := c.Call(scid, "Refund", rpc.Arguments{harness.U("id", 0), harness.S("sb", h)}, nil, who); r.OK() {
 			t.Fatal("Refund worked past t2")
 		}
 	}
-	c.Height += 10000000
-	if r := c.Call(scid, "Refund", rpc.Arguments{harness.U("id", 0), harness.S("sb", h)}, nil, maker); r.OK() {
-		t.Fatal("the maker recovered after t2")
-	}
 	if c.U(scid, "st_0") != 0 || c.SCBalance(scid, zero) != 100000 {
-		t.Fatalf("st %d balance %d", c.U(scid, "st_0"), c.SCBalance(scid, zero))
+		t.Fatalf("before the close: st %d balance %d", c.U(scid, "st_0"), c.SCBalance(scid, zero))
 	}
-	t.Logf("STUCK: %d DERO held at height %d, st=0, and only the taker own signature can ever move it",
-		c.SCBalance(scid, zero), c.Height)
+	r := c.Call(scid, "Punish", rpc.Arguments{harness.U("id", 0)}, nil, stranger)
+	if !r.OK() || r.Sent(zero, taker) != 100000 || r.Sent(zero, stranger) != 0 || r.Sent(zero, maker) != 0 {
+		t.Fatalf("a stranger's Punish ten million blocks past t2: %v; paid taker %d, stranger %d, maker %d", r.Err, r.Sent(zero, taker), r.Sent(zero, stranger), r.Sent(zero, maker))
+	}
+	if c.U(scid, "st_0") != 3 || c.SCBalance(scid, zero) != 0 {
+		t.Fatalf("after the close: st %d balance %d", c.U(scid, "st_0"), c.SCBalance(scid, zero))
+	}
+	for _, who := range []*rpc.Address{stranger, maker, taker} {
+		if r := c.Call(scid, "Punish", rpc.Arguments{harness.U("id", 0)}, nil, who); r.OK() {
+			t.Fatal("a second Punish was accepted")
+		}
+	}
+	t.Logf("CLOSED: a stranger's Punish at height %d paid the taker 100000 and left the contract empty; no human on either side acted", c.Height)
 }
 
-// L6. The same half-application, but with an address the creator can never change and never chose: nfa.bas init
+// L6. The same half-application, with an address the creator can never change and never chose: nfa.bas init
 // line 40 hard-codes the artificer address, and artificerFee is immutable after install. On any network where
-// that account has not registered, EVERY sale of EVERY NFA with artificerFee > 0 transfers the asset and
-// destroys the protocol fee and the whole seller payout. tests/nfa_test.go registers the address by hand
-// (newNFAEnv, comment at line 19) which is exactly why the existing suite never sees this.
+// that account has not registered, EVERY sale of EVERY NFA with artificerFee > 0 used to transfer the asset and
+// destroy the protocol fee and the whole seller payout. The artificer's share is now owed, not sent (nfa.bas
+// header item 5), so on such a network the sale pays the seller in full and the share waits for PayOwed.
 func TestNFAArtificerFeeOnAChainWhereTheArtificerNeverRegistered(t *testing.T) {
 	c := harness.New()
 	creator, buyer, treasury := c.NewAccount(), c.NewAccount(), c.NewAccount()
@@ -276,27 +256,35 @@ func TestNFAArtificerFeeOnAChainWhereTheArtificerNeverRegistered(t *testing.T) {
 		map[crypto.Hash]uint64{nfa: 1}, creator); !r.OK() {
 		t.Fatalf("start: %v", r.Err)
 	}
+	art, err := rpc.NewAddress(artificerAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r harness.Result
 	panicked := func() (p interface{}) {
 		defer func() { p = recover() }()
-		c.Call(nfa, "BuyItNow", nil, map[crypto.Hash]uint64{zero: 1000000}, buyer)
+		r = c.Call(nfa, "BuyItNow", nil, map[crypto.Hash]uint64{zero: 1000000}, buyer)
 		return nil
 	}()
-	if panicked == nil {
-		t.Fatal("expected the transfer loop to stop at the artificer send")
+	if panicked != nil {
+		t.Fatalf("ProcessExternal panicked on the artificer transfer: the settlement still sends to it: %v", panicked)
 	}
-	t.Logf("panic: %v", panicked)
-	if c.S(nfa, "owner") != string(buyer.Compressed()) || c.U(nfa, "scBalance") != 0 {
-		t.Fatalf("the sale did not commit: owner set %v scBalance %d", c.S(nfa, "owner") == string(buyer.Compressed()), c.U(nfa, "scBalance"))
+	if !r.OK() || c.S(nfa, "owner") != string(buyer.Compressed()) || c.U(nfa, "scBalance") != 0 {
+		t.Fatalf("the sale did not complete: %v", r.Err)
 	}
-	// SanityCheckExternalTransfers already decremented the contract's recorded balance by the FULL 1000000
-	// (simulator.go 212-224) and ProcessExternal committed that write before the transfer loop failed, so the
-	// undelivered 875000 is in nobody's wallet and not in the contract's accounting either.
-	if b := c.SCBalance(nfa, zero); b != 0 {
-		t.Fatalf("contract still accounts for %d DERO", b)
+	// the creator is the seller: royalty 100000 plus the remainder 825000 (1000000 - 10% - 5% - 2.5%), in the call
+	if got := r.Sent(zero, creator); got != 925000 {
+		t.Fatalf("the seller received %d, want 925000", got)
 	}
-	t.Logf("SETTLED AND UNPAID: buyer owns the NFA, previousSalePrice %d, the contract accounts for %d DERO, and "+
-		"neither the 2.5%% protocol fee (25000) nor the seller's 850000 reached anyone. artificerFee is immutable, "+
-		"so every later sale of this NFA does the same.", c.U(nfa, "previousSalePrice"), c.SCBalance(nfa, zero))
+	owed := func(a *rpc.Address) uint64 { v, _ := c.Var(nfa, "ow_"+a.String()).(uint64); return v }
+	if r.Sent(zero, art) != 0 || owed(art) != 50000 || owed(treasury) != 25000 || c.SCBalance(nfa, zero) != 75000 {
+		t.Fatalf("owed artificer %d treasury %d, held %d", owed(art), owed(treasury), c.SCBalance(nfa, zero))
+	}
+	if rr := c.Call(nfa, "PayOwed", rpc.Arguments{harness.S("payee", art.String())}, nil, buyer); rr.OK() || owed(art) != 50000 || c.AccountRecord(zero, art) != "" {
+		t.Fatal("PayOwed to the unregistered artificer was accepted or moved its share")
+	}
+	t.Logf("PAID: buyer owns the NFA and the seller received 925000 in the call; the artificer's 50000 waits under ow_ "+
+		"until that account exists, and the treasury's %d is payable now", owed(treasury))
 }
 
 // L7. vault.bas Unbond line 226 refuses whenever an isg_ key EXISTS, and Slash line 40 sets isg_ to 0 rather

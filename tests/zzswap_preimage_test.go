@@ -11,19 +11,19 @@ import (
 	"github.com/deroproject/derohe/veil/tests/harness"
 )
 
-// The DERO leg of the transparent-Zcash swap accepts a strictly narrower set of preimages than the Zcash
-// script does. contracts/swap.bas Claim (lines 25-27) demands exactly 64 hex characters decoding to 32 raw
-// bytes, and compares HEX(SHA256(raw)) — lowercase — against the stored h_<id> as a string. The Zcash redeem
-// script (tools/zecswap/script.go RedeemScript) has no OP_SIZE check, so OP_SHA256 accepts a preimage of any
-// length up to the 520-byte push limit, and it holds H as bytes, so the case of the hex the maker posted is
-// invisible to it.
+// The DERO leg of the transparent-Zcash swap accepts exactly one set of preimages: contracts/swap.bas Claim
+// (lines 25-27) demands 64 hex characters decoding to 32 raw bytes, and compares HEX(SHA256(raw)) — lowercase —
+// against the stored h_<id> as a string. The Zcash redeem script once had no OP_SIZE check, so OP_SHA256 took a
+// preimage of any length up to 520 bytes (ZEC-1), and it holds H as bytes, so the case of the hex the maker posted
+// is invisible to it (ZEC-2). Either asymmetry let the maker — who chooses both s and H — spend the taker's Zcash
+// output while leaving the taker unable to claim the DERO escrow, then refund at expiry and keep both legs.
 //
-// Either asymmetry lets the maker — who chooses both s and H — spend the taker's Zcash output while leaving
-// the taker unable to claim the DERO escrow, so the maker refunds at expiry and ends with both legs.
+// Both are repaired: the script now begins SIZE <32> EQUALVERIFY (3175401) and Lock refuses a non-canonical hash
+// (cffdd29). This test pins the DVM half, which must not drift: 32 bytes only, and the lower-case hash only.
 func TestSwapPreimageAsymmetryLetsTheMakerTakeBothLegs(t *testing.T) {
 	c := harness.New()
 	maker, taker := c.NewAccount(), c.NewAccount()
-	scid, res := c.Install(readContract(t, "swap.bas"), nil, nil, maker, harness.MaxStorageGas)
+	scid, res := c.Install(readContract(t, "swap.bas"), nil, swapInit(), maker, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}

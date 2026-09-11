@@ -60,6 +60,14 @@ func TestNFAHelpersAreCallableEntrypoints(t *testing.T) {
 	t.Logf("resetVars(1) by a stranger: ok=%v err=%v", r5.OK(), r5.Err)
 	r6 := c.Call(e.nfa, "outbidReturns", nil, nil, e.alice)
 	t.Logf("outbidReturns() by a stranger: ok=%v err=%v", r6.OK(), r6.Err)
+
+	// 5. owe(payee, amt) — the credit a settlement makes to ow_<payee>. Called directly it would let anyone owe
+	//    themselves the contract's whole balance and collect it with PayOwed.
+	r7 := c.Call(e.nfa, "owe", rpc.Arguments{harness.S("payee", raw(e.alice)), harness.U("amt", 1<<40)}, nil, e.alice)
+	t.Logf("owe(alice, 2^40) by alice: ok=%v err=%v", r7.OK(), r7.Err)
+	if r7.OK() || c.Exists(e.nfa, "ow_"+e.alice.String()) || c.U(e.nfa, "owed") != 0 {
+		t.Errorf("CREDIT FORGED: a direct owe() call wrote ow_ for alice")
+	}
 	e.oneUnit(t, "after helper calls")
 }
 

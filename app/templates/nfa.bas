@@ -37,6 +37,7 @@ Function init(quote String, protoFee Uint64, treasury String) Uint64
 160 STORE("startPrice", 0)
 170 STORE("currBidPrice", 0)
 180 STORE("version", "1.1.1")
+190 STORE("owed", 0)
 200 IF STRLEN(quote) == 0 THEN GOTO 210 ELSE GOTO 220
 210 STORE("quote", DERO())
 215 GOTO 240
@@ -57,6 +58,7 @@ End Function
 Function ClaimOwnership() Uint64
 10  IF ASSETVALUE(SCID()) == 1 THEN GOTO 20 ELSE GOTO 999
 20  IF ADDRESS_STRING(SIGNER()) == "" THEN GOTO 500
+25  IF DEROVALUE() != 0 || ASSETVALUE(LOAD("quote")) != 0 THEN GOTO 999
 30  transferOwnership(SIGNER())
 40  SEND_ASSET_TO_ADDRESS(SIGNER(), 1, SCID())
 50  RETURN 0
@@ -65,6 +67,7 @@ Function ClaimOwnership() Uint64
 999 RETURN 1
 End Function
 Function Update(iconURL String, coverURL String, fileURL String, fileSignURL String, tags String) Uint64
+5   IF DEROVALUE() != 0 || ASSETVALUE(LOAD("quote")) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 999
 10  IF LOAD("creatorAddr") == SIGNER() THEN GOTO 40 ELSE GOTO 20
 20  IF LOAD("ownerCanUpdate") == 1 THEN GOTO 30 ELSE GOTO 999
 30  IF LOAD("owner") == SIGNER() THEN GOTO 40 ELSE GOTO 999
@@ -84,8 +87,8 @@ End Function
 Function Start(listType String, duration Uint64, startPrice Uint64, charityDonateAddr String, charityDonatePerc Uint64) Uint64
 10  dim tempPercCount as Uint64
 20  dim err as String
-25  IF LOAD("quote") != DERO() && DEROVALUE() != 0 THEN GOTO 999
 30  IF ADDRESS_STRING(SIGNER()) == "" THEN GOTO 600
+35  IF DEROVALUE() != 0 || ASSETVALUE(LOAD("quote")) != 0 THEN GOTO 999
 40  IF ASSETVALUE(SCID()) == 1 THEN GOTO 70 ELSE GOTO 400
 70  IF listType == "auction" THEN GOTO 100 ELSE GOTO 80
 80  IF listType == "sale" THEN GOTO 100 ELSE GOTO 400
@@ -94,10 +97,7 @@ Function Start(listType String, duration Uint64, startPrice Uint64, charityDonat
 150 LET tempPercCount = (10000 - LOAD("protoFee") - LOAD("artificerFee") * 100 - LOAD("royalty") * 100) / 100
 155 IF charityDonatePerc > tempPercCount THEN GOTO 165 ELSE GOTO 190
 165 LET charityDonatePerc = tempPercCount
-170 STORE("charityDonatePerc", charityDonatePerc)
-175 IF IS_ADDRESS_VALID(ADDRESS_RAW(charityDonateAddr)) == 1 THEN GOTO 180 ELSE GOTO 400
-180 STORE("charityDonateAddr", ADDRESS_RAW(charityDonateAddr))
-185 GOTO 210
+170 GOTO 195
 190 IF charityDonatePerc > 0 THEN GOTO 195 ELSE GOTO 210
 195 IF IS_ADDRESS_VALID(ADDRESS_RAW(charityDonateAddr)) == 1 THEN GOTO 200 ELSE GOTO 400
 200 STORE("charityDonatePerc", charityDonatePerc)
@@ -122,7 +122,7 @@ Function BuyItNow() Uint64
 12  dim q as String
 15  IF ADDRESS_STRING(SIGNER()) == "" THEN GOTO 999
 16  LET q = LOAD("quote")
-17  IF q != DERO() && DEROVALUE() != 0 THEN GOTO 999
+17  IF (q != DERO() && DEROVALUE() != 0) || ASSETVALUE(SCID()) != 0 THEN GOTO 999
 20  IF LOAD("owner") == SIGNER() THEN GOTO 920 ELSE GOTO 30
 30  LET activeFlag = checkActive("sale")
 40  IF activeFlag == 0 THEN GOTO 50 ELSE GOTO 500
@@ -137,7 +137,10 @@ Function BuyItNow() Uint64
 97  STORE("previousSalePrice", ASSETVALUE(q))
 100 RETURN 0
 500 IF activeFlag == 999 THEN GOTO 920 ELSE GOTO 510
-510 IF activeFlag == 111 THEN GOTO 520 ELSE GOTO 920
+510 IF activeFlag == 111 THEN GOTO 512 ELSE GOTO 920
+512 IF LOAD("listType") != "auction" THEN GOTO 520
+514 processHighestBidder()
+516 GOTO 920
 520 SEND_ASSET_TO_ADDRESS(LOAD("owner"), LOAD("scBalance"), SCID())
 530 STORE("scBalance", 0)
 540 resetVars(1)
@@ -151,7 +154,7 @@ Function Bid() Uint64
 12  dim q as String
 15  IF ADDRESS_STRING(SIGNER()) == "" THEN GOTO 999
 20  LET q = LOAD("quote")
-21  IF q != DERO() && DEROVALUE() != 0 THEN GOTO 999
+21  IF (q != DERO() && DEROVALUE() != 0) || ASSETVALUE(SCID()) != 0 THEN GOTO 999
 25  LET bidAmt = ASSETVALUE(q)
 30  IF LOAD("owner") == SIGNER() THEN GOTO 920 ELSE GOTO 35
 35  LET activeFlag = checkActive("auction")
@@ -183,7 +186,7 @@ Function Bid() Uint64
 999 RETURN 1
 End Function
 Function CloseListing() Uint64
-5   IF LOAD("quote") != DERO() && DEROVALUE() != 0 THEN GOTO 999
+5   IF DEROVALUE() != 0 || ASSETVALUE(LOAD("quote")) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 999
 10  IF LOAD("owner") == SIGNER() THEN GOTO 20 ELSE GOTO 999
 20  IF checkActive(LOAD("listType")) == 111 THEN GOTO 30 ELSE GOTO 999
 30  IF LOAD("listType") == "auction" THEN GOTO 40 ELSE GOTO 200
@@ -199,7 +202,7 @@ Function CloseListing() Uint64
 End Function
 Function CancelListing() Uint64
 10  dim tempCounter as Uint64
-20  IF LOAD("quote") != DERO() && DEROVALUE() != 0 THEN GOTO 999
+20  IF DEROVALUE() != 0 || ASSETVALUE(LOAD("quote")) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 999
 30  IF LOAD("owner") == SIGNER() THEN GOTO 50 ELSE GOTO 999
 50  IF checkActive(LOAD("listType")) == 0 THEN GOTO 60 ELSE GOTO 999
 60  IF (LOAD("startBlockTime") + LOAD("cancelBuffer")) >= BLOCK_TIMESTAMP() THEN GOTO 460 ELSE GOTO 999
@@ -284,19 +287,48 @@ Function processDEROFinalPayment(saleAmt Uint64) Uint64
 80  IF LOAD("artificerFee") > 0 THEN GOTO 85 ELSE GOTO 100
 85  LET artificerPaymt = LOAD("artificerFee") * saleAmt / 100
 86  IF artificerPaymt > 0 THEN GOTO 90 ELSE GOTO 100
-90  SEND_ASSET_TO_ADDRESS(LOAD("artificerAddr"), artificerPaymt, q)
+90  owe(LOAD("artificerAddr"), artificerPaymt)
 100 IF LOAD("charityDonatePerc") > 0 THEN GOTO 105 ELSE GOTO 112
 105 LET charityPaymt = LOAD("charityDonatePerc") * saleAmt / 100
 106 IF charityPaymt > 0 THEN GOTO 110 ELSE GOTO 112
-110 SEND_ASSET_TO_ADDRESS(LOAD("charityDonateAddr"), charityPaymt, q)
+110 owe(LOAD("charityDonateAddr"), charityPaymt)
 112 IF LOAD("protoFee") > 0 THEN GOTO 114 ELSE GOTO 120
 114 LET protoPaymt = LOAD("protoFee") * saleAmt / 10000
 116 IF protoPaymt > 0 THEN GOTO 118 ELSE GOTO 120
-118 SEND_ASSET_TO_ADDRESS(LOAD("treasury"), protoPaymt, q)
+118 owe(LOAD("treasury"), protoPaymt)
 120 LET payoutAmt = saleAmt - royaltyPaymt - artificerPaymt - charityPaymt - protoPaymt
 125 IF payoutAmt > 0 THEN GOTO 130 ELSE GOTO 200
 130 SEND_ASSET_TO_ADDRESS(LOAD("owner"), payoutAmt, q)
 200 RETURN 0
+End Function
+Function owe(payee String, amt Uint64) Uint64
+10  dim k as String
+20  LET k = ADDRESS_STRING(payee)
+30  IF EXISTS("ow_" + k) == 0 THEN GOTO 60
+40  STORE("ow_" + k, LOAD("ow_" + k) + amt)
+50  GOTO 70
+60  STORE("ow_" + k, amt)
+70  STORE("owed", LOAD("owed") + amt)
+80  RETURN 0
+End Function
+Function PayOwed(payee String) Uint64
+10  dim a, k as String
+20  dim amt as Uint64
+30  IF DEROVALUE() != 0 || ASSETVALUE(LOAD("quote")) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 999
+40  LET a = ADDRESS_RAW(payee)
+50  IF IS_ADDRESS_VALID(a) == 0 THEN GOTO 999
+60  LET k = ADDRESS_STRING(a)
+70  IF EXISTS("ow_" + k) == 0 THEN GOTO 999
+80  LET amt = LOAD("ow_" + k)
+90  DELETE("ow_" + k)
+100 STORE("owed", LOAD("owed") - amt)
+110 IF EXISTS("op_" + k) == 0 THEN GOTO 140
+120 STORE("op_" + k, LOAD("op_" + k) + amt)
+130 GOTO 150
+140 STORE("op_" + k, amt)
+150 SEND_ASSET_TO_ADDRESS(a, amt, LOAD("quote"))
+160 RETURN 0
+999 RETURN 1
 End Function
 Function resetVars(forceReset Uint64) Uint64
 10  IF forceReset == 0 THEN GOTO 20 ELSE GOTO 30

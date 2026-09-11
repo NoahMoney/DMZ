@@ -13,11 +13,12 @@ import (
 	"github.com/deroproject/derohe/veil/tests/harness"
 )
 
-// R4 / BL-68. checkActive returns 111 for ANY ended listing before it looks at the type (40 precedes 50), so
-// BuyItNow on an ended auction takes the 111 branch: the unit goes back to the owner and processHighestBidder
-// never runs. The winning bid stays under currBidAmt, which resetVars does not clear, and no call the winner can
-// make returns it.
-func TestNFAEndedAuctionBuyItNowStrandsTheWinningBid(t *testing.T) {
+// R4 / BL-68 / ADV-PRICE-01 (was TestNFAEndedAuctionBuyItNowStrandsTheWinningBid). checkActive returns 111 for
+// ANY ended listing before it looks at the type (40 precedes 50), so BuyItNow on an ended auction reaches its 111
+// branch. That branch used to send the unit back to the owner and leave the winning bid in the contract, with no
+// call the winner could make to get it back; it now settles the auction to the winner through processHighestBidder
+// (BuyItNow 512-516), so a third party's empty BuyItNow does exactly what the owner's CloseListing does.
+func TestNFAEndedAuctionBuyItNowSettlesTheWinningBid(t *testing.T) {
 	e := newNFAEnv(t, true, 5, 0, 50)
 	c := e.c
 	const price = 1_000_000_000
@@ -30,43 +31,20 @@ func TestNFAEndedAuctionBuyItNowStrandsTheWinningBid(t *testing.T) {
 	c.Timestamp = c.U(e.nfa, "endBlockTime") // the auction has ended; alice has won it
 
 	// carol is neither the owner nor a bidder, and attaches nothing
-	r := e.buy(e.carol, 0)
-	if !r.OK() {
-		t.Fatalf("carol's empty BuyItNow on the ended auction: %v", r.Err)
-	}
-	if r.Sent(e.nfa, e.creator) != 1 {
-		t.Fatalf("the unit did not go back to the owner: %v", r.Transfers)
-	}
-	if got := c.U(e.nfa, "currBidAmt"); got != price {
-		t.Fatalf("currBidAmt %d, want the winning bid %d still held", got, price)
-	}
-	if b := c.SCBalance(e.nfa, e.quote); b != price {
-		t.Fatalf("contract holds %d of the quote, want alice's %d stranded", b, price)
-	}
-	if c.S(e.nfa, "listType") != "" || c.U(e.nfa, "scBalance") != 0 {
-		t.Fatal("the listing was not reset")
-	}
+	e.checkSettlement(t, "carol's empty BuyItNow on the ended auction", e.buy(e.carol, 0), price, e.creator, e.alice, 0, nil)
 
-	// alice cannot get it back on her own: every entrypoint she can reach refuses or pays her nothing
-	if rr := e.bid(e.alice, 0); rr.Sent(e.quote, e.alice) != 0 {
-		t.Fatal("Bid refunded the stranded amount - the strand is fixed, update the report")
+	// the listing is over: nothing is left for Bid, CloseListing or CancelListing to act on
+	if rr := e.bid(e.alice, 0); !rr.OK() || len(rr.Transfers) != 0 {
+		t.Fatalf("an empty Bid after the settlement: %v %+v", rr.Err, rr.Transfers)
 	}
-	if rr := e.call("CloseListing", nil, nil, e.creator); rr.OK() {
-		t.Fatal("CloseListing succeeded on a reset listing - update the report")
+	if rr := e.call("CloseListing", nil, nil, e.alice); rr.OK() {
+		t.Fatal("CloseListing succeeded with nothing listed")
 	}
-	if rr := e.call("CancelListing", nil, nil, e.creator); rr.OK() {
-		t.Fatal("CancelListing succeeded on a reset listing - update the report")
+	if rr := e.call("CancelListing", nil, nil, e.alice); rr.OK() {
+		t.Fatal("CancelListing succeeded with nothing listed")
 	}
-
-	// the only way out is the owner starting a NEW listing and a third party bidding into it
-	if rr := e.start(e.creator, "auction", 1, 1, "", 0, true); !rr.OK() {
-		t.Fatalf("relist: %v", rr.Err)
-	}
-	rr := e.bid(e.bob, 1)
-	if !rr.OK() || rr.Sent(e.quote, e.alice) != price {
-		t.Fatalf("the relist+bid recovery did not pay alice back: %v", rr.Transfers)
-	}
-	t.Logf("stranded %d of the quote; recovered only because the owner relisted and a third party bid", uint64(price))
+	e.drain(t)
+	t.Logf("a stranger's empty BuyItNow settled the ended auction to its winner: alice holds the unit, the seller was paid %d", uint64(price)-uint64(price)*5/100-uint64(price)*50/10000)
 }
 
 // R4 / R11. generateEndBlock caps the INITIAL duration at 604,800 s; Bid 170-180 then resets endBlockTime to
@@ -115,10 +93,13 @@ func TestNFAAntiSnipeExtensionHasNoCap(t *testing.T) {
 	}
 }
 
-// board.bas Accept is permissionless, one-shot and irreversible: any address that is not the maker binds an open
-// offer with a 40-character string it never has to honour, and Cancel refuses an accepted offer until its expiry,
-// which the maker may have set up to 1,000,000 blocks (~208 days) out.
-func TestBoardAcceptByAnyoneFreezesAnOfferUntilExpiry(t *testing.T) {
+// ADV-PRICE-07, repaired by board.bas v3 (this was TestBoardAcceptByAnyoneFreezesAnOfferUntilExpiry). Accept is
+// still permissionless and one-shot: any address that is not the maker binds an open offer with a 40-character
+// string it never has to honour, and a second Accept is refused. v2's Cancel then refused the accepted offer until
+// its expiry, which the maker may have set up to 1,000,000 blocks (~208 days) out. v3 records the acceptance
+// deadline ad_<id> = the accept height + aw (200) and lets the maker Cancel from it, so the freeze lasts an hour.
+// The residual — one Accept per offer per hour, repeatable — is GAP-026 in docs/MAINNET_GAP_ANALYSIS.md.
+func TestBoardAcceptByAnyoneHoldsAnOfferOnlyUntilItsAcceptanceDeadline(t *testing.T) {
 	c := harness.New()
 	maker, griefer, taker := c.NewAccount(), c.NewAccount(), c.NewAccount()
 	scid, res := c.Install(readContract(t, "board.bas"), nil, nil, maker, harness.MaxStorageGas)
@@ -143,15 +124,25 @@ func TestBoardAcceptByAnyoneFreezesAnOfferUntilExpiry(t *testing.T) {
 	if r := c.Call(scid, "Accept", rpc.Arguments{harness.U("id", 0), harness.S("refundPkh", strings.Repeat("cd", 20)), harness.U("cltv", 2_500_000)}, nil, taker); r.OK() {
 		t.Fatal("a second Accept succeeded - update the report")
 	}
-	// and the maker cannot take the row back until expiry
-	if r := c.Call(scid, "Cancel", rpc.Arguments{harness.U("id", 0)}, nil, maker); r.OK() {
-		t.Fatal("the maker cancelled an accepted offer before expiry - update the report")
+	// the maker cannot take the row back inside the acceptance window...
+	at, aw := c.Height, c.U(scid, "aw")
+	cancel := rpc.Arguments{harness.U("id", 0)}
+	if r := c.Call(scid, "Cancel", cancel, nil, maker); r.OK() {
+		t.Fatal("the maker cancelled an accepted offer in the block it was accepted")
 	}
-	c.Height = expiry
-	if r := c.Call(scid, "Cancel", rpc.Arguments{harness.U("id", 0)}, nil, maker); !r.OK() {
-		t.Fatalf("cancel at expiry: %v", r.Err)
+	c.Height = at + aw - 1
+	if r := c.Call(scid, "Cancel", cancel, nil, maker); r.OK() {
+		t.Fatal("the maker cancelled an accepted offer before its acceptance deadline")
 	}
-	t.Logf("one Accept transaction froze the offer for %d blocks (~%.0f days at 18 s)", expiry-1, float64(expiry-1)*18/86400)
+	// ...and from the deadline he can, nearly a million blocks before the offer's expiry
+	c.Height = at + aw
+	if c.U(scid, "ad_0") != c.Height {
+		t.Fatalf("ad_0 %d, want the accept height %d + aw %d", c.U(scid, "ad_0"), at, aw)
+	}
+	if r := c.Call(scid, "Cancel", cancel, nil, maker); !r.OK() || c.U(scid, "st_0") != 2 {
+		t.Fatalf("cancel at the acceptance deadline, %d blocks before expiry: %v", expiry-c.Height, r.Err)
+	}
+	t.Logf("one Accept transaction now holds the offer for %d blocks (~%.0f min at 18 s), not the %d to its expiry", aw, float64(aw)*18/60, expiry-at)
 }
 
 // launch.bas checks only STRLEN(quote) == 32: the quote may be any asset, including one the shipped config does

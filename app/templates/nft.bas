@@ -38,7 +38,7 @@ Function Lock() Uint64
 20 LET s = SIGNER()
 21 IF IS_ADDRESS_VALID(s) == 0 THEN GOTO 900
 22 LET v = ASSETVALUE(LOAD("token"))
-23 IF v < LOAD("minhold") || DEROVALUE() != 0 THEN GOTO 900
+23 IF v < LOAD("minhold") || DEROVALUE() != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 900
 24 LET a = ADDRESS_STRING(s)
 25 IF EXISTS("lk_" + a) THEN GOTO 900
 30 STORE("lk_" + a, v)
@@ -51,7 +51,7 @@ Function Mint() Uint64
 10 DIM s, a as String
 11 DIM d, price, fee, n as Uint64
 20 LET s = SIGNER()
-21 IF IS_ADDRESS_VALID(s) == 0 THEN GOTO 900
+21 IF IS_ADDRESS_VALID(s) == 0 || ASSETVALUE(LOAD("token")) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 900
 22 LET a = ADDRESS_STRING(s)
 23 IF EXISTS("lk_" + a) == 0 THEN GOTO 900
 24 IF LOAD("lm_" + a) != 0 || EXISTS("mt_" + a) THEN GOTO 900
@@ -77,7 +77,7 @@ End Function
 Function Unlock() Uint64
 10 DIM s, a as String
 20 LET s = SIGNER()
-21 IF IS_ADDRESS_VALID(s) == 0 THEN GOTO 900
+21 IF IS_ADDRESS_VALID(s) == 0 || DEROVALUE() != 0 || ASSETVALUE(LOAD("token")) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 900
 22 LET a = ADDRESS_STRING(s)
 23 IF EXISTS("lk_" + a) == 0 THEN GOTO 900
 30 SEND_ASSET_TO_ADDRESS(s, LOAD("lk_" + a), LOAD("token"))
@@ -91,7 +91,7 @@ Function ClaimCreator() Uint64
 10 DIM s as String
 11 DIM x as Uint64
 20 LET s = SIGNER()
-21 IF s != LOAD("creator") THEN GOTO 900
+21 IF s != LOAD("creator") || DEROVALUE() != 0 || ASSETVALUE(LOAD("token")) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 900
 30 LET x = LOAD("cacc")
 31 STORE("cacc", 0)
 32 SEND_DERO_TO_ADDRESS(s, x)
@@ -101,6 +101,7 @@ End Function
 Function ClaimFees() Uint64
 10 DIM t as String
 11 DIM x as Uint64
+15 IF DEROVALUE() != 0 || ASSETVALUE(LOAD("token")) != 0 || ASSETVALUE(SCID()) != 0 THEN GOTO 900
 20 LET t = LOAD("treasury")
 30 LET x = LOAD("fd")
 31 IF x == 0 THEN GOTO 900

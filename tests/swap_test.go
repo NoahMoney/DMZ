@@ -15,7 +15,7 @@ func TestSwapEscrow(t *testing.T) {
 	c := harness.New()
 	alice, bob, carol := c.NewAccount(), c.NewAccount(), c.NewAccount()
 	code := readContract(t, "swap.bas")
-	scid, res := c.Install(code, nil, nil, alice, harness.MaxStorageGas)
+	scid, res := c.Install(code, nil, swapInit(), alice, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}
@@ -30,16 +30,16 @@ func TestSwapEscrow(t *testing.T) {
 	hash := hex.EncodeToString(sum[:])
 	exp := c.Height + 10
 	// bad locks: short hash, expiry in the past, no funds, anonymous
-	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", "abcd"), harness.S("taker", ""), harness.U("expiry", exp), harness.S("asset", "")}, map[crypto.Hash]uint64{zero: 100000}, alice); r.OK() {
+	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", "abcd"), harness.S("taker", bob.String()), harness.U("expiry", exp), harness.S("asset", "")}, map[crypto.Hash]uint64{zero: 100000}, alice); r.OK() {
 		t.Fatal("short hash accepted")
 	}
-	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", hash), harness.S("taker", ""), harness.U("expiry", c.Height), harness.S("asset", "")}, map[crypto.Hash]uint64{zero: 100000}, alice); r.OK() {
+	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", hash), harness.S("taker", bob.String()), harness.U("expiry", c.Height), harness.S("asset", "")}, map[crypto.Hash]uint64{zero: 100000}, alice); r.OK() {
 		t.Fatal("past expiry accepted")
 	}
-	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", hash), harness.S("taker", ""), harness.U("expiry", exp), harness.S("asset", "")}, nil, alice); r.OK() {
+	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", hash), harness.S("taker", bob.String()), harness.U("expiry", exp), harness.S("asset", "")}, nil, alice); r.OK() {
 		t.Fatal("empty lock accepted")
 	}
-	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", hash), harness.S("taker", ""), harness.U("expiry", exp), harness.S("asset", "")}, map[crypto.Hash]uint64{zero: 100000}, nil); r.OK() {
+	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", hash), harness.S("taker", bob.String()), harness.U("expiry", exp), harness.S("asset", "")}, map[crypto.Hash]uint64{zero: 100000}, nil); r.OK() {
 		t.Fatal("anonymous lock accepted")
 	}
 	// lock 1 DERO for bob
@@ -47,9 +47,10 @@ func TestSwapEscrow(t *testing.T) {
 	if !r.OK() || c.U(scid, "n") != 1 || c.U(scid, "v_0") != 100000 || c.S(scid, "h_0") != hash || c.SCBalance(scid, zero) != 100000 {
 		t.Fatalf("lock: %v", r.Err)
 	}
-	// wrong claimant, wrong secret, refund too early
-	if r := c.Call(scid, "Claim", rpc.Arguments{harness.U("id", 0), harness.S("secret", secret)}, nil, carol); r.OK() {
-		t.Fatal("stranger claimed a lock meant for bob")
+	// wrong secret from a stranger and from bob, refund too early. (A stranger's Claim with the RIGHT secret pays
+	// bob in v2 — tests/swap_v2_test.go — so it is no longer a refusal case.)
+	if r := c.Call(scid, "Claim", rpc.Arguments{harness.U("id", 0), harness.S("secret", strings.Repeat("11", 32))}, nil, carol); r.OK() {
+		t.Fatal("stranger's wrong secret accepted")
 	}
 	if r := c.Call(scid, "Claim", rpc.Arguments{harness.U("id", 0), harness.S("secret", strings.Repeat("00", 32))}, nil, bob); r.OK() {
 		t.Fatal("wrong secret accepted")
@@ -68,16 +69,18 @@ func TestSwapEscrow(t *testing.T) {
 	if r := c.Call(scid, "Refund", rpc.Arguments{harness.U("id", 0)}, nil, alice); r.OK() {
 		t.Fatal("refund of a claimed lock accepted")
 	}
-	// an asset lock for anyone, then expiry: claim refused, stranger cannot refund, maker refunds once
+	// an asset lock for bob, then expiry: claim refused, stranger cannot refund, maker refunds once. (Every lock
+	// names its taker — GAP-024, tests/swap_gaps_test.go — so the bad locks above name bob too, and each is refused
+	// for its own reason.)
 	var asset crypto.Hash
 	asset[0] = 9
 	assetHex := hex.EncodeToString(asset[:])
 	exp2 := c.Height + 3
-	r = c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", hash), harness.S("taker", ""), harness.U("expiry", exp2), harness.S("asset", assetHex)}, map[crypto.Hash]uint64{asset: 5000}, alice)
+	r = c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", hash), harness.S("taker", bob.String()), harness.U("expiry", exp2), harness.S("asset", assetHex)}, map[crypto.Hash]uint64{asset: 5000}, alice)
 	if !r.OK() || c.U(scid, "v_1") != 5000 || c.S(scid, "a_1") != string(asset[:]) || c.SCBalance(scid, asset) != 5000 {
 		t.Fatalf("asset lock: %v", r.Err)
 	}
-	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", hash), harness.S("taker", ""), harness.U("expiry", exp2), harness.S("asset", assetHex)}, map[crypto.Hash]uint64{asset: 5000, zero: 1}, alice); r.OK() {
+	if r := c.Call(scid, "Lock", rpc.Arguments{harness.S("hash", hash), harness.S("taker", bob.String()), harness.U("expiry", exp2), harness.S("asset", assetHex)}, map[crypto.Hash]uint64{asset: 5000, zero: 1}, alice); r.OK() {
 		t.Fatal("asset lock with stray DERO accepted")
 	}
 	for c.Height < exp2 {

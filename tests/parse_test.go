@@ -16,10 +16,10 @@ func TestContractsParse(t *testing.T) {
 	want := map[string][]string{
 		"pool.bas":     {"InitializePrivate", "AddLiquidity", "RemoveLiquidity", "SwapDeroForAsset", "SwapDeroForAssetTo", "SwapAssetForDero", "SwapAssetForDeroTo", "ClaimFees"},
 		"launch.bas":   {"InitializePrivate", "SwapDeroForAsset", "SwapDeroForAssetTo", "SwapAssetForDero", "SwapAssetForDeroTo", "ClaimFees", "ClaimTax", "Buyback", "Distribute", "Stake", "Unstake", "Claim"},
-		"factory.bas":  {"Initialize", "SetTreasury", "SetRegFee", "TransferOwnership", "ClaimOwnership", "RegisterPool", "RegisterLaunch", "RegisterNFA", "RegisterNFT"},
+		"factory.bas":  {"Initialize", "SetTreasury", "SetRegFee", "Renounce", "RegisterPool", "RegisterLaunch", "RegisterNFA", "RegisterNFT"},
 		"social.bas":   {"Initialize", "Profile", "Follow", "Unfollow"},
 		"nft.bas":      {"InitializePrivate", "Lock", "Mint", "Unlock", "ClaimCreator", "ClaimFees"},
-		"nfa.bas":      {"InitializePrivate", "ClaimOwnership", "Update", "Start", "BuyItNow", "Bid", "CloseListing", "CancelListing"},
+		"nfa.bas":      {"InitializePrivate", "ClaimOwnership", "Update", "Start", "BuyItNow", "Bid", "CloseListing", "CancelListing", "PayOwed"},
 		"founders.bas": {"InitializePrivate", "Mint", "Register", "Withdraw", "Claim", "Deposit", "Distribute", "PayBatch", "List", "Unlist", "Buy"},
 		"swap.bas":     {"Initialize", "Lock", "Claim", "Refund"},
 		"htlc.bas":     {"Initialize", "Lock", "Claim", "Refund", "Punish"},
