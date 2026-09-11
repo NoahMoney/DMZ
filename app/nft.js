@@ -28,7 +28,7 @@
             h("div", { class: "grow" }, h("h1", null, n.name), h("div", { class: "sub ellipsis" }, n.collection))),
           h("div", { class: "label mt" }, "Editions minted"),
           h("div", { class: "big num mt8" }, n.minted + " / " + n.maxsupply)),
-        img && V.settings.images ? h("img", { src: img, alt: "", referrerpolicy: "no-referrer", loading: "lazy", style: "width:100%;display:block;margin-top:14px;border:1px solid var(--edge)" }) : null,
+        // no image is fetched from the creator's host: the app makes no request but to your node and your wallet
         h("div", { class: "stats4 mt" },
           stat("Mint price", A.fmtDero(n.price, 2) + " DERO"),
           stat("Hold", A.fmtCompact(n.minhold, n.tokenDec) + " " + n.tokenTicker),
@@ -47,10 +47,13 @@
             h("div", { class: "stack mt" },
               soldOut ? h("div", { class: "note" }, "All " + n.maxsupply + " editions are minted. The contract refuses another, so locking now earns nothing; an existing lock can still be unlocked.") : null,
               !lock && !soldOut && mintedEver ? h("div", { class: "note" }, "This address already minted its edition: one per address, locking again earns nothing more.") : null,
-              !lock && !soldOut && !mintedEver ? button("Lock " + A.fmtCompact(n.minhold, n.tokenDec) + " " + n.tokenTicker, "primary wide", () => V.app.tx({ scid, entry: "Lock", args: [], asset: { scid: n.token, amount: n.minhold }, describe: "Lock tokens" })) : null,
-              lock && !lock.minted && !soldOut ? button(ready ? "Mint edition (" + A.fmtDero(n.price, 2) + " DERO)" : "Minting in " + left + " blocks", "primary wide", () => V.app.tx({ scid, entry: "Mint", args: [], dero: n.price, fee: 2000, describe: "Mint NFT" }), { disabled: !ready }) : null,
-              lock ? button("Unlock tokens", "wide", () => V.app.tx({ scid, entry: "Unlock", args: [], describe: "Unlock" })) : null,
-              me() === n.creator ? button("Claim creator revenue", "wide", () => V.app.tx({ scid, entry: "ClaimCreator", args: [], describe: "Claim" })) : null,
+              // each call names the key its success must move (this wallet's own, where there is one), so a reverted
+              // call is reported as one instead of "included" — Mint skips the estimator, so it most needs it
+              !lock && !soldOut && !mintedEver ? button("Lock " + A.fmtCompact(n.minhold, n.tokenDec) + " " + n.tokenTicker, "primary wide", () => V.app.tx({ scid, entry: "Lock", args: [], asset: { scid: n.token, amount: n.minhold }, describe: "Lock tokens", probe: { scid, keys: ["lk_" + me()] } })) : null,
+              lock && !lock.minted && !soldOut ? button(ready ? "Mint edition (" + A.fmtDero(n.price, 2) + " DERO)" : "Minting in " + left + " blocks", "primary wide", () => V.app.tx({ scid, entry: "Mint", args: [], dero: n.price, fee: 2000, describe: "Mint NFT", probe: { scid, keys: ["lm_" + me()] } }), { disabled: !ready }) : null,
+              lock ? button("Unlock tokens", "wide", () => V.app.tx({ scid, entry: "Unlock", args: [], describe: "Unlock", probe: { scid, keys: ["lk_" + me()] } })) : null,
+              // ClaimCreator pays whatever cacc holds, zero included: a claim of nothing is not offered
+              me() === n.creator && n.cacc > 0n ? button("Claim creator revenue (" + A.fmtDero(n.cacc, 2) + " DERO)", "wide", () => V.app.tx({ scid, entry: "ClaimCreator", args: [], describe: "Claim", probe: { scid, keys: ["cacc"] } })) : null,
               tok ? button("Open " + tok.ticker, "wide", () => U.router.go("token", tok.scid)) : null),
             h("div", { class: "note mt" }, "Lock the token in the contract to prove you hold it; after " + n.holdblocks + " blocks (~" + Math.round(Number(n.holdblocks) * 18 / 60) + " min) mint one edition, one per lock. Unlock returns your tokens at any time.")),
           // the ledger: no shield and no badge, the numbers are the assurance

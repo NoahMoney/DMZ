@@ -25,7 +25,9 @@
       // our scid must be among the entries added, not just any registration that landed in the same window
       const n0 = Number(p0.vals[cnt] || 0), n1 = Number(p1.vals[cnt] || 0); if (!(n1 > n0)) return false;
       const ks = []; for (let i = n0; i < Math.min(n1, n0 + 16); i++) ks.push(pre + i);
-      const r = await V.node.getSC(D.cfg.factory, { keys: ks }); return ks.some((k) => String(r.vals[k] || "").toLowerCase() === scid); } } });
+      // the node returns a string value hex-encoded (feed.js reads these same slots through hexToStr): compared raw, it
+      // never matched, and a registration that landed was reported as "did not execute, only the network fee was spent"
+      const r = await V.node.getSC(D.cfg.factory, { keys: ks }); return ks.some((k) => V.hexToStr(r.vals[k] || "").toLowerCase() === scid); } } });
     if (!reg) toast("Installed but not registered: " + scid, "err", 9000);
     return scid;
   }

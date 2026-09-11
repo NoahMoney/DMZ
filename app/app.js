@@ -19,6 +19,30 @@
   V.settings = app.settings;
   app.saveSettings = (patch) => { Object.assign(app.settings, patch); try { localStorage.setItem("veil.settings", JSON.stringify(app.settings)); } catch (e) {} };
 
+  // ---- network ----
+  // The build names one network, the node it reads reports one, and the wallet signs on its own node, which need
+  // not be that node. Nothing is signed unless all three agree. A disagreement with the node is said on every
+  // screen (a standing banner, not a toast that fades), and a network that cannot be read never counts as agreeing.
+  const netName = (x) => String(x || "").toLowerCase();
+  const addrNet = (a) => { const d = V.bech32Decode(String(a || "")); return !d ? "" : /^dero/.test(d.hrp) ? "mainnet" : /^deto/.test(d.hrp) ? "a test network" : ""; };
+  const addrWant = () => (netName(D.cfg.network) === "mainnet" ? "mainnet" : "a test network");
+  app.net = { node: "", ok: null, why: "" };
+  const netBanner = () => { const b = U.$("#netwarn"); if (!b) return; b.hidden = app.net.ok !== false; b.textContent = app.net.ok === false ? app.net.why : ""; };
+  // Asked at the moment of signing, of the wallet's own node, so a wallet moved to another node since the last
+  // check cannot sign there. "" means go; anything else is the reason nothing was sent.
+  app.netGate = async () => {
+    const want = netName(D.cfg.network);
+    if (!want) return "Refusing: this build names no network, so no transaction can be checked against one";
+    if (app.net.ok === false) return app.net.why;
+    if (!W.connected) return "Refusing: no wallet is connected";
+    if (addrNet(W.address) !== addrWant()) return "Refusing: the connected wallet's address belongs to " + (addrNet(W.address) || "no known network") + " and this build is for " + want + ". Nothing was sent.";
+    let wi = null; try { wi = await W.call("DERO.GetInfo"); } catch (e) {}
+    const wn = netName(wi && wi.network);
+    if (!wn) return "Refusing: your wallet's node did not say which network it is on, so this app cannot confirm where the transaction would go. Nothing was sent.";
+    if (wn !== want) return "Refusing: this build is for " + want + " but your wallet's node is on " + wn + ". Nothing was sent.";
+    return "";
+  };
+
   // ---- node ----
   app.connectNode = async () => {
     // settings first, then the wallet's node, then the shipped default; each must pass endpointURL (this device, or wss://)
@@ -28,9 +52,18 @@
     const pick = stored || (W.connected && V.endpointURL(W.daemon)) || V.endpointURL(D.cfg.daemon);
     V.node.setEndpoint(pick ? pick.url : "");
     V.node.proxy = W.connected ? (m, p) => W.proxy(m, p) : null;
-    const pill = U.$("#net");
-    try { const i = await V.node.info(); pill.textContent = (i.network || D.cfg.network) + " · " + i.height + (pick && !pick.loopback ? " · " + app.hostOf(pick.url) : ""); pill.className = "pill up"; if (i.network && D.cfg.network && String(i.network).toLowerCase() !== String(D.cfg.network).toLowerCase()) toast("This build is for " + D.cfg.network + " but the node is " + i.network + ": contracts will not be found", "err", 9000); L.start(); }
-    catch (e) { pill.textContent = W.connected ? "node via wallet" : "no node"; pill.className = "pill " + (W.connected ? "acc" : "down"); if (W.connected) L.start(); }
+    const pill = U.$("#net"), want = netName(D.cfg.network), via = pick && !pick.loopback ? " (" + app.hostOf(pick.url) + ")" : "";
+    try {
+      const i = await V.node.info(), nn = netName(i.network), an = addrNet(W.address);
+      app.net = { node: String(i.network || ""), ok: !!nn && nn === want, why: "" };
+      // was a 9-second toast: a mismatch lasts as long as the connection does, so the statement does too
+      if (!app.net.ok) app.net.why = "This build is for " + (want || "no named network") + ", but the node it reads" + via + " reports " + (i.network || "no network") + ". What is on screen comes from that node, not from " + (want || "the build's network") + ", and nothing can be signed until the two agree: point Settings at a " + (want || "matching") + " node, or open the build made for " + (i.network || "that network") + ".";
+      else if (W.connected && an !== addrWant()) app.net = { node: String(i.network), ok: false, why: "The connected wallet holds " + (an === "mainnet" ? "a mainnet" : an ? "a test-network" : "an unrecognised") + " address and this build is for " + want + ". Nothing can be signed from it here: connect a " + want + " wallet." };
+      pill.textContent = (i.network || D.cfg.network) + " · " + i.height + (pick && !pick.loopback ? " · " + app.hostOf(pick.url) : "");
+      pill.className = "pill " + (app.net.ok ? "up" : "down");
+      L.start();
+    } catch (e) { app.net = { node: "", ok: null, why: "" }; pill.textContent = W.connected ? "node via wallet" : "no node"; pill.className = "pill " + (W.connected ? "acc" : "down"); if (W.connected) L.start(); }
+    netBanner();
   };
 
   // ---- wallet ----
@@ -46,7 +79,7 @@
     btn.className = "btn small " + (W.connected ? "ghost" : "primary");
     const side = U.$("#sideWallet"), note = U.$("#sideNote");
     if (side) U.render(side, W.connected
-      ? h("button", { class: "side-wallet", type: "button", onclick: btn.onclick || (() => {}) }, U.avatar(W.canon, "sm"), h("div", { class: "grow ellipsis" }, h("b", null, D.displayName(W.canon)), h("div", { class: "sub ellipsis" }, app.holdings ? A.fmtDero(app.holdings.dero, 2) + " DERO" : "connected")))
+      ? h("button", { class: "side-wallet", type: "button", onclick: btn.onclick || (() => {}) }, U.avatar(W.canon, "sm"), h("div", { class: "grow ellipsis" }, h("b", null, D.displayName(W.canon)), h("div", { class: "sub ellipsis" }, app.holdings ? (app.holdings.dero === null ? "DERO unreadable" : A.fmtDero(app.holdings.dero, 2) + " DERO") : "connected")))
       : h("button", { class: "side-wallet", type: "button", onclick: app.connectWallet }, h("span", { class: "iconbtn" }, icon("wallet")), h("div", { class: "grow" }, h("b", null, "Connect wallet"), h("div", { class: "sub" }, "Engram · XSWD"))));
     // The rail foot carries the build stamp and, above it, the one page that outranks every other piece of copy.
     if (note) U.render(note,
@@ -82,9 +115,11 @@
   app.loadHoldings = async (force) => {
     if (!W.connected || app.loadingHold || (!force && app.holdings && Date.now() - app.holdings.at < 60000)) return; app.loadingHold = true;
     try { // low-priority wallet reads: a user action never waits behind them
-      const dero = V.toBig((await W.getBalance("", true).catch(() => ({ balance: 0 }))).balance) ?? 0n;
-      const rows = [];
-      for (const s of D.list()) { if (s.kind !== "launch") continue; const b = await W.getBalance(s.scid, true).catch(() => null); const units = b ? V.toBig(b.balance) : null; if (!units) continue; const q = A.launchSell(s, units) || { out: Z }; rows.push({ s, units, value: q.out }); }
+      // An amount the wallet did not give is unreadable, never zero: a failed read printed "0 DERO free" and dropped
+      // the token as if it were not held. dero is null then, and unread counts the tokens left out.
+      const db = await W.getBalance("", true).catch(() => null), dero = db ? V.toBig(db.balance) : null;
+      const rows = []; let unread = 0;
+      for (const s of D.list()) { if (s.kind !== "launch") continue; const b = await W.getBalance(s.scid, true).catch(() => null); const units = b ? V.toBig(b.balance) : null; if (units === null) { unread++; continue; } if (!units) continue; const q = A.launchSell(s, units) || { out: Z }; rows.push({ s, units, value: q.out }); }
       // Per quote, never summed across. q.out is atomic units of THAT market's quote asset; adding wrapped XMR
       // to DERO and dividing by DERO's decimals produced a scalar that was never a quantity of anything.
       const totals = new Map();
@@ -96,7 +131,7 @@
       // No cross-quote total and no cross-quote 24h change. Both were dead fields, and both were a sum of
       // wrapped XMR and DERO: a number that is not a quantity of anything and cannot be made one without a rate.
       // There is no oracle here and there must not be one, so the honest shape is per-quote totals only.
-      app.holdings = { dero, rows, totals, at: Date.now() };
+      app.holdings = { dero, rows, totals, unread, at: Date.now() };
       D.changed();
     } finally { app.loadingHold = false; }
   };
@@ -110,6 +145,8 @@
   // opts: {scid | code, entry, args:[[name,type,value]], dero, asset:{scid,amount}, fee (skip estimate), describe}
   app.tx = async (opts) => {
     if (!W.connected) { await app.connectWallet(); if (!W.connected) return null; }
+    // the network gate: the build's, the node's and the wallet's own node's network must be one, or nothing is built
+    { const why = await app.netGate(); if (why) { toast(why, "err", 10000); return null; } }
     // local sanity gates: never build a transaction that references something the app cannot vouch for
     if (!opts.code && !isScid(opts.scid)) { toast("Refusing: bad contract id", "err"); return null; }
     if (opts.asset && !isScid(opts.asset.scid)) { toast("Refusing: bad asset id", "err"); return null; }
@@ -174,7 +211,9 @@
     // a probe with a check answers "did OUR call execute" (the keys alone can move for anyone's call)
     if (!known && p0) { const p1 = await readProbe(); if (p1) { known = true; executed = opts.probe.check ? await Promise.resolve(opts.probe.check(p0, p1)).catch(() => false) : opts.probe.keys.some((k) => (p1.vals[k] || "") !== (p0.vals[k] || "")); } }
     if (!executed) { toast(what + " was included but did not execute: your balance did not move, only the network fee was spent", "err", 9000); app.scheduleRefresh(300); return null; }
-    toast(known ? what + " confirmed" : what + " included in block " + w.height, "ok", 6000);
+    // "confirmed" only when a balance or a named key proved the call executed. Otherwise it is only in a block, which
+    // a reverted call is too, so the toast says that and does not wear the success colour.
+    toast(known ? what + " confirmed" : what + " included in block " + w.height + ": this app did not check that it executed, so read the result on screen", known ? "ok" : "", known ? 6000 : 9000);
     app.scheduleRefresh(300); if (opts.holdings) setTimeout(() => app.loadHoldings(true), 2500);
     return txid;
     } finally { inFlight = false; }
@@ -272,7 +311,8 @@
       h("div", { class: "intro mt" },
         step("1", "Your node, your wallet, nothing else", "There is no server and no account. Prices, trades and profiles are read from the contracts by your own node."),
         step("2", "Trading is pseudonymous, not private", "Balances are encrypted, and a trade only reaches the feed if you switch on “Post this trade”. The contract still records its reserves at the end of every block they move in, so the size of the trade is readable by anyone whether you post it or not, and the address that paid a ring-size-2 call can be computed from the block. Private mode hides the payer, not the trade."),
-        step("3", "Every listing is verified", "The app checks each contract's code against the shipped templates before it shows it. Warnings appear on thin or taxed markets before you confirm.")),
+        // MX-01: "Every listing is verified" promised the one thing the badge tiers exist not to promise
+        step("3", "Every contract's code is checked; its name is not", "Before a market is shown, its code is hashed against the shipped templates and its treasury checked against the factory's. That says nothing about what it calls itself or what it trades: each listing's badge says exactly what was checked, and warnings on thin, taxed or look-alike markets appear before you confirm.")),
       button("Got it", "primary wide mt", () => { app.saveSettings({ seen: true }); closeSheet(); }, { id: "introOk" }));
   };
 

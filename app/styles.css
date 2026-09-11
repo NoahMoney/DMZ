@@ -64,6 +64,7 @@ h1{font-size:26px;line-height:1.12}h2{font-size:17px;letter-spacing:-.02em}h3{fo
 .mt{margin-top:18px}.mb{margin-bottom:14px}.mt8{margin-top:8px}
 /* clip, not hidden: overflow-x:hidden makes this a scroll container, which breaks every sticky rail inside it */
 .screen{flex:1;padding:0 16px 104px;overflow-x:clip}
+.netwarn{margin:10px 16px 0;color:var(--fg);line-height:1.45}
 .screen.enter{animation:enter .18s cubic-bezier(.2,0,0,1)}
 @keyframes enter{from{opacity:0}to{opacity:1}}
 .rise{animation:none}

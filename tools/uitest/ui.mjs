@@ -1,5 +1,7 @@
 // Headless browser test of the Veil app against a live simulator.
-//   node tools/uitest/ui.mjs http://127.0.0.1:8082/index.html <outdir> [--wallet] [--follow=<address>]
+//   node tools/uitest/ui.mjs http://127.0.0.1:8082/index.html <outdir> [--wallet] [--follow=<address>] [--mainnet]
+// --mainnet: the same app under a mainnet-shaped config (network "mainnet", no vault), served by rewriting the
+// config.js response inside the browser; writes mainnet-<width>-<screen>.png and checks the no-vault copy.
 // PW_DIR must point at a directory with playwright installed (node_modules/playwright), i.e.
 // (any directory where `npm i playwright` and `npx playwright install chromium` were run).
 // Read-only pass: every tab renders without console errors. --wallet: connect over XSWD (an auto-approving wallet
@@ -17,6 +19,8 @@ const destArg = (process.argv.find((a) => a.startsWith("--dest=")) || "").slice(
 const passOnly = process.argv.includes("--pass-only"); // wallet flow: connect + Founders Pass steps only
 const portfolioOnly = process.argv.includes("--portfolio-only"); // wallet flow: connect + portfolio render only (no spend)
 const followArg = (process.argv.find((a) => a.startsWith("--follow=")) || "").slice(9);
+// --mainnet: only the mainnet-shaped pass (mainnetPass, at the foot of this file). app/config.js is never edited.
+const mainnetMode = process.argv.includes("--mainnet");
 fs.mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
 // The app ships a strict Content Security Policy (script-src 'self'). It is checked first in a normal page: an
@@ -44,6 +48,15 @@ const step = (s) => console.log("• " + s);
 const fail = (m) => { console.error("FAIL: " + m); console.error(errors.join("\n")); process.exitCode = 1; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const text = async () => (await page.locator("#screen").innerText()).replace(/\s+/g, " ");
+
+// The mainnet-shaped pass runs on its own and ends the process: its registry may be empty or unreadable, which
+// the ordinary pass (it waits for a loaded registry) cannot survive and this one is written to report.
+if (mainnetMode) {
+  try { await mainnetPass(); } catch (e) { fail(e.stack || String(e)); }
+  await browser.close();
+  console.log(process.exitCode ? "UI TEST FAILED" : "UI TEST OK (mainnet-shaped)");
+  process.exit(process.exitCode || 0);
+}
 
 try {
   step("open " + url);
@@ -85,6 +98,18 @@ try {
   // a holder-NFT collection page when the simulator has one
   const nftId = await page.evaluate(() => { const n = [...window.Veil.data.nfts.keys()]; return n.length ? n[0] : null; });
   if (nftId) { await page.evaluate((s) => { location.hash = "#nft/" + s; }, nftId); await sleep(1500); await shot("02b-nft"); const nt = await text(); if (!/Public accounting/.test(nt)) fail("nft page missing accounting card: " + nt.slice(0, 160)); step("nft page: " + nt.slice(0, 80)); }
+  // An NFA that owes a share (contracts/nfa.bas header, note 5) must show it with a Pay out anyone may press, and say
+  // whom it pays. Checked on the first listed NFA that owes something, when there is one; said, when there is not.
+  const nfaOwed = await page.evaluate(() => { const s = [...window.Veil.data.nfas.values()].find((x) => x.owed > 0n); return s ? s.scid : null; });
+  if (nfaOwed) {
+    await page.evaluate((s) => { location.hash = "#nfa/" + s; }, nfaOwed); await sleep(3000); await shot("02c-nfa-owed");
+    const at = await text();
+    // innerText follows CSS text-transform, and the box's label is set in the uppercase .label style: match any case
+    for (const want of [/Owed, waiting to be paid out/i, /never the person who presses it/i]) if (!want.test(at)) fail("the NFA page does not show its owed share: missing " + want + ": " + at.slice(0, 240));
+    if (!(await page.getByRole("button", { name: "Pay out", exact: true }).count())) fail("the NFA page offers no Pay out for an owed share");
+    const o = Math.max(0, at.search(/owed, waiting/i));
+    step("nfa owed: " + at.slice(o, o + 140));
+  } else step("no listed NFA owes a share: Pay out not exercised");
   await page.evaluate(() => { location.hash = "#settings"; }); await sleep(600); await shot("03-settings");
   {
     const st = await text();
@@ -129,7 +154,7 @@ try {
         if (BigInt(bond.na) < 2n * BigInt(bond.k) && bond.ok) fail("the signer bond is shown with a green check on a " + bond.k + "-of-" + bond.na + " vault, where the quorum that can take the reserve is the only quorum that could slash it: " + bond.txt);
         step("wrap: " + bond.k + "-of-" + bond.na + ", bond line " + (bond.ok ? "affirmed" : "qualified") + "; parens " + opens + "/" + closes);
       }
-    } else if (!/no vault on this network/i.test(wt)) {
+    } else if (!/not offered on this network/i.test(wt)) {
       fail("wrap screen with no configured vault should say so: " + wt.slice(0, 200));
     }
     step("wrap: " + wt.replace(/\s+/g, " ").slice(0, 110));
@@ -391,7 +416,7 @@ try {
       if (await page.locator("#ackSw").count()) await page.locator("#ackSw").click();
       await shot("19-private-sheet");
       const det = await page.locator("#sheet").evaluate((el) => el.textContent); // the details section is collapsed: textContent, not innerText
-      if (!/16 \(the payer/.test(det)) fail("ring size 16 not shown in the sheet: " + det.replace(/\s+/g, " ").slice(0, 300));
+      if (!/16 · the payer is one of 8/.test(det)) fail("ring size 16, and what it hides, not shown in the sheet: " + det.replace(/\s+/g, " ").slice(0, 300));
       const tcBefore = await page.evaluate(async (s) => { const r = await window.Veil.node.getSC(s, { keys: ["tc"] }); return Number(r.vals.tc || 0); }, scid);
       await page.locator("#sheet button.buy").click();
       await page.waitForFunction(() => [...document.querySelectorAll(".toast")].some((t) => /included in block|confirmed/.test(t.textContent)), null, { timeout: 240000 });
@@ -409,7 +434,8 @@ try {
     step("portfolio + profile");
     await page.click(".tab[data-tab=portfolio]"); await sleep(4000); await shot("16-portfolio");
     const pf = await text(); if (!pf.includes("BRW")) fail("portfolio missing holding: " + pf.slice(0, 300));
-    await page.click(".tab[data-tab=profile]"); await sleep(1500); await shot("17-profile");
+    // Profile is not in the phone bar (the read-only pass above reaches it the same way): a click waits 30 s and fails
+    await page.evaluate(() => { location.hash = "#profile"; }); await sleep(1500); await shot("17-profile");
     await page.getByRole("button", { name: "Edit" }).click(); await sleep(400);
     await page.locator("#sheet input").first().fill("headless tester");
     await page.locator("#sheet button.primary").click();
@@ -475,3 +501,77 @@ try {
   await browser.close();
 }
 function location_hash(h) { return h.replace(/^#token\//, ""); }
+
+// --mainnet. The app under a mainnet-shaped configuration, without editing app/config.js: the config.js the server
+// sends is kept and amended on its way to the page. The network label becomes "mainnet" and every vault record
+// goes, which is the shape deploy/networks.json gives mainnet. The daemon is left as served (the simulator's), so
+// the same run proves a mainnet-labelled build says out loud that its node is on another network, and will not
+// sign. Wrap, Home, Markets and Trade, with Portfolio and the notice, are captured at 390 and 1024: read the PNGs.
+async function mainnetPass() {
+  const shape = async (route) => {
+    const r = await route.fetch();
+    const body = (await r.text()) + '\n;(function (c) { c.network = "mainnet"; delete c.vaults; delete c.vault; delete c.vaultAsset; })(window.VEIL_CONFIG);\n';
+    await route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body });
+  };
+  for (const width of [390, 1024]) {
+    const p = await browser.newPage({ viewport: { width, height: 860 }, bypassCSP: true });
+    const perr = [];
+    p.on("pageerror", (e) => perr.push("pageerror: " + e.message));
+    p.on("console", (m) => { if (m.type() === "error") perr.push("console: " + m.text()); });
+    // the mainnet rule: no request and no socket to any host but this device (the node and the XSWD wallet here)
+    const away = [], local = (s) => { try { const u = new URL(s); return u.protocol === "data:" || /^(127\.0\.0\.1|localhost)$/.test(u.hostname); } catch (e) { return false; } };
+    p.on("request", (r) => { if (!local(r.url())) away.push(r.url()); });
+    p.on("websocket", (w) => { if (!local(w.url())) away.push(w.url()); });
+    await p.route(/\/config\.js(\?.*)?$/, shape);
+    await p.goto(url, { waitUntil: "load" });
+    await p.locator("#introOk").click({ timeout: 8000 }).catch(() => {});
+    const cfg = await p.evaluate(() => ({ network: window.Veil.data.cfg.network, vaults: window.Veil.data.allVaults().length }));
+    step(width + "px, mainnet-shaped config: network " + cfg.network + ", " + cfg.vaults + " vault(s)");
+    if (cfg.network !== "mainnet" || cfg.vaults !== 0) fail("the mainnet-shaped config did not take: " + JSON.stringify(cfg));
+    // the node's own answer, then the banner that must stay on screen while the two disagree
+    await p.waitForFunction(() => /\d/.test(document.getElementById("net").textContent), null, { timeout: 30000 }).catch(() => {});
+    await sleep(1500);
+    const pill = await p.locator("#net").innerText();
+    const banner = await p.evaluate(() => { const b = document.getElementById("netwarn"); return b && !b.hidden ? b.innerText.replace(/\s+/g, " ") : ""; });
+    step("pill " + JSON.stringify(pill) + " · banner: " + banner.slice(0, 170));
+    if (!/mainnet/i.test(banner) || !/simulator/i.test(banner)) fail("a mainnet-labelled build reading a simulator node shows no standing banner saying so: " + JSON.stringify(banner));
+    // and the gate every transaction passes refuses before any wallet is asked
+    const gate = await p.evaluate(() => window.Veil.app.netGate());
+    step("signing gate: " + String(gate).slice(0, 150));
+    if (!gate) fail("a mainnet-labelled build reading a simulator node would open a signing flow");
+    for (const tab of ["wrap", "home", "markets", "trade", "portfolio", "notice"]) {
+      await p.evaluate((t) => { location.hash = "#" + t; }, tab); await sleep(1500);
+      await p.screenshot({ path: `${out}/mainnet-${width}-${tab}.png`, fullPage: true });
+      const tt = (await p.locator("#screen").innerText()).replace(/\s+/g, " ");
+      step("mainnet " + width + "px " + tab + ": " + tt.slice(0, 110));
+      // a wrapped asset is never mentioned on a build that has none without the words that say it is not offered
+      if (/\bw(XMR|ZEC)\b|wrapped (XMR|ZEC|Monero|Zcash|units|asset)/i.test(tt) && !/not offered on this network/i.test(tt)) fail(tab + " mentions a wrapped asset on a build with no vault and never says it is not offered: " + tt.slice(0, 300));
+      if (tab === "wrap") {
+        const at = tt.search(/not offered on this network/i);
+        if (at < 0 || at > 80) fail("the Wrap screen does not open with 'not offered on this network' (found at " + at + "): " + tt.slice(0, 200));
+        for (const want of [/federation/i, /atomic swap/i, /named people/i]) if (!want.test(tt)) fail("the Wrap screen does not say why: missing " + want);
+        for (const bad of [/minimum deposit/i, /burn and withdraw/i, /register a deposit index/i, /deposit address/i, /could not be verified/i, /\btrustless\b/i]) if (bad.test(tt)) fail("the Wrap screen on a build with no vault shows " + bad);
+        const ctl = await p.evaluate(() => ({ inputs: document.querySelectorAll("#screen input").length, buttons: [...document.querySelectorAll("#screen button")].map((b) => b.innerText.trim()) }));
+        if (ctl.inputs || ctl.buttons.length) fail("the Wrap screen on a build with no vault draws controls: " + JSON.stringify(ctl));
+      }
+      if (tab === "notice") {
+        if (/federation holds the|bonded signers hold/i.test(tt)) fail("the dev message names a federation holding coins on a build with none");
+        if (!/not offered on this network/i.test(tt)) fail("the dev message does not say wrapped assets are not offered here");
+      }
+      if (tab === "trade" && /against a wrapped asset/i.test(tt)) fail("the Trade hub offers markets against a wrapped asset on a build with none");
+      const over = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      if (over > 1) fail("the mainnet-shaped " + tab + " overflows horizontally by " + over + "px at " + width);
+    }
+    // XMR and ZEC stay reserved names with no vault: a token wearing them is marked, not waved through
+    const imp = await p.evaluate(() => { const D = window.Veil.data; return [
+      D.impersonation({ ticker: "XMR", scid: "f".repeat(64), asset: "f".repeat(64) }), D.impersonation({ ticker: "wZEC", scid: "e".repeat(64) }),
+      D.impersonation({ ticker: "PRV", name: "Wrapped Monero", scid: "d".repeat(64) }), D.impersonation({ ticker: "ZCR", name: "Zecret", scid: "c".repeat(64) })]; });
+    step("impersonation with no vault: " + JSON.stringify(imp));
+    if (imp[0] !== "XMR" || imp[1] !== "ZEC" || imp[2] !== "XMR" || imp[3] !== null) fail("names reserved with no vault: " + JSON.stringify(imp));
+    step("requests that left this device at " + width + "px: " + (away.length ? away.join(", ") : "none"));
+    if (away.length) fail("the mainnet-shaped app reached a host other than this device: " + away.join(", "));
+    const bad = perr.filter((e) => !/favicon|net::ERR_/.test(e));
+    if (bad.length) fail("console errors under the mainnet-shaped config at " + width + "px:\n" + bad.join("\n"));
+    await p.close();
+  }
+}

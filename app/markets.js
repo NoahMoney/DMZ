@@ -207,13 +207,15 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
     const wrapped = new Set(D.allVaults().map((v) => U.clean(v.sym || v.name || "wrapped", 10)));
     const flowText = [...byQuote].sort((a, b) => (wrapped.has(b[0]) ? 1 : 0) - (wrapped.has(a[0]) ? 1 : 0) || b[1] - a[1])
       .map(([sym, v]) => S.fmtDeroShort(v) + " " + sym).join(" · ");
-      render(summary, h("span", null, items.length + " markets · 24h flow " + flowText,
+      // before the registry is read there is no count to give, and "0 markets" would be a number nobody read
+      render(summary, h("span", null, D.lastRefresh ? items.length + " markets · 24h flow " + flowText : D.lastError ? "registry unread" : "reading the registry…",
         splitN ? h("span", { class: "warn", title: "A split pair is one traded by more than one contract. They do not share liquidity, so the thinner one prices worse and can be drained. Every row of a split pair says how much its own contract holds." },
           " · " + splitN + " split " + (splitN === 1 ? "pair" : "pairs")) : null),
         h("span", null, h("i", { class: "dot" }), " block " + (L.height || "…") + " · ", h("span", { "data-block-age": 1 }, "—")));
       // an empty state names the area, says why it is empty, and offers the one action that fills it
       if (!items.length) render(list, q.length === 64 ? U.emptyState("markets", "Open a contract", "Not listed here, but you can open it by id.", button("Open " + q.slice(0, 10) + "…", "small", () => router.go("token", q)))
-        : !D.lastRefresh ? h("div", { class: "list" }, U.skeleton(5))
+        // a registry that could not be read is said to be unread, not animated as a load that never lands
+        : !D.lastRefresh ? (D.lastError ? U.errorState("The market registry could not be read from your node: " + U.clean(D.lastError, 160), () => V.app.refresh(true)) : h("div", { class: "list" }, U.skeleton(5)))
           : filter === "watch" ? U.emptyState("markets", "Watchlist", "No markets observed. Star a market to build a watchlist; it is kept on this device.", button("Explore markets", "small", () => clearTo("trending")))
             : U.emptyState("markets", "No markets", "Nothing matches " + (q ? "this search" : "this filter") + " at block " + (L.height || "…") + ".", button("Show every market", "small", () => clearTo("trending"))));
       else { const els = items.map((s, i) => row(s, i)); if (els.some((e, i) => list.children[i] !== e) || list.children.length !== els.length) render(list, els); }

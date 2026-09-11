@@ -112,10 +112,11 @@
         if (s.descr) items.unshift(h("div", { class: "sub mb", style: "line-height:1.5" }, s.descr));
         const actions = [];
         if (launch && s.tmode === 3n) actions.push(button("Stake / rewards", "wide", () => V.sheets.stake(s)));
-        if (launch && s.tmode === 2n && s.phase === 1n && s.tacc > Z) actions.push(button("Trigger buyback (" + A.fmtUnits(s.tacc, D.qdec(s), 2) + " " + D.qsym(s) + ")", "wide", () => V.app.tx({ scid: s.scid, entry: "Buyback", args: [], describe: "Buyback" })));
-        if (launch && s.tmode === 1n && me() === s.creator && s.tacc > Z) actions.push(button("Claim creator tax (" + A.fmtUnits(s.tacc, D.qdec(s), 2) + " " + D.qsym(s) + ")", "wide", () => V.app.tx({ scid: s.scid, entry: "ClaimTax", args: [], describe: "Claim tax" })));
+        // each one names the key its success must move, so a reverted call is reported as one, never as "included"
+        if (launch && s.tmode === 2n && s.phase === 1n && s.tacc > Z) actions.push(button("Trigger buyback (" + A.fmtUnits(s.tacc, D.qdec(s), 2) + " " + D.qsym(s) + ")", "wide", () => V.app.tx({ scid: s.scid, entry: "Buyback", args: [], describe: "Buyback", probe: { scid: s.scid, keys: ["tacc"] } })));
+        if (launch && s.tmode === 1n && me() === s.creator && s.tacc > Z) actions.push(button("Claim creator tax (" + A.fmtUnits(s.tacc, D.qdec(s), 2) + " " + D.qsym(s) + ")", "wide", () => V.app.tx({ scid: s.scid, entry: "ClaimTax", args: [], describe: "Claim tax", probe: { scid: s.scid, keys: ["tacc"] } })));
         if (!launch) actions.push(button("Add / remove liquidity", "wide", () => V.sheets.liquidity(s)));
-        if (me() && me() === s.treasury && (s.fd > Z || s.fa > Z)) actions.push(button("Claim protocol fees", "wide", () => V.app.tx({ scid: s.scid, entry: "ClaimFees", args: [], describe: "Claim fees" })));
+        if (me() && me() === s.treasury && (s.fd > Z || s.fa > Z)) actions.push(button("Claim protocol fees", "wide", () => V.app.tx({ scid: s.scid, entry: "ClaimFees", args: [], describe: "Claim fees", probe: { scid: s.scid, keys: ["fd", "fa"] } })));
         render(bodyEl, h("div", { class: "mt8" }, items), actions.length ? h("div", { class: "stack mt" }, actions) : null);
       }
     };
@@ -170,7 +171,9 @@
         kv("Max slippage", slipEl),
         V.sheets.gasRow(gasTxt, !!q),
         kv("Route", curve ? "bonding curve" : "constant-product AMM"),
-        kv("Ring size", priv ? "16 · the payer is hidden" : "2 · the payer is public"),
+        // DERO's proof carries a public bit saying which half of the ring the payer is in, at every ring size
+        // (vendor/derohe cryptography/crypto/proof_generate.go: aa[0] = 0, so f[0] = w·bit), so 16 hides among 8
+        kv("Ring size", priv ? "16 · the payer is one of 8 to an observer" : "2 · the payer is public"),
         h("div", { class: "note mt8" }, (curve ? "On the bonding curve the whole trading fee goes to the protocol treasury. " : "The rest of the trading fee stays in the pool, for its liquidity providers. ")
           + (priv ? "At ring size 16 the contract never learns who paid, but the address you name below receives in clear. " : "At ring size 2 the contract pays the signer, so anyone can compute which address made this call. ")
           + "Either way the contract records its reserves at the end of every block they move in, and the difference between two of them is the size of the trade: posting a trade adds your address to the record, never the amount, which is on chain already. "
@@ -201,8 +204,8 @@
       const big = q && q.impact > 1500, mid = q && q.impact > 500;
       // fail closed: a connected wallet whose balance has not been read, or could not be, gets no button
       const noBal = V.wallet.connected && balance === null;
-      confirm.disabled = !q || noBal || (big && !ack) || (balance !== null && amount > balance) || (priv && !V.isAddress(destIn.value.trim())) || (priv && q.refund > Z);
-      confirm.textContent = noBal ? (balFail ? "Balance unreadable" : "Reading your " + unit + " balance…") : balance !== null && amount > balance ? "Not enough " + unit + ": " + A.fmtUnits(amount - balance, dec, 4) + " short" : priv && q.refund > Z ? "Overshoots the curve: lower the amount" : (buy ? "Buy " : "Sell ") + s.ticker;
+      confirm.disabled = (!!s.quote && !qv) || !q || noBal || (big && !ack) || (balance !== null && amount > balance) || (priv && !V.isAddress(destIn.value.trim())) || (priv && q.refund > Z);
+      confirm.textContent = s.quote && !qv ? "Priced in an asset this app does not name" : noBal ? (balFail ? "Balance unreadable" : "Reading your " + unit + " balance…") : balance !== null && amount > balance ? "Not enough " + unit + ": " + A.fmtUnits(amount - balance, dec, 4) + " short" : priv && q.refund > Z ? "Overshoots the curve: lower the amount" : (buy ? "Buy " : "Sell ") + s.ticker;
       outV.textContent = q ? A.fmtUnits(q.out, outDec, 6) + " " + outUnit : amount > Z ? "—" : "0";
       // the price this order really executes at, next to the price the market quotes: the gap is what size costs
       const exec = q ? (buy ? Number(amount) / 10 ** Number(qdec) / (Number(q.out) / 10 ** Number(s.dec)) : Number(q.out) / 10 ** Number(qdec) / (Number(amount) / 10 ** Number(s.dec))) : 0;
@@ -249,6 +252,10 @@
       // which is a total drain of the raise, and nothing on this sheet distinguished it from the current code.
       s.templateLegacy ? h("div", { class: "warnbox mt" }, h("b", null, "Older template — not the current code."),
         h("div", { class: "mt8" }, "This contract's code matches an earlier version of the shipped template, not the one this build ships. It was verified when that version was current and it cannot be changed now. Some earlier versions have defects that were fixed in later ones; read the contract before you trade it.")) : null,
+      // A quote this build does not name is not a wrapped asset: nothing says what backs it or what its decimals
+      // are. It was called federation-backed here (ADV-PRICE-05); it is named for what it is, and not traded.
+      s.quote && !qv ? h("div", { class: "errbox mt" }, h("b", null, "This market is priced in an asset this build does not name."),
+        h("div", { class: "mt8" }, "Its quote is the contract " + s.quote + ". This app knows neither that asset's decimals nor what backs it, so no amount on this sheet can be read, and it will not send this trade.")) :
       // a wrapped quote is stated before the amount box, not discovered when the trade fails
       s.quote ? h("div", { class: "warnbox mt" }, h("b", null, "This market settles in wrapped " + qsym + "."),
         h("div", { class: "mt8" }, (buy ? "You spend wrapped " + qsym + ", held on DERO as an asset" : "You are paid in wrapped " + qsym + ", held on DERO as an asset") + " — not " + qsym + " on " + ((qv && qv.name) || "its own chain") + ", and not DERO. Wrapped units are backed one for one by a k-of-n federation that can fail, so they are not trustless. The network fee is DERO either way."),
@@ -261,7 +268,7 @@
       h("div", { class: "mt8" }, costs),
       U.toggle("Post this trade", publish, (on) => { publish = on; schedGas(); paint(); }, "Off by default. Publishing writes your address and this trade into the contract for everyone to see, and costs a little more gas. Balances stay private either way.", "publishSw"),
       U.details("Private mode: hide who paid", h("div", { class: "stack", style: "gap:8px;padding:6px 0 10px" },
-        U.toggle("Ring size 16, pay a named address", priv, (on) => { priv = on; quote(); }, "The contract never learns who paid: the wallet hides the payer among 16 accounts. What you buy or sell goes to the address below, which is public. Sending it to the connected address hides nothing.", "privSw"),
+        U.toggle("Ring size 16, pay a named address", priv, (on) => { priv = on; quote(); }, "The contract never learns who paid. To anyone reading the chain the payer is one of 8: the ring has 16 members, and a public bit in every DERO proof says which half the payer is in. What you buy or sell goes to the address below, which is public. Sending it to the connected address hides nothing.", "privSw"),
         h("div", { class: "field" }, "Receive at", destIn),
         h("div", { class: "note" }, "A private trade is never posted: a public record would name the receiver. A trade paid to another address can only be checked by inclusion in a block: this app cannot read that wallet's balance, and the trade will not appear in this portfolio."))),
       confirm,

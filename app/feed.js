@@ -20,12 +20,12 @@
   // and treasury. They are kept apart from NUMKEYS / STRKEYS / PROBE so the fixed set every pool and launch is
   // fetched and synced by does not grow by forty keys none of them has. NFA_PROBE is what a block can change on
   // one: who owns it, the listing and its bids, and the URLs Update() may rewrite.
-  const NFA_NUM = ["royalty", "artificerFee", "ownerCanUpdate", "protoFee", "active", "scBalance", "cancelBuffer", "startBlockTime", "endBlockTime", "bidCount", "staticBidIncr", "percentBidIncr", "charityDonatePerc", "startPrice", "currBidPrice", "currBidAmt", "previousSalePrice", "previousAuctionPrice"];
-  const NFA_STR = ["nameHdr", "descrHdr", "typeHdr", "iconURLHdr", "tagsHdr", "fileURL", "fileSignURL", "fileCheckC", "fileCheckS", "coverURL", "collection", "version", "listType", "quote", "treasury", "owner", "creatorAddr", "previousOwner", "charityDonateAddr", "currBidAddr"];
+  const NFA_NUM = ["royalty", "artificerFee", "ownerCanUpdate", "protoFee", "active", "scBalance", "cancelBuffer", "startBlockTime", "endBlockTime", "bidCount", "staticBidIncr", "percentBidIncr", "charityDonatePerc", "startPrice", "currBidPrice", "currBidAmt", "previousSalePrice", "previousAuctionPrice", "owed"];
+  const NFA_STR = ["nameHdr", "descrHdr", "typeHdr", "iconURLHdr", "tagsHdr", "fileURL", "fileSignURL", "fileCheckC", "fileCheckS", "coverURL", "collection", "version", "listType", "quote", "treasury", "owner", "creatorAddr", "previousOwner", "charityDonateAddr", "currBidAddr", "artificerAddr"];
   // currBidAmt and currBidAddr are in the probe because a bid can be left held in the contract with no listing
   // around it (nfa.bas resetVars does not clear them), and a page that did not watch them would show a stale
   // holder their bid is still live when it is the only thing that changed.
-  const NFA_PROBE = ["owner", "scBalance", "listType", "startBlockTime", "endBlockTime", "currBidPrice", "currBidAmt", "currBidAddr", "bidCount", "fileURL", "fileSignURL", "iconURLHdr", "tagsHdr"];
+  const NFA_PROBE = ["owner", "scBalance", "listType", "startBlockTime", "endBlockTime", "currBidPrice", "currBidAmt", "currBidAddr", "bidCount", "fileURL", "fileSignURL", "iconURLHdr", "tagsHdr", "owed"];
   const nfaSig = (vals) => NFA_PROBE.map((k) => vals[k] || "").join("|");
 
   const data = {
@@ -61,10 +61,12 @@
     // worth stealing on DMZ: the product points a Monero holder at a ticker called XMR, so a token that simply
     // calls itself WXMR is the cheapest attack there is. "w" + symbol is reserved too, since that is how a
     // wrapped asset is usually written.
+    // With no vault (mainnet's build) XMR and ZEC stay reserved: nothing here can be the real one.
+    named() { const v = this.allVaults(); return v.length ? v : [{ scid: "-", sym: "XMR", name: "Monero" }, { scid: "-", sym: "ZEC", name: "Zcash" }]; },
     reservedBy(ticker) {
       const k = V.ui.tickerKey(ticker || "");
       if (!k) return null;
-      for (const v of this.allVaults()) {
+      for (const v of this.named()) {
         for (const nm of [v.sym, v.name, "w" + (v.sym || "")]) {
           if (nm && V.ui.tickerKey(nm) === k) return v;
         }
@@ -80,7 +82,7 @@
     reservedIn(text) {
       const words = new Set(String(text || "").split(/[^\p{L}\p{N}]+/u).map((w) => V.ui.tickerKey(w)).filter(Boolean));
       if (!words.size) return null;
-      for (const v of this.allVaults()) {
+      for (const v of this.named()) {
         const first = String(v.name || "").split(/[^\p{L}\p{N}]+/u)[0];
         for (const nm of [v.sym, "w" + (v.sym || ""), first]) { const k = nm && V.ui.tickerKey(nm); if (k && words.has(k)) return v; }
       }
@@ -130,7 +132,9 @@
 
     async registry_() {
       const cfg = this.cfg; if (!cfg.factory) throw new Error("no factory configured");
-      const keys = ["pc", "lc", "nc", "regfee", "tstr"]; const r0 = await V.node.getSC(cfg.factory, { keys });
+      const keys = ["pc", "lc", "nc", "regfee", "tstr", "owner", "renounced"]; const r0 = await V.node.getSC(cfg.factory, { keys });
+      // factory.bas stores pc, lc, nc at Initialize: an absent factory is not an empty registry (it read as "0 markets")
+      if (!["pc", "lc", "nc"].every((k) => isNum(r0.vals[k]))) throw new Error("the factory this build names is not on this node's chain");
       const n = (k) => (isNum(r0.vals[k]) ? B(r0.vals[k]) : 0n);
       const ids = (p, c) => { const out = []; for (let i = 0n; i < c; i++) out.push(p + i); return out; };
       // nft_<i> and nfa_<i> share the one counter nc (factory.bas RegisterNFA): a slot holds exactly one of the
@@ -148,6 +152,8 @@
       // A treasury that cannot be read must not switch the check off in silence, and must not empty the list
       // either: the flag rides on every record instead, so the badge can say what was not checked.
       reg.treasuryUnverified = !reg.treasuries.size;
+      // factory.bas's own powers, for the message from the dev: owner while it holds them, renounced (a height) after
+      reg.owner = this.rawToAddr(r0.vals.owner || ""); reg.renounced = isNum(r0.vals.renounced) ? r0.vals.renounced : "";
       this.registry = reg; return reg;
     },
     // fetch many string keys in chunks; returns {key: hexvalue}
@@ -292,7 +298,7 @@
       for (const k of NFA_NUM) s[k] = num(k);
       if (s.protoFee !== B(this.cfg.feeBps || 0)) return { scid, untrusted: "protocol fee differs from the deployment's (" + s.protoFee + " bps)" };
       Object.assign(s, { name: str("nameHdr", 64) || "?", descr: str("descrHdr", 240), type: str("typeHdr", 32), icon: str("iconURLHdr", 200), tags: str("tagsHdr", 100), file: str("fileURL", 300), fileSign: str("fileSignURL", 300), checkC: str("fileCheckC", 120), checkS: str("fileCheckS", 120), cover: str("coverURL", 300), collection: str("collection", 64), version: str("version", 8), listType: str("listType", 8),
-        owner: addr("owner"), creator: addr("creatorAddr"), prevOwner: addr("previousOwner"), charityAddr: addr("charityDonateAddr"), bidder: addr("currBidAddr") });
+        owner: addr("owner"), creator: addr("creatorAddr"), prevOwner: addr("previousOwner"), charityAddr: addr("charityDonateAddr"), bidder: addr("currBidAddr"), artificer: addr("artificerAddr") });
       // The quote is stored as the raw 32-byte SCID, so its hex is the id the vault list is keyed by and the zero
       // hash is DERO — the reading a pool's qt gets, so a wXMR-quoted NFA shows XMR prices through nameQuote. The
       // avatar plate takes the name's first letters for want of a ticker.

@@ -10,7 +10,7 @@
     async loadFounders(prev) {
       const scid = this.cfg.founders; if (!scid) return null;
       if ((await this.verify(scid)) !== "founders") { console.warn("founders contract does not match its template"); return null; }
-      const NUM = ["price", "maxsupply", "start", "reserve", "share", "mfee", "minted", "hst", "acc", "rpool", "und", "dep", "mdep", "paid", "hn", "ln", "la", "era"];
+      const NUM = ["price", "maxsupply", "start", "reserve", "share", "mfee", "minted", "hst", "minhst", "acc", "rpool", "und", "dep", "mdep", "paid", "hn", "ln", "la", "era"];
       const r = await V.node.getSC(scid, { keys: [...NUM, "nameHdr", "descrHdr", "iconURLHdr", "fileURL", "creator", "treasury"] });
       const num = (k) => (isNum(r.vals[k]) ? B(r.vals[k]) : 0n), str = (k, n) => clean(V.hexToStr(r.vals[k] || ""), n);
       const f = { scid, kind: "founders", name: str("nameHdr", 64) || "Founders Pass", descr: str("descrHdr", 240), icon: str("iconURLHdr", 200), file: str("fileURL", 200), creator: this.rawToAddr(r.vals.creator || ""), treasury: this.rawToAddr(r.vals.treasury || ""), listings: [] };

@@ -33,11 +33,13 @@
     async loadVault(pick) {
       const list = this.vaults();
       const scid = pick || (list[0] && list[0].scid) || this.cfg.vault;
-      if (!scid || !/^[0-9a-f]{64}$/.test(scid)) return null;
+      // the record is the deployment's own for THIS id, superseded vaults included: borrowing another vault's
+      // record painted a retired 5-decimal vault, or any stranger's v3 contract, as the live XMR one (MISS-01)
+      const rec = this.allVaults().find((v) => v.scid === scid);
+      if (!rec) return null;
       const r = await V.node.getSC(scid, { keys: [...NUM, "kind", "viewkey", "treasury"] });
       const kind = V.hexToStr(r.vals.kind || "");
       if (kind !== "vault") { console.warn("configured vault is not a vault contract"); return null; }
-      const rec = list.find((v) => v.scid === scid) || this.cfg.vaultAsset || {};
       const w = { scid, asset: rec, viewkey: U.clean(V.hexToStr(r.vals.viewkey || ""), 200) };
       for (const k of NUM) w[k] = num(r.vals, k);
       if (w.v !== 3n) { console.warn("vault version " + w.v + " is not the version this app reads"); return null; }
@@ -191,14 +193,31 @@
   let tip = 0;
   const refreshTip = async () => { if (V.live && V.live.height) { tip = V.live.height; return; } try { tip = await V.node.height(); } catch (e) {} };
 
+  // ---- no vault: the mainnet shape ----
+  // A build that names no vault offers no wrapped asset. The screen says so first, and why, then how XMR and ZEC
+  // settle instead. It draws no deposit address, no burn form and no empty walkthrough, and nothing to sign.
+  const noVault = () => [
+    h("div", { class: "warnbox" }, h("b", null, V.notice.NOWRAP), h("div", { class: "sub mt8" }, V.notice.NOWRAP_WHY)),
+    h("h3", { class: "mt" }, "How XMR and ZEC settle here instead"),
+    kv("Monero", "atomic swap for a DERO-side asset"), kv("Zcash", "transparent ZEC only, by atomic swap"), kv("Custodian", "none: each chain's own lock"),
+    h("div", { class: "note mt8" }, "This page runs no swap. Each side runs a swap program on its own machine, against its own Monero or Zcash node and its own DERO wallet, " +
+      "and trusts those answers and its own presence at its window: miss the window and the other side's exit opens. Neither program has yet completed a swap on a real " +
+      "Monero or Zcash network, and the Zcash one cannot yet broadcast a transaction. Shielded ZEC cannot be swapped here, and a transparent Zcash swap is public: the amount, both addresses and the hash."),
+    h("div", { class: "note mt8" }, "Every market this app creates on this network is priced in DERO. Nothing on this screen asks you to sign."),
+  ];
+
   // #wrap/<scid> opens that vault; #wrap opens the first one recorded for this build
   router.on("wrap", async (el, param) => {
-    const picked = /^[0-9a-f]{64}$/.test(String(param || "")) ? param : null;
+    const title = () => h("h1", { class: "mt mb" }, "Wrapped assets");
+    if (!D.allVaults().length) return render(el, title(), noVault());
+    // only a vault this build ships opens by id: any other contract would borrow a shipped vault's words (MISS-01)
+    const picked = D.allVaults().some((v) => v.scid === param) ? param : null;
+    if (param && !picked) return render(el, title(), h("div", { class: "errbox" }, "This build ships no vault at " + U.clean(param, 64) + ", so nothing about it is shown and nothing can be signed."));
     const draw = (w, my, err) => {
-      if (err) return render(el, h("h1", { class: "mt mb" }, "Wrapped assets"), h("div", { class: "errbox" }, err));
-      if (!w) return render(el, h("h1", { class: "mt mb" }, "Wrapped assets"),
-        U.emptyState("wallet", "No vault on this network",
-          "This build of DMZ was published without a wrapped-asset vault, or the configured contract is not a v3 vault. Nothing to show, and nothing to sign."));
+      if (err) return render(el, title(), h("div", { class: "errbox" }, err));
+      if (!w) return render(el, title(),
+        U.emptyState("wallet", "The vault could not be verified",
+          "This build names a vault, but the contract at that id is not a version-3 vault this app reads. Nothing about it is shown, and nothing can be signed."));
 
       const a = w.asset || {}, name = D.chainName(a), chain = D.chainName(a);
       // halted is the height the lease lapses at (0: not halted); a halt nobody renews expires on its own
@@ -483,7 +502,8 @@
     const doRegister = async (w) => {
       const ok = await V.app.tx({
         scid: w.scid, entry: "Register", args: [], dero: w.regfee,
-        describe: "Register a deposit index", probe: { scid: w.scid, keys: ["un"] },
+        // un counts everyone's indexes; uc_<me> moves only when this wallet's own Register executes
+        describe: "Register a deposit index", probe: { scid: w.scid, keys: ["uc_" + me()] },
       });
       if (ok) { toast("Index registered. Signers must attest it before it can receive.", "ok"); reload(true); }
     };
@@ -494,7 +514,8 @@
       const ok = await V.app.tx({
         scid: w.scid, entry: "Reclaim", args: [["j", "U", BigInt(x.j)]], ring: 16,
         describe: "Reclaim withdrawal #" + x.j + " — " + amt(x.units + x.fee, 8) + " back to you",
-        probe: { scid: w.scid, keys: ["w_" + x.j + "_st"] },
+        // st becomes 2 only by a return; the key alone would also move if the signers settled it meanwhile
+        probe: { scid: w.scid, keys: ["w_" + x.j + "_st"], check: (a, b) => b.vals["w_" + x.j + "_st"] === "2" },
       });
       if (ok) { toast("Reclaimed. The units and the fee are back in your wallet.", "ok"); reload(true); }
     };
@@ -508,7 +529,9 @@
       if (/[\s\u0000-\u001f\u007f]/.test(dst)) return toast("The destination contains whitespace or control characters", "err");
       const ok = await V.app.tx({
         scid: w.scid, entry: "Burn", args: [["dest", "S", dst], ["refund", "S", me()]], asset: { scid: w.scid, amount: units },
-        describe: "Burn " + amt(units, 8) + " and withdraw", probe: { scid: w.scid, keys: ["wn"] },
+        describe: "Burn " + amt(units, 8) + " and withdraw",
+        // wn counts everyone's burns: this one executed only if a withdrawal opened since then names this wallet
+        probe: { scid: w.scid, keys: ["wn"], check: async (a, b) => { const ks = []; for (let j = +a.vals.wn || 0; j < (+b.vals.wn || 0) && ks.length < 16; j++) ks.push("w_" + j + "_by"); const g = ks.length ? await D.fetchKeys(w.scid, ks) : {}; return ks.some((k) => V.hexToStr(g[k] || "") === me()); } },
       });
       if (ok) { amountEl.value = ""; toast("Burned. It becomes payable at the height shown below.", "ok"); reload(true); }
     };

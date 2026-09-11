@@ -44,7 +44,7 @@
       s.artificerFee > Z ? kv("Artificer fee " + s.artificerFee + "% → Civilware", amt(s, a), "num") : null,
       c > Z ? kv("Charity " + c + "% → " + (cto ? V.shortAddr(cto) : "the address given"), amt(s, ch), "num") : null,
       kv("Owner receives", amt(s, v - r - a - ch - p), "num"),
-      h("div", { class: "note mt8" }, "Paid in " + sym(s) + " by the contract, in the same call that moves the unit. The network fee is DERO: gas, shown by your wallet."));
+      h("div", { class: "note mt8" }, "Paid in " + sym(s) + ". The royalty and the owner's share are sent in the same call that moves the unit; the protocol fee" + (s.artificerFee > Z ? ", the artificer fee" : "") + " and any charity share are owed to their payees, and leave the contract when anyone presses Pay out on this page. The network fee is DERO: gas, shown by your wallet."));
   }
   const pay = (s, v) => (s.quote ? { asset: { scid: s.quote, amount: v } } : { dero: v }); // ASSETVALUE(quote); the zero hash is DEROVALUE()
   // the wallet's balance of this asset: 1n when it holds the unit; null while unread or when the wallet did not answer
@@ -54,6 +54,27 @@
     try { const b = await V.wallet.getBalance(scid, true); unit = BigInt(b.balance || 0); unitFor = k; } catch (e) { unit = null; unitFor = ""; }
   }
   const tx = async (scid, opts) => { const ok = await V.app.tx(Object.assign({ scid, ring: 2 }, opts)); if (ok) { await D.refresh().catch(() => {}); await loadUnit(scid, true); D.changed(); } return ok; };
+  // What nfa.bas owes and has not paid (its header, note 5): the protocol fee, the artificer fee and a charity share
+  // are credited to ow_<address> at settlement and leave only through PayOwed(payee), one transfer to that payee.
+  // Read by exact key for the payees this page can name; `owed` is the contract's total, so a share owed to an
+  // earlier listing's charity is still counted, and said to be unnamed. null while reading, undefined if unreadable.
+  let owedFor = "", owedRows = null;
+  async function loadOwed(s) {
+    const k = s.scid + s.sig; if (owedFor === k) return; owedFor = k; owedRows = null;
+    const pays = [...new Map([[s.treasury, "Protocol fee → treasury"], [s.artificer, "Artificer fee → Civilware"], [s.charityAddr, "Charity"]].filter((p) => p[0]).map((p) => [p[0], p])).values()];
+    try { const got = await D.fetchKeys(s.scid, pays.map((p) => "ow_" + p[0])); owedRows = pays.map(([a, l]) => ({ a, l, v: /^\d+$/.test(got["ow_" + a] || "") ? BigInt(got["ow_" + a]) : Z })).filter((r) => r.v > Z); }
+    catch (e) { owedRows = undefined; }
+  }
+  function owedBox(s) {
+    const rows = owedRows, named = rows ? rows.reduce((t, r) => t + r.v, Z) : Z;
+    return h("div", { class: "mt" }, h("div", { class: "label" }, "Owed, waiting to be paid out · " + amt(s, s.owed)),
+      rows === null ? h("div", { class: "note mt8" }, "Reading who is owed…") : rows === undefined ? h("div", { class: "note mt8" }, "Who is owed could not be read from your node.")
+        : rows.map((r) => h("div", { class: "between mt8", style: "gap:10px" }, h("span", { class: "sub" }, r.l + " · " + V.shortAddr(r.a) + " · " + amt(s, r.v)),
+          button("Pay out", "small", () => tx(s.scid, { entry: "PayOwed", args: [["payee", "S", r.a]], ring: 16, describe: "Pay out " + amt(s, r.v) + " to " + V.shortAddr(r.a), probe: { scid: s.scid, keys: ["ow_" + r.a] } })))),
+      rows && s.owed > named ? h("div", { class: "note mt8" }, amt(s, s.owed - named) + " more is owed to an address this page cannot name, such as an earlier listing's charity; anyone who knows it can pay it out.") : null,
+      h("div", { class: "note mt8" }, "Anyone may press Pay out. It pays the named payee its whole balance, never the person who presses it, who pays only the network fee in DERO. " +
+        "If the payee's account does not exist on this chain yet, the contract cannot pay it: the node's estimate fails, this app sends nothing, and the share keeps waiting."));
+  }
   // what the wallet holds of the quote, read for the sheet and never summed with anything
   // `then` receives the amount, or null when the wallet did not answer, so a sheet's button can refuse before the tap
   function balanceLine(s, then) {
@@ -102,7 +123,7 @@
       const r = read(); ok = null;
       if (!r.p || r.p === Z) return render(out, h("div", { class: "note" }, why = "Enter the price a buyer pays" + (type === "auction" ? " to open the bidding" : "") + ", in " + sym(s) + "."));
       if (r.p > BOUND) return render(out, h("div", { class: "errbox" }, why = "Above the contract's bound of " + amt(s, BOUND) + ": a sale at this price could never settle."));
-      if (r.cp > Z && !r.ca) return render(out, h("div", { class: "errbox" }, why = "A charity share needs a valid DERO address; the contract returns the unit otherwise."));
+      if (r.cp > Z && !r.ca) return render(out, h("div", { class: "errbox" }, why = "A charity share needs a valid DERO address, or the listing does not start."));
       ok = r;
       render(out, h("div", { class: "label" }, type === "sale" ? "If it sells at " + amt(s, r.p) : "If it sells at the start price"), split(s, r.p, r.cp, r.ca),
         h("div", { class: "note mt8" }, (type === "sale" ? "Runs " : "Bidding runs ") + r.hrs + " hour" + (r.hrs === 1n ? "" : "s") + " from the block that includes it (1 to 168; the contract clamps)" + (type === "auction" ? ", and a bid in the last 15 minutes extends it by 15 minutes, without a cap" : "") + ". You can cancel within the first " + left(N(s.cancelBuffer)) + "; after that it runs to its end. The unit moves into the contract now and comes back to you if nothing sells" + (r.cp === room && r.cp > Z ? " · charity share clamped to the " + room + "% the fees leave" : "") + ". " + RING2));
@@ -141,14 +162,17 @@
     if (st === "ended") {
       const won = s.listType === "auction" && s.bidCount > Z;
       if (own) { out.push(button(won ? "Close · settle to the top bidder" : "Close · unit back to you", "primary wide", () => tx(scid, { entry: "CloseListing", args: [], describe: "Close listing", probe: { scid, keys: ["scBalance", "listType"] } }))); note((won ? "Closing pays " + amt(s, s.currBidAmt) + " out by the split below and hands the unit to " + D.displayName(s.bidder) + ". " : strand(s) ? "Nothing was bid on this listing, but a held bid stands: any wallet can settle this ended listing to " + D.displayName(s.bidder) + " for " + amt(s, s.currBidAmt) + " before your Close is mined. " : "Nothing sold; closing returns the unit to your wallet. ") + RING2); }
-      else if (won && s.bidder === my) { out.push(button("Settle · you won", "primary wide", () => tx(scid, { entry: "Bid", args: [], describe: "Settle auction", outcome: { scid, expect: "up" }, probe: { scid, keys: ["owner", "scBalance"] } }))); note("Bid() with nothing attached on an ended auction settles it: the contract pays your " + amt(s, s.currBidAmt) + " out by the split and sends you the unit. The owner's Close does the same. " + RING2); }
-      else note("Ended. " + (won ? "The owner or the top bidder settles it." : strand(s) ? "A held bid stands against this asset: see below." : "The owner closes it and takes the unit back."));
+      else if (won && s.bidder === my) { out.push(button("Settle · you won", "primary wide", () => tx(scid, { entry: "Bid", args: [], describe: "Settle auction", outcome: { scid, expect: "up" }, probe: { scid, keys: ["owner", "scBalance"] } }))); note("Bid() with nothing attached on an ended auction settles it: the contract pays your " + amt(s, s.currBidAmt) + " out by the split and sends you the unit. The owner's Close does the same, and so does a Buy now from anyone: on an ended auction it settles to the top bidder, as an empty Bid does. " + RING2); }
+      // nfa.bas BuyItNow 512-516: an ended auction reached through Buy now settles to its top bidder (or back to the
+      // owner if nobody bid) and refunds the caller's attachment. The standard sent the unit back and kept the bid.
+      else note("Ended. " + (won ? "It can only settle to the top bidder: by the owner's Close, the top bidder's empty Bid, or a Buy now from anyone, which on an ended auction settles it to the top bidder as an empty Bid does and refunds whatever that caller attached." : strand(s) ? "A held bid stands against this asset: see below." : "The owner closes it and takes the unit back."));
       if (won && (own || s.bidder === my)) out.push(split(s, s.currBidAmt));
     }
     if (!out.length) note(st === "none" ? "Not listed. Only the recorded owner can start a sale or auction." : "");
     return h("div", { class: "card" }, h("div", { class: "label" }, own ? "Your asset" : "Your position"), h("div", { class: "stack mt8" }, out));
   }
-  // A bid left in the contract with no listing: an ended auction closed by an empty BuyItNow (docs/NFA.md §7 R4)
+  // The current nfa.bas cannot leave one (header note 6: every way an auction ends settles or refunds its bid); this
+  // stays for any contract that can. A bid left in the contract with no listing: an ended auction closed by an empty BuyItNow (docs/NFA.md §7 R4)
   // keeps currBidAmt under the bidder's name. It is not a refund waiting. processHighestBidder pays that amount
   // out and hands the unit to that address, and Bid() with nothing attached reaches it on any listing of this
   // asset that has ended (nfa.bas Bid 500-540), whatever that listing asked for. So it renders in every state.
@@ -173,7 +197,8 @@
   function record(s) {
     const v = D.vaultOf(s), file = U.safeUrl(s.file), sig = U.safeUrl(s.fileSign);
     const halted = s.quote && D.vault && D.vault.scid === s.quote && D.vault.halted > BigInt(D.height || 0);
-    const link = (u) => h("a", { href: u, target: "_blank", rel: "noopener noreferrer", class: "mono", style: "word-break:break-all" }, u);
+    // the one kind of link in the app: a URL its creator set, opened only on a click, and said to leave DMZ
+    const link = (u) => h("span", null, h("a", { href: u, target: "_blank", rel: "noopener noreferrer", class: "mono", style: "word-break:break-all" }, u), h("span", { class: "dim2" }, " · opens outside DMZ"));
     return h("div", { class: "card" }, h("div", { class: "between" }, h("b", null, "On chain"), h("span", { class: "label" }, "Read from the contract")),
       h("div", { class: "mt8" },
         kv("Owner", s.owner ? h("span", { class: "row tight" }, avatar(s.owner, "sm"), who(s.owner)) : "in the contract, unclaimed"),
@@ -182,6 +207,7 @@
         halted ? h("div", { class: "warnbox mt8" }, h("b", null, "The " + sym(s) + " vault is halted."), " Its signers start no new foreign payment while the halt lasts; " + sym(s) + " still moves on DERO, so a price here is a price in a halted reserve.") : null,
         v ? h("div", { class: "row mt8" }, button("Open the vault", "small ghost", () => router.go("wrap", s.quote))) : null,
         kv("Royalty", s.royalty + "% of every sale to the creator"), kv("Protocol fee", N(s.protoFee) / 100 + "% to the treasury"), kv("Artificer fee", s.artificerFee + "%" + (s.artificerFee > Z ? " to Civilware" : "")),
+        s.owed > Z ? owedBox(s) : null,
         kv("Type", s.type || "—"), kv("Collection", s.collection || "—"), s.tags ? kv("Tags", s.tags) : null, kv("Standard", "ART-NFA-MS1 " + (s.version || "?")),
         kv("File", file ? h("span", null, link(file), " · not verified against the hashes by this app") : s.file ? "a link this app does not open (not https)" : "none"),
         s.checkC ? kv("fileCheckC", h("span", { class: "mono", style: "word-break:break-all" }, s.checkC)) : null, s.checkS ? kv("fileCheckS", h("span", { class: "mono", style: "word-break:break-all" }, s.checkS)) : null,
@@ -198,7 +224,8 @@
       // a cold deep link lands before the registry is read: wait for it, then say unknown rather than guess
       if (!s) { const k = D.lastRefresh ? "unknown" : "wait"; if (k === lastKey) return; lastKey = k; return render(el, k === "wait" ? h("div", { class: "card mt" }, h("div", { class: "label" }, "NFA"), h("div", { class: "sub mt8" }, "Reading the registry…")) : h("div", { class: "errbox mt" }, "Unknown NFA: not in the registry, or its code, treasury or fee did not verify, so nothing about it is shown.")); }
       const st = state(s), cl = cancelLeft(s);
-      const key = [s.sig, st, me(), unit, Math.floor(cl / 60), V.settings.images, s.currBidAmt, s.bidder].join("|");
+      if (s.owed > Z && owedFor !== s.scid + s.sig) loadOwed(s).then(() => { if (router.current && router.current.name === "nfa" && router.current.param === scid) draw(); });
+      const key = [s.sig, st, me(), unit, Math.floor(cl / 60), V.settings.images, s.currBidAmt, s.bidder, owedRows === undefined ? "x" : owedRows ? owedRows.map((r) => r.v).join(",") : "-"].join("|");
       if (key === lastKey) return; lastKey = key;
       const cover = U.safeUrl(s.cover), own = !!me() && s.owner === me();
       const big = st === "none" ? (s.previousSalePrice > Z ? ["Last sale", amt(s, s.previousSalePrice)] : s.previousAuctionPrice > Z ? ["Last auction", amt(s, s.previousAuctionPrice)] : ["Not listed", "—"])
@@ -210,7 +237,7 @@
           h("div", { class: "row mt8" }, avatar(s, "big"), h("div", { class: "grow" }, h("h1", null, s.name), h("div", { class: "sub ellipsis" }, [s.collection, s.type].filter(Boolean).join(" · ") || "no collection"))),
           h("div", { class: "label mt" }, big[0]), h("div", { class: "big num mt8" }, big[1]),
           h("div", { class: "note mt8" }, line(s) + (own ? "" : s.owner ? " · owner " + D.displayName(s.owner) : " · unclaimed"))),
-        cover && V.settings.images ? h("img", { src: cover, alt: "", referrerpolicy: "no-referrer", loading: "lazy", style: "width:100%;display:block;margin-top:14px;border:1px solid var(--edge)" }) : null,
+        // no cover is fetched from the creator's host; the file link under "On chain" opens outside DMZ, on a click
         h("div", { class: "stats4 mt" }, stat("Royalty", s.royalty + "%"), stat("Protocol fee", N(s.protoFee) / 100 + "%"), stat("Artificer fee", s.artificerFee + "%"), stat("Bids", String(s.bidCount))),
         s.descr ? h("div", { class: "note mt8" }, s.descr) : null,
         h("div", { class: "nft-grid mt" }, h("div", null, position(s, st), h("div", { class: "mt" }, listing(s, st))), h("div", null, record(s))));
@@ -227,12 +254,14 @@
     const keys = [...groups.keys()].sort((a, b) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)));
     const tile = (s) => { const img = U.safeUrl(s.cover) || U.safeUrl(s.icon);
       return h("button", { class: "card", type: "button", style: "padding:0;border:0;border-radius:0;overflow:hidden;outline:1px solid var(--edge)", onclick: () => router.go("nfa", s.scid) },
-        img && V.settings.images ? h("img", { src: img, alt: "", referrerpolicy: "no-referrer", loading: "lazy", style: "width:100%;aspect-ratio:1;object-fit:cover;display:block" }) : h("div", { style: "aspect-ratio:1;display:grid;place-items:center" }, avatar(s, "big")),
+        h("div", { style: "aspect-ratio:1;display:grid;place-items:center" }, avatar(s, "big")),
         h("div", { style: "padding:10px;text-align:left" }, h("b", { class: "ellipsis", style: "display:block" }, s.name), h("div", { class: "mono dim2 ellipsis", style: "margin-top:5px" }, line(s)))); };
     const create = typeof (V.forms && V.forms.nfa) === "function" ? button("Create", "small", () => V.forms.nfa()) : null;
-    return [U.sectionHead("gem", "NFAs", "Assets priced in XMR, ZEC or DERO, each with its sale or auction inside its own contract", all.length ? create : null),
+    // a build with no vault can price an asset in DERO only, and says so rather than naming XMR and ZEC
+    const quotes = D.allVaults().length ? ["XMR, ZEC or DERO", "XMR or ZEC"] : ["DERO", "DERO"];
+    return [U.sectionHead("gem", "NFAs", "Assets priced in " + quotes[0] + ", each with its sale or auction inside its own contract", all.length ? create : null),
       all.length ? keys.map((k) => [keys.length > 1 || k ? h("div", { class: "label mt" }, k || "No collection") : null, h("div", { class: "mt8", style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:1px" }, groups.get(k).map(tile))])
-        : D.lastRefresh ? U.emptyState("gem", "No assets yet", "List an asset priced in XMR or ZEC: one contract per asset, its sale or auction inside it, and every payment in the quote you choose. Anyone can create one.", create)
+        : D.lastRefresh ? U.emptyState("gem", "No assets yet", "List an asset priced in " + quotes[1] + ": one contract per asset, its sale or auction inside it, and every payment in the quote you choose. Anyone can create one.", create)
           : U.emptyState("gem", "NFAs", "Reading the registry…")];
   }
   V.nfas = { section, page, key: () => [...D.nfas.values()].map((s) => s.sig + line(s)).join("|") };

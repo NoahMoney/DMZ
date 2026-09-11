@@ -66,12 +66,11 @@
   // only, no referrer. Nothing here is a colour the system did not already name.
   function avatar(x, size = "") {
     const isAsset = typeof x === "object", id = isAsset ? x.scid || x.ticker || "" : String(x || "");
-    const src = safeUrl(isAsset ? x.icon : (V.data.profile(id).avatar || ""));
+    // No image is fetched from a creator's host, ever: the app makes no request but to the user's own node and
+    // wallet. An opt-in toggle used to load them here, and any page on this origin could switch it on (FE-7).
     const label = clean(isAsset ? (x.ticker || "?").slice(0, 3) : V.data.displayName(id).slice(0, 2).toUpperCase(), 3);
     const v = isAsset ? V.data.vaultOf(x) : null;
-    const el = h("div", { class: "avatar " + size + (v ? " " + netOf(v)[1].slice(4) : ""), "aria-hidden": "true" }, label);
-    if (src && V.settings && V.settings.images) { const img = h("img", { src, alt: "", loading: "lazy", referrerpolicy: "no-referrer", decoding: "async" }); img.onerror = () => img.remove(); el.prepend(img); }
-    return el;
+    return h("div", { class: "avatar " + size + (v ? " " + netOf(v)[1].slice(4) : ""), "aria-hidden": "true" }, label);
   }
   const pill = (txt, cls = "") => h("span", { class: "pill " + cls }, txt);
   // direction is a number in a numeric column, not a boxed control: .chg carries colour and tabular figures only
@@ -109,7 +108,7 @@
     const w = [];
     // First, and worded as a statement rather than a caution: "check the contract id" asks a user to do work
     // they cannot do. This one is knowable — the vault that owns the name is in the shipped config — so say it.
-    if (s && s.impersonates) w.push(h("span", { class: "pill bad", title: "This is a token that named itself after " + s.impersonates + ". It is not the wrapped asset, it is not backed by anything held in the vault, and it has nothing to do with the " + s.impersonates + " you can deposit and withdraw on the Wrap screen." }, "Not real " + s.impersonates));
+    if (s && s.impersonates) w.push(h("span", { class: "pill bad", title: "This is a token that named itself after " + s.impersonates + ". " + (V.data.allVaults().length ? "It is not the wrapped asset, it is not backed by anything held in the vault, and it has nothing to do with the " + s.impersonates + " you can deposit and withdraw on the Wrap screen." : "No wrapped " + s.impersonates + " is offered on this network, so nothing called " + s.impersonates + " here is backed by it or can be withdrawn to it.") }, "Not real " + s.impersonates));
     if (s && s.splitWith && !s.splitDeepest) w.push(h("span", { class: "pill warn", title: "Another contract trades this same pair and holds more of it. This one is thinner: the same order moves its price more, and a large one can empty it. Markets shows both, deepest first." }, "Split pair \u00b7 thinner"));
     if (s && (s.quoteLegacy || s.baseLegacy)) w.push(h("span", { class: "pill warn", title: "This market trades a retired vault's wrapped units. The federation mints no more of them, so the supply is only what already exists; they leave by being burned back on the Wrap screen, where the vault that replaced this one also is." }, "Retired vault"));
     if (s && s.dupTicker) w.push(h("span", { class: "pill warn", title: "Another listed market uses a ticker that reads the same. Check the contract id before trading." }, "Ticker shared"));

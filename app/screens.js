@@ -74,13 +74,14 @@
             bal === undefined ? "…" : bal === null ? "—" : mask(fixed(bal, dec, Math.min(dec, 5)))),
           h("div", { class: "label", style: "margin-top:6px" }, "w" + sym)));
     };
+    // With no vault in the build (mainnet's), the Level 1 reading says so, and why, instead of "0 chains"
     const wrapHero = () => h("div", { class: "hero cut mt8" },
-      h("div", { class: "between" }, h("span", { class: "eyebrow" }, "Wrapped assets you hold"),
-        h("span", { class: "label" }, vaults.length + " chain" + (vaults.length === 1 ? "" : "s"))),
+      h("div", { class: "between" }, h("span", { class: "eyebrow" }, vaults.length ? "Wrapped assets you hold" : "Wrapped assets"),
+        vaults.length ? h("span", { class: "label" }, vaults.length + " chain" + (vaults.length === 1 ? "" : "s")) : null),
       vaults.length ? vaults.map(wrapLine)
-        : h("div", { class: "note mt8" }, "This build has no wrapped-asset vault configured, so there is no XMR or ZEC to hold on it yet."),
+        : h("div", { class: "mt8" }, h("b", null, V.notice.NOWRAP), h("div", { class: "note mt8" }, V.notice.NOWRAP_WHY)),
       netLine(V.wallet.connected ? "read through your wallet on this device" : "no wallet connected"));
-    const wrapNote = () => h("div", { class: "note mt8" }, "One line per asset, never a combined figure: wrapped XMR and wrapped ZEC are different coins and DMZ has no price oracle to convert between them. " +
+    const wrapNote = () => h("div", { class: "note mt8" }, (vaults.length ? "One line per asset, never a combined figure: wrapped XMR and wrapped ZEC are different coins and DMZ has no price oracle to convert between them. " : "") +
       (V.wallet.connected ? "Each balance is decrypted by your wallet on this device." : "Balances on DERO are encrypted, so only your own wallet can read them."));
 
     if (!V.wallet.connected) return render(el, h("h1", { class: "mt" }, "Portfolio"), wrapHero(), wrapNote(),
@@ -162,13 +163,15 @@
 
         // DERO is the rail, not the destination, and saying so is the whole point of this section.
         U.sectionHead("bolt", "DERO · gas", "What pays the network fee on every transaction here — not one of the assets you came to trade"),
-        kv("Free balance", mask(fixed(hold.dero, 5, 5)) + " DERO", "num"),
-        h("div", { class: "note mt8" }, "Keep a little DERO even if you only trade XMR or ZEC markets: a buy quoted in wrapped XMR still pays its DERO network fee, and a wallet with none cannot send anything."),
+        // a balance the wallet did not give is unreadable, never zero (it was read as 0 on any failed call)
+        kv("Free balance", hold.dero === null ? "unreadable: the wallet did not answer" : mask(fixed(hold.dero, 5, 5)) + " DERO", "num"),
+        h("div", { class: "note mt8" }, vaults.length ? "Keep a little DERO even if you only trade XMR or ZEC markets: a buy quoted in wrapped XMR still pays its DERO network fee, and a wallet with none cannot send anything."
+          : "Every transaction here pays its network fee in DERO, and a wallet with none cannot send anything."),
 
         // Holdings, one block per quote. Never a figure across two of them.
         gs.length ? gs.map(block) : [
           U.sectionHead("wallet", "Tokens", "Grouped by the asset each market is priced in"),
-          U.emptyState("wallet", "No tokens held", "This wallet holds no listed DMZ token. Buy one on any market and it appears here, in a group named after the asset that market is priced in — XMR markets with XMR, DERO markets with DERO.", button("Find a market", "small primary", () => router.go("markets"))),
+          U.emptyState("wallet", "No tokens held", "This wallet holds no listed DMZ token. Buy one on any market and it appears here, in a group named after the asset that market is priced in" + (vaults.length ? " — XMR markets with XMR, DERO markets with DERO." : "."), button("Find a market", "small primary", () => router.go("markets"))),
           U.sectionHead("trend", "Value over time", "Holdings value is drawn here from each market's own block history, one curve per quote, as soon as you hold something"),
           V.chart.series(null, [], { height: 150, empty: "Trade once and the curve starts here", wide: window.innerWidth >= 960 }),
         ],
@@ -179,6 +182,8 @@
         unplaced ? h("div", { class: "note mt" }, unplaced + " traded asset" + (unplaced === 1 ? " is" : "s are") + " left out of the groups above: " +
           (unplaced === 1 ? "its market is" : "their markets are") + " no longer listed, so the app cannot tell which asset " +
           (unplaced === 1 ? "it was" : "they were") + " priced in, and putting the figure in the wrong quote would be worse than omitting it.") : null,
+        hold.unread ? h("div", { class: "note mt" }, hold.unread + " token balance" + (hold.unread === 1 ? "" : "s") + " could not be read from your wallet, so " +
+          (hold.unread === 1 ? "that token is" : "those tokens are") + " left out above rather than shown as zero. Refresh to ask again.") : null,
         h("div", { class: "between mt" }, h("span", { class: "note" }, "Cost basis from " + pnl.count + " trade" + (pnl.count === 1 ? "" : "s") + ": the ones made on this device" + (pnl.chainCount ? " plus " + pnl.chainCount + " this address published from elsewhere" : "") + ", kept in this browser. Nothing is uploaded."),
           button("Refresh", "small", () => { V.app.loadHoldings(true); loadWrapped(true); })));
     };
@@ -194,7 +199,11 @@
     if (!D.profiles.size && D.cfg.social) await D.loadSocial(me()).catch(() => {});
     const draw = () => {
       const p = D.profile(addr), mine = addr === me(), trades = D.tradesOf(addr);
-      const vol = trades.reduce((a, t) => a + (t.side === 1 ? t.in : t.out), 0n);
+      // Published volume per quote, never one sum (MISS-04): a trade in wrapped XMR and a trade in DERO are two
+      // currencies with no rate between them, and one figure scaled at DERO's decimals was a number of nothing.
+      const byQ = new Map();
+      for (const t of trades) { const s = t.asset, k = D.qsym(s), g = byQ.get(k) || { v: Z, d: D.qdec(s) }; g.v += t.side === 1 ? t.in : t.out; byQ.set(k, g); }
+      const vol = [...byQ].sort((a, b) => a[0].localeCompare(b[0])).map(([k, g]) => h("div", null, A.fmtUnits(g.v, g.d, 1) + " " + k));
       const stat = (l, v) => h("div", { class: "stat" }, h("div", { class: "l" }, l), h("div", { class: "v num" }, v));
       const local = D.localTrades().length, watched = S.watch.all().size;
       render(el,
@@ -208,7 +217,7 @@
           p.bio ? h("div", { class: "sub mt8" }, p.bio) : null),
 
         U.sectionHead("feed", "Public", "Written to the social contract by this address · anyone can read it"),
-        h("div", { class: "stats4 mt8" }, stat("Followers", D.followers.get(addr) || 0), stat("Following", D.followingOf(addr).size), stat("Published trades", trades.length), stat("Published vol", A.fmtDero(vol, 1))),
+        h("div", { class: "stats4 mt8" }, stat("Followers", D.followers.get(addr) || 0), stat("Following", D.followingOf(addr).size), stat("Published trades", trades.length), stat("Published volume", vol.length ? vol : "0")),
         h("div", { class: "note mt8" }, "Name, bio and avatar are whatever this address published, and any address can publish any name. A trade counts here only because its owner switched “Post this trade” on."),
 
         U.sectionHead("lock", "Pseudonymous", "The address is the identity · that is not the same as anonymous"),
@@ -216,7 +225,7 @@
         kv("Ordinary swap", "ring 2 · payer public"),
         kv("Private mode", "ring 16 · pays a named address"),
         kv("Balances", "encrypted on chain"),
-        h("div", { class: "note mt8" }, "An ordinary swap is a ring-size-2 contract call, so anyone can work out which address paid it, not only the contract. Private mode signs with a ring of 16 and pays a named address instead: the payer is one of sixteen, the receiving address is public."),
+        h("div", { class: "note mt8" }, "An ordinary swap is a ring-size-2 contract call, so anyone can work out which address paid it, not only the contract. Private mode signs with a ring of 16 and pays a named address instead. The ring hides the payer from the contract, but a public bit in every DERO proof says which half of the ring the payer is in, so to anyone reading the chain the payer is one of 8; the receiving address is public."),
 
         mine ? [
           U.sectionHead("shield", "Local to this device", "Held in this browser · never uploaded, never published"),
@@ -247,30 +256,35 @@
       h("div", { class: "stack mt8" },
         h("div", { class: "field" }, "Node endpoint override (host:port on this device, or wss://host:port)", daemon),
         u && !u.loopback && !V.app.endpointConfirmed(u.url) ? h("div", { class: "warnbox" }, "The stored node " + V.app.hostOf(u.url) + " is not used this session until you confirm it: a remote node decides what this app sees. ", button("Use it this session", "small", () => { V.app.confirmEndpoint(u.url); V.app.connectNode(); router.dispatch(); })) : null,
-        button("Save endpoint", "primary", () => { const v = daemon.value.trim(); const n = V.endpointURL(v); if (v && !n) return U.toast("Use host:port for a node on this device, or wss://host:port for a remote one", "err", 6000); V.app.saveSettings({ daemon: v }); if (n && !n.loopback) V.app.confirmEndpoint(n.url); V.app.connectNode(); U.toast("Saved", "ok"); router.dispatch(); }),
-        U.toggle("Use indexer read cache", !!st.indexer, (on) => V.app.saveSettings({ indexer: on }), "Optional Gnomon cache. The app always falls back to reading the node.")),
+        button("Save endpoint", "primary", () => { const v = daemon.value.trim(); const n = V.endpointURL(v); if (v && !n) return U.toast("Use host:port for a node on this device, or wss://host:port for a remote one", "err", 6000); V.app.saveSettings({ daemon: v }); if (n && !n.loopback) V.app.confirmEndpoint(n.url); V.app.connectNode(); U.toast("Saved", "ok"); router.dispatch(); })),
+      // An "indexer read cache" toggle stood here: the setting was written and never read (UX-10), an option that did nothing.
       monoKv("Network", D.cfg.network),
+      monoKv("Node reports", (V.app.net && V.app.net.node) || "—"),
       kv("Block", h("span", { class: "mono" }, String(L.height || "—"), " · ", h("span", { "data-block-age": 1 }, "—"), " ago")),
       monoKv("Endpoint", V.node.endpoint || (V.wallet.connected ? "via wallet" : "—")),
       monoKv("Wallet", V.wallet.connected ? V.shortAddr(V.wallet.address) : "not connected"),
 
       U.sectionHead("shield", "Security & privacy", "What this build can and cannot do"),
-      U.toggle("Load token and profile images", !!st.images, (on) => { V.app.saveSettings({ images: on }); D.changed(); }, "Images come from the URL each creator set. Loading one tells that host your IP address. Sent without a referrer; off means generated avatars only."),
+      // An image toggle stood here. Images came from hosts creators chose, and the mainnet rule is that the app makes
+      // no request but to the user's own node and wallet: the plates are the only avatars, and the CSP has no https: image source.
       h("div", { class: "stack mt8", style: "gap:7px" },
         can(true, "Runs entirely in your browser from the DERO chain. No server, no analytics, no cookies."),
         can(true, "Reads go to your node. Transactions are built here and signed only inside your wallet after you approve them there."),
         can(true, "Before a contract is shown or traded, its code is hashed and compared with the shipped templates, and its treasury with the factory's. The code, the registry and the treasury all come from the node above — the app has no second source, so a node you do not run can misreport all three."),
-        can(true, "A Content Security Policy blocks any script that is not part of this build and any connection except your node, your wallet and image hosts."),
+        // UX-09: the policy's connect-src admits any wss:// host, so the limit to one node is this app's code, not the policy
+        can(true, "A Content Security Policy blocks any script that is not part of this build. It lets the page connect to this device and to any wss:// host; this app's own code connects only to the node you set and your wallet on this device, and loads no image, font or script from anywhere else. A link a creator set opens outside DMZ, and only when you click it."),
         can(true, "Trades never accept more than 10% slippage; large price impact needs an explicit acknowledgement."),
+        can(true, "Nothing is signed unless this build's network, your node's and your wallet's node's are one and the same."),
         can(false, "Cannot see your keys, seed or balances of other people. Cannot send anything without your wallet's confirmation."),
-        can(false, "There is no operator once this is deployed: no support desk, no review, no refund.")),
+        // SEC-K-13: "there is no operator" contradicted the message from the dev, which names the keys that survive
+        can(false, "No support desk, no review, no refund. The keys that survive deployment are listed in the message from the dev.")),
       monoKv("Build", "TELA commit " + commit),
       kv("Fee", Number(D.cfg.feeBps) / 100 + "% per trade; on a curve all of it is the treasury's, on an AMM " + Number(D.cfg.pfeeBps) / 100 + "% of it and the rest stays in the pool"),
       monoKv("Factory", V.shortAddr(D.cfg.factory)),
       monoKv("Social", V.shortAddr(D.cfg.social)),
 
       U.sectionHead("eye", "What publishing reveals", "Read this before switching “Post this trade” on"),
-      h("div", { class: "note mt8" }, "Publishing a trade reveals your address and that trade to everyone; it never reveals balances. Contract calls that pay you need ringsize 2, and anyone can compute which address paid a ringsize-2 call, not only the contract. Private mode in the trade sheet sends at ring size 16 and pays a named address instead: the payer is one of 16 accounts, the receiving address is public. Charts are exact at block resolution: the chain records the closing reserves of every active block, and the difference between two of them is the size of the trade that caused it — so every trade is pseudonymous whether or not you post it, and an unpublished trade is unpublished in name only. Posting adds your address to the record; it does not add the amount, which is already there."),
+      h("div", { class: "note mt8" }, "Publishing a trade reveals your address and that trade to everyone; it never reveals balances. Contract calls that pay you need ringsize 2, and anyone can compute which address paid a ringsize-2 call, not only the contract. Private mode in the trade sheet sends at ring size 16 and pays a named address instead: the contract never learns the payer, but a public bit in every DERO proof says which half of the ring the payer is in, so to an observer the payer is one of 8 of those 16 accounts; the receiving address is public. Charts are exact at block resolution: the chain records the closing reserves of every active block, and the difference between two of them is the size of the trade that caused it — so every trade is pseudonymous whether or not you post it, and an unpublished trade is unpublished in name only. Posting adds your address to the record; it does not add the amount, which is already there."),
 
       U.sectionHead("wallet", "This device", "Kept in this browser · nothing here is uploaded"),
       h("div", { class: "stack mt8" },

@@ -18,7 +18,7 @@
     const out = [];
     // First, above every other risk. The others cost a user money on a market that is what it says it is; this
     // one means the market is not that thing at all, and the vault holds nothing for it.
-    if (s.impersonates) out.push({ k: "fake", t: "This is not " + s.impersonates + ". It is a token whose ticker copies the wrapped asset. No vault holds any " + s.impersonates + " for it, and it cannot be withdrawn to " + s.impersonates + " on any chain. The real one is on the Wrap screen." });
+    if (s.impersonates) out.push({ k: "fake", t: "This is not " + s.impersonates + ". It is a token that took that name. No vault holds any " + s.impersonates + " for it, and it cannot be withdrawn to " + s.impersonates + " on any chain. " + (D.allVaults().length ? "The real one is on the Wrap screen." : "No wrapped " + s.impersonates + " is offered on this network at all.") });
     // A retired vault's units are the one thing on a market that cannot be replaced: the federation mints no more
     // of them, so the only supply is what already exists and the only way out is to burn them back on the Wrap
     // screen. A market quoted in them is a closing market, and nothing else on the row says so.
@@ -135,18 +135,22 @@
       // actually sticks. Zero it here until the sheet stops making #screen a scroll container — the condition
       // undoes this the moment it does.
       const sc = U.$("#screen"), railTop = wide && sc && getComputedStyle(sc).overflowY !== "visible" ? "top:0" : null;
-      const flowEl = h("div", { class: "big num" }); flowEl._v = shown.get("__flow"); L.num(flowEl, vol, (v) => S.fmtDeroShort(v)); shown.set("__flow", vol);
+      // nothing is a reading until the registry has been read: before that the flow is a dash, never "0 DERO"
+      const ready = !!D.lastRefresh;
+      const flowEl = h("div", { class: "big num" }); flowEl._v = shown.get("__flow"); L.num(flowEl, ready ? vol : null, (v) => (v === null ? "—" : S.fmtDeroShort(v))); shown.set("__flow", ready ? vol : undefined);
       // Level 1 — the state of the market: one labelled number, one caption, then the read-outs that qualify it.
       const hero = h("div", { class: "hero" },
         h("div", { class: "between" }, h("span", { class: "eyebrow" }, "Flow · last 24 hours"), h("span", { class: "pill live" }, h("i", { class: "dot" }), "LIVE")),
-        h("div", { class: "pulse-row mt8", style: "gap:9px" }, flowEl, h("span", { class: "dim", style: "font-weight:650;letter-spacing:-.02em;padding-bottom:5px" }, leadSym)),
+        h("div", { class: "pulse-row mt8", style: "gap:9px" }, flowEl, h("span", { class: "dim", style: "font-weight:650;letter-spacing:-.02em;padding-bottom:5px" }, ready ? leadSym : "")),
         flows.length > 1 ? h("div", { class: "row tight mt8", style: "flex-wrap:wrap;gap:4px 14px" },
           flows.slice(1).map(([sym, v]) => h("span", { class: "sub num" }, S.fmtDeroShort(v) + " " + sym))) : null,
-        h("div", { class: "sub" }, act.length ? "Settled through " + act.length + " market" + (act.length === 1 ? "" : "s") + " on this deployment." : "No market has traded on this deployment yet."),
+        h("div", { class: "sub" }, act.length ? "Settled through " + act.length + " market" + (act.length === 1 ? "" : "s") + " on this deployment."
+          : ready ? "No market has traded on this deployment yet." : D.lastError ? "The registry could not be read from your node, so nothing here is a reading yet." : "Reading the registry from your node…"),
         h("div", { class: "mt", style: RULE() },
-          mini("Trades / h", String(blocks1h)),
+          // blocks in which some market's reserves moved, which is what flow1h counts: one block can hold several trades
+          mini("Active blocks / h", ready ? String(blocks1h) : "—"),
           buys + sells ? mini("Buy pressure", bp + "%", bp >= 50 ? "up" : "down", h("div", { class: "pressure" }, h("i", { style: "width:" + bp + "%" }))) : mini("Buy pressure", "—"),
-          mini("Markets", String(act.length)),
+          mini("Markets", ready ? String(act.length) : "—"),
           mini("Block", h("span", { class: "mono" }, String(L.height || "…")), "", h("span", { class: "tiny dim2" }, h("span", { "data-block-age": 1 }, "—"), " ago"))),
         h("div", { class: "between mt", style: "border-top:1px solid var(--edge);padding-top:12px" },
           h("span", { class: "note" }, "No accounts and no backend: every number here was read from the chain by this device."),
@@ -162,7 +166,7 @@
               return h("span", { class: "row tight", style: "flex-wrap:wrap;gap:4px 12px" },
                 ts.map(([sym, t], i) => h("span", { class: i ? "sub num" : "display num" }, A.fmtUnits(t.units, BigInt(t.dec), 3) + " " + sym)));
             })(), changePill(hold.change24)),
-          h("div", { class: "sub tiny" }, hold.rows.length + " token" + (hold.rows.length === 1 ? "" : "s") + " · " + A.fmtDero(hold.dero, 2) + " DERO free · valued on this device")),
+          h("div", { class: "sub tiny" }, hold.rows.length + " token" + (hold.rows.length === 1 ? "" : "s") + " · " + (hold.dero === null ? "DERO balance unreadable" : A.fmtDero(hold.dero, 2) + " DERO free") + " · valued on this device")),
         h("div", { class: "row tight" }, button("Portfolio", "small", () => router.go("portfolio")), button("Trade", "small primary", () => router.go("trade")))) : null;
       const f = D.founders;
       // secondary, and it says so: a hairline row at the foot of the column, no accent edge and no accent badge
@@ -176,7 +180,9 @@
         head("flame", "Trending", "Most active this hour", trending.length ? h("button", { class: "linkbtn", type: "button", onclick: () => router.go("markets") }, "All markets") : null),
         trending.length ? h("div", { class: "mlist" }, trending.map((s, i) => H.marketRow(s, i, spark)))
           : D.lastRefresh ? U.emptyState("flame", null, "Nothing has traded here yet. The first pool or launch fills this list.", button("Create a market", "small primary", () => router.go("trade")))
-            : h("div", { class: "list" }, U.skeleton(4)),
+            // a registry that could not be read says so, rather than animating a load that will never land
+            : D.lastError ? U.errorState("The market registry could not be read from your node: " + U.clean(D.lastError, 160), () => V.app.refresh(true))
+              : h("div", { class: "list" }, U.skeleton(4)),
         movers.length ? [head("trend", "Movers", "Largest moves over 24 hours"), h("div", { class: "mlist" }, movers.map((s, i) => H.marketRow(s, i, spark)))] : null,
         pipe.length ? [head("rocket", "Launch pipeline", "Curves filling toward a locked AMM"), h("div", { class: "mlist" }, pipe.map(launchRow))] : null,
         pass),
@@ -188,7 +194,7 @@
           : D.lastRefresh ? (feedFilter === "following" ? U.emptyState("feed", "Following", "Nobody you follow has published a trade. Publishing is opt-in on every swap.", button("Find traders", "small", () => router.go("markets")))
             : feedFilter === "watch" ? U.emptyState("feed", "Watchlist", "No market you starred has a published trade yet.", button("Browse markets", "small", () => router.go("markets")))
               : U.emptyState("feed", null, "No trade has been published yet. Publishing is opt-in on every swap.", button("Open a market", "small", () => router.go("markets"))))
-            : h("div", { class: "list" }, U.skeleton(4)))));
+            : D.lastError ? h("div", { class: "note mt8" }, "Nothing to show: the registry could not be read.") : h("div", { class: "list" }, U.skeleton(4)))));
       L.tape(U.$("#tape"), D.trending(14));
     };
     draw(); D.onChange(() => router.current && router.current.name === "home" && draw());
@@ -213,9 +219,10 @@
         h("div", { class: "hero mt" },
           h("div", { class: "between" }, h("span", { class: "eyebrow" }, "Execution"), h("span", { class: "pill live" }, h("i", { class: "dot" }), "LIVE")),
           h("h1", { class: "mt8" }, "Trade"),
-          h("div", { class: "sub", style: "max-width:62ch" }, "A market settles against DERO or against a wrapped asset — trade a token straight against XMR or ZEC without touching DERO beyond gas. Balances stay encrypted. An ordinary swap is a ring-size-2 call, so the address that pays is public in that transaction; private mode raises the ring to 16 and pays a named address instead."),
+          h("div", { class: "sub", style: "max-width:62ch" }, (D.allVaults().length ? "A market settles against DERO or against a wrapped asset — trade a token straight against XMR or ZEC without touching DERO beyond gas. "
+            : "Every market this app creates on this network settles against DERO: wrapped XMR and ZEC are not offered on this network. ") + "Balances stay encrypted. An ordinary swap is a ring-size-2 call, so the address that pays is public in that transaction; private mode raises the ring to 16 and pays a named address instead."),
           h("div", { class: "mt", style: RULE() },
-            mini("Markets", String(list.length)),
+            mini("Markets", D.lastRefresh ? String(list.length) : "—"),
             // one figure per quote, the largest first and the rest beneath it — never one total, which would be
             // XMR added to DERO and printed in a currency neither of them is
             mini("Flow 24h", flows.length ? S.fmtDeroShort(flows[0][1]) + " " + flows[0][0] : "\u2014", "", flows.length > 1 ? h("span", { class: "sub tiny num" }, flows.slice(1).map(([sym, v]) => S.fmtDeroShort(v) + " " + sym).join(" \u00b7 ")) : null),
@@ -223,7 +230,10 @@
             mini("Private mode", "Ring 16"))),
         head("bolt", "Markets", "Ordered by activity · pick a side to open the trade sheet", list.length > 12 ? h("button", { class: "linkbtn", type: "button", onclick: () => router.go("markets") }, "All markets") : null),
         list.length ? h("div", { class: "mlist" }, list.slice(0, 12).map(row))
-          : U.emptyState("bolt", null, "Nothing is listed on this deployment yet.", button("Create a market", "small primary", () => V.forms.launch())),
+          // "nothing is listed" only once the registry has been read; unread, it says so, and loading is a skeleton
+          : D.lastRefresh ? U.emptyState("bolt", null, "Nothing is listed on this deployment yet.", button("Create a market", "small primary", () => V.forms.launch()))
+            : D.lastError ? U.errorState("The market registry could not be read from your node: " + U.clean(D.lastError, 160), () => V.app.refresh(true))
+              : h("div", { class: "list" }, U.skeleton(3)),
         head("sparkle", "Create", "Two wallet confirmations: install, then register"),
         h("div", { class: "mlist" },
           create("Launch a token", "Fixed supply, bonding curve, auto-graduation into a locked AMM. Optional tax: creator, buyback-and-lock, or staker rewards.", () => V.forms.launch()),
