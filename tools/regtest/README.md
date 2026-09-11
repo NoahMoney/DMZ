@@ -226,6 +226,97 @@ Untracked: binaries and downloads in `vendor/regtest/`, chain data, wallet files
 `.sim/regtest/`. The xmrshape and zecshape diffs compile against tools/xmrswap and tools/zecswap as they stand. While
 another agent is mid-edit there, the smoke still runs and records that the diff did not.
 
+## Public test networks (never mainnet)
+
+Measured 2026-09-11: C: has 318.9 GB free (931 GB disk); WSL's own ext4 disk has 950 GB free.
+Evidence: `research/regtest/public-testnets.log`.
+
+### Monero stagenet — pruned, syncing
+
+```sh
+tools/regtest/stagenet-up.sh           # start; when running, prints height / target, size on disk, rate, estimate
+tools/regtest/stagenet-down.sh [--wipe]
+```
+
+- **Gate.** A pruned stagenet had to need under 30 GB with at least 100 GB free. Six public stagenet nodes (four of
+  them the seeds in monero `src/p2p/net_node.inl`) all reported height 2,205,297 and `database_size` 16,106,127,360
+  bytes, i.e. 15 GiB. Restricted RPC rounds that figure **up** to a multiple of 5 GiB (`core_rpc_server.cpp`
+  on_get_info). So a stagenet database is at most 15 GiB even unpruned, and pruning keeps about a third of the prunable data.
+- **The node.** monerod 0.18.5.1 (the same pinned binary) with `--stagenet --prune-blockchain --sync-pruned-blocks`.
+  P2P is outbound only: bound to 127.0.0.1, `--in-peers 0`, `--hide-my-port`, `--no-igd`. There is no update check and
+  there are no DNS checkpoints, so stagenet peers are the only outside contact. RPC is on `http://127.0.0.1:38081`
+  (loopback, unrestricted), with no wallet-rpc. The chain lives in `.sim/stagenet/chain`. The script stops and refuses
+  any daemon whose `get_info` does not say `nettype: stagenet`.
+- **Progress.** The sync started 08:40:58Z, with 5–9 outbound peers and never an inbound one.
+  - Through the first ~50,000 blocks it ran at ~170 blocks/s: 51,438 by 08:47Z.
+  - From ~120,000 it slowed to 10–20 blocks/s (130,231 of 2,205,310 by 09:05Z, 1.25 GB on disk).
+  - The slow part is CPU, not disk. monerod was at ~9 of 16 cores, verifying these fuller blocks' signatures, and
+    reading only ~0.7 MiB/s. Moving the chain off the /mnt/c mount would not help.
+  - At 10–20 blocks/s the remaining ~2.08 M blocks take **1–2 days**. It will be faster wherever stagenet blocks are
+    near-empty again.
+  - Run `stagenet-up.sh` again for a fresh reading. It computes the rate over the last five readings, so the estimate
+    follows the current speed, and appends to `.sim/stagenet/progress.tsv`.
+
+### Zcash testnet (zebrad 6.3.0) — syncing
+
+```sh
+tools/regtest/zcash-testnet-up.sh                 # start; when running: testnet check, height / target, size, peers, ETA
+tools/regtest/zcash-testnet-up.sh --restart-gate  # replace the running rpcgate with the current build; zebrad keeps syncing
+tools/regtest/zcash-testnet-down.sh [--wipe]
+```
+
+- **Node.** The same pinned zebrad, with `network = "Testnet"` and `initial_mainnet_peers = []`. P2P listens on
+  127.0.0.1:18233 only, so no peer can connect in (Zebra has no UPnP). The state, the peer cache and zebrad's own
+  cookie live on WSL's ext4 filesystem (`$HOME/.dmz-regtest/zcash-testnet`), because a ~10 GB RocksDB is much faster
+  there than over the /mnt/c mount. Config, logs, progress and the client cookie are in `.sim/zcash-testnet`.
+- **No update check or telemetry to switch off.** Zebra 6.3.0 has none. Its end-of-support task compares heights on
+  mainnet only, and its metrics, tracing, OpenTelemetry and health endpoints are all off unless configured.
+- **RPC: only zecswap's methods.** zebrad cannot restrict its RPC by method; its config has `listen_addr`,
+  `cookie_dir`, `enable_cookie_auth` and nothing per method. So zebrad's own RPC stays internal on 127.0.0.1:18242,
+  and clients use **`tools/regtest/rpcgate`** on **`http://127.0.0.1:18232`**, with the cookie in
+  `.sim/zcash-testnet/.cookie`. The gate:
+  - serves only `getblockchaininfo getblockhash getaddressutxos getaddresstxids getrawtransaction sendrawtransaction gettxout`;
+  - refuses everything else with -32601 without forwarding it (measured: `getpeerinfo`, `stop`, `getinfo`, `submitblock`);
+  - refuses batches with -32600 and a request without its cookie with HTTP 401;
+  - forwards a request rebuilt from the fields it checked, never the client's bytes. A body naming `"method"` twice
+    is checked on the last value, and zebrad receives that value and no other. Measured on the live node on
+    2026-09-11: `{"method":"stop","method":"getblockhash","params":[0]}` came back as `getblockhash 0`, and zebrad kept
+    running. `rpcgate/main_test.go` holds the rebuild, the smuggling attempt and every refusal.
+
+  The gate runs under a `wsl.exe` host of its own, not zebrad's, so `--restart-gate` swaps in a new build without
+  stopping the sync. The up script records the sha256 of the build it started and, on every status check, warns when
+  that is not the build in `vendor/regtest/bin`. The first gate of this sync ran for half an hour on the build before
+  the hardening, with nothing reporting it.
+  zecswap: `-network testnet -zcash http://127.0.0.1:18232 -zcash-cookie <repo>/.sim/zcash-testnet/.cookie`.
+- **Testnet only.** Every start and every status check requires `getblockhash 0` to be testnet's genesis block
+  (`05a60a92…2c38`, v6.3.0 `test-checkpoints.txt`) and `chain` to be `test`. Otherwise it stops zebrad and the gate
+  and fails. The genesis check is needed because Zebra says `test` on regtest too.
+- **Progress.** The sync started 08:54Z with 19 peers, verifying 400-block checkpoint ranges every 2–3 s.
+  - It reached 54,000 blocks (0.22 GB) by 09:05Z, at 79 blocks/s over the last 7 minutes.
+  - The rate followed the peers, not this machine: ~25 blocks/s while they fell from 41 to 17, back up with 40.
+    zebrad itself used ~14% of one core.
+  - zebrad's `estimatedheight` (~3.52 M) is below the last testnet checkpoint it ships (4,238,000), so the progress
+    target uses that checkpoint as a floor.
+  - At 25–110 blocks/s the ~4.18 M blocks left take **10 h to 2 days**. Zebra's own full-testnet test allows 72 h.
+- **State size.** About 10 GB ("10 GB for cached Testnet data"), against about 300 GB for mainnet (Zebra book,
+  *System Requirements*).
+- **Chain.** The testnet tip is past 4,238,000 (the last testnet checkpoint shipped in v6.3.0,
+  `zebra-chain/src/parameters/checkpoint/test-checkpoints.txt`). Mainnet's last checkpoint is 3,436,171.
+- **Sync time.** No primary source gives a measured testnet figure. The Zebra book says only "A first sync from
+  genesis takes days on Mainnet" (*Running Zebra*). Zebra's own `sync_full_testnet` test (`zebrad/tests/e2e/sync.rs`)
+  allows at most 72 h (`FINISH_FULL_SYNC_TIMEOUT`, `zebrad/tests/common/sync.rs`). The same file notes that testnet
+  variants of other sync tests were removed "because testnet peers and DNS seeders were unstable" (#1222, #1791).
+- **Estimate.** With about 1/30 of mainnet's data to download and verify, a few hours to a day on this machine is
+  plausible, 72 h is the ceiling Zebra allows itself, and unstable testnet peers are the main risk. This is an
+  estimate, not a measurement.
+
+### DERO testnet — seed not reachable
+
+derohe's only testnet seed (`config/seed_nodes.go`, `Testnet_seed_nodes = {"212.8.242.60:40401"}`, derohe
+e9df120) did not accept a TCP connection. Tests at 08:36Z and 08:37Z: 10 s and 20 s timeouts, no SYN-ACK and no
+reset; `Test-NetConnection` failed the same way; ICMP also failed. Outbound TCP from this machine otherwise works
+(github.com:443 connected). derod was not started.
+
 ## Known differences from mainnet
 
 - Monero: offline single node; hard fork v16 from height 1; difficulty fixed at 1; ~35 XMR block reward, so regtest

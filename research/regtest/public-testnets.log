@@ -1,0 +1,143 @@
+public-testnets — measurements for the public test networks, 2026-09-11 (UTC). Never mainnet.
+Paths are written as <repo>. Produced by hand from the commands shown; tools/regtest/README.md summarises it.
+
+== disk
+  C: (Get-PSDrive C)            free 318.9 GB, used 612 GB, disk 931 GB
+  WSL Ubuntu-24.04 / (df -h)    1007G size, 6.5G used, 950G available
+
+== Monero stagenet: the size gate (pruned chain < 30 GB, and >= 100 GB free)
+  get_info from public stagenet nodes, stagenet RPC ports 38081/38089 only (08:3xZ):
+    88.99.195.15:38089            stagenet true  height 2205297  database_size 16106127360  restricted true
+    192.99.8.110:38089            stagenet true  height 2205297  database_size 16106127360  restricted true
+    37.187.74.171:38089           stagenet true  height 2205297  database_size 16106127360  restricted true
+    stagenet.xmr-tw.org:38081     stagenet true  height 2205297  database_size 16106127360  restricted true
+    node.monerodevs.org:38089     stagenet true  height 2205297  database_size 16106127360  restricted true
+    node2.monerodevs.org:38089    stagenet true  height 2205297  database_size 16106127360  restricted true
+    176.9.0.187:38081/38089, 5.104.84.64:38089, stagenet.community.rino.io:38081: no stagenet answer
+  16106127360 bytes = 15 GiB exactly. monero v0.18.5.1 src/rpc/core_rpc_server.cpp:565-567:
+    res.database_size = m_core.get_blockchain_storage().get_db().get_database_size();
+    if (restricted)
+      res.database_size = round_up(res.database_size, 5ull* 1024 * 1024 * 1024);
+  so the stagenet database is at most 15 GiB unpruned; a pruned one is smaller. Gate: PASSED (<= 15 GiB < 30 GB;
+  318.9 GB free >= 100 GB).
+  Stagenet seed nodes, monero v0.18.5.1 src/p2p/net_node.inl:714-720:
+    176.9.0.187:38080 192.99.8.110:38080 37.187.74.171:38080 88.99.195.15:38080 5.104.84.64:38080
+
+== Monero stagenet: the node (tools/regtest/stagenet-up.sh)
+  monerod 0.18.5.1 (pinned sha256 9b3b2676...a1f5), run inside WSL:
+    monerod --stagenet --prune-blockchain --sync-pruned-blocks --data-dir <repo>/.sim/stagenet/chain
+      --rpc-bind-ip 127.0.0.1 --rpc-bind-port 38081 --p2p-bind-ip 127.0.0.1 --p2p-bind-port 38080 --in-peers 0
+      --hide-my-port --no-igd --check-updates disabled --disable-dns-checkpoints --no-zmq --non-interactive
+  (the first start, 08:40:58Z, ran without --check-updates disabled --disable-dns-checkpoints; it made one DNS TXT
+  lookup for updates.moneropulse.org; restarted with both flags at 08:48Z, the sync resuming from the saved chain)
+  get_info after start: nettype stagenet, mainnet false, stagenet true, incoming_connections_count 0.
+  first peer (monerod.log): [37.187.74.171:48080 OUT] Sync data returned a new top block candidate: 1 -> 2205297
+
+  sync samples (stagenet-up.sh progress; unix time, height, target, bytes on disk):
+    08:40:58  1789116058        1        0       99086
+    08:42:25  1789116145     3401  2205298     6959886   out 2  in 0
+    08:43:25  1789116206     9721  2205298    17568526   out 4  in 0
+    08:44:26  1789116267    20140  2205298    35341070   out 7  in 0
+    08:45:27  1789116328    30419  2205298    52237070   out 9  in 0
+    08:46:28  1789116389    40999  2205298    63218446   out 7  in 0
+    08:47:29  1789116450    51438  2205299    72803086   out 5  in 0
+  rate: 39 -> ~170 blocks/s (30419 -> 40999 -> 51438 over 61 s each); 131 blocks/s averaged from the start.
+  first estimate (08:48Z): 2.15 M blocks to go at a steady 170 blocks/s is ~3.5 h; later stagenet blocks are fuller
+  than the first 2%, so roughly 4-10 h. It proved optimistic; see below.
+  after the restart (08:48Z): height 56097 resumed, 8 peers, 64817 at 08:49:08
+  later samples (stagenet-up.sh):
+    08:56:52  121651 of 2205306  chain on disk 0.21 GB
+    08:57:54  125631             0.30 GB
+    08:59:00  126191             0.44 GB
+    09:00:05  126871             0.61 GB
+    09:01:11  128031             0.79 GB
+    09:02:16  128411             0.89 GB
+    09:04:58  130231 of 2205310  1.25 GB   10.9 blocks/s over the last 7 min
+  from monerod.log "Synced" lines: 121491 -> 129471 in 407 s = 19.6 blocks/s
+  what bounds it (10 s from /proc, 09:0xZ): monerod CPU 916% of one core (16 cores, load 9.4), disk read 716 KiB/s
+  (writes through the /mnt/c 9p mount are not counted in /proc io): CPU-bound, verifying fuller blocks, not disk-bound
+  revised estimate: ~2.08 M blocks at 10-20 blocks/s is 1-2 days; faster wherever blocks are near-empty again.
+
+== Zcash testnet (zebrad 6.3.0): syncing (started 08:54Z)
+  node (tools/regtest/zcash-testnet-up.sh): the pinned zebrad 6.3.0 (sha256 5e74b3b0...6e63), run inside WSL:
+    <repo>/vendor/regtest/zebra/zebrad -c <repo>/.sim/zcash-testnet/zebrad.toml start
+    [network] network = "Testnet"  listen_addr = "127.0.0.1:18233"  initial_mainnet_peers = []  cache_dir = ~/.dmz-regtest/zcash-testnet/peers
+    [state] cache_dir = ~/.dmz-regtest/zcash-testnet/state (WSL ext4)
+    [rpc] listen_addr = "127.0.0.1:18242"  enable_cookie_auth = true  cookie_dir = ~/.dmz-regtest/zcash-testnet
+  listening in WSL (ss -ltnp): 127.0.0.1:18242 zebrad RPC, 127.0.0.1:18233 zebrad P2P, 127.0.0.1:18232 rpcgate
+  testnet check at start: getblockhash 0 = 05a60a92d99d85997cce3b87616c089f6124d7342af37106edc76126334a2c38
+    (v6.3.0 test-checkpoints.txt line 0; mainnet's is 00040fe8ec8471911baa1db1266ea15dd06b4a8a5c453883c000b031973dce08),
+    getblockchaininfo chain "test": passed
+  Zebra 6.3.0 RPC config has no per-method setting (zebra-rpc/src/config/rpc.rs: listen_addr, indexer_listen_addr,
+    parallel_cpu_threads, debug_force_finished_sync, cookie_dir, enable_cookie_auth, max_response_body_size), so
+    clients use tools/regtest/rpcgate on 127.0.0.1:18232 (own cookie at <repo>/.sim/zcash-testnet/.cookie), serving
+    getblockchaininfo getblockhash getaddressutxos getaddresstxids getrawtransaction sendrawtransaction gettxout:
+      no cookie            HTTP 401
+      getpeerinfo          -32601 "rpcgate: method "getpeerinfo" is not served (...)"   (not forwarded)
+      stop                 -32601                                                       (not forwarded)
+      getinfo              -32601                                                       (not forwarded)
+      submitblock          -32601                                                       (not forwarded)
+      batch [..]           -32600 "rpcgate: batch requests are not served"
+      getblockchaininfo    {"chain":"test","blocks":0,"estimatedheight":3568918,...}
+  no update check or telemetry in zebrad 6.3.0: end_of_support.rs checks heights on Mainnet only and makes no
+    request; metrics, tracing endpoint, OpenTelemetry and health endpoint are None unless configured (none are)
+  first log lines: peer cache 67 testnet addresses; checkpoint ranges of 400 blocks verified every 2-3 s
+  samples (zcash-testnet-up.sh; height, zebrad estimatedheight, state bytes, peers):
+    08:54:54         0  3568918     349636  19
+    08:56:52     13600  3556607   32003299  38
+    08:57:54     20400  3554314   46665591  40
+    08:59:00     26800  3532846   60775575  41
+    09:00:05     34000  3522125   88208221  41
+    09:01:11     37600  3521581  100044908  19
+    09:02:16     39200  3521556  105264783  17
+    09:04:58     54000        -  0.22 GB    40   79.2 blocks/s over the last 7 min
+  zebrad's estimatedheight (~3.52-3.57 M) is below the last testnet checkpoint it ships (4,238,000), so progress uses
+    that checkpoint as the target's floor (ZCASH_TESTNET_TIP_FLOOR in pins.env)
+  what bounds it (10 s from /proc): zebrad CPU 14% of one core, disk write 264 KiB/s: waiting on peers, not on this
+    machine; the rate fell to ~25 blocks/s while peers dropped 41 -> 17 and recovered with them (40 peers, 79/s)
+  estimate: ~4.18 M blocks at 25-110 blocks/s is 10 h to 2 days; Zebra's own sync_full_testnet ceiling is 72 h;
+    unstable testnet peers (zebrad/tests/e2e/sync.rs) are the risk. An estimate, not a measurement.
+
+== Zcash testnet: primary sources consulted before starting
+  state size   Zebra book, System Requirements: "Zebra uses around 300 GB for cached Mainnet data" and "10 GB for
+               cached Testnet data"; "Initial sync: 300 GB download" (mainnet)
+  sync time    Zebra book, Running Zebra: "A first sync from genesis takes days on Mainnet." No testnet figure.
+               zebrad/tests/e2e/sync.rs v6.3.0: sync_full_testnet() -> full_sync_test(Network::new_default_testnet(), ...)
+               zebrad/tests/common/sync.rs v6.3.0: FINISH_FULL_SYNC_TIMEOUT = 72 * 60 * 60 s ("The maximum time to wait
+               for Zebrad to synchronize up to the chain tip starting from the genesis block")
+               zebrad/tests/e2e/sync.rs: "The removed testnet variants were unreliable because testnet peers and DNS
+               seeders were unstable (#1222, #1791)."
+  chain        last testnet checkpoint in v6.3.0 test-checkpoints.txt: 4238000; last mainnet checkpoint: 3436171
+  estimate     ~1/30 of mainnet's data: a few hours to a day here is plausible, 72 h is Zebra's own ceiling, peer
+               instability the main risk. An estimate, not a measurement.
+
+== DERO testnet: seed reachability (derod not started)
+  derohe e9df120 (2024-02-29) config/seed_nodes.go:
+    var Testnet_seed_nodes = []string{
+            "212.8.242.60:40401",
+    }
+  08:36Z  bash /dev/tcp 212.8.242.60 40401, 10 s timeout:      FAILED after 10035 ms (no answer)
+  08:36Z  Test-NetConnection -Port 40401:                      TcpTestSucceeded=False PingSucceeded=False
+  08:37Z  control: bash /dev/tcp github.com 443:               CONNECTED
+  08:37Z  bash /dev/tcp 212.8.242.60 40401, 20 s timeout:      FAILED after 20 s (no SYN-ACK, no RST)
+  verdict: the only testnet seed in derohe's source does not accept TCP connections from here; outbound TCP works.
+
+== Zcash testnet: rpcgate replaced by the hardened build (09:22Z; zebrad not restarted)
+  the gate started at 08:54Z was the build before the hardening: it forwarded the client's own bytes after checking
+    the method Go's decoder kept (the last of a duplicated key). Hardened build: forwards a request rebuilt from the
+    checked fields only (tools/regtest/rpcgate/main.go; main_test.go). sha256 9b89b5ba...ef67e (linux/amd64, -trimpath)
+  replaced with tools/regtest/zcash-testnet-up.sh --restart-gate (the gate now has a wsl.exe host of its own);
+    zebrad pid unchanged throughout; the status check warns when the gate running is not the build on disk
+  live checks through 127.0.0.1:18232 after the swap:
+    getblockchaininfo                                        chain "test", blocks 176800
+    getblockhash 0                                           05a60a92d99d85997cce3b87616c089f6124d7342af37106edc76126334a2c38
+    {"method":"stop","method":"getblockhash","params":[0]}   answered as getblockhash 0; zebrad kept running
+    stop                                                     -32601 (not forwarded)
+    batch [..]                                               -32600
+    no cookie                                                HTTP 401
+
+== later readings (09:2xZ-09:3xZ)
+  Monero stagenet   167589 of 2205316 (7.6%)   1.80 GB on disk   26.3 blocks/s over 26 min   ~21.5 h to go at that rate
+  Zcash testnet     200000 of ~4238000 (4.7%)  0.98 GB on disk   99.4 blocks/s over 27 min   ~11.3 h to go, 44 peers
+  Both rates are for the early, near-empty blocks; each estimate is a reading of the moment, not a measurement of
+    the whole sync.
