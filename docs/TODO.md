@@ -39,8 +39,15 @@ FE-1(b) (revoking two legacy launch hashes de-lists a live market holding 145,33
 (the Founders anti-sweep floor is void at twenty editions); BL-90 (fees earned in a wrapped asset reach no pass
 holder); D-1 to D-13 in `docs/BACKLOG.md` §19; and the seventeen in `docs/ATOMIC_SWAP_STUDY.md` §5.
 
-**Now: the final mainnet engineering pass** (the operator's directives of 2026-09-11: "don't stop until this is ready
-for mainnet"). The master checklist is `docs/MAINNET_TODO.md`: every item, its owner, its status and what done
+**Done 2026-09-11: the final mainnet engineering pass, committed and pushed at `cccb564`** (seven commits, from
+`47cdd4c`). Verdict: NOT MAINNET READY, for the reasons in `docs/MAINNET_SECURITY_GATE.md`.
+
+**Now: working the gate's FAIL lines**, in the operator's words "don't stop until this is ready for mainnet":
+1. real reorganisations on regtest;
+2. the companions' command lines against the regtest nodes;
+3. go1.26.6 and a re-pin;
+4. Monero stagenet;
+5. then the items only the operator or outside parties can close. The master checklist is `docs/MAINNET_TODO.md`: every item, its owner, its status and what done
 means; B marks what blocks mainnet. The gap analysis is `docs/MAINNET_GAP_ANALYSIS.md`. The trust model, the
 architecture, the threat model, key management and incident response are written beside it. The 20-minute loop is
 deleted while the pass runs.
