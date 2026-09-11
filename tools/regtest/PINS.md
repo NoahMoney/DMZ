@@ -1,0 +1,91 @@
+# Regtest harness — pinned artifacts
+
+Every binary the harness runs is pinned here and in `pins.env` (which the scripts read). A script refuses to start a
+binary whose sha256 differs. `tools/regtest/fetch.sh` repeats every verification below from scratch.
+
+Verified 2026-09-11 on the operator's Windows 10 machine (Git Bash gpg 2.4.8; WSL Ubuntu 24.04).
+
+## Monero 0.18.5.1 "Fluorine Fermi" — official CLI release
+
+| | |
+|---|---|
+| Version | `v0.18.5.1-release` (`monerod --version`, `monero-wallet-rpc --version`) |
+| Hash list | https://www.getmonero.org/downloads/hashes.txt — sha256 `6d302c2becbd529822e8f6ef422e3f7a42045f8386e85251dbbf4b1e913266c4` |
+| Signer key | https://raw.githubusercontent.com/monero-project/monero/master/utils/gpg_keys/binaryfate.asc |
+| Signer fingerprint | `81AC 591F E9C4 B65C 5806  AFC3 F0AF 4D46 2A0B DF92` (binaryFate <binaryfate@getmonero.org>, rsa4096, 2019-12-12) |
+| Artifact used | https://downloads.getmonero.org/cli/monero-linux-x64-v0.18.5.1.tar.bz2 — sha256 `22a7dda7b0cb699fdd6b7674c3b4a4465b337cc98a54983523b759e1e7cc9958` |
+| Extracted `monerod` | sha256 `9b3b2676ea7868c1a7186feea9569c2cf7683ae79d2fcc769c846a91c810a1f5` |
+| Extracted `monero-wallet-rpc` | sha256 `c1e3aff7c72837e6f29045c439b772a82b5cd7324c8b831fa825a6ce2019a656` |
+| Also downloaded and verified | `monero-win-x64-v0.18.5.1.zip` — sha256 `cf2ae8273977697d9ef2031c7337b781e6e5936578f602444b2990a173a2437d` (matches the signed list; not used, see below) |
+
+Signature transcript (isolated GNUPGHOME `vendor/regtest/gnupg`, key imported from the repository file above):
+
+```
+gpg: Signature made Tue Jul 21 05:50:38 2026 AUSEST
+gpg:                using RSA key 81AC591FE9C4B65C5806AFC3F0AF4D462A0BDF92
+gpg: Good signature from "binaryFate <binaryfate@getmonero.org>" [unknown]
+gpg: WARNING: This key is not certified with a trusted signature!
+Primary key fingerprint: 81AC 591F E9C4 B65C 5806  AFC3 F0AF 4D46 2A0B DF92
+```
+
+The WARNING is GnuPG's web-of-trust notice: the key is not signed by a key this keyring trusts. The trust anchor is
+instead the key file in monero-project/monero, fetched over HTTPS from GitHub, and its fingerprint, which equals the
+one Monero publishes. `fetch.sh` checks the `VALIDSIG` status line against the pinned fingerprint.
+
+**Why the Linux build and not the Windows one.** The Windows x64 zip verified, but Windows Defender quarantined
+`monero-wallet-rpc.exe` seconds after extraction (`Trojan:Win32/Wacatac.A!ml`, a machine-learning heuristic). It then
+quarantined the Linux `monerod` too, wherever it sat on the Windows drive (`Trojan:Linux/CoinMiner.T!MTB`,
+2026-09-11 15:23 and 15:25). Both files are byte-for-byte the ones binaryFate's signed list names, so these are false
+positives. The harness does not add antivirus exclusions — that is the operator's decision. So `monero-up.sh`
+extracts the verified tarball into the WSL distro's own ext4 filesystem (`$HOME/.dmz-regtest/monero-v0.18.5.1`), which
+Defender's real-time scan of Windows drives does not reach, and re-checks both binaries' hashes on every start. The
+pinned artifact itself stays in `vendor/regtest/dl/`. With an exclusion for `vendor/regtest`, the Windows build would
+work the same way.
+
+## Zebra 6.3.0 — Zcash Foundation release binary
+
+| | |
+|---|---|
+| Version | `zebrad 6.3.0` (`zebrad --version`); released 2026-08-10 |
+| Hash list | https://github.com/ZcashFoundation/zebra/releases/download/v6.3.0/SHA256SUMS — sha256 `3eb5de0634f637e793d0411b6c7108802a36e1219f9151803ecc6108fd0f59f6` |
+| Signature | https://github.com/ZcashFoundation/zebra/releases/download/v6.3.0/SHA256SUMS.sigstore.json (sigstore bundle v0.3, keyless) |
+| Signer identity | `https://github.com/ZcashFoundation/zebra/.github/workflows/zfnd-release-binaries.yml@refs/tags/v6.3.0`, OIDC issuer `https://token.actions.githubusercontent.com`, source commit `f5c5277fe41eba9c74f37098738f93f35dd70d60`, Rekor log index 2412071838 |
+| Artifact used | https://github.com/ZcashFoundation/zebra/releases/download/v6.3.0/zebrad-6.3.0-x86_64-unknown-linux-gnu.tar.gz — sha256 `86326f5324f4e59cc2008c15f94407cc8d5feacf75d64942164bb5f08eca8c5e` (also equals the release's own `.sha256` file) |
+| Extracted `zebrad` | sha256 `5e74b3b0fae286394e9c0ddd70d2014360816fdebf01b39dd3e3a6691d6a6e63` (runs from `vendor/regtest/zebra/zebrad` inside WSL) |
+
+Zebra does not sign its releases with PGP. It signs `SHA256SUMS` keylessly with sigstore from its release workflow.
+The bundle was verified with sigstore-python in WSL:
+
+```
+$ python3 -m sigstore verify identity --bundle SHA256SUMS.sigstore.json \
+    --cert-identity https://github.com/ZcashFoundation/zebra/.github/workflows/zfnd-release-binaries.yml@refs/tags/v6.3.0 \
+    --cert-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+OK: SHA256SUMS                                    (sigstore 4.5.0)
+```
+
+This checks the Fulcio certificate chain to the sigstore trust root, the certificate identity and issuer above, the
+Rekor transparency-log inclusion, and the signature over the file's digest (`PrXe…` = `3eb5de06…59f6`, which equals
+the sha256 of the downloaded `SHA256SUMS`). An earlier attempt with sigstore 3.6.7 also printed `OK: SHA256SUMS`, but
+logged a failed RFC 3161 timestamp check and "Failed to load a trusted root key: unsupported key type: 7": that
+version is too old for the current trust root. The clean 4.5.0 result is the one relied on. The harness did not
+build zebrad from source, because a signed release binary exists.
+
+zcashd was not used. It reached its end-of-support halt on 2026-07-18 and does not follow NU6.3.
+
+## zfund — the harness's own Zcash key/transaction tool (built, not downloaded)
+
+`tools/regtest/zfund` is built from source with `cargo build --release --locked` in WSL (rustc/cargo 1.98.1). Its
+`Cargo.lock` pins every crate with its crates.io checksum. The ones that matter as an independent implementation:
+
+| crate | version |
+|---|---|
+| zcash_primitives | 0.30.1 |
+| zcash_transparent | 0.10.0 |
+| zcash_protocol | 0.10.6 |
+| zcash_address | 0.13.0 |
+| sapling-crypto | 0.7.0 (its mock provers only; a transparent-only build never calls them) |
+| orchard | 0.15.5 (linked, unused) |
+| secp256k1 | 0.29.1 |
+
+The built binary is copied to `vendor/regtest/bin/zfund`. It is a test tool with no release to pin against, so its
+hash is not pinned: the build is locked, but not reproducible byte for byte.

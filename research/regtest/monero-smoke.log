@@ -1,0 +1,431 @@
+xmrsmoke — tools/xmrswap's wallet-rpc calls against a real regtest monerod + monero-wallet-rpc
+run smoke-1789107846 at 2026-09-11T06:24:06Z; daemon http://127.0.0.1:28081, wallet-rpc http://127.0.0.1:28083
+
+== S0 the nodes
+  -> daemon get_info null
+  <- (3ms) {"adjusted_time":1789107158,"alt_blocks_count":0,"block_size_limit":600000,"block_size_median":300000,"block_weight_limit":600000,"block_weight_median":300000,"bootstrap_daemon_address":"","busy_syncing":false,"credits":0,"cumulative_difficulty":689,"cumulative_difficulty_top64":0,"database_size":929792,"difficulty":1,"difficulty_top64":0,"free_space":342884392960,"grey_peerlist_size":0,"height":689,"height_without_bootstrap":689,"incoming_connections_count":0,"mainnet":false,"nettype":"fakechain","offline":true,"outgoing_connections_count":0,"restricted":false,"rpc_connections_count":1,"stagenet":false,"start_time":1789107445,"status":"OK","synchronized":true,"target":120,"target_height":0,"testnet":false,"top_block_hash":"1ce9ab43d4fc42fd514439c988de0fd25fe921a4b0b1bdb760178944fd71ec20","top_hash":"","tx_count":9,"tx_pool_size":0,"untrusted":false,"update_available":false,"version":"0.18.5.1-release","was_bootstrap_ever_used":false,"white_peerlist_size":0,"wide_cumulative_difficulty":"0x2b1","wide_difficulty":"0x1"}
+  PASS  daemon nettype "fakechain" is fakechain (regtest)
+  FACT  monerod 0.18.5.1-release, nettype fakechain, offline true, height 689
+  -> daemon hard_fork_info null
+  <- (2ms) {"credits":0,"earliest_height":1,"enabled":true,"state":0,"status":"OK","threshold":0,"top_hash":"","untrusted":false,"version":16,"votes":688,"voting":16,"window":689}
+  FACT  hard fork version at the tip: 16
+  -> wallet get_version null
+  <- (1ms) {"release":true,"version":65567}
+  FACT  monero-wallet-rpc get_version 65567 (release true)
+
+== S1 create_wallet / get_address / get_height
+  -> wallet create_wallet {"filename":"smoke-1789107846-fund","language":"English","password":""}
+  <- (3.141s) {}
+  -> wallet get_address {"account_index":0}
+  <- (2ms) {"address":"45vPY9Z3DA34b9zm1SD6T5Zi7jnLbnJXvMHxLV631pSsXMHQdsN8WQoWUPSh7Gf68biqjTaLQ8z55eH8WciF8kYM33bnSoZ","addresses":[{"address":"45vPY9Z3DA34b9zm1SD6T5Zi7jnLbnJXvMHxLV631pSsXMHQdsN8WQoWUPSh7Gf68biqjTaLQ8z55eH8WciF8kYM33bnSoZ","address_index":0,"label":"Primary account","used":false}]}
+  PASS  a regtest wallet's address is a mainnet-prefix (4...) standard address: 45vPY9Z3DA34b9zm1SD6T5Zi7jnLbnJXvMHxLV631pSsXMHQdsN8WQoWUPSh7Gf68biqjTaLQ8z55eH8WciF8kYM33bnSoZ
+  -> wallet get_height null
+  <- (0s) {"height":689}
+  FACT  a new wallet's get_height is 689 while the daemon is at 689: get_height is the wallet's own scanned height (wallet2 m_blockchain.size()), not the chain's
+
+== S2 coinbase unlock (CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW)
+  .. mined 1 block(s) in 50ms, chain height 690
+  -> wallet refresh {"start_height":0}
+  <- (5ms) {"blocks_fetched":1,"received_money":true}
+  -> wallet get_balance {"account_index":0}
+  <- (0s) {"balance":35138197916766,"blocks_to_unlock":59,"multisig_import_needed":false,"per_subaddress":[{"account_index":0,"address":"45vPY9Z3DA34b9zm1SD6T5Zi7jnLbnJXvMHxLV631pSsXMHQdsN8WQoWUPSh7Gf68biqjTaLQ8z55eH8WciF8kYM33bnSoZ","address_index":0,"balance":35138197916766,"blocks_to_unlock":59,"label":"Primary account","num_unspent_outputs":1,"time_to_unlock":0,"unlocked_balance":0}],"time_to_unlock":0,"unlocked_balance":0}
+  PASS  one coinbase: balance 35138197916766, unlocked 0, blocks_to_unlock 59
+  .. mined 1 block(s) in 46ms, chain height 691
+  .. mined 1 block(s) in 48ms, chain height 692
+  .. mined 1 block(s) in 50ms, chain height 693
+  .. mined 1 block(s) in 48ms, chain height 694
+  .. mined 1 block(s) in 50ms, chain height 695
+  .. mined 1 block(s) in 47ms, chain height 696
+  .. mined 1 block(s) in 45ms, chain height 697
+  .. mined 1 block(s) in 49ms, chain height 698
+  .. mined 1 block(s) in 51ms, chain height 699
+  .. mined 1 block(s) in 50ms, chain height 700
+  .. mined 1 block(s) in 50ms, chain height 701
+  .. mined 1 block(s) in 52ms, chain height 702
+  .. mined 1 block(s) in 52ms, chain height 703
+  .. mined 1 block(s) in 47ms, chain height 704
+  .. mined 1 block(s) in 51ms, chain height 705
+  .. mined 1 block(s) in 48ms, chain height 706
+  .. mined 1 block(s) in 50ms, chain height 707
+  .. mined 1 block(s) in 45ms, chain height 708
+  .. mined 1 block(s) in 46ms, chain height 709
+  .. mined 1 block(s) in 49ms, chain height 710
+  .. mined 1 block(s) in 46ms, chain height 711
+  .. mined 1 block(s) in 45ms, chain height 712
+  .. mined 1 block(s) in 45ms, chain height 713
+  .. mined 1 block(s) in 45ms, chain height 714
+  .. mined 1 block(s) in 52ms, chain height 715
+  .. mined 1 block(s) in 49ms, chain height 716
+  .. mined 1 block(s) in 45ms, chain height 717
+  .. mined 1 block(s) in 45ms, chain height 718
+  .. mined 1 block(s) in 43ms, chain height 719
+  .. mined 1 block(s) in 45ms, chain height 720
+  .. mined 1 block(s) in 42ms, chain height 721
+  .. mined 1 block(s) in 42ms, chain height 722
+  .. mined 1 block(s) in 45ms, chain height 723
+  .. mined 1 block(s) in 46ms, chain height 724
+  .. mined 1 block(s) in 45ms, chain height 725
+  .. mined 1 block(s) in 47ms, chain height 726
+  .. mined 1 block(s) in 47ms, chain height 727
+  .. mined 1 block(s) in 42ms, chain height 728
+  .. mined 1 block(s) in 42ms, chain height 729
+  .. mined 1 block(s) in 46ms, chain height 730
+  .. mined 1 block(s) in 47ms, chain height 731
+  .. mined 1 block(s) in 50ms, chain height 732
+  .. mined 1 block(s) in 53ms, chain height 733
+  .. mined 1 block(s) in 51ms, chain height 734
+  .. mined 1 block(s) in 49ms, chain height 735
+  .. mined 1 block(s) in 48ms, chain height 736
+  .. mined 1 block(s) in 48ms, chain height 737
+  .. mined 1 block(s) in 51ms, chain height 738
+  .. mined 1 block(s) in 51ms, chain height 739
+  .. mined 1 block(s) in 51ms, chain height 740
+  .. mined 1 block(s) in 50ms, chain height 741
+  .. mined 1 block(s) in 49ms, chain height 742
+  .. mined 1 block(s) in 45ms, chain height 743
+  .. mined 1 block(s) in 45ms, chain height 744
+  .. mined 1 block(s) in 48ms, chain height 745
+  .. mined 1 block(s) in 53ms, chain height 746
+  .. mined 1 block(s) in 47ms, chain height 747
+  .. mined 1 block(s) in 48ms, chain height 748
+  .. mined 1 block(s) in 49ms, chain height 749
+  .. unlocked_balance 35138197916766 at chain height 749 (blocks_to_unlock now 59)
+  PASS  the first coinbase unlocked
+  FACT  coinbase: mined in block 689 (reward 35138197916766 piconero), first in unlocked_balance at chain height 749 = block + 60
+
+== S3 more unlocked outputs and ring decoys
+  .. mined 80 block(s) in 3.875s, chain height 829
+  FACT  generateblocks 80 blocks took 3.876s
+  -> wallet refresh {"start_height":0}
+  <- (118ms) {"blocks_fetched":80,"received_money":true}
+  FACT  refresh of the funding wallet to height 829 took 118ms
+  -> wallet get_height null
+  <- (1ms) {"height":829}
+  PASS  after a refresh, get_height 829 equals the daemon's height
+
+== S4 joint key s = s_a + s_b, v = v_a + v_b (view key not derived from the spend key)
+  joint address 42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq (keys redacted)
+  -> wallet create_wallet {"filename":"smoke-1789107846-recv","language":"English","password":""}
+  <- (3.409s) {}
+  -> wallet get_address {"account_index":0}
+  <- (0s) {"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","addresses":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","address_index":0,"label":"Primary account","used":false}]}
+
+== S5 transfer (xmrswap Transfer: destinations + account_index)
+  -> wallet open_wallet {"filename":"smoke-1789107846-fund","password":""}
+  <- (1.478s) {}
+  -> wallet refresh {"start_height":0}
+  <- (241ms) {"blocks_fetched":0,"received_money":false}
+  -> wallet transfer {"account_index":0,"destinations":[{"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","amount":1000000000000}]}
+  <- (141ms) {"amount":1000000000000,"amounts_by_dest":{"amounts":[1000000000000]},"fee":2602800000,"multisig_txset":"","spent_key_images":{"key_images":["f27e113be238fd2b7c0c59020d970ff076d834ee96992d2eebab5b49b5118a81","ca1da7d22a2f5779c7505e33139470d9a04a64098966a0af797076831a85038f"]},"tx_blob":"","tx_hash":"22ed32af04d45f5e8655f740dda6fb8602b8147d7364f235bc78a86fc552f32c","tx_key":"","tx_metadata":"","unsigned_txset":"","weight":2169}
+  -> wallet transfer {"account_index":0,"destinations":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000}]}
+  <- (81ms) {"amount":500000000000,"amounts_by_dest":{"amounts":[500000000000]},"fee":2600400000,"multisig_txset":"","spent_key_images":{"key_images":["7b7f37b457cfbb8393c86593fb5c744c0d056dff13fe4c3796defb8e47be31cf","6ca12bab83f3ee09af104c4f34558ab28eab63443a17f7ccd1e87a0cd78d147d"]},"tx_blob":"","tx_hash":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","tx_key":"","tx_metadata":"","unsigned_txset":"","weight":2167}
+  PASS  both transfers returned a 64-hex tx_hash
+  FACT  transfer fee (1 destination + change, default priority, 16-member ring): 2602800000 and 2600400000 piconero
+  -> daemon get_fee_estimate null
+  <- (1ms) {"credits":0,"fee":1200000,"fees":[1200000,4700000,19000000,240000000],"quantization_mask":10000,"status":"OK","top_hash":"","untrusted":false}
+  FACT  daemon get_fee_estimate: fee 1200000 piconero/byte, quantization_mask 10000
+
+== S6 incoming: confirmations and the 10-block unlock (CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE)
+  -> wallet open_wallet {"filename":"smoke-1789107846-recv","password":""}
+  <- (1.569s) {}
+  -> wallet refresh {"start_height":0}
+  <- (244ms) {"blocks_fetched":0,"received_money":false}
+  -> wallet get_transfers {"account_index":0,"in":true,"pool":true}
+  <- (1ms) {"pool":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000,"amounts":[500000000000],"double_spend_seen":false,"fee":2600400000,"height":0,"locked":true,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","type":"pool","unlock_time":0}]}
+  PASS  unmined: nothing under in, one entry under pool (in 0, pool 1)
+  .. mined 1 block(s) in 49ms, chain height 830
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":828}
+  <- (0s) {"in":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000,"amounts":[500000000000],"confirmations":1,"double_spend_seen":false,"fee":2600400000,"height":829,"locked":true,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","type":"in","unlock_time":0}]}
+  .. chain 830  tx block 829  confirmations 1  locked true (field present true)  unlocked_balance 0  blocks_to_unlock 9
+  .. mined 1 block(s) in 45ms, chain height 831
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":828}
+  <- (0s) {"in":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000,"amounts":[500000000000],"confirmations":2,"double_spend_seen":false,"fee":2600400000,"height":829,"locked":true,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","type":"in","unlock_time":0}]}
+  .. chain 831  tx block 829  confirmations 2  locked true (field present true)  unlocked_balance 0  blocks_to_unlock 8
+  .. mined 1 block(s) in 44ms, chain height 832
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":828}
+  <- (0s) {"in":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000,"amounts":[500000000000],"confirmations":3,"double_spend_seen":false,"fee":2600400000,"height":829,"locked":true,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","type":"in","unlock_time":0}]}
+  .. chain 832  tx block 829  confirmations 3  locked true (field present true)  unlocked_balance 0  blocks_to_unlock 7
+  .. mined 1 block(s) in 44ms, chain height 833
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":828}
+  <- (0s) {"in":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000,"amounts":[500000000000],"confirmations":4,"double_spend_seen":false,"fee":2600400000,"height":829,"locked":true,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","type":"in","unlock_time":0}]}
+  .. chain 833  tx block 829  confirmations 4  locked true (field present true)  unlocked_balance 0  blocks_to_unlock 6
+  .. mined 1 block(s) in 41ms, chain height 834
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":828}
+  <- (1ms) {"in":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000,"amounts":[500000000000],"confirmations":5,"double_spend_seen":false,"fee":2600400000,"height":829,"locked":true,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","type":"in","unlock_time":0}]}
+  .. chain 834  tx block 829  confirmations 5  locked true (field present true)  unlocked_balance 0  blocks_to_unlock 5
+  .. mined 1 block(s) in 44ms, chain height 835
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":828}
+  <- (0s) {"in":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000,"amounts":[500000000000],"confirmations":6,"double_spend_seen":false,"fee":2600400000,"height":829,"locked":true,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","type":"in","unlock_time":0}]}
+  .. chain 835  tx block 829  confirmations 6  locked true (field present true)  unlocked_balance 0  blocks_to_unlock 4
+  .. mined 1 block(s) in 43ms, chain height 836
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":828}
+  <- (1ms) {"in":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000,"amounts":[500000000000],"confirmations":7,"double_spend_seen":false,"fee":2600400000,"height":829,"locked":true,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","type":"in","unlock_time":0}]}
+  .. chain 836  tx block 829  confirmations 7  locked true (field present true)  unlocked_balance 0  blocks_to_unlock 3
+  .. mined 1 block(s) in 45ms, chain height 837
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":828}
+  <- (0s) {"in":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000,"amounts":[500000000000],"confirmations":8,"double_spend_seen":false,"fee":2600400000,"height":829,"locked":true,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","type":"in","unlock_time":0}]}
+  .. chain 837  tx block 829  confirmations 8  locked true (field present true)  unlocked_balance 0  blocks_to_unlock 2
+  .. mined 1 block(s) in 46ms, chain height 838
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":828}
+  <- (0s) {"in":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000,"amounts":[500000000000],"confirmations":9,"double_spend_seen":false,"fee":2600400000,"height":829,"locked":true,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","type":"in","unlock_time":0}]}
+  .. chain 838  tx block 829  confirmations 9  locked true (field present true)  unlocked_balance 0  blocks_to_unlock 1
+  .. mined 1 block(s) in 44ms, chain height 839
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":828}
+  <- (0s) {"in":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000,"amounts":[500000000000],"confirmations":10,"double_spend_seen":false,"fee":2600400000,"height":829,"locked":false,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","type":"in","unlock_time":0}]}
+  .. chain 839  tx block 829  confirmations 10  locked false (field present true)  unlocked_balance 500000000000  blocks_to_unlock 0
+  FACT  incoming transfer in block 829: locked=false first at confirmations=10; unlocked_balance first > 0 at confirmations=10
+  PASS  an incoming transfer unlocks at 10 confirmations, as xmrswap assumes (measured 10)
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":829}
+  <- (0s) {}
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":828}
+  <- (1ms) {"in":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":500000000000,"amounts":[500000000000],"confirmations":10,"double_spend_seen":false,"fee":2600400000,"height":829,"locked":false,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"f5a7ab381a090717999fb6b5178dae18a888b277315b00506403f18286e56fc8","type":"in","unlock_time":0}]}
+  PASS  get_transfers min_height is exclusive: min_height=829 lists 0, min_height=828 lists 1
+
+== S7 generate_from_keys view-only (address + viewkey), then refresh
+  -> wallet generate_from_keys {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","autosave_current":true,"filename":"smoke-1789107846-view","password":"","restore_height":829,"viewkey":"\u003credacted\u003e"}
+  <- (1.277s) {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","info":"Watch-only wallet has been generated successfully."}
+  PASS  generate_from_keys echoes the joint address
+  -> wallet get_balance {"account_index":0}
+  <- (0s) {"balance":0,"blocks_to_unlock":0,"multisig_import_needed":false,"time_to_unlock":0,"unlocked_balance":0}
+  FACT  view-only wallet right after generate_from_keys, before refresh: balance 0 (xmrswap expects 0 until refresh)
+  -> wallet refresh {"start_height":829}
+  <- (247ms) {"blocks_fetched":10,"received_money":true}
+  FACT  refresh of a new view-only wallet from height 829 to 839: 248ms, blocks_fetched 10, received_money true
+  -> wallet get_transfers {"account_index":0,"filter_by_height":true,"in":true,"min_height":828}
+  <- (1ms) {"in":[{"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","amount":1000000000000,"amounts":[1000000000000],"confirmations":10,"double_spend_seen":false,"fee":2602800000,"height":829,"locked":false,"note":"","payment_id":"0000000000000000","subaddr_index":{"major":0,"minor":0},"subaddr_indices":[{"major":0,"minor":0}],"suggested_confirmations_threshold":1,"timestamp":1789107864,"txid":"22ed32af04d45f5e8655f740dda6fb8602b8147d7364f235bc78a86fc552f32c","type":"in","unlock_time":0}]}
+  -> wallet get_balance {"account_index":0}
+  <- (1ms) {"balance":1000000000000,"blocks_to_unlock":0,"multisig_import_needed":false,"per_subaddress":[{"account_index":0,"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","address_index":0,"balance":1000000000000,"blocks_to_unlock":0,"label":"Primary account","num_unspent_outputs":1,"time_to_unlock":0,"unlocked_balance":1000000000000}],"time_to_unlock":0,"unlocked_balance":1000000000000}
+  PASS  the view-only wallet sees the 1 XMR paid to the joint address
+  FACT  view-only get_balance: balance 1000000000000 unlocked_balance 1000000000000
+  -> wallet transfer {"account_index":0,"destinations":[{"address":"45vPY9Z3DA34b9zm1SD6T5Zi7jnLbnJXvMHxLV631pSsXMHQdsN8WQoWUPSh7Gf68biqjTaLQ8z55eH8WciF8kYM33bnSoZ","amount":100000000000}]}   (observe: transfer(view-only))
+  <- {"amount":100000000000,"amounts_by_dest":{"amounts":[100000000000]},"fee":1809600000,"multisig_txset":"","spent_key_images":{"key_images":["0100000000000000000000000000000000000000000000000000000000000000"]},"tx_blob":"","tx_hash":"94398be32dde922ad2867d76e8ac0ca4c3da2e6c5352336d079ac3c679b8071c","tx_key":"","tx_metadata":"","unsigned_txset":"4d6f6e65726f20756e7369676e65642074782073657405f215794fa0253661718ffc173bd0e72ea099c84486a744ebcd5f22a0a587741959bd62bb867350d2f509f9643414281af1caa61934096580735471b9a4eb99d3123313491e810e1e1ebfd6e03fcff1e6a20d0fb41a94b5e19172d35e09fa994d8d9abbd4794e8636c831841417fdfbaec58e2c5d8713727e650df3b1f30559508e388a56fc6a9e8016ff13607a4d21f83184432ebdcb0ef1160a98e6f51ba53ea223577266625fce5db5d0fb800834dcea07d2af396e26025cf8e5384221ebe09d0b6db00568267ea1381987ba8dfa2221f1d8044bcd02254a86a1cf348591c40d20ee8e7cc00694a9317f5321e41e6ff3b2ab3704fca64cd95703f5c0578e55f640bb8b137e3c6b27eda8653a47d8fd4bc90a177ee1b1922091b74b7f1e6331b919cdf37bc8eda1dae79c9d26ffba3b9ecf72831147ad8995982ec921071d08706d2a07fa5ab44e206e8456eb14c34ae2f076fd86c57b0acd90718bab4598f784e332b609db261da16db05267fffbbb79334ef3158202b225084faf600c3acba4baae9f7990422950aa2865e8841284dccda1f27...(4399 bytes)
+  FACT  transfer(view-only) is NOT refused: it answers tx hash(es) [94398be32dde922ad2867d76e8ac0ca4c3da2e6c5352336d079ac3c679b8071c] and an unsigned_txset of 4038 hex chars (for offline signing); in the daemon's pool: false
+  PASS  transfer(view-only): nothing was broadcast, whatever tx hash it answered
+  -> wallet sweep_all {"account_index":0,"address":"45vPY9Z3DA34b9zm1SD6T5Zi7jnLbnJXvMHxLV631pSsXMHQdsN8WQoWUPSh7Gf68biqjTaLQ8z55eH8WciF8kYM33bnSoZ"}   (observe: sweep_all(view-only))
+  <- {"amount_list":[998190400000],"amounts_by_dest_list":[{"amounts":[998190400000]}],"fee_list":[1809600000],"multisig_txset":"","spent_key_images_list":[{"key_images":["0100000000000000000000000000000000000000000000000000000000000000"]}],"tx_hash_list":["5146d46059495336c08fe893635be2b216f15eb1a084e0e1631e265c040bdf6a"],"unsigned_txset":"4d6f6e65726f20756e7369676e65642074782073657405b971873de5844970963f7620b275bc56ab6b1cea0caff9206c50809f18cfe52aa06b5ec3a21326cebfbce263b8ea8c99fea8ddad39d07ebb38377c8102a9c4fe4e02b910a518582950dc4576d3fbeeecc78f4082c7b8c2dc0fa7842e7af616ba5f1671b6c66a703cad8ed7a1368d5126434ae03461d0e6e5e823e85fda9be20bf8e4c13a864cdfcc3bdecd60dad745b756c817c726ea7f990669496fa1f320b8a15015cecde1e03de3fa2c8d42a11d7749a344789da5f941a83f4ecc2419c8d0d80be385e7bc85c4a5cd6e44ef064054a134e487fd04ee0b37059bf95d894848e3faf4b81f3527602a5d11ae15956003fadf6c7941629efd2e5040fb0a0b0d2bcf5afec433c60115476a3b22a7583f70a40e92c9e255c66dcf92f9eb1cd95168ea4b54f6765566d4cfa85e2884141beb73af8c801e810e69908cae71eeedd47f77ea3ababf38b3bd8e8fd36313ca2c92c064b834f7651df704afd3082052b8b32ba8226e7a7dc8ecb855f41dd2267d0f3c9d18cb5dccd9f8cc444cdc7978251f78f785126f424b20a9e3586b38ec4de806e6420900fb5b33...(3999 bytes)
+  FACT  sweep_all(view-only) is NOT refused: it answers tx hash(es) [5146d46059495336c08fe893635be2b216f15eb1a084e0e1631e265c040bdf6a] and an unsigned_txset of 3638 hex chars (for offline signing); in the daemon's pool: false
+  PASS  sweep_all(view-only): nothing was broadcast, whatever tx hash it answered
+  -> wallet close_wallet {"autosave_current":true}
+  <- (8ms) {}
+
+== S8 generate_from_keys with the joint spend key, refresh, sweep_all
+  -> wallet generate_from_keys {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","autosave_current":true,"filename":"smoke-1789107846-sweep","password":"","restore_height":829,"spendkey":"\u003credacted\u003e","viewkey":"\u003credacted\u003e"}
+  <- (4.516s) {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","info":"Wallet has been generated successfully."}
+  PASS  generate_from_keys (spendable) echoes the joint address
+  -> wallet refresh {"start_height":829}
+  <- (247ms) {"blocks_fetched":0,"received_money":false}
+  -> wallet get_balance {"account_index":0}
+  <- (1ms) {"balance":1000000000000,"blocks_to_unlock":0,"multisig_import_needed":false,"per_subaddress":[{"account_index":0,"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","address_index":0,"balance":1000000000000,"blocks_to_unlock":0,"label":"Primary account","num_unspent_outputs":1,"time_to_unlock":0,"unlocked_balance":1000000000000}],"time_to_unlock":0,"unlocked_balance":1000000000000}
+  PASS  the restored joint wallet can spend exactly 1 XMR (unlocked 1000000000000)
+  -> wallet sweep_all {"account_index":0,"address":"45vPY9Z3DA34b9zm1SD6T5Zi7jnLbnJXvMHxLV631pSsXMHQdsN8WQoWUPSh7Gf68biqjTaLQ8z55eH8WciF8kYM33bnSoZ"}
+  <- (64ms) {"amount_list":[998189200000],"amounts_by_dest_list":[{"amounts":[998189200000]}],"fee_list":[1810800000],"multisig_txset":"","spent_key_images_list":[{"key_images":["c67d73aba0e4dce165bf1d4fe1216ecc0ad6410b17fbb89789cc74faf41235d7"]}],"tx_hash_list":["ba7adc43cc86a3bc34106b0eb0a18575a816f528a65b7f305cf2961ff4360494"],"unsigned_txset":"","weight_list":[1509]}
+  PASS  sweep_all returned tx_hash_list [ba7adc43cc86a3bc34106b0eb0a18575a816f528a65b7f305cf2961ff4360494]
+  FACT  sweep_all (1 input, 1 output) fee 1810800000 piconero, amount [998189200000]
+  -> wallet sweep_all {"account_index":0,"address":"45vPY9Z3DA34b9zm1SD6T5Zi7jnLbnJXvMHxLV631pSsXMHQdsN8WQoWUPSh7Gf68biqjTaLQ8z55eH8WciF8kYM33bnSoZ"}   (expect a refusal: sweep_all(nothing unlocked))
+  <- error -4 "No unlocked balance in the specified account"
+  -> wallet generate_from_keys {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","autosave_current":true,"filename":"smoke-1789107846-sweep","password":"","restore_height":829,"viewkey":"\u003credacted\u003e"}   (expect a refusal: generate_from_keys(exists))
+  <- error -1 "Wallet already exists."
+  -> wallet close_wallet {"autosave_current":true}
+  <- (9ms) {}
+  -> wallet generate_from_keys {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","autosave_current":true,"filename":"smoke-1789107846-badview","password":"","restore_height":829,"viewkey":"\u003credacted\u003e"}   (observe: generate_from_keys(view mismatch))
+  <- {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","info":"Watch-only wallet has been generated successfully."}
+  FACT  generate_from_keys(view mismatch): ACCEPTED: "Watch-only wallet has been generated successfully.", echoes the address: true; get_balance: balance 0 unlocked 0
+  -> wallet close_wallet {"autosave_current":true}
+  <- (8ms) {}
+  -> wallet generate_from_keys {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","autosave_current":true,"filename":"smoke-1789107846-badspend","password":"","restore_height":829,"spendkey":"\u003credacted\u003e","viewkey":"\u003credacted\u003e"}   (observe: generate_from_keys(spend mismatch))
+  <- {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","info":"Wallet has been generated successfully."}
+  FACT  generate_from_keys(spend mismatch): ACCEPTED: "Wallet has been generated successfully.", echoes the address: true; refresh then fails: -1 "Failed to generate key image"; get_balance: balance 0 unlocked 0; sweep_all from it: -4 "No unlocked balance in the specified account"
+  -> wallet close_wallet {"autosave_current":true}
+  <- (7ms) {}
+
+== S9 refusals
+  -> wallet get_address {"account_index":0}   (expect a refusal: get_address(no wallet))
+  <- error -13 "No wallet file"
+  -> wallet get_balance {"account_index":0}   (expect a refusal: get_balance(no wallet))
+  <- error -13 "No wallet file"
+  -> wallet get_transfers {"account_index":0,"in":true}   (expect a refusal: get_transfers(no wallet))
+  <- error -13 "No wallet file"
+  -> wallet refresh {"start_height":0}   (expect a refusal: refresh(no wallet))
+  <- error -13 "No wallet file"
+  -> wallet close_wallet {"autosave_current":true}   (expect a refusal: close_wallet(no wallet))
+  <- error -13 "No wallet file"
+  get_height with no wallet open: error -13 "No wallet file"
+  -> wallet open_wallet {"filename":"smoke-1789107846-missing","password":""}   (expect a refusal: open_wallet(missing))
+  <- error -1 "Failed to open wallet : file not found \"<repo>/.sim/regtest/monero/wallets/smoke-1789107846-missing.keys\""
+  -> wallet open_wallet {"filename":"smoke-1789107846-fund","password":""}
+  <- (1.773s) {}
+  -> wallet refresh {"start_height":0}
+  <- (276ms) {"blocks_fetched":10,"received_money":true}
+  -> wallet transfer {"account_index":0,"destinations":[{"address":"4notanaddress","amount":1000000000000}]}   (expect a refusal: transfer(bad address))
+  <- error -2 "WALLET_RPC_ERROR_CODE_WRONG_ADDRESS: 4notanaddress"
+  -> wallet transfer {"account_index":0,"destinations":[{"address":"537GE4273JJ4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEKnD4GK","amount":1000000000000}]}   (expect a refusal: transfer(stagenet address))
+  <- error -2 "WALLET_RPC_ERROR_CODE_WRONG_ADDRESS: 537GE4273JJ4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEKnD4GK"
+  -> wallet transfer {"account_index":0,"destinations":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":0}]}   (expect a refusal: transfer(zero amount))
+  <- error -46 "destination amount is zero"
+  -> wallet transfer {"account_index":0,"destinations":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":1000000000000000000}]}   (expect a refusal: transfer(more than the balance))
+  <- error -17 "not enough money"
+
+== S10 unlock_time set by the sender
+  FACT  transfer with unlock_time=889 refused: -50 "Transaction cannot have non-zero unlock time"
+  -> wallet transfer {"account_index":0,"destinations":[{"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","amount":200000000000}]}
+  <- (97ms) {"amount":200000000000,"amounts_by_dest":{"amounts":[200000000000]},"fee":2602800000,"multisig_txset":"","spent_key_images":{"key_images":["fcb3c7289e5aeba0d82ab5806323d82c693450d50ab92fb76890dadbf6e5b257","13c00c95da7b4220728290dde4a84dcd8f2c4bba0a67a72a3c447cf9df6f607e"]},"tx_blob":"","tx_hash":"d2b5e41b6831b8b94d2c66f10a3900a93f09e1bbff48b18095cac4690ce9a3dc","tx_key":"","tx_metadata":"","unsigned_txset":"","weight":2169}
+  .. mined 1 block(s) in 74ms, chain height 840
+  -> wallet open_wallet {"filename":"smoke-1789107846-recv","password":""}
+  <- (1.672s) {}
+  -> wallet refresh {"start_height":0}
+  <- (247ms) {"blocks_fetched":1,"received_money":true}
+  -> wallet get_balance {"account_index":0}
+  <- (1ms) {"balance":700000000000,"blocks_to_unlock":9,"multisig_import_needed":false,"per_subaddress":[{"account_index":0,"address":"44M2Xkd5z3ffTajB7y5e7yjmchoCMANgXa4ZP3FBU1TfM8YtenpowcyRpHKmi9mkcLc2cBP5TujtRJYPAzsbAA237Y78p4U","address_index":0,"balance":700000000000,"blocks_to_unlock":9,"label":"Primary account","num_unspent_outputs":2,"time_to_unlock":0,"unlocked_balance":500000000000}],"time_to_unlock":0,"unlocked_balance":500000000000}
+  recv: balance 700000000000, unlocked 500000000000
+  -> wallet transfer {"account_index":0,"destinations":[{"address":"45vPY9Z3DA34b9zm1SD6T5Zi7jnLbnJXvMHxLV631pSsXMHQdsN8WQoWUPSh7Gf68biqjTaLQ8z55eH8WciF8kYM33bnSoZ","amount":600000000000}]}   (expect a refusal: transfer(not enough unlocked))
+  <- error -37 "not enough unlocked money"
+  -> wallet close_wallet {"autosave_current":true}
+  <- (8ms) {}
+
+== S11 refresh timing from height 0
+  -> wallet generate_from_keys {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","autosave_current":true,"filename":"smoke-1789107846-rescan","password":"","restore_height":0,"viewkey":"\u003credacted\u003e"}
+  <- (3.667s) {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","info":"Watch-only wallet has been generated successfully."}
+  -> wallet refresh {"start_height":0}
+  <- (267ms) {"blocks_fetched":839,"received_money":true}
+  FACT  refresh of a new view-only wallet over the whole 840-block chain: 268ms (blocks_fetched 839)
+  -> wallet close_wallet {"autosave_current":true}
+  <- (10ms) {}
+
+== S12 set_daemon {address, trusted:false} and wallet passwords
+  -> wallet set_daemon {"address":"127.0.0.1:28081","trusted":false}   (expect a refusal: set_daemon(no wallet))
+  <- error -13 "No wallet file"
+  -> wallet create_wallet {"filename":"smoke-1789107846-pw","language":"English","password":"\u003credacted\u003e"}
+  <- (3.177s) {}
+  -> wallet set_daemon {"address":"127.0.0.1:28081","trusted":false}
+  <- (787ms) {}
+  -> wallet refresh {"start_height":0}
+  <- (253ms) {"blocks_fetched":0,"received_money":false}
+  -> wallet get_height null
+  <- (0s) {"height":840}
+  PASS  after set_daemon (untrusted) the wallet refreshes to the daemon's height 840
+  -> wallet close_wallet {"autosave_current":true}
+  <- (8ms) {}
+  -> wallet open_wallet {"filename":"smoke-1789107846-pw","password":"\u003credacted\u003e"}   (expect a refusal: open_wallet(wrong password))
+  <- error -1 "Failed to open wallet : Invalid password."
+  -> wallet open_wallet {"filename":"smoke-1789107846-pw","password":"\u003credacted\u003e"}
+  <- (2.355s) {}
+  -> wallet set_daemon {"address":"127.0.0.1:1","trusted":false}
+  <- (1.026s) {}
+  -> wallet close_wallet {"autosave_current":true}
+  <- (8ms) {}
+  -> wallet open_wallet {"filename":"smoke-1789107846-pw","password":"\u003credacted\u003e"}
+  <- (1.916s) {}
+  -> wallet generate_from_keys {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","autosave_current":true,"filename":"smoke-1789107846-pw-view","password":"\u003credacted\u003e","restore_height":840,"viewkey":"\u003credacted\u003e"}
+  <- (2.462s) {"address":"42uE9D79PhC4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEQVssMq","info":"Watch-only wallet has been generated successfully."}
+  FACT  set_daemon to a dead 127.0.0.1:1: on that wallet refresh fails -38 "no connection to daemon" (the named daemon still applies); after close_wallet + open_wallet refresh works (the rpc's own --daemon-address is back); on a wallet then made by generate_from_keys refresh works (the rpc's own --daemon-address is back)
+  -> wallet set_daemon {"address":"127.0.0.1:28081","trusted":false}
+  <- (4.626s) {}
+  -> wallet refresh {"start_height":0}
+  <- (242ms) {"blocks_fetched":0,"received_money":false}
+  -> wallet close_wallet {"autosave_current":true}
+  <- (9ms) {}
+
+== summary (1m25s)
+  monerod 0.18.5.1-release, nettype fakechain, offline true, height 689
+  hard fork version at the tip: 16
+  monero-wallet-rpc get_version 65567 (release true)
+  a new wallet's get_height is 689 while the daemon is at 689: get_height is the wallet's own scanned height (wallet2 m_blockchain.size()), not the chain's
+  coinbase: mined in block 689 (reward 35138197916766 piconero), first in unlocked_balance at chain height 749 = block + 60
+  generateblocks 80 blocks took 3.876s
+  refresh of the funding wallet to height 829 took 118ms
+  transfer fee (1 destination + change, default priority, 16-member ring): 2602800000 and 2600400000 piconero
+  daemon get_fee_estimate: fee 1200000 piconero/byte, quantization_mask 10000
+  incoming transfer in block 829: locked=false first at confirmations=10; unlocked_balance first > 0 at confirmations=10
+  view-only wallet right after generate_from_keys, before refresh: balance 0 (xmrswap expects 0 until refresh)
+  refresh of a new view-only wallet from height 829 to 839: 248ms, blocks_fetched 10, received_money true
+  view-only get_balance: balance 1000000000000 unlocked_balance 1000000000000
+  transfer(view-only) is NOT refused: it answers tx hash(es) [94398be32dde922ad2867d76e8ac0ca4c3da2e6c5352336d079ac3c679b8071c] and an unsigned_txset of 4038 hex chars (for offline signing); in the daemon's pool: false
+  sweep_all(view-only) is NOT refused: it answers tx hash(es) [5146d46059495336c08fe893635be2b216f15eb1a084e0e1631e265c040bdf6a] and an unsigned_txset of 3638 hex chars (for offline signing); in the daemon's pool: false
+  sweep_all (1 input, 1 output) fee 1810800000 piconero, amount [998189200000]
+  generate_from_keys(view mismatch): ACCEPTED: "Watch-only wallet has been generated successfully.", echoes the address: true; get_balance: balance 0 unlocked 0
+  generate_from_keys(spend mismatch): ACCEPTED: "Wallet has been generated successfully.", echoes the address: true; refresh then fails: -1 "Failed to generate key image"; get_balance: balance 0 unlocked 0; sweep_all from it: -4 "No unlocked balance in the specified account"
+  transfer with unlock_time=889 refused: -50 "Transaction cannot have non-zero unlock time"
+  refresh of a new view-only wallet over the whole 840-block chain: 268ms (blocks_fetched 839)
+  set_daemon to a dead 127.0.0.1:1: on that wallet refresh fails -38 "no connection to daemon" (the named daemon still applies); after close_wallet + open_wallet refresh works (the rpc's own --daemon-address is back); on a wallet then made by generate_from_keys refresh works (the rpc's own --daemon-address is back)
+  refusals:
+    close_wallet(no wallet)              -13 "No wallet file"
+    generate_from_keys(exists)           -1 "Wallet already exists."
+    generate_from_keys(spend mismatch)   0 "ACCEPTED: \"Wallet has been generated successfully.\", echoes the address: true; refresh then fails: -1 \"Failed to generate key image\"; get_balance: balance 0 unlocked 0; sweep_all from it: -4 \"No unlocked balance in the specified account\""
+    generate_from_keys(view mismatch)    0 "ACCEPTED: \"Watch-only wallet has been generated successfully.\", echoes the address: true; get_balance: balance 0 unlocked 0"
+    get_address(no wallet)               -13 "No wallet file"
+    get_balance(no wallet)               -13 "No wallet file"
+    get_height(no wallet)                -13 "No wallet file"
+    get_transfers(no wallet)             -13 "No wallet file"
+    open_wallet(missing)                 -1 "Failed to open wallet : file not found \"<repo>/.sim/regtest/monero/wallets/smoke-1789107846-missing.keys\""
+    open_wallet(wrong password)          -1 "Failed to open wallet : Invalid password."
+    refresh(no wallet)                   -13 "No wallet file"
+    set_daemon(no wallet)                -13 "No wallet file"
+    sweep_all(nothing unlocked)          -4 "No unlocked balance in the specified account"
+    sweep_all(view-only)                 0 "ACCEPTED: tx hash [5146d46059495336c08fe893635be2b216f15eb1a084e0e1631e265c040bdf6a], unsigned_txset of 3638 hex chars, tx_blob \"\", in the daemon's pool: false"
+    transfer(bad address)                -2 "WALLET_RPC_ERROR_CODE_WRONG_ADDRESS: 4notanaddress"
+    transfer(more than the balance)      -17 "not enough money"
+    transfer(not enough unlocked)        -37 "not enough unlocked money"
+    transfer(stagenet address)           -2 "WALLET_RPC_ERROR_CODE_WRONG_ADDRESS: 537GE4273JJ4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEKnD4GK"
+    transfer(unlock_time)                -50 "Transaction cannot have non-zero unlock time"
+    transfer(view-only)                  0 "ACCEPTED: tx hash [94398be32dde922ad2867d76e8ac0ca4c3da2e6c5352336d079ac3c679b8071c], unsigned_txset of 4038 hex chars, tx_blob \"\", in the daemon's pool: false"
+    transfer(zero amount)                -46 "destination amount is zero"
+RESULT: every check passed
+
+== real vs tools/xmrswap FakeWallet (go run ./regtest/xmrshape)
+response shapes (success answers), real monero-wallet-rpc vs tools/xmrswap FakeWallet:
+  close_wallet                 same shape
+  create_wallet                the fake does not serve it: -32601 "Method not found"
+  generate_from_keys(spend)    same shape
+  generate_from_keys(view)     same shape
+  get_address                  same shape
+  get_balance                  same shape
+  get_balance(view)            same shape
+  get_height                   same shape
+  get_transfers                1 difference(s):
+      pool                                        only in the FAKE (array)
+  get_transfers(pool)          2 difference(s):
+      in                                          only in the FAKE (array)
+      pool[].confirmations                        only in the FAKE (number)
+  get_transfers(view)          1 difference(s):
+      pool                                        only in the FAKE (array)
+  get_version                  the fake does not serve it: -32601 "Method not found"
+  open_wallet                  same shape
+  refresh                      same shape
+  set_daemon                   same shape
+  sweep_all                    5 difference(s):
+      amounts_by_dest_list                        only in the REAL wallet (array)
+      multisig_txset                              only in the REAL wallet (string)
+      spent_key_images_list                       only in the REAL wallet (array)
+      unsigned_txset                              only in the REAL wallet (string)
+      weight_list                                 only in the REAL wallet (array)
+  sweep_all(view-only)         answered by the real wallet, not exercised on the fake
+  transfer                     5 difference(s):
+      amounts_by_dest                             only in the REAL wallet (object)
+      multisig_txset                              only in the REAL wallet (string)
+      spent_key_images                            only in the REAL wallet (object)
+      unsigned_txset                              only in the REAL wallet (string)
+      weight                                      only in the REAL wallet (number)
+  transfer(view-only)          answered by the real wallet, not exercised on the fake
+refusals, real vs fake (code and message):
+  close_wallet(no wallet)            same: -13 "No wallet file"
+  generate_from_keys(exists)         same: -1 "Wallet already exists."
+  generate_from_keys(spend mismatch) DIFFERENT: real 0 "ACCEPTED: \"Wallet has been generated successfully.\", echoes the address: true; refresh then fails: -1 \"Failed to generate key image\"; get_balance: balance 0 unlocked 0; sweep_all from it: -4 \"No unlocked balance in the specified account\"", fake -1 "spend secret key does not match main address"
+  generate_from_keys(view mismatch)  DIFFERENT: real 0 "ACCEPTED: \"Watch-only wallet has been generated successfully.\", echoes the address: true; get_balance: balance 0 unlocked 0", fake -1 "view secret key does not match main address"
+  get_address(no wallet)             same: -13 "No wallet file"
+  get_balance(no wallet)             same: -13 "No wallet file"
+  get_height(no wallet)              DIFFERENT: real -13 "No wallet file", fake 1 "ACCEPTED by the fake: {\"height\":73}"
+  get_transfers(no wallet)           same: -13 "No wallet file"
+  open_wallet(missing)               same code -1; text differs: real "Failed to open wallet : file not found \"<repo>/.sim/regtest/monero/wallets/smoke-1789107846-missing.keys\"", fake "Failed to open wallet : file not found"
+  open_wallet(wrong password)        same code -1; text differs: real "Failed to open wallet : Invalid password.", fake "Failed to open wallet : invalid password"
+  refresh(no wallet)                 same: -13 "No wallet file"
+  set_daemon(no wallet)              DIFFERENT: real -13 "No wallet file", fake 1 "ACCEPTED by the fake: {}"
+  sweep_all(nothing unlocked)        DIFFERENT: real -4 "No unlocked balance in the specified account", fake -37 "No unlocked balance in the specified account"
+  sweep_all(view-only)               DIFFERENT: real 0 "ACCEPTED: tx hash [5146d46059495336c08fe893635be2b216f15eb1a084e0e1631e265c040bdf6a], unsigned_txset of 3638 hex chars, tx_blob \"\", in the daemon's pool: false", fake -29 "The wallet is watch-only. Cannot spend."
+  transfer(bad address)              same code -2; text differs: real "WALLET_RPC_ERROR_CODE_WRONG_ADDRESS: 4notanaddress", fake "Invalid destination address"
+  transfer(more than the balance)    same: -17 "not enough money"
+  transfer(not enough unlocked)      same: -37 "not enough unlocked money"
+  transfer(stagenet address)         same code -2; text differs: real "WALLET_RPC_ERROR_CODE_WRONG_ADDRESS: 537GE4273JJ4nE4VPd2fUq8XLkaLDC5VFHxddJ8JnMt3GBhVxEDZDrVEnLQboV7JPCPWptjG7WwNEUGTNwrQGP9TEKnD4GK", fake "Invalid destination address"
+  transfer(unlock_time)              DIFFERENT: real -50 "Transaction cannot have non-zero unlock time", fake 1 "ACCEPTED by the fake: {\"amount\":300000000000,\"fee\":30000000,\"tx_blob\":\"\",\"tx_hash\":\"753f3edc1ad9056805942cdef562e9eab82cd62994a2e88fd0651d49963c535f\",\"tx_key\":\"\",\"tx_metadata\":\"\"}"
+  transfer(view-only)                DIFFERENT: real 0 "ACCEPTED: tx hash [94398be32dde922ad2867d76e8ac0ca4c3da2e6c5352336d079ac3c679b8071c], unsigned_txset of 4038 hex chars, tx_blob \"\", in the daemon's pool: false", fake -29 "The wallet is watch-only. Cannot spend."
+  transfer(zero amount)              same code -46; text differs: real "destination amount is zero", fake "Destination amount is zero"
+31 difference(s) in all

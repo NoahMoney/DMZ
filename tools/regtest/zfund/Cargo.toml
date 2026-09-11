@@ -1,0 +1,21 @@
+[package]
+name = "zfund"
+version = "0.1.0"
+edition = "2024"
+description = "Test-only Zcash REGTEST key and transparent-transaction tool for the DMZ regtest harness"
+publish = false
+
+# Exact pins: this is an independent implementation (librustzcash) of what tools/zecswap builds, so its versions
+# are part of the evidence and must not drift. Cargo.lock is kept beside this file.
+[dependencies]
+zcash_primitives = { version = "=0.30.1", features = ["transparent-inputs"] }
+zcash_transparent = { version = "=0.10.0", features = ["transparent-inputs"] }
+zcash_protocol = { version = "=0.10.6", features = ["local-consensus"] }
+zcash_address = { version = "=0.13.0" }
+# The builder's build() takes Sapling provers as type parameters. A transparent-only transaction never calls them,
+# so the crate's mock provers (behind test-dependencies) stand in rather than the real Groth16 parameters.
+sapling = { package = "sapling-crypto", version = "=0.7.0", features = ["test-dependencies"] }
+secp256k1 = { version = "=0.29.1", features = ["rand-std"] }
+rand = "0.8"
+bs58 = { version = "0.5", features = ["check"] }
+hex = "0.4"

@@ -1,0 +1,194 @@
+zecsmoke — the Zcash leg's node operations against a real regtest zebrad
+run at 2026-09-11T06:15:46Z; node http://127.0.0.1:28232/
+
+== Z0 the node
+  -> getblockhash [0]
+  <- "029f11d80ef9765602235e1bc9727e3eb6ba20839319f761fee920d63401e327"
+  PASS  block 0 is the regtest genesis block 029f11d80ef9765602235e1bc9727e3eb6ba20839319f761fee920d63401e327
+  -> getblockchaininfo null
+  <- {"bestblockhash":"1bbcf4eeff9e4c63defaec5703042a6cdbe0bfb5679a36f3e54981b74f773a48","blocks":234,"chain":"test","chainSupply":{"chainValue":1462.5,"chainValueZat":146250000000,"monitored":true},"chainwork":0,"commitments":0,"consensus":{"chaintip":"37a5165b","nextblock":"37a5165b"},"difficulty":1.0,"estimatedheight":234,"headers":234,"pruned":false,"size_on_disk":21480,"upgrades":{"2bb40e60":{"activationheight":1,"name":"Blossom","status":"active"},"37a5165b":{"activationheight":6,"name":"NU6.3","status":"active"},"4dec4df0":{"activationheight":4,"name":"NU6.1","status":"active"},"5437f330":{"activationheight":5,"name":"NU6.2","status":"active"},"5ba81b19":{"activationheight":1,"name":"Overwinter","status":"active"},"76b809bb":{"activationheight":1,"name":"Sapling","status":"active"},"c2d6d0b4":{"activationheight":2,"name":"NU5","status":"active"},"c8e71055":{"activationheight":3,"name":...(1544 bytes)
+  FACT  getblockchaininfo chain="test" blocks=234 estimatedheight=234 initial_block_download_complete=<nil>
+  PASS  estimatedheight equals blocks (debug_force_finished_sync)
+  PASS  the node's activation heights are the harness's (mismatched: [])
+  PASS  consensus chaintip 37a5165b, nextblock 37a5165b: NU6.3 (ZIP 258) is current
+  zfund params -> {"2bb40e60":1,"37a5165b":6,"4dec4df0":4,"5437f330":5,"5ba81b19":1,"76b809bb":1,"c2d6d0b4":2,"c8e71055":3,"e9ff75a6":1,"f5b9230b":1}
+  PASS  zfund signs under the same activation heights (mismatched: [])
+  -> getinfo null
+  <- {"blocks":234,"build":"v6.3.0","connections":0,"difficulty":1.0,"errors":"chain tip metrics channel closed","errorstimestamp":1789106281,"paytxfee":0.0,"protocolversion":170160,"relayfee":1e-6,"subversion":"/Zebra:6.3.0/","testnet":true,"version":6030000}
+  -> getblockcount null
+  <- 234
+  -> getbestblockhash null
+  <- "1bbcf4eeff9e4c63defaec5703042a6cdbe0bfb5679a36f3e54981b74f773a48"
+  -> getrawmempool null
+  <- []
+  -> getmininginfo null
+  <- {"blocks":234,"chain":"test","currentblocksize":1871,"currentblocktx":1,"networkhashps":102,"networksolps":102,"testnet":true}
+  -> getnetworkinfo null
+  <- {"connections":0,"localaddresses":[],"localservices":"0000000000000001","networks":[{"limited":false,"name":"ipv4","proxy":"","proxy_randomize_credentials":false,"reachable":true},{"limited":false,"name":"ipv6","proxy":"","proxy_randomize_credentials":false,"reachable":true},{"limited":false,"name":"onion","proxy":"","proxy_randomize_credentials":false,"reachable":false}],"protocolversion":170160,"relayfee":1e-6,"subversion":"/Zebra:6.3.0/","timeoffset":0,"version":6030000,"warnings":""}
+  -> getpeerinfo null
+  <- []
+  -> getblock ["234",1]
+  <- {"bits":"200f0f0f","blockcommitments":"b56d1034fae5392bab0d8c6353eb8d80146090fb715e0c3e2ed3e1172376445d","chainSupply":{"chainValue":1462.5,"chainValueZat":146250000000,"monitored":true},"confirmations":1,"difficulty":1.0,"finalorchardroot":"ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f","finalsaplingroot":"3e49b5f954aa9d3545bc6c37744661eea48d7c34e3000d82b7f0010c30f4c2fb","hash":"1bbcf4eeff9e4c63defaec5703042a6cdbe0bfb5679a36f3e54981b74f773a48","height":234,"merkleroot":"0a25339c32cb6d5585ba054064b44bd9115ce737d5ab2077a073c3aca03e21ad","nTx":2,"nonce":"0000000000000000000000000000000000000000000000000000000000000000","previousblockhash":"6c36e6b7509d0c60679f445782cabb62d1c72c48d1b2531762d73f0e086eb39b","size":1871,"solution":"0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000...(4298 bytes)
+  -> z_gettreestate ["234"]
+  <- {"hash":"1bbcf4eeff9e4c63defaec5703042a6cdbe0bfb5679a36f3e54981b74f773a48","height":234,"ironwood":{"commitments":{"finalRoot":"ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f","finalState":"000000"}},"orchard":{"commitments":{"finalRoot":"ae2935f1dfd8a24aed7c70df7de3a668eb7a49b1319880dde2bbd9031ae5d82f","finalState":"000000"}},"sapling":{"commitments":{"finalRoot":"3e49b5f954aa9d3545bc6c37744661eea48d7c34e3000d82b7f0010c30f4c2fb","finalState":"000000"}},"time":1296688643}
+
+== Z1 coinbase to a throwaway key, and its maturity
+  zfund keygen <repo>/.sim/regtest/zcash/keys/k1.key -> {"address":"tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP","pubkey":"02919b4100c38f710b681db0f4254132c8bd113de5c2a3abf341c5f25c83a69bb9","pubkey_hash":"7e62bcf84fea2abb72804471e808b871cea31a14","wif":"\u003credacted\u003e"}
+  zfund keygen <repo>/.sim/regtest/zcash/keys/k2.key -> {"address":"tmJ4QeGg24AEG83Jb2RMJJGmrfJYygNnUCZ","pubkey":"028b187c76a7bb02096387521c594ef29eaa4ae5031527ed59b70fb16d9261406d","pubkey_hash":"5b8c171c2db462aa01f0a6aa97fa4d2f60acaeae","wif":"\u003credacted\u003e"}
+  PASS  regtest P2PKH addresses carry the testnet prefix tm: tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP tmJ4QeGg24AEG83Jb2RMJJGmrfJYygNnUCZ
+  -> validateaddress ["tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP"]
+  <- {"address":"tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP","isscript":false,"isvalid":true}
+  -> generatetoaddress [1,"tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP"]
+  <- ["20d23e0f5479f08f0f4e82dabc0c937c67d8e7bf7a3c5c8c1cbdd4f462288401"]
+  -> getaddressutxos [{"addresses":["tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP"]}]
+  <- [{"address":"tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP","height":235,"outputIndex":0,"satoshis":625000000,"script":"76a9147e62bcf84fea2abb72804471e808b871cea31a1488ac","txid":"bcd92033a4c33db628e91f575f9513c242e91b7b319f75922a44205ebd7c4970"}]
+  PASS  getaddressutxos lists the coinbase at height 235
+  FACT  regtest coinbase at height 235 pays the miner address 625000000 zatoshi (output 0); no funding-stream outputs are configured
+  -> getrawtransaction ["bcd92033a4c33db628e91f575f9513c242e91b7b319f75922a44205ebd7c4970",1]
+  <- {"authdigest":"8c46e80ec4ee17f89c6842658f969cdfe20590e96baeaa6e3c10d42b879d1d5b","blockhash":"20d23e0f5479f08f0f4e82dabc0c937c67d8e7bf7a3c5c8c1cbdd4f462288401","blocktime":1296688643,"confirmations":1,"expiryheight":235,"height":235,"hex":"0600008098b684d85b16a53700000000eb000000010000000000000000000000000000000000000000000000000000000000000000ffffffff2a02eb0026f09fa6933a208350c252b62c99b2572f2dea5cad2844386d6321c8aa2f2de9ef6cf7afb325e2ffffffff0140be4025000000001976a9147e62bcf84fea2abb72804471e808b871cea31a1488ac00000000","in_active_chain":true,"locktime":0,"orchard":{"actions":[],"valueBalance":0.0,"valueBalanceZat":0},"overwintered":true,"size":143,"time":1296688643,"txid":"bcd92033a4c33db628e91f575f9513c242e91b7b319f75922a44205ebd7c4970","vShieldedOutput":[],"vShieldedSpend":[],"valueBalance":0.0,"valueBalanceZat":0,"version":6,"versiongroupid":"d884b698","vin":[{"coinbase":"02eb0026f...(1322 bytes)
+  coinbase tx: version 6, 1 vout
+  P2SH(OP_TRUE) address t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e
+  .. generate 98 in 17.07s, tip 333
+  zfund send --key <repo>/.sim/regtest/zcash/keys/k1.key --height 334 --version 5 --in bcd92033a4c33db628e91f575f9513c242e91b7b319f75922a44205ebd7c4970:0:625000000 --to tmJ4QeGg24AEG83Jb2RMJJGmrfJYygNnUCZ:100000000 --to t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e:50000000 -> {"branch_id":"37a5165b","change":474985000,"expiry_height":374,"fee":15000,"hex":"\u003c546 hex chars\u003e","size":273,"txid":"92d732d01692d009a121a65e30cb873416a82b6fa619f1bf9c8e66469a0ad7f7","version":5}
+  PASS  zfund built the coinbase spend
+  -> sendrawtransaction ["050000800a27a7265b16a53700000000760100000170497cbd5e20442a92759f317b1be942c213955f571fe928b63dc3a43320d9bc000000006b483045022100bc67f609ce28d6c0b54eda67d9c2dfe6778b8a6e0623d45de55f9734f0fa5d8e0220473596529bdb7b27343bf65b3882caaf570049a73fbc75867a15087d246fe001012102919b4100c38f710b681db0f4254132c8bd113de5c2a3abf341c5f25c83a69bb9ffffffff0300e1f505000000001976a9145b8c171c2db462aa01f0a6aa97fa4d2f60acaeae88ac80f0fa020000000017a91409deb8b2f10579001703c16a62fbc56e15ccf6388728b24f1c000000001976a9147e62bcf84fea2abb72804471e808b871cea31a1488ac000000"]   (expect a refusal: sendrawtransaction(immature coinbase))
+  <- error -25 "failed to validate tx: WtxId(\"private\"), error: transaction did not pass consensus validation: could not contextually validate transaction on best chain: immature transparent coinbase spend: attempt to spend OutPoint { hash: transaction::Hash(\"bcd92033a4c33db628e91f575f9513c242e91b7b319f75922a44205ebd7c4970\"), index: 0 } at Height(334), but spends are invalid before Height(335), which is 100 blocks after it was created at Height(235)" (HTTP 200)
+  .. generate 1 in 176ms, tip 334
+  zfund send --key <repo>/.sim/regtest/zcash/keys/k1.key --height 335 --version 5 --in bcd92033a4c33db628e91f575f9513c242e91b7b319f75922a44205ebd7c4970:0:625000000 --to tmJ4QeGg24AEG83Jb2RMJJGmrfJYygNnUCZ:100000000 --to t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e:50000000 -> {"branch_id":"37a5165b","change":474985000,"expiry_height":375,"fee":15000,"hex":"\u003c546 hex chars\u003e","size":273,"txid":"43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb","version":5}
+  PASS  zfund built the coinbase spend at the next height
+  PASS  a v5 (ZIP 225) transaction under branch id 37a5165b
+  -> sendrawtransaction ["050000800a27a7265b16a53700000000770100000170497cbd5e20442a92759f317b1be942c213955f571fe928b63dc3a43320d9bc000000006b48304502210088385393f9cddd212f544917af2fb7fec644c23f17a55c7fbc50fc52dbe334e2022056d1512feb4ec7e9daf44cf32e85ead37213caa99d4db85518289bfa2deda9c4012102919b4100c38f710b681db0f4254132c8bd113de5c2a3abf341c5f25c83a69bb9ffffffff0300e1f505000000001976a9145b8c171c2db462aa01f0a6aa97fa4d2f60acaeae88ac80f0fa020000000017a91409deb8b2f10579001703c16a62fbc56e15ccf6388728b24f1c000000001976a9147e62bcf84fea2abb72804471e808b871cea31a1488ac000000"]
+  <- "43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb"
+  PASS  sendrawtransaction accepted it and names the txid zfund computed (43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb)
+  FACT  a transparent coinbase output mined at height 235 is refused while the next block is 334 and accepted when it is 335: maturity 100 blocks; spent straight to transparent outputs (no shielding: regtest's should_allow_unshielded_coinbase_spends)
+  FACT  funding tx: 273 bytes, fee 15000 zatoshi (ZIP 317, 1 input 3 outputs), expiry height 375
+
+== Z2 getrawtransaction and duplicate broadcasts, before and after mining
+  -> getrawtransaction ["43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb",1]
+  <- {"authdigest":"43cf9656b2cbb03d236f34d8d45211cd54723b18745e0eea2bd57d00cb22b5cb","expiryheight":375,"hex":"050000800a27a7265b16a53700000000770100000170497cbd5e20442a92759f317b1be942c213955f571fe928b63dc3a43320d9bc000000006b48304502210088385393f9cddd212f544917af2fb7fec644c23f17a55c7fbc50fc52dbe334e2022056d1512feb4ec7e9daf44cf32e85ead37213caa99d4db85518289bfa2deda9c4012102919b4100c38f710b681db0f4254132c8bd113de5c2a3abf341c5f25c83a69bb9ffffffff0300e1f505000000001976a9145b8c171c2db462aa01f0a6aa97fa4d2f60acaeae88ac80f0fa020000000017a91409deb8b2f10579001703c16a62fbc56e15ccf6388728b24f1c000000001976a9147e62bcf84fea2abb72804471e808b871cea31a1488ac000000","in_active_chain":false,"locktime":0,"orchard":{"actions":[],"valueBalance":0.0,"valueBalanceZat":0},"overwintered":true,"size":273,"txid":"43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb","vShieldedOutput":[],"vShieldedSpend":[...(2440 bytes)
+  FACT  getrawtransaction of a mempool tx: height present false (<nil>), confirmations present false (<nil>), blockhash ""
+  -> sendrawtransaction ["050000800a27a7265b16a53700000000770100000170497cbd5e20442a92759f317b1be942c213955f571fe928b63dc3a43320d9bc000000006b48304502210088385393f9cddd212f544917af2fb7fec644c23f17a55c7fbc50fc52dbe334e2022056d1512feb4ec7e9daf44cf32e85ead37213caa99d4db85518289bfa2deda9c4012102919b4100c38f710b681db0f4254132c8bd113de5c2a3abf341c5f25c83a69bb9ffffffff0300e1f505000000001976a9145b8c171c2db462aa01f0a6aa97fa4d2f60acaeae88ac80f0fa020000000017a91409deb8b2f10579001703c16a62fbc56e15ccf6388728b24f1c000000001976a9147e62bcf84fea2abb72804471e808b871cea31a1488ac000000"]   (expect a refusal: sendrawtransaction(duplicate, in mempool))
+  <- error -1 "transaction already exists in mempool" (HTTP 200)
+  .. generate 1 in 380ms, tip 335
+  -> getrawtransaction ["43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb",1]
+  <- {"authdigest":"43cf9656b2cbb03d236f34d8d45211cd54723b18745e0eea2bd57d00cb22b5cb","blockhash":"77b8520cb0b3b51afb331e3587315fba9e857841713215bfd13caad1dfbcdcce","blocktime":1296688660,"confirmations":1,"expiryheight":375,"height":335,"hex":"050000800a27a7265b16a53700000000770100000170497cbd5e20442a92759f317b1be942c213955f571fe928b63dc3a43320d9bc000000006b48304502210088385393f9cddd212f544917af2fb7fec644c23f17a55c7fbc50fc52dbe334e2022056d1512feb4ec7e9daf44cf32e85ead37213caa99d4db85518289bfa2deda9c4012102919b4100c38f710b681db0f4254132c8bd113de5c2a3abf341c5f25c83a69bb9ffffffff0300e1f505000000001976a9145b8c171c2db462aa01f0a6aa97fa4d2f60acaeae88ac80f0fa020000000017a91409deb8b2f10579001703c16a62fbc56e15ccf6388728b24f1c000000001976a9147e62bcf84fea2abb72804471e808b871cea31a1488ac000000","in_active_chain":true,"locktime":0,"orchard":{"actions":[],"valueBalance":0.0,"valueBalanceZat":0},"overwintere...(2590 bytes)
+  -> getblockhash [335]
+  <- "77b8520cb0b3b51afb331e3587315fba9e857841713215bfd13caad1dfbcdcce"
+  PASS  mined: height 335, confirmations 1, blockhash equals getblockhash(335)
+  PASS  the node returns the exact bytes that were sent
+  -> sendrawtransaction ["050000800a27a7265b16a53700000000770100000170497cbd5e20442a92759f317b1be942c213955f571fe928b63dc3a43320d9bc000000006b48304502210088385393f9cddd212f544917af2fb7fec644c23f17a55c7fbc50fc52dbe334e2022056d1512feb4ec7e9daf44cf32e85ead37213caa99d4db85518289bfa2deda9c4012102919b4100c38f710b681db0f4254132c8bd113de5c2a3abf341c5f25c83a69bb9ffffffff0300e1f505000000001976a9145b8c171c2db462aa01f0a6aa97fa4d2f60acaeae88ac80f0fa020000000017a91409deb8b2f10579001703c16a62fbc56e15ccf6388728b24f1c000000001976a9147e62bcf84fea2abb72804471e808b871cea31a1488ac000000"]   (expect a refusal: sendrawtransaction(duplicate, mined))
+  <- error -1 "any transaction with the same effects will be rejected from the mempool until a chain reset: transaction was committed to the best chain" (HTTP 200)
+
+== Z3 getaddressutxos / getaddresstxids (the watcher's view of a P2SH)
+  -> getaddressutxos [{"addresses":["t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e"]}]
+  <- [{"address":"t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e","height":335,"outputIndex":1,"satoshis":50000000,"script":"a91409deb8b2f10579001703c16a62fbc56e15ccf63887","txid":"43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb"}]
+  PASS  getaddressutxos lists one output for the P2SH address
+  PASS  P2SH utxo: address, txid, script a91409deb8b2f10579001703c16a62fbc56e15ccf63887, satoshis 50000000, height 335 as zecswap reads them
+  -> gettxout ["43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb",1,false]
+  <- {"bestblock":"77b8520cb0b3b51afb331e3587315fba9e857841713215bfd13caad1dfbcdcce","coinbase":false,"confirmations":1,"scriptPubKey":{"addresses":["t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e"],"asm":"OP_HASH160 09deb8b2f10579001703c16a62fbc56e15ccf638 OP_EQUAL","hex":"a91409deb8b2f10579001703c16a62fbc56e15ccf63887","reqSigs":1,"type":"scripthash"},"value":0.5,"version":5}
+  PASS  gettxout of the unspent P2SH output: confirmations 1, scriptPubKey.hex, bestblock (value 0.5 is in ZEC, not zatoshi)
+  PASS  gettxout of the spent coinbase output answers result null, error null (got null, <nil>)
+  PASS  gettxout of an output index the transaction does not have answers result null, error null (got null, <nil>)
+  -> getaddresstxids [{"addresses":["t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e"],"end":335,"start":335}]
+  <- ["43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb"]
+  PASS  getaddresstxids over [335, 335] (inclusive) lists the funding
+  -> getaddresstxids [{"addresses":["t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e"],"end":340,"start":336}]
+  <- ["43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb"]
+  FACT  getaddresstxids over [336, 340], above the tip 335, answers 1 txid(s): Zebra clamps both ends to the tip (so it lists the tip block's transactions) rather than refusing
+  -> getaddresstxids [{"addresses":["t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e"],"end":0,"start":0}]
+  <- ["43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb"]
+  FACT  getaddresstxids with start 0 and end 0 lists the whole chain (1 txid)
+  -> getaddresstxids [{"addresses":["t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e"],"end":334,"start":335}]   (expect a refusal: getaddresstxids(start above end))
+  <- error -1 "start Height(335) must be less than or equal to end Height(334)" (HTTP 200)
+  -> getaddressutxos [{"addresses":["tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP"]}]
+  <- [{"address":"tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP","height":335,"outputIndex":2,"satoshis":474985000,"script":"76a9147e62bcf84fea2abb72804471e808b871cea31a1488ac","txid":"43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb"}]
+  PASS  the spent coinbase is gone from getaddressutxos (it lists unspent outputs only)
+
+== Z4 confirmations
+  .. generate 9 in 1.636s, tip 344
+  -> getrawtransaction ["43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb",1]
+  <- {"authdigest":"43cf9656b2cbb03d236f34d8d45211cd54723b18745e0eea2bd57d00cb22b5cb","blockhash":"77b8520cb0b3b51afb331e3587315fba9e857841713215bfd13caad1dfbcdcce","blocktime":1296688660,"confirmations":10,"expiryheight":375,"height":335,"hex":"050000800a27a7265b16a53700000000770100000170497cbd5e20442a92759f317b1be942c213955f571fe928b63dc3a43320d9bc000000006b48304502210088385393f9cddd212f544917af2fb7fec644c23f17a55c7fbc50fc52dbe334e2022056d1512feb4ec7e9daf44cf32e85ead37213caa99d4db85518289bfa2deda9c4012102919b4100c38f710b681db0f4254132c8bd113de5c2a3abf341c5f25c83a69bb9ffffffff0300e1f505000000001976a9145b8c171c2db462aa01f0a6aa97fa4d2f60acaeae88ac80f0fa020000000017a91409deb8b2f10579001703c16a62fbc56e15ccf6388728b24f1c000000001976a9147e62bcf84fea2abb72804471e808b871cea31a1488ac000000","in_active_chain":true,"locktime":0,"orchard":{"actions":[],"valueBalance":0.0,"valueBalanceZat":0},"overwinter...(2591 bytes)
+  PASS  after 9 more blocks: confirmations 10 = tip − height + 1
+  -> getaddresstxids [{"addresses":["t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e"],"end":344,"start":336}]
+  <- []
+  PASS  getaddresstxids over [336, 344], below the tip and after the funding, lists nothing (inclusive bounds, no spend yet)
+
+== Z5 second hop (v5) and a v6 transaction
+  -> getaddressutxos [{"addresses":["tmJ4QeGg24AEG83Jb2RMJJGmrfJYygNnUCZ"]}]
+  <- [{"address":"tmJ4QeGg24AEG83Jb2RMJJGmrfJYygNnUCZ","height":335,"outputIndex":0,"satoshis":100000000,"script":"76a9145b8c171c2db462aa01f0a6aa97fa4d2f60acaeae88ac","txid":"43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb"}]
+  PASS  k2's output is listed
+  zfund send --key <repo>/.sim/regtest/zcash/keys/k2.key --height 345 --in 43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb:0:100000000 --to tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP:50000000 -> {"branch_id":"37a5165b","change":49990000,"expiry_height":385,"fee":10000,"hex":"\u003c480 hex chars\u003e","size":240,"txid":"965fad1d1db20b5a0df75ba84998744e87d95559568740cca7d1daec21a7ea8a","version":5}
+  PASS  zfund built k2's spend
+  -> sendrawtransaction ["050000800a27a7265b16a537000000008101000001fb9069f37f89a48f18eae249f63c6de590dfbb55658720a20a6867e2673c6743000000006a473044022021843301d3c0058ab076e977c10a8d289f874093c8a5a34206dcf94f082605a7022079046ec2b1059e042d6338ade4ad560faec795889cea7ca3d8f0c3df18b9e76b0121028b187c76a7bb02096387521c594ef29eaa4ae5031527ed59b70fb16d9261406dffffffff0280f0fa02000000001976a9147e62bcf84fea2abb72804471e808b871cea31a1488ac70c9fa02000000001976a9145b8c171c2db462aa01f0a6aa97fa4d2f60acaeae88ac000000"]
+  <- "965fad1d1db20b5a0df75ba84998744e87d95559568740cca7d1daec21a7ea8a"
+  PASS  k2's v5 spend accepted (965fad1d1db20b5a0df75ba84998744e87d95559568740cca7d1daec21a7ea8a), fee 10000
+  FACT  gettxout of an output spent by a mempool transaction: include_mempool=false answers the output; include_mempool=true answers null
+  zfund send --key <repo>/.sim/regtest/zcash/keys/k2.key --height 345 --in 43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb:0:100000000 --to tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP:25000000 -> {"branch_id":"37a5165b","change":74990000,"expiry_height":385,"fee":10000,"hex":"\u003c482 hex chars\u003e","size":241,"txid":"d4b7b48a459db4acbdfd209398f7a1c73f4ea085aa271fdd21ded845dd45bf08","version":5}
+  -> sendrawtransaction ["050000800a27a7265b16a537000000008101000001fb9069f37f89a48f18eae249f63c6de590dfbb55658720a20a6867e2673c6743000000006b4830450221008ab40b73481836ae5fc97a2d0f481e5fea166a9aa6bdd8e57ea8e978c40674b302202414c018d747bf89ad197e544341f8a56a859a6ed04da65da360285545fb263d0121028b187c76a7bb02096387521c594ef29eaa4ae5031527ed59b70fb16d9261406dffffffff0240787d01000000001976a9147e62bcf84fea2abb72804471e808b871cea31a1488acb0417804000000001976a9145b8c171c2db462aa01f0a6aa97fa4d2f60acaeae88ac000000"]   (expect a refusal: sendrawtransaction(double spend of a mempool input))
+  <- error -25 "any transaction with the same effects will be rejected from the mempool until the next chain tip block: transaction rejected because another transaction in the mempool has already spent some of its inputs" (HTTP 200)
+  .. generate 1 in 340ms, tip 345
+  -> getaddressutxos [{"addresses":["tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP"]}]
+  <- [{"address":"tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP","height":335,"outputIndex":2,"satoshis":474985000,"script":"76a9147e62bcf84fea2abb72804471e808b871cea31a1488ac","txid":"43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb"},{"address":"tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP","height":345,"outputIndex":0,"satoshis":50000000,"script":"76a9147e62bcf84fea2abb72804471e808b871cea31a1488ac","txid":"965fad1d1db20b5a0df75ba84998744e87d95559568740cca7d1daec21a7ea8a"}]
+  PASS  k1's change output is listed
+  zfund send --key <repo>/.sim/regtest/zcash/keys/k1.key --height 346 --version 6 --in 43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb:2:474985000 --to tmJ4QeGg24AEG83Jb2RMJJGmrfJYygNnUCZ:100000000 -> {"branch_id":"37a5165b","change":374975000,"expiry_height":386,"fee":10000,"hex":"\u003c482 hex chars\u003e","size":241,"txid":"f26c415ea1fa223b9b2c230484e34f3f4592fec5818c5d27e5ca96e715f5872a","version":6}
+  FACT  a v6 (ZIP 229) transparent transaction under NU6.3 is accepted (f26c415ea1fa223b9b2c230484e34f3f4592fec5818c5d27e5ca96e715f5872a); zecswap signs v5, which the node also accepts
+  .. generate 1 in 370ms, tip 346
+  zfund send --key <repo>/.sim/regtest/zcash/keys/k1.key --height 347 --version 5 --in bcd92033a4c33db628e91f575f9513c242e91b7b319f75922a44205ebd7c4970:0:625000000 --to tmJ4QeGg24AEG83Jb2RMJJGmrfJYygNnUCZ:100000000 --to t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e:50000000 -> {"branch_id":"37a5165b","change":474985000,"expiry_height":387,"fee":15000,"hex":"\u003c546 hex chars\u003e","size":273,"txid":"9f868a675621a43ba9380af891501c4c8882a04c818ed1f0d2d45161d607e653","version":5}
+  -> sendrawtransaction ["050000800a27a7265b16a53700000000830100000170497cbd5e20442a92759f317b1be942c213955f571fe928b63dc3a43320d9bc000000006b483045022100abb98048bbd4aa859fe292bfa3944d155400ec34517cdde9b1b28e02eac03c7402206d18c75a9efdb410dbe935944dd8fb7ffe0242e71bb4c7157805fd2deded8de7012102919b4100c38f710b681db0f4254132c8bd113de5c2a3abf341c5f25c83a69bb9ffffffff0300e1f505000000001976a9145b8c171c2db462aa01f0a6aa97fa4d2f60acaeae88ac80f0fa020000000017a91409deb8b2f10579001703c16a62fbc56e15ccf6388728b24f1c000000001976a9147e62bcf84fea2abb72804471e808b871cea31a1488ac000000"]   (expect a refusal: sendrawtransaction(input spent in a block))
+  <- error -25 "failed to validate tx: WtxId(\"private\"), error: transaction did not pass consensus validation: could not find transparent input UTXO in the best chain or mempool" (HTTP 200)
+  -> getrawtransaction ["0000000000000000000000000000000000000000000000000000000000000001",1]   (expect a refusal: getrawtransaction(unknown txid))
+  <- error -5 "Transaction not found in mempool or best chain" (HTTP 200)
+  -> sendrawtransaction ["00"]   (expect a refusal: sendrawtransaction(not a transaction))
+  <- error -22 "io error: failed to fill whole buffer" (HTTP 200)
+
+== summary (1m21s)
+  getblockchaininfo chain="test" blocks=234 estimatedheight=234 initial_block_download_complete=<nil>
+  regtest coinbase at height 235 pays the miner address 625000000 zatoshi (output 0); no funding-stream outputs are configured
+  a transparent coinbase output mined at height 235 is refused while the next block is 334 and accepted when it is 335: maturity 100 blocks; spent straight to transparent outputs (no shielding: regtest's should_allow_unshielded_coinbase_spends)
+  funding tx: 273 bytes, fee 15000 zatoshi (ZIP 317, 1 input 3 outputs), expiry height 375
+  getrawtransaction of a mempool tx: height present false (<nil>), confirmations present false (<nil>), blockhash ""
+  getaddresstxids over [336, 340], above the tip 335, answers 1 txid(s): Zebra clamps both ends to the tip (so it lists the tip block's transactions) rather than refusing
+  getaddresstxids with start 0 and end 0 lists the whole chain (1 txid)
+  gettxout of an output spent by a mempool transaction: include_mempool=false answers the output; include_mempool=true answers null
+  a v6 (ZIP 229) transparent transaction under NU6.3 is accepted (f26c415ea1fa223b9b2c230484e34f3f4592fec5818c5d27e5ca96e715f5872a); zecswap signs v5, which the node also accepts
+  refusals:
+    getaddresstxids(start above end)                     -1 "start Height(335) must be less than or equal to end Height(334)"
+    getrawtransaction(unknown txid)                      -5 "Transaction not found in mempool or best chain"
+    sendrawtransaction(double spend of a mempool input)  -25 "any transaction with the same effects will be rejected from the mempool until the next chain tip block: transaction rejected because another transaction in the mempool has already spent some of its inputs"
+    sendrawtransaction(duplicate, in mempool)            -1 "transaction already exists in mempool"
+    sendrawtransaction(duplicate, mined)                 -1 "any transaction with the same effects will be rejected from the mempool until a chain reset: transaction was committed to the best chain"
+    sendrawtransaction(immature coinbase)                -25 "failed to validate tx: WtxId(\"private\"), error: transaction did not pass consensus validation: could not contextually validate transaction on best chain: immature transparent coinbase spend: attempt to spend OutPoint { hash: transaction::Hash(\"bcd92033a4c33db628e91f575f9513c242e91b7b319f75922a44205ebd7c4970\"), index: 0 } at Height(334), but spends are invalid before Height(335), which is 100 blocks after it was created at Height(235)"
+    sendrawtransaction(input spent in a block)           -25 "failed to validate tx: WtxId(\"private\"), error: transaction did not pass consensus validation: could not find transparent input UTXO in the best chain or mempool"
+    sendrawtransaction(not a transaction)                -22 "io error: failed to fill whole buffer"
+  shapes of the answers zecswap reads:
+    generatetoaddress            ["string"]
+    getaddresstxids              ["string"]
+    getaddressutxos              [{"address":"string","height":"number","outputIndex":"number","satoshis":"number","script":"string","txid":"string"}]
+    getblockchaininfo            {"bestblockhash":"string","blocks":"number","chain":"string","chainSupply":{"chainValue":"number","chainValueZat":"number","monitored":"bool"},"chainwork":"number","commitments":"number","consensus":{"chaintip":"string","nextblock":"string"},"difficulty":"number","estimatedheight":"number","headers":"number","pruned":"bool","size_on_disk":"number","upgrades":{"2bb40e60":{"activationheight":"number","name":"string","status":"string"},"37a5165b":{"activationheight":"number","name":"string","status":"string"},"4dec4df0":{"activationheight":"number","name":"string","status":"string"},"5437f330":{"activationheight":"number","name":"string","status":"string"},"5ba81b19":{"activationheight":"number","name":"string","status":"string"},"76b809bb":{"activationheight":"number","name":"string","status":"string"},"c2d6d0b4":{"activationheight":"number","name":"string","status":"string"},"c8e71055":{"...(1242 bytes)
+    getblockhash                 "string"
+    getrawtransaction(mempool)   {"authdigest":"string","expiryheight":"number","hex":"string","in_active_chain":"bool","locktime":"number","orchard":{"actions":[],"valueBalance":"number","valueBalanceZat":"number"},"overwintered":"bool","size":"number","txid":"string","vShieldedOutput":[],"vShieldedSpend":[],"valueBalance":"number","valueBalanceZat":"number","version":"number","versiongroupid":"string","vin":[{"scriptSig":{"asm":"string","hex":"string"},"sequence":"number","txid":"string","vout":"number"}],"vjoinsplit":[],"vout":[{"n":"number","scriptPubKey":{"addresses":["string"],"asm":"string","hex":"string","reqSigs":"number","type":"string"},"value":"number","valueZat":"number"}]}
+    getrawtransaction(mined)     {"authdigest":"string","blockhash":"string","blocktime":"number","confirmations":"number","expiryheight":"number","height":"number","hex":"string","in_active_chain":"bool","locktime":"number","orchard":{"actions":[],"valueBalance":"number","valueBalanceZat":"number"},"overwintered":"bool","size":"number","time":"number","txid":"string","vShieldedOutput":[],"vShieldedSpend":[],"valueBalance":"number","valueBalanceZat":"number","version":"number","versiongroupid":"string","vin":[{"scriptSig":{"asm":"string","hex":"string"},"sequence":"number","txid":"string","vout":"number"}],"vjoinsplit":[],"vout":[{"n":"number","scriptPubKey":{"addresses":["string"],"asm":"string","hex":"string","reqSigs":"number","type":"string"},"value":"number","valueZat":"number"}]}
+    gettxout                     {"bestblock":"string","coinbase":"bool","confirmations":"number","scriptPubKey":{"addresses":["string"],"asm":"string","hex":"string","reqSigs":"number","type":"string"},"value":"number","version":"number"}
+    sendrawtransaction           "string"
+RESULT: every check passed
+
+== tools/zecswap's client and ZIP 244 code against this node (go run ./regtest/zecshape)
+tools/zecswap's own client and transaction code against the real regtest zebrad:
+  DIFF  ChainInfo refuses the node: zecswap: the node is at testnet height 346, below NU5 (1842420): it is not synced, or not on testnet
+  PASS  BlockHash(335) = 77b8520cb0b3b51afb331e3587315fba9e857841713215bfd13caad1dfbcdcce
+  PASS  AddressUTXOs(P2SH t27SzsEpBn6J35A6wjyy2fb5nsQAg8gy26e): 1 output(s), err <nil>
+  PASS  AddressTxIDs(P2SH, 335, 335): [43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb], err <nil>
+  PASS  RawTx(funding): mined true height 335 confirmations 12 verified true, err <nil>
+  PASS  RawTx(unknown txid) is ErrTxNotFound: zecswap: the node does not know the transaction: 0000000000000000000000000000000000000000000000000000000000000001 (zcash getrawtransaction: rpc error -5: Transaction not found in mempool or best chain)
+  PASS  TxOut(the funding's P2SH output): &{Script:[169 20 9 222 184 178 241 5 121 0 23 3 193 106 98 251 197 110 21 204 246 56 135] Confirmations:12 BestBlock:f8b5cd9680632e7726bd843c72739b890d68d4d12d4f6906c52f6c1c68e2e7d2}, err <nil>
+  PASS  TxOut(a spent coinbase output) is nil: <nil>, err <nil>
+  PASS  RawTx(a v6 transaction): mined true verified false (zecswap computes ids for v1-v5 only), err <nil>
+  DIFF  zecswap.ParseV5 of a v6 transparent transaction (librustzcash's default under NU6.3; also Zebra's coinbase): zecswap: version 80000006 is not v5
+  DIFF  CheckBranchID(Testnet, 336, NU6.3): zecswap: testnet height 336 is before NU5 (1842420); this package handles v5 transactions only (the harness activates NU6.3 at 6; zecswap's schedule is testnet's)
+ZIP 244 cross-check, librustzcash (zfund) vs tools/zecswap:
+  PASS  funding tx (spends a coinbase): zecswap's ZIP 244 txid of the bytes is the node's txid 43673c67e267680aa220876555bbdf90e56d3cf649e2ea188fa4897ff36990fb
+  DIFF  funding tx (spends a coinbase) input 0: zecswap.ParseV5 cannot read the transaction that created the prevout (bcd92033a4c33db628e91f575f9513c242e91b7b319f75922a44205ebd7c4970): zecswap: version 80000006 is not v5
+  PASS  funding tx (spends a coinbase) input 0: the librustzcash signature verifies against zecswap's SigDigest (branch 37a5165b)
+  PASS  second-hop tx: zecswap's ZIP 244 txid of the bytes is the node's txid 965fad1d1db20b5a0df75ba84998744e87d95559568740cca7d1daec21a7ea8a
+  PASS  second-hop tx input 0: the librustzcash signature verifies against zecswap's SigDigest (branch 37a5165b)
+4 difference(s)
