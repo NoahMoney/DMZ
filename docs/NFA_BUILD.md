@@ -23,11 +23,20 @@ charityPerc)`, `BuyItNow()`, `Bid()` (outbid refunded in the same call since 1.1
 **It is priced in DERO only.** `BuyItNow` line 60 `IF DEROVALUE() >= LOAD("startPrice")`; `Bid` `LET bidAmt =
 DEROVALUE()`; `processDEROFinalPayment` sends DERO. That is the one thing DMZ extends.
 
-**Kept exactly:** every header name, `ClaimOwnership`, the listing state machine and its constants
-(`cancelBuffer`, `staticBidIncr`, `percentBidIncr`, the 15-minute anti-snipe extension, the 7-day cap), the
-royalty and `artificerFee` split (default 0 — it is the standard's donation slot, and a DMZ deployment that sets
-it is making a donation, which is fine and is said so), `version`. A DERO-priced DMZ NFA must remain a valid
-ART-NFA-MS1 asset to every other DERO tool.
+**Kept:** every header name, every standard entrypoint's name and arguments, `ClaimOwnership`, the listing states
+and their constants (`cancelBuffer`, `staticBidIncr`, `percentBidIncr`, the 15-minute anti-snipe extension, the
+7-day cap), the royalty and `artificerFee` arithmetic (default 0 — it is the standard's donation slot, and a DMZ
+deployment that sets it is making a donation, which is fine and is said so), `version`. A DERO-priced DMZ NFA must
+remain a valid ART-NFA-MS1 asset to every other DERO tool.
+
+**Changed on purpose (2026-09-11)**, each to close a finding in which the standard's own code loses or locks money
+(`docs/NFA.md` §2.5 has the reasons and the tests): (1) a settlement pays only the parties that signed — royalty to
+the creator, remainder to the owner — and credits the artificer's, the charity's and the protocol's shares for
+`PayOwed`, because the DVM destroys every transfer after one to an unregistered address (DVM-1, LIV-01); (2)
+`BuyItNow` on an ended auction settles it to the highest bidder (NFA-1, LIV-02, ADV-PRICE-01); (3) `Start` stores a
+clamped charity share only after checking the address (DVM-2); (4) every entrypoint refuses value it does not take
+(NFA-4). A tool that reads the headers and calls the entrypoints sees the standard; one that watches for the
+standard's direct payment to Civilware or a charity sees it arrive only when `PayOwed` is called.
 
 **Extended:**
 
@@ -37,10 +46,11 @@ ART-NFA-MS1 asset to every other DERO tool.
    `SEND_ASSET_TO_ADDRESS(a, n, zero)` *is* `SEND_DERO_TO_ADDRESS(a, n)`, so a DERO-quoted NFA is byte-for-byte the
    standard's behaviour. On a non-DERO quote, stray DERO on a market call is refused (`DEROVALUE() != 0`), as
    `pool.bas` does, so nothing is stranded.
-2. **`protoFee` (bps) and `treasury`** — the protocol's share of a sale, paid in the quote, in the same
-   settlement as royalty and charity; `protoFee + royalty·100 + artificerFee·100 + charity·100 ≤ 10000`. This is
-   how NFA sales feed the Founders Pass — and it lands squarely on the open item that fees earned in a wrapped
-   asset cannot yet reach holders (`docs/TODO.md` §1.1); the treasury bot already fails closed on those.
+2. **`protoFee` (bps) and `treasury`** — the protocol's share of a sale, in the quote, credited at settlement with
+   the artificer's and the charity's shares and paid by `PayOwed` (`docs/NFA.md` §2.5);
+   `protoFee + royalty·100 + artificerFee·100 + charity·100 ≤ 10000`. It reaches the treasury's wallet and no
+   further: no NFA fee reaches Founders Pass holders in any quote until `tools/treasurybot` walks `nfa_`
+   (FINDINGS_2026-09-10 NFA-3; until 2026-09-11 this line said NFA sales feed the pass).
 3. **`typeHdr`** is whatever the creator says; DMZ adds nothing.
 
 **Dropped from DMZ's side:** the holder-gated mint. The DVM has no cross-contract calls, so a contract cannot
@@ -113,8 +123,8 @@ holds. Primary sources by URL.
 
 ## 4. Invariants
 
-1. A DERO-quoted DMZ NFA behaves exactly as ART-NFA-MS1 v1.1.1 to any DERO tool (the test in §5.A asserts the
-   settlement amounts against the standard's own arithmetic).
+1. A DERO-quoted DMZ NFA behaves as ART-NFA-MS1 v1.1.1 to any DERO tool except in the four changes stated in §1
+   (`docs/NFA.md` §2.5); every share is the standard's own arithmetic (`tests/nfa_test.go` `checkSettlement`).
 2. Every unit of value that enters a market call leaves it in the same call or is accounted to a named party;
    nothing is stranded — including stray DERO on a wrapped-quote NFA.
 3. Exactly one unit of the NFA's asset exists; it is either in the contract (listed / unclaimed) or in one
@@ -139,5 +149,5 @@ holds. Primary sources by URL.
 ```
 bash tests/run.sh
 cd tools && go build ./... && go vet ./... && go run ./genconfig -dist -network simulator
-PW_DIR=/c/Users/Wilma/Desktop/ami/web node tools/uitest/ui.mjs http://127.0.0.1:8082/index.html .sim/ui-nfa
+PW_DIR=<playwright> node tools/uitest/ui.mjs http://127.0.0.1:8082/index.html .sim/ui-nfa
 ```

@@ -30,8 +30,8 @@ active build track. Nothing below reaches mainnet before its gate here is met.
 
 - **BL-1 (A)** A written mainnet deployment checklist per contract: canonical hash printed and matched, install
   gas measured on testnet, `simdeploy -network mainnet -yes` dry-run transcript, the SCIDs recorded in
-  `deploy/networks.json`, the TELA publish, and the operator-revocation step (`TransferOwnership` to a burn
-  address or the documented no-owner state) as the last line.
+  `deploy/networks.json`, the TELA publish, and the operator-revocation step (`factory.bas` `Renounce`, then `owner`
+  read back absent) as the last line.
 - **BL-2 (A)** A testnet deployment of the whole set (factory, social, founders, chat, both vaults, one pool, one
   launch, one NFA, one HTLC) from `deploy/testnet.md`, with every SCID and every install gas in the record, and
   the app served from TELA against it. Nothing has run outside the simulator yet.
@@ -340,8 +340,11 @@ named or the vault is not deployed.
   test a comment inside a string literal, a trailing comment on a code line (kept — and charged), and CRLF.
 - **BL-146 (C)** **Contract version headers.** Every `.bas` carries its version and the date its canonical
   hash last changed; `simdeploy` refuses to demote a template whose header did not change.
-- **BL-147 (C)** **`ClaimOwnership`/`TransferOwnership` two-step review** on every owned contract: the pending
-  owner can be a burn address (the revocation path), and nothing else in the contract reads `owner` after that.
+- **BL-147 (C)** **Ownership-transfer review — done for `factory.bas` on 2026-09-11.** A transfer to a burn address
+  could never complete (the new owner has to sign the claim), so the factory's two-step `TransferOwnership` /
+  `ClaimOwnership` was removed and `Renounce` added: the owner deletes `owner`, after which `SetTreasury`,
+  `SetRegFee` and `Renounce` refuse every caller (`tests/registry_test.go` `TestFactoryRenounce`). Any other
+  contract with an owner key needs the same review.
 - **BL-148 (R)** **DVM changes upstream.** Track derohe releases for changes to `PAYLOAD0_LIMIT`, gas pricing,
   `STABLE_LIMIT`, and any new built-ins (cross-contract calls would change §5 and §9).
 
@@ -428,8 +431,10 @@ named or the vault is not deployed.
 - **BL-240 (A)** **TELA publish pipeline**: `genconfig -dist` → DOC files ≤ 18,432 bytes each → `telainstall` →
   the SCIDs of every DOC in `deploy/networks.json`; a verification that the served bundle hashes match the
   repo at the tagged commit.
-- **BL-241 (A)** **The revocation ceremony**: after mainnet deploy, `TransferOwnership` on every owned contract to
-  the documented no-owner state, and the proof (txids) in `deploy/mainnet.md`.
+- **BL-241 (A)** **The revocation ceremony**: after mainnet deploy, set the factory's treasury and registration fee
+  to their final values, call `factory.bas` `Renounce`, read back that `owner` is absent and `renounced` holds the
+  height (`deploy/README.md`, mainnet), and record the proof (txids) in `deploy/mainnet.md`. Possible since
+  2026-09-11 (FINDINGS_2026-09-10 SEC-K-02, LIV-08); before that the code had no no-owner state.
 - **BL-242 (B)** **Monitoring that no one runs**: the app itself shows vault health (halted? reserve vs
   supply?), signer liveness (last vote height), and swap contract balance — read from chain by every visitor,
   so the "monitor" is the users.
@@ -494,8 +499,8 @@ Each of these blocks an item above. They are questions, not tasks; the answer go
 - **D-8** A phone as a swap party (a WASM prover and a wallet it cannot hold) or a viewer only (BL-33).
 - **D-9** Registration fee, chat fee and treasury address at mainnet deploy — frozen forever once the owner is
   revoked (BL-93).
-- **D-10** The revocation itself: the block height at which `TransferOwnership` to the no-owner state is sent
-  on every contract, and who witnesses it (BL-241).
+- **D-10** The revocation itself: the block height at which `factory.bas` `Renounce` is sent (it cannot be undone,
+  and there is no transfer of ownership), and who witnesses it (BL-241).
 - **D-11** `nft.bas` (the holder badge): retired or kept as a feature (BL-72).
 - **D-12** The transparent-ZEC market's place in the mainnet sequence given its privacy cost (§3): first as
   ruled, or after the Monero swap now that the trustless path exists.

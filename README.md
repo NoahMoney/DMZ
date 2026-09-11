@@ -20,9 +20,9 @@ Read this table before anything else. "Runs" means it has been driven end to end
 | Token markets (AMM and bonding curve) | **Runs on the simulator** | `pool.bas`, `launch.bas`, priced in DERO or in a wrapped asset |
 | Assets (NFA, ART-NFA-MS1) | **Runs on the simulator** | `nfa.bas`: one contract per asset, its own marketplace, priced in any quote |
 | Founders Pass | **Runs on the simulator** | `founders.bas`: mint, register, rewards, its own marketplace — **DERO fees only**, see §6 |
-| DERO ↔ XMR atomic swap | **Runs against a fake Monero wallet** | `htlc.bas` + `tools/xmrswap`; all three exits driven on the simulator; **no real Monero network, ever** |
-| Transparent-Zcash swap market | **Contracts run; the Zcash side is partial** | `swap.bas` + `board.bas` run; `tools/zecswap` builds and signs but has no node client, no watcher and no broadcast |
-| Wrapped XMR / ZEC (the federation) | **Contract complete; there is no foreign backend** | `vault.bas` is fully tested; the only backend that exists is a JSON file, see §5 |
+| DERO ↔ XMR atomic swap | **Runs on real Monero node software, in regtest** | `htlc.bas` v2 and `tools/xmrswap`: all three exits, run twice against monerod and monero-wallet-rpc 0.18.5.1 (regtest) and the DERO simulator. **No public Monero network yet**, and the proof is unaudited |
+| Transparent-Zcash swap market | **Runs on real Zcash node software, in regtest** | `swap.bas` v2 and `board.bas` v3 run on the simulator. `tools/zecswap` completed three swaps against zebrad 6.3.0 (regtest) and the DERO simulator. **No public Zcash network yet** |
+| Wrapped XMR / ZEC (the federation) | **Simulator only; not deployed on mainnet** | `vault.bas` is fully tested. The only backend that exists is a JSON file, and the mainnet build offers no wrapped asset (§4) |
 | Chat, profiles, follows | **Runs on the simulator** | `chat.bas`, `social.bas` |
 
 The two things that would have to be true for a mainnet launch and are not:
@@ -32,8 +32,10 @@ The two things that would have to be true for a mainnet launch and are not:
    are names in a switch that exit. `-backend` has no default and `sim` is refused on any network but the
    simulator, so this cannot be reached by omission — but until a real backend exists and has settled a deposit
    and a withdrawal, a federation vault holds nothing.
-2. **The Zcash and Monero legs have never met their own chains.** The Monero companion has only ever run against
-   an in-process fake wallet, and the Zcash companion has never opened a socket at all.
+2. **Neither swap has run on a public network.** Both companions have now run against real node software in local
+   regtest: the Monero one against monerod and monero-wallet-rpc 0.18.5.1, the Zcash one against zebrad 6.3.0
+   (`tools/regtest/`). Neither has run on Monero stagenet, Zcash testnet or mainnet, and the proof the Monero swap
+   rests on has not been audited outside this project.
 
 `docs/audit/FINDINGS_2026-09-10.md` is the full adversarial audit: 125 findings, 94 reproduced with the commands
 recorded. `docs/BACKLOG.md` is everything known to be undone, numbered, with the decisions that belong to the
@@ -90,8 +92,8 @@ of every block they move in, so the size and direction of a trade are public whe
 it or not, and the ring-2 signer can be joined to it. Trading here is pseudonymous, not private.
 
 The exceptions are the `...To` wrappers on `pool.bas` and `launch.bas`, which pay a named address instead of the
-signer and can therefore run at ring 16, hiding the payer among sixteen accounts while the receiving address is
-public.
+signer and can therefore run at ring 16, while the receiving address is public. That hides the payer among
+eight accounts, not sixteen: a public bit in every DERO ring proof says which half of the ring the payer is in.
 
 ---
 
@@ -108,16 +110,25 @@ three exits and each leaves both parties whole or leaves the party who walked aw
 |---|---|
 | **Claim** | Alice takes the DERO with `s_a` and Bob's gate key; Bob reads `s_a` off the chain and sweeps the XMR |
 | **Refund** | Bob takes his DERO back after `t1` and reveals `s_b`, which lets Alice recover her XMR |
-| **Punish** | Alice takes Bob's DERO after `t2`; her XMR stays under the joint key unless Bob ever reveals `s_b` |
+| **Punish** | From `t2` anyone may send it, and it pays Alice Bob's DERO. Her XMR stays under the joint key unless Bob ever reveals `s_b`. Because anyone may send it, no lock is ever left frozen |
 
 No third party is in this path at any point. What each side must trust is its own node's answer about its own
 chain, and its own companion being alive at two specific windows. `docs/XMR_SWAP.md` states all thirteen
 invariants and twenty-four adversarial cases; `tools/xmrswap` asserts every invariant by name in its tests, and
 kills both companions at random points in `TestCrashFuzz` to prove the state machines resume.
 
-**Not yet true of it:** the Monero side has only ever spoken to an in-process fake. The rendezvous between the
-two parties is a shared directory, so today it works for two people who already know each other and for nobody
-else.
+**What runs, and what does not yet.**
+- **Real node software.** All three exits have run against real monerod and monero-wallet-rpc in local regtest,
+  twice. Along the way the companion was corrected for four things the real wallet server does differently from the
+  fake it had been tested against:
+  - it accepts wrong keys;
+  - a view-only "send" sends nothing;
+  - a node setting lasts only while one wallet stays open;
+  - its height is the wallet's own.
+- **Not yet on a public network.** It has not run on Monero stagenet.
+- **The unaudited proof.** It rests on a proof that nobody outside this project has audited.
+- **Finding a counterparty.** The rendezvous between the two parties is a shared directory, unauthenticated and
+  unencrypted. So today the swap works for two people who already know each other, and for nobody else.
 
 ### ZEC → DERO-side asset → ZEC, without a custodian
 
@@ -125,7 +136,14 @@ Transparent Zcash is Bitcoin script, so this is a classic two-chain hash-timeloc
 cryptography. The maker posts an offer on `board.bas` carrying the hash of a secret only they hold; the taker
 accepts, naming the key that will refund them and the height at which it may; the maker locks in `swap.bas`; the
 taker funds a pay-to-script-hash output on Zcash; the maker claims it with the secret, publishing the secret; the
-taker claims the DERO with it.
+taker claims the DERO with it. Three rules in the contracts keep any one person from holding the other up:
+
+- **Anyone who reads the secret may send that Claim**, and it pays only the taker, so she need not be online when the
+  maker claims late.
+- **An accepted offer the maker has not locked for is dead 200 blocks after the Accept**, so no stranger can freeze
+  an offer for longer.
+- **Every lock names its taker** and is at least `wmin` blocks wide: 1,600 on the Zcash market, fixed when the
+  contract is installed.
 
 The maker holds the secret and locks first **on purpose**: whoever locks first carries the free option, and the
 Zcash holder is this market's customer, not its liquidity provider.
@@ -136,13 +154,22 @@ calls, both DERO addresses. If the ZEC came from the shielded pool, the unshield
 Zcash cannot be used here at all. `docs/ZEC_SWAP.md` §1 states this before it states anything else, and the
 application will say it above the fields rather than in a footnote.
 
-**Not yet true of it:** `tools/zecswap` builds the script, derives its address, signs with secp256k1 and
-computes ZIP 244 digests that reproduce Zcash's own published test vectors byte for byte — but it has no node
-client, no watcher and no broadcast, so no Zcash transaction has ever been sent.
+**What runs, and what does not yet.**
+- **The companion.** `tools/zecswap` builds and signs v5 and v6 transactions whose ids and digests agree with Zcash's own
+  test vectors, with real zebrad transactions, and with the Zcash developers' own library. It watches the script,
+  broadcasts, and signs the taker's refund in advance at three fee levels so that anyone holding it can send it after
+  `cltv`.
+- **Nodes.** It checks every contract's code before trusting it, and reads from as many nodes as it is given, all of
+  which must agree before an irreversible step.
+- **On real software.** It completed three swaps against zebrad 6.3.0 in regtest: a normal claim, a claim built as a v6
+  transaction, and a refund broadcast by a third party. It has not run on Zcash testnet, and the command line itself
+  has not yet been run against a node.
 
 ### XMR or ZEC → wrapped units → back, with a custodian
 
-The federation. Coins go to an address that k of n bonded signers control; those signers vote, and the vault
+The federation, **which is not deployed on mainnet**. The mainnet record names no vault, and the mainnet build's
+Wrap screen says wrapped assets are not offered there. On the simulator, coins go to an address that k of n bonded
+signers control; those signers vote, and the vault
 contract mints an equal number of DERO-side units. Burning the units records a withdrawal that the signers pay
 out abroad. Wrapped units are ordinary DERO assets, so they can be the quote of a pool, a launch or an NFA —
 which is how a Monero holder trades against tokens at DERO's speed instead of a swap's.
@@ -180,10 +207,10 @@ application decides what is verified by hashing the code against the templates i
 | Every signature | Your own wallet, over XSWD on localhost | The application never holds a key and cannot sign |
 | A market is what it claims | The template hash the app checks, and the treasury it names | A contract whose code does not match ships as unverified and is refused |
 | Wrapped XMR / ZEC | **k of n named signers** | A quorum can take the reserve; you hold units backed by nothing |
-| An atomic swap | Your own node's answer, and your own companion running at your window | Miss your window and the other side's exit opens; a lock past its last deadline that its taker never punishes is frozen for ever, until `htlc.bas` is replaced (LIV-07). Nobody else can take your coins |
+| An atomic swap | Your own nodes' answers, your own companion, and being online (or having a machine online) at your window | Miss your window and the other side's exit opens. A node that lies to you **and** works with your counterparty can cost you your whole side of the swap, so run your own (`docs/CROSS_CHAIN_TRUST_MODEL.md` §5). Nobody else can take your coins, and no lock is ever frozen: after its last deadline anyone may close it, and it pays the taker |
 | Your first transaction on DERO | Whoever sells you DERO for its fee | DERO takes every fee from a DERO payload, so a holder who arrives with only XMR or ZEC must get a little DERO first — today, from an exchange |
 | An NFA staying what you bought | Its creator, for ever — and its owner too while `ownerCanUpdate` is set | They can rewrite its file, file-signature, cover, icon and tag URLs at any time (`contracts/nfa.bas`, `Update`); its name, its hashes and its collection cannot change |
-| The registry's settings | The factory's owner key | `SetTreasury` and `SetRegFee` stay in its hands for ever: the key cannot be renounced, because a transfer completes only when the new owner signs (SEC-K-02) |
+| The registry's settings | The factory's owner key, until it calls `Renounce` | `SetTreasury` and `SetRegFee`. `Renounce` deletes the owner for good, and after it nobody can change either. The app shows which state the factory is in |
 | The application itself | Whoever publishes the TELA index | A republished application could lie about anything on screen |
 
 The last row is the one with no cryptographic answer today: the publisher key can republish for ever, and the
@@ -200,14 +227,14 @@ market pays its fee in wXMR; the network fee for the transaction is DERO, and ev
 |---|---|---|
 | Trading fee (pool, launch) | the market's quote | the pool's liquidity providers, minus the protocol share |
 | Protocol share | the market's quote | the treasury |
-| NFA sale | the NFA's quote | creator royalty, protocol share, optional charity, then the owner |
+| NFA sale | the NFA's quote | the creator's royalty and the owner's remainder are paid at once. The artificer, charity and protocol shares wait in the contract until anyone calls `PayOwed`, which pays only the named payee |
 | Registration, chat | DERO | the treasury |
 | Vault withdrawal | wrapped units | held in the contract, claimable by the treasury |
 | Network fee | **always DERO** | miners |
 
 **The gap, stated plainly because the application states it too:** the Founders Pass distributes DERO and only
-DERO. A protocol fee earned in wXMR or wZEC reaches the treasury as wrapped units and reaches no pass holder at
-all. Getting fees to holders in the asset they were earned in needs per-asset accounting in `founders.bas`,
+DERO. A protocol fee earned in any other asset (a pool quoted in a token, or a wrapped unit on the simulator) reaches
+the treasury in that asset, and reaches no pass holder at all. Getting fees to holders in the asset they were earned in needs per-asset accounting in `founders.bas`,
 which is a new contract; it is `BL-90` in the backlog and it is the largest single piece of unbuilt economics.
 
 ---
@@ -231,9 +258,10 @@ vendor/derohe/  a local copy of DERO's own node, not in git — the tests and se
 Everything runs against a local DERO simulator. Nothing here should ever be pointed at mainnet.
 
 ```bash
-# once: DERO's own source, where the tests and several tools build against it
-git -c core.longpaths=true clone --depth 1 https://github.com/deroproject/derohe vendor/derohe
-cd tools && go run ./verifyvendor -root ..             # checks it against deploy/vendor.lock
+# once: DERO's own source at the pinned commit, where the tests and several tools build against it
+git -c core.longpaths=true clone https://github.com/deroproject/derohe vendor/derohe
+git -C vendor/derohe checkout e9df1205b6603c62f0651d0e18e5e77a2584b15e   # deploy/vendor.lock
+cd tools && go run ./verifyvendor -root ..             # checks it, and every other pinned tree, against deploy/vendor.lock
 
 # the app, the contracts, and something to look at
 cd tools && go run ./serve -dir ../app -addr 127.0.0.1:8082
@@ -272,10 +300,9 @@ the Monero swap's three exits, `simswap` for the Zcash market's DERO leg, `simnf
 rebuilds that config and the distributable bundle; `telainstall` publishes the bundle as TELA documents. The
 runbook and its go/no-go gates are in `deploy/README.md`.
 
-Two gates in that runbook are unmet and both are named in the backlog: `deploy/federation.md`, which must name
-who runs the signers and their bonds before any vault is installed, does not exist; and the factory's owner key
-cannot be renounced, because `TransferOwnership` completes only when the new owner signs, so a burn address can
-never claim it. The intended revocation ceremony cannot be performed on the factory as written.
+The factory's owner key ends with `Renounce`, which the runbook calls once the treasury and the registration fee
+have been read back. The federation is not part of a mainnet deployment. The gates that are still unmet are listed
+in `docs/MAINNET_SECURITY_GATE.md`.
 
 ## 11. House rules
 

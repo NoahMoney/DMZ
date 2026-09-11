@@ -3298,3 +3298,153 @@ operator adopts it, `htlc.bas` v2 for LIV-07; then its step 2, the asset leg and
 ### NEXT
 
 The operator's final mainnet readiness pass, received during this cycle.
+
+## 2026-09-11 — the final mainnet engineering pass: both swaps on real node software, and the verdict NOT MAINNET READY
+
+### SHIPPED
+
+- **The checklist and the verdict.** The operator asked for the full list and for the work not to stop until DMZ was
+  ready.
+  - `docs/MAINNET_TODO.md` is that list: every item, its owner, its status, what "done" means, and B for what blocks
+    mainnet.
+  - The directive's nine deliverables are written in `docs/`: the gap analysis (39 findings), the cross-chain trust
+    model, the decentralisation architecture, the threat model, key management, incident response, deployment,
+    testing and the security gate.
+  - The gate's verdict is **NOT MAINNET READY**. The reason is not a defect left open in code; these conditions are
+    unmet:
+    - the Monero proof is unaudited;
+    - no public test network has been run;
+    - the DERO testnet does not have the current contracts;
+    - no external review;
+    - the Go toolchain carries fixed vulnerabilities;
+    - operator decisions are open.
+- **Contracts.**
+  - `htlc.bas` v2:
+    - anyone may send Punish from `t2`, and it pays only the stored taker, so no lock is ever frozen (LIV-07);
+    - hashes must be lower case;
+    - stray assets are refused.
+  - `swap.bas` v2:
+    - Claim pays the stored taker whoever sends it;
+    - every lock names its taker;
+    - a minimum width `wmin` is fixed at install and fails closed;
+    - stray assets are refused.
+  - `board.bas` v3: one Accept holds an offer for 200 blocks, not until its expiry (ADV-PRICE-07); a Unix-time `cltv`
+    is refused.
+  - `nfa.bas`:
+    - an unregistered payee can no longer destroy a seller's payout, because shares are owed and paid by `PayOwed`
+      (LIV-01, DVM-1);
+    - every end of an auction settles or refunds its bid (NFA-1, LIV-02, ADV-PRICE-01);
+    - DVM-2 is fixed;
+    - stray value is refused (NFA-4).
+  - `factory.bas` has `Renounce` (SEC-K-02, LIV-08).
+  - `nft.bas` and `social.bas` refuse stray DERO.
+  - Tests:
+    - a static check of payee order in every contract (DVM-3);
+    - randomized conservation after every accepted and refused call for every contract that holds value, own-token
+      supply included.
+- **Companions.**
+  - `tools/zecswap` is complete:
+    - node client, watcher and ZIP 317 fee;
+    - builders for v5 and v6;
+    - the pre-signed refund at three fees;
+    - state machines with a crash fuzz;
+    - reads from several nodes that must all agree;
+    - code pins, `wmin` checks and wallet logins.
+  - `tools/xmrswap` is hardened:
+    - the DERO and Monero networks must agree;
+    - wallet logins come through the environment;
+    - the prover is an absolute, pinned binary;
+    - nodes must be loopback on mainnet;
+    - fixes for four ways the real wallet server differs from its fake;
+    - owner-only state files.
+- **Real node software.**
+  - `tools/regtest` runs signature-checked monerod and monero-wallet-rpc 0.18.5.1 and zebrad 6.3.0 in local
+    regtest.
+  - On them, three Zcash swaps ran: a v5 claim with the maker relaying the taker's Claim, a v6 claim, and a refund
+    broadcast by a third party.
+  - All three Monero exits ran, twice.
+  - The harness found what the fakes had hidden:
+    - current Zcash wallets build v6 transactions, which the watcher could not read. CRITICAL, and now fixed;
+    - the real Monero wallet server accepts wrong keys;
+    - it "sends" from view-only wallets;
+    - it forgets its node setting when a wallet is reopened.
+- **Deployment and verification.**
+  - `tools/verifydeploy` checks, from a DERO node alone, that installed code equals this source and that no deployer
+    power survives.
+  - `tools/release` builds the companions reproducibly: byte-identical from two paths, 68 of 68 on `-verify`.
+  - `telainstall -ringsize 16` installs an app INDEX nobody can update; proven on the simulator.
+  - `simdeploy`:
+    - `-renounce`, proven live;
+    - the swap contracts in the record;
+    - `-swap-wmin`;
+    - Founders Pass limits checked before paying.
+  - `verifyvendor` checks the Monero prover's one patched crate.
+- **The app.**
+  - The Wrap tab is inert where there is no vault.
+  - A build refuses to sign on the wrong network.
+  - No request leaves the device except to the user's node and wallet.
+  - NFA shares can be paid out from the page.
+  - The notice shows whether the factory is renounced.
+  - `treasurybot` pays out the treasury's NFA shares.
+
+### ALSO FIXED
+
+- `simdeploy`'s default Founders Pass description was 258 bytes against `founders.bas`'s limit of 240. Every founders
+  install since `59a5851` had failed after paying for the factory and social contracts, and the mainnet runbook's own
+  description, 268 bytes, would have too.
+- `verifydeploy` skipped the swap contracts unless they were named by hand. It now reads them from the record, and a
+  test holds the list to every contract field.
+- `telainstall` hashed a DOC's whole contract instead of its content, so every install stopped at its first DOC.
+- A successful factory registration was reported in the app as "did not execute".
+- Machine paths and the user name were in committed documents and logs: 158 rewrites. `tools/hygiene` now fails the
+  suite on any.
+- Two stray probe copies in `vendor/derohe`, from 2026-09-06, were moved to `.sim/archive/`.
+- The bootstrap now clones at the pinned commits.
+- `binaries.lock` was stale for `tools/simrpc`. The provenance is checked: a committed change, not an edit.
+
+### VERIFIED
+
+- **Contracts.** The full DVM suite on the final contracts: 168 runs, 0 failures. The `htlc.bas` conservation test,
+  added afterwards: 119 accepted and 206 refused calls, 29 exits.
+- **The app.** `tests/js` 44 of 44. The UI passes (normal, mainnet-shaped, and with wallet flows) green on the final
+  contracts.
+- **Deployment, on the simulator.**
+  - `verifydeploy` on the final record: 31 PASS, no failure.
+  - Factory Renounce live: a stranger was refused, the owner succeeded, and a second run was a no-op.
+  - A ring-16 INDEX: owner `"anon"`, and an update sent anyway changed nothing.
+- **Go tools.** Every package green: `treasurybot` 18, `vaultsigner` 18, `simdeploy` 12, `verifydeploy` 28,
+  `release` 5, `netcfg` 2, `hygiene` 1.
+- **Real node software.** Both companions' regtest runs; logs are in `research/regtest/`.
+- **The final validation of the whole tree** (`.sim/final-validation-0911.log`):
+  - the DVM suite: 169 runs, 0 failures;
+  - `go vet` clean and `gofmt` clean;
+  - `xmrswap` 110 and `zecswap` 135 tests passed;
+  - crash fuzz ×3 `ok` for both;
+  - every other tool package green;
+  - `tests/js` 44 of 44;
+  - the bundle: 33 files within the TELA cap.
+
+  Details are in `docs/TESTING_AND_VERIFICATION.md`.
+
+### UNCONSIDERED
+
+- **Reorganisations.** A real one on regtest (monerod `pop_blocks`, Zebra `invalidateblock`) is cheap now that the
+  nodes exist, and it is the last protection that has been reasoned about but never shown on a real node.
+- **Windows Defender quarantines monerod and monero-wallet-rpc** even when their hashes match the signed list.
+  Anyone running the Monero companion on Windows will meet this, and the companion's documentation should say what to
+  do.
+- **Pre-publication templates.** The simulator record accepts eleven legacy template hashes from before the
+  repository was published, which no committed source produces. The mainnet record starts without them.
+- **The companions' command lines.** They have not run as separate processes against the real nodes; the regtest
+  runs drove the same state machines from tests.
+- **The prover binary.** It is not built reproducibly, though its one patched crate is pinned.
+
+### NEXT
+
+1. The operator's decisions (`docs/MAINNET_TODO.md` §J).
+2. A real reorganisation on regtest for both swaps.
+3. go1.26.6 and a re-pin.
+4. The command lines on regtest.
+5. Monero stagenet and Zcash testnet.
+6. The DERO testnet for a week.
+7. The external reviews.

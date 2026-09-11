@@ -11,6 +11,12 @@ build spec; every number has a primary source (§9) or is computed in full on th
 this page cannot close. Where the build spec's own wording was overtaken by a change made to the vault the same
 day, this page follows the vault and says so (§7 R3).
 
+**Updated 2026-09-11, against `contracts/nfa.bas` as it now stands.** Four behaviours of the standard were
+changed to close findings that lose or lock money (`docs/audit/FINDINGS_2026-09-10.md` DVM-1 / LIV-01, NFA-1 /
+LIV-02 / ADV-PRICE-01, DVM-2, NFA-4). §2.5 says what each change is and what it means for compatibility, and §0,
+§1.2, §2.2, §3–§6 and §7 R4, R15, R16 and R17 are rewritten to match. Those parts are tested on the DVM (the tests are named in
+§2.5); the rest of the page is still read off the standard's source.
+
 ---
 
 ## 0. In one paragraph
@@ -19,9 +25,10 @@ An NFA is one DERO contract per asset. The contract issues exactly one unit of i
 hands it to the creator; whoever holds that unit is the owner, and the contract records the owner's address
 when the holder proves it by sending the unit through `ClaimOwnership()`, which sends it straight back. The
 market is inside the same contract: the owner starts a sale or an auction by depositing the unit; a buyer pays
-the price, or bidders bid and the highest wins when the clock runs out; the contract pays the creator's
-royalty, an optional donation to the standard's authors, an optional charity share and — on DMZ — the protocol's
-share to the treasury, and gives the rest to the owner, in the same call that hands the unit to the buyer. The
+the price, or bidders bid and the highest wins when the clock runs out; in the same call that hands the unit to
+the buyer, the contract pays the creator's royalty and gives the rest to the owner, and it credits an optional
+donation to the standard's authors, an optional charity share and — on DMZ — the protocol's share to the
+treasury, which leave through `PayOwed` (§2.5). The
 standard prices all of that in DERO. DMZ's one extension is a `quote`: the asset the price is in, which is DERO
 (the zero hash) or a wrapped asset such as wXMR. Priced in DERO, a DMZ NFA behaves exactly as the standard's
 contract, and every DERO tool that reads the standard reads it. Priced in a wrapped asset it is a DMZ extension:
@@ -60,7 +67,8 @@ highest bidder in the same call (`Bid` 100 → `outbidReturns`), and the next bi
 +10 % and +10,000 atomic units above it (`findLesserIncrease`). A bid in the last fifteen minutes moves the end
 to fifteen minutes from now (`Bid` 170–180). When the end has passed, the owner calls `CloseListing()` and the
 highest bidder gets the unit and the owner the money (`processHighestBidder`) — or anyone but the owner calls
-`Bid()` with nothing attached, which settles it the same way (`Bid` 500–550). Within `cancelBuffer` = 300 seconds of
+`Bid()` or `BuyItNow()` with nothing attached, which settles it the same way (`Bid` 500–550, `BuyItNow` 512–516;
+§2.5). Within `cancelBuffer` = 300 seconds of
 `Start` the owner can `CancelListing()`, which refunds the current highest bidder and takes the unit back
 (`CancelListing` 60, 460–600). §4 walks through every state.
 
@@ -109,11 +117,10 @@ who attaches DERO to a wXMR listing by mistake is refused rather than having the
 ### 2.2 `protoFee` and `treasury` — the protocol's share
 
 A fee in basis points and the address that receives it, both fixed at install (`protoFee ≤ 10000`; the
-treasury must be a valid address). At settlement the contract pays `protoFee` of the sale, in the quote, in the
-same call as the royalty and the charity share. The rule that the shares fit is
-`protoFee + royalty·100 + artificerFee·100 + charityDonatePerc·100 ≤ 10000` (build spec §1). This is how NFA
-sales feed the Founders Pass (`founders.bas`, `contracts/README.md` "founders.bas"), and it lands on an open
-item: fees earned in a wrapped asset cannot yet reach Pass holders (`docs/TODO.md` §1.1; §6.6 here).
+treasury must be a valid address). At settlement the contract credits `protoFee` of the sale, in the quote, to
+the treasury under `ow_<treasury>`, and `PayOwed(treasury)` — which anyone may call — sends it (§2.5). The rule
+that the shares fit is `protoFee + royalty·100 + artificerFee·100 + charityDonatePerc·100 ≤ 10000` (build spec
+§1). The fee reaches the treasury's wallet and stops there: nothing carries it to the Founders Pass today (§6.6).
 
 ### 2.3 Kept exactly
 
@@ -131,6 +138,52 @@ install, call, read or fund another contract (`docs/ARCHITECTURE.md`, "Why one c
 contract can mint an NFA for a holder on demand. Under the standard, the creator installs each asset. That is
 recorded as open rather than solved (§7 R8).
 
+### 2.5 Where DMZ now diverges from the standard's behaviour (2026-09-11)
+
+Four changes, each closing a finding in which the standard's own code loses or locks someone's money. None
+changes a header, an entrypoint's name or arguments, `ClaimOwnership`, the listing states or their constants.
+
+1. **A settlement pays only signers; the other three shares wait for `PayOwed`.** The DVM checks a call's
+   transfer destinations against the account registry but keeps only the *last* lookup's error
+   (`dvm/simulator.go` `SanityCheckExternalTransfers`, 227–238). An unregistered destination anywhere earlier
+   passes the check, `ProcessExternal` commits the state and then panics at that transfer (356–359), and the node
+   recovers and keeps the block (`blockchain/transaction_execute.go` 277–282). The standard paid `artificerAddr`
+   (hard-coded; an account only where Civilware's key has transacted) and `charityDonateAddr` (typed by the
+   seller) before the owner, so one unregistered address completed the sale and destroyed every share after it,
+   the seller's remainder included (DVM-1, LIV-01). Now `processDEROFinalPayment` sends only the royalty to
+   `creatorAddr` and the remainder to `owner` — addresses that signed a transaction on this contract (`init` 30;
+   the owner record is only ever written from `SIGNER()`) — and the unit to the buyer or winning bidder, also a
+   signer. The artificer's, the charity's and the protocol's shares are credited under `ow_<address>` (`owe`), and
+   `PayOwed(payee)` — anyone, any ring size, nothing attached — sends one payee its whole balance in one transfer.
+   Because that is the call's only transfer, a `PayOwed` to a payee with no account is refused whole and the share
+   waits until the account exists. The contract cannot tell a registered address from an unregistered one (no DVM
+   builtin reads the registry), so it never names one in a settlement. The arithmetic of every share is unchanged.
+2. **An ended auction settles to its winner from `BuyItNow` too, and no bid outlives its listing.** `checkActive`
+   answers 111 for any ended listing before it compares the type, so `BuyItNow` on an ended auction reached the
+   branch that returns the unit to the owner, and `resetVars` did not clear `currBidAddr` / `currBidAmt`: any
+   stranger could strand the winner's payment, and the stale bid later settled another listing to its bidder at
+   its old price (NFA-1, LIV-02, ADV-PRICE-01; §7 R4). `BuyItNow` 512–516 now call `processHighestBidder` for an
+   auction, as an empty `Bid` does. Every way an auction ends then settles its bid (`processHighestBidder`) or
+   refunds it (`CancelListing` 460), and a sale never takes one, so no bid outlives its listing.
+3. **`Start` stores a clamped charity share only after checking the address.** The standard stored it first, and
+   its refusal path (400) returns 0, so a refused `Start` left a share with no address and every later settlement
+   reverted (DVM-2; §7 R16).
+4. **Every entrypoint refuses value it does not take.** The standard keeps anything attached to a call that does
+   not use it, and DMZ at first refused only DERO on a wrapped-quote market call. Now `ClaimOwnership` and `Start`
+   refuse anything but the unit, `Update`, `CloseListing`, `CancelListing` and `PayOwed` refuse anything, and
+   `BuyItNow` and `Bid` refuse the unit, each with `RETURN 1`, which discards the call and — at ring size 2 — hands
+   every attached asset back to the signer (NFA-4; §7 R17). Above ring 2 there is nobody to hand it back to, so
+   `ClaimOwnership` and `Start` check only after their ring>2 branch, which keeps the standard's path of sending the
+   unit to the recorded owner: a refusal there would destroy the asset's only unit. What else is attached to such a
+   call stays in the contract. For a DERO-quoted NFA this means DERO attached to `Start`, `CloseListing` or
+   `CancelListing` is now refunded instead of kept. The contract can refuse only what it can name (DERO, the quote,
+   its unit): no DVM builtin lists the assets a call carries.
+
+Tests: `tests/nfa_stray_test.go` `TestNFAStrayValueIsRefused` (item 4), `tests/nfa_test.go` (`TestNFAPayOwed`, `TestNFAUnregisteredPayeesCannotCostTheSeller`, and every settlement
+through `checkSettlement`), `tests/nfa_r4_test.go`, `tests/zzsplitpay_test.go`, `tests/zzadv_market_test.go`
+`TestNFAEndedAuctionBuyItNowSettlesTheWinningBid`, and `tests/zzadversarial_liveness_test.go` L3, L5 and L6. What a
+tool built for the standard sees differently is in §5.1.
+
 ---
 
 ## 3. The names the contract uses
@@ -143,6 +196,7 @@ recorded as open rather than solved (§7 R8).
 | `royalty`, `ownerCanUpdate` | install | creator's percentage; whether the owner may `Update` |
 | `nameHdr descrHdr typeHdr iconURLHdr tagsHdr coverURL fileURL fileSignURL fileCheckC fileCheckS collection` | install (`Update` for the URLs and tags) | §1.3 |
 | `quote`, `protoFee`, `treasury` | install — **DMZ** | §2.1, §2.2 |
+| `owed`, `ow_<address>`, `op_<address>` | settlement; `PayOwed` — **DMZ** | the total owed and not yet paid; what is owed to one payee (artificer, charity, treasury), deleted when paid; what that payee has been paid, which only grows (§2.5) |
 | `active`, `scBalance`, `listType`, `startBlockTime`, `endBlockTime`, `startPrice` | `Start`; `resetVars` | the listing: `scBalance` = 1 while the unit is in the contract; `listType` `"sale"`, `"auction"` or `""` |
 | `charityDonateAddr`, `charityDonatePerc` | `Start`; `resetVars` | this listing's charity share |
 | `currBidPrice`, `currBidAddr`, `currBidAmt`, `bidCount`, `<addr>-bidDate` | `Bid`; settlement | minimum next bid; the highest bidder and their bid; one bid per address per block timestamp |
@@ -152,7 +206,8 @@ recorded as open rather than solved (§7 R8).
 
 `Start` is the only call that writes `startBlockTime` and `endBlockTime`; `resetVars(1)` zeroes the listing
 keys after every settlement or cancel but leaves `currBidAddr` and `currBidAmt` to `processHighestBidder` and
-`outbidReturns`, which `DELETE` them — a detail that matters in §7 R4.
+`outbidReturns`, which `DELETE` them. Since 2026-09-11 every way an auction ends reaches one of the two (§7 R4).
+The contract's balance of the quote is `owed` plus `currBidAmt` while an auction holds a bid.
 
 ---
 
@@ -166,11 +221,12 @@ started and the unit is in the contract but the end has passed — *before it co
 | Call | Who | Live listing | Ended listing | No listing |
 |---|---|---|---|---|
 | `Start` | owner, unit attached, ring 2 | refused — the unit is already in the contract, so nothing can be attached (`Start` 40 → 400 → 999) | refused the same way | listing begins; unit stays in the contract |
-| `BuyItNow` | anyone but the owner, ring 2 | sale: pays at ≥ `startPrice`, unit to buyer, money split (`BuyItNow` 60–97); auction: money refunded (`BuyItNow` 40 → 500 → 920) | **unit back to the owner, listing reset, caller refunded — for a sale or an auction** (510–540; §7 R4) | money refunded |
+| `BuyItNow` | anyone but the owner, ring 2 | sale: pays at ≥ `startPrice`, unit to buyer, money split (`BuyItNow` 60–97); auction: money refunded (`BuyItNow` 40 → 500 → 920) | sale: unit back to the owner, listing reset (520–540); auction: `processHighestBidder`, exactly as `Bid` (512–516; §7 R4); the caller's attachment refunded either way | money refunded |
 | `Bid` | anyone but the owner, ring 2 | auction: accepted at ≥ `startPrice` and ≥ `currBidPrice`, previous bidder refunded (`Bid` 70–100); sale: refunded | caller refunded, then `processHighestBidder` — the highest bidder wins, or the unit returns to the owner if there was none (520–550) | refunded |
 | `CloseListing` | owner | refused (`CloseListing` 20) | auction with bids: highest bidder wins (50); otherwise unit back to owner (210) | refused |
 | `CancelListing` | owner, within 300 s of `Start` | highest bidder refunded, unit back to owner (460–620) | refused (50) | refused |
 | `ClaimOwnership` | holder of the unit, ring 2 | impossible: the unit is in the contract | impossible | owner record set to the caller, unit returned (10–50) |
+| `PayOwed(payee)` — **DMZ** | anyone, any ring size, nothing attached | sends `ow_<payee>` to the payee in one transfer and deletes it; refused if nothing is owed, if anything is attached, or if the payee has no account (the call reverts whole and the share waits) | same | same |
 
 "Refused" means the function returns 1; the DVM then discards every change the call made and the node returns
 the call's attached value to the signer — but only when it can extract a signer, which is only at ring size 2
@@ -211,6 +267,13 @@ Two qualifications, so that "compatible" is not read as "identical":
   into the `STORE` lines before install (standard README, "Initialization"). DMZ's takes the metadata and
   `quote, protoFee, treasury` as arguments, so it is installed by DMZ's mint form or by anyone who supplies
   them, not by Artificer's flow. After install the stored keys are the same.
+- **Four behaviours differ (§2.5).** A settlement credits the artificer's, the charity's and the protocol's
+  shares instead of sending them, so a tool that watches for the standard's direct payment to Civilware or to a
+  charity sees it arrive only when someone calls `PayOwed` — DMZ's app, the payee itself, or anyone. `BuyItNow`
+  on an ended auction settles it to the highest bidder instead of returning the unit to the owner. A refused
+  `Start` stores no charity share. Value attached where a call takes none is refunded (at ring size 2) instead of
+  kept. A tool that reads headers, lists, buys, bids and closes, attaching only what each call takes, sees no
+  difference.
 
 ### 5.2 A wrapped-quoted DMZ NFA is a DMZ extension — exactly which calls differ
 
@@ -225,10 +288,11 @@ Every line below reads the quote instead of DERO. `q` is `LOAD("quote")`.
 | `Bid` | 25 | `LET bidAmt = DEROVALUE()` | `LET bidAmt = ASSETVALUE(q)` |
 | `Bid` | 530, 925 | `SEND_DERO_TO_ADDRESS(SIGNER(), bidAmt)` | `SEND_ASSET_TO_ADDRESS(SIGNER(), bidAmt, q)` |
 | `outbidReturns` | 60 | `SEND_DERO_TO_ADDRESS(LOAD("currBidAddr"), LOAD("currBidAmt"))` | `SEND_ASSET_TO_ADDRESS(…, q)` |
-| `processDEROFinalPayment` | 70, 90, 110, 130 | `SEND_DERO_TO_ADDRESS(creator / artificer / charity / owner, …)` | `SEND_ASSET_TO_ADDRESS(…, q)`, plus one send of `protoFee` to `treasury` |
-| `BuyItNow`, `Bid` | new guard | — | `IF q != DERO() && DEROVALUE() != 0` → refuse (§7 R9) |
+| `processDEROFinalPayment` | 70, 90, 110, 130 | `SEND_DERO_TO_ADDRESS(creator / artificer / charity / owner, …)` | 70 and 130 `SEND_ASSET_TO_ADDRESS(…, q)`; 90, 110 and a new 118 for `protoFee` credit `ow_<address>` (`owe`), paid by `PayOwed` in the quote (§2.5) |
+| `BuyItNow`, `Bid` | new guard | — | `IF (q != DERO() && DEROVALUE() != 0) \|\| ASSETVALUE(SCID()) != 0` → refuse (§7 R9, R17) |
 
-Unchanged in signature and in behaviour: `ClaimOwnership`, `Update`, `Start`, `CloseListing`, `CancelListing`.
+Unchanged in signature: `ClaimOwnership`, `Update`, `Start`, `CloseListing`, `CancelListing`; each now refuses value it
+does not take (§2.5 item 4).
 Unchanged in signature but settling in the quote: `CloseListing` (through `processHighestBidder`) and
 `CancelListing` (through `outbidReturns`).
 
@@ -257,11 +321,11 @@ the SCID it holds is the vault whose unit the price is in.
 
 | Share | Set by | When | Recipient |
 |---|---|---|---|
-| `royalty` (percent) | the creator | install, never changed | `creatorAddr` |
-| `artificerFee` (percent) | the creator | install, never changed | `artificerAddr` — the standard's authors (§7 R7) |
-| `charityDonatePerc` (percent) | the owner | each `Start` | `charityDonateAddr`, chosen with it |
-| `protoFee` (basis points) — **DMZ** | the deployment | install, never changed | `treasury` |
-| the remainder | — | — | `owner` at the moment of settlement |
+| `royalty` (percent) | the creator | install, never changed | `creatorAddr`, in the settlement |
+| `artificerFee` (percent) | the creator | install, never changed | `artificerAddr` — the standard's authors (§7 R7) — owed, paid by `PayOwed` |
+| `charityDonatePerc` (percent) | the owner | each `Start` | `charityDonateAddr`, chosen with it — owed, paid by `PayOwed` |
+| `protoFee` (basis points) — **DMZ** | the deployment | install, never changed | `treasury` — owed, paid by `PayOwed` |
+| the remainder | — | — | `owner` at the moment of settlement, in the settlement |
 
 ### 6.2 The arithmetic
 
@@ -274,9 +338,10 @@ charityPaymt   = charityDonatePerc  * saleAmt / 100      (105; 106–110)
 payoutAmt      = saleAmt − royaltyPaymt − artificerPaymt − charityPaymt   (120; sent if > 0, 125–130)
 ```
 
-DMZ adds `protoPaymt = protoFee * saleAmt / 10000`, sent to `treasury` before the remainder, and subtracts it in
-`payoutAmt`. Each share is floored separately; the owner receives the remainder, so the fractions that flooring
-drops are not lost — they stay with the owner. The sum of the sends is `saleAmt` exactly (invariant 2). Nothing
+DMZ adds `protoPaymt = protoFee * saleAmt / 10000` for `treasury` and subtracts it in `payoutAmt`. Each share is
+floored separately; the owner receives the remainder, so the fractions that flooring drops are not lost — they
+stay with the owner. What the settlement sends plus what it credits to `ow_` is `saleAmt` exactly (invariant 2):
+the royalty and the remainder are sent, the other three credited (§2.5). Nothing
 in this arithmetic knows the quote's decimals: the same lines split 5-decimal DERO and 12-decimal wXMR.
 
 ### 6.3 Example A — a DERO-quoted sale
@@ -288,8 +353,8 @@ Price paid 12,345,678 atomic units = 123.45678 DERO. `royalty` 7, `artificerFee`
 |---|---|---|---|
 | royalty 7 % | 7 × 12,345,678 / 100 = 864,197.46 | **864,197** to `creatorAddr` | 0.46 |
 | artificer 0 % | — | nothing (line 80 skips) | — |
-| charity 3 % | 3 × 12,345,678 / 100 = 370,370.34 | **370,370** to the charity | 0.34 |
-| protocol 1.25 % | 125 × 12,345,678 / 10,000 = 154,320.975 | **154,320** to `treasury` | 0.975 |
+| charity 3 % | 3 × 12,345,678 / 100 = 370,370.34 | **370,370** owed to the charity | 0.34 |
+| protocol 1.25 % | 125 × 12,345,678 / 10,000 = 154,320.975 | **154,320** owed to `treasury` | 0.975 |
 | owner | 12,345,678 − 864,197 − 370,370 − 154,320 | **10,956,791** to `owner` | (+1.775 kept) |
 
 Check: 864,197 + 370,370 + 154,320 + 10,956,791 = 12,345,678. The owner receives 109.56791 DERO; the three
@@ -309,8 +374,9 @@ Price paid 1,234,567,890,123 atomic units = 1.234567890123 XMR (wXMR has Monero'
 | owner (remainder) | **1,083,333,323,585** | 1.083333323585 |
 
 Check: 86,419,752,308 + 12,345,678,901 + 37,037,036,703 + 15,432,098,626 + 1,083,333,323,585 =
-1,234,567,890,123. Every one of these is a send of the vault's asset, `SEND_ASSET_TO_ADDRESS(…, q)`; no DERO
-moves in this call except the gas the buyer paid the network.
+1,234,567,890,123. Every one of these is paid in the vault's asset, `SEND_ASSET_TO_ADDRESS(…, q)` — the royalty
+and the remainder in the settlement, the artificer's, the charity's and the protocol's shares by `PayOwed` (§2.5);
+no DERO moves in either call except the gas the caller paid the network.
 
 ### 6.5 The bound, and what happens above it
 
@@ -328,14 +394,16 @@ the sale cannot complete and the buyer is refunded at ring 2: not a theft, a lis
 
 ### 6.6 Where the protocol's share goes
 
-`treasury` is the factory's treasury address, the same one every pool and launch pays. On a DERO-quoted NFA the
-share is DERO and the treasury bot sweeps it to `founders.bas` `Deposit()` for Pass holders. On a wrapped quote
-it is wXMR, and the bot fails closed: it reads each contract's quote and sweeps only DERO-quoted ones, naming
-the rest and what they hold (`tools/treasurybot/chain.go` `Quote`; `TestForeignQuoteMarketsAreNotSwept`), because
-`founders.bas` reads only `DEROVALUE()` and would count wXMR as DERO one to one. So a wrapped-quote NFA's
-protocol fee is counted, visible, and owed — and not yet payable to holders. That is `docs/TODO.md` §1.1, not
-this page, to close; the rule this page carries is invariant 4: the app must never show that fee summed with
-DERO.
+`treasury` is the factory's treasury address, the same one every pool and launch pays. The share is credited to it
+under `ow_<treasury>` in the quote, and `PayOwed(treasury)` sends it to the treasury's wallet (§2.5). It goes no
+further. `tools/treasurybot` walks only the factory's `pool_` and `launch_` lists (`registryPrefixes`,
+`tools/treasurybot/main.go`) and deposits into `founders.bas` only what it claimed there, so an NFA's protocol fee
+reaches no Founders Pass holder in any quote, DERO included (FINDINGS_2026-09-10 NFA-3; until 2026-09-11 this page
+said the DERO case worked). A wrapped-quote fee could not reach holders anyway: `founders.bas` reads only
+`DEROVALUE()` (`docs/TODO.md` §1.1). Carrying the DERO case to the pass is a treasury-bot change — walk `nfa_`,
+call `PayOwed`, count what arrived (`op_<treasury>` only grows, for that reconciliation) — and until it is made
+nothing may say that NFA sales fund the pass. The rule this page carries is invariant 4: the app must never show a
+wrapped-quote fee summed with DERO.
 
 ---
 
@@ -343,7 +411,8 @@ DERO.
 
 Each item: the situation, what happens, and whether the build spec already covers it. "Covered" means a rule
 or test in `docs/NFA_BUILD.md` produces the stated outcome; "partly" and "not covered" say what should change.
-Nothing in this section was run: every outcome is read off the standard's source and the DVM's, with the line.
+Except the items marked CLOSED, which are tested (§2.5), nothing in this section was run: every outcome is read
+off the standard's source and the DVM's, with the line.
 
 **R1. `ClaimOwnership` with a fake unit.** The check is `ASSETVALUE(SCID()) == 1` (`ClaimOwnership` 10): the
 value the DVM credited to the call under the contract's *own* asset id. The node fills that map from the
@@ -409,30 +478,21 @@ bids arrive", not as a date; and the operator has a choice — keep the standard
 the extension at, for instance, `startBlockTime + 604,800 + 900`, which is a DMZ divergence for DERO-quoted
 NFAs too and would need invariant 1 restated. OPEN.
 
-*Closing an ended auction through `BuyItNow`.* `checkActive` returns 111 for any ended listing before it looks
-at the type (40 precedes 50). `BuyItNow` on an ended **auction** therefore takes the 111 branch (510–540): the
-unit goes back to the owner, `scBalance` is zeroed, `resetVars(1)` runs, and the caller's attached value is
-refunded. `processHighestBidder` is never called. The highest bidder's money stays in the contract under
-`currBidAddr` / `currBidAmt`, which `resetVars` does not clear. Anyone but the recorded owner can make that
-call (`BuyItNow` 20 turns away the owner's own address only), with nothing attached, from the first second after
-the end. So an owner who dislikes the winning price closes the auction from a second wallet, keeps the asset,
-and holds the winner's bid — which the winner cannot recover alone: no call refunds `currBidAmt` except
-`outbidReturns`, which runs on the next accepted `Bid` of a *new* listing (100) or on a `CancelListing` (460).
-The owner can release it by starting a new listing and cancelling inside the buffer, or by never listing again.
-And if the owner starts a new auction that ends with no bids, a `Bid()` with nothing attached after its end
-calls `processHighestBidder`, which finds the *stale* `currBidAddr` / `currBidAmt` and settles the new listing
-to the old winner at the old bid (100–320) — a settlement neither party asked for. The mirror case is harmless:
-`Bid` after an ended **sale** reaches `processHighestBidder` with no `currBidAmt`, `bidAddr` stays the owner,
-`processDEROFinalPayment(0)` sends nothing, and `DELETE` of a missing key is a no-op in the DVM
-(`dvm_functions.go` 147–149), so the unit goes back to the owner and the caller is refunded. *Covered:* **not
-covered.** This is the most consequential item on the page, and it is in the standard, not in DMZ's extension.
-The fix is one line: `BuyItNow` 510 should take the 520 branch only when `LOAD("listType") == "sale"`, and
-otherwise call `processHighestBidder()` (or simply refuse with a refund at 920 and leave the close to
-`CloseListing` / `Bid`). Either changes a DERO-quoted DMZ NFA's behaviour from the standard's in this one
-state and needs invariant 1 restated to "as the standard, except that an ended auction cannot be closed past
-its bidders". A §5.A test — three bidders, the end passes, a fourth wallet calls `BuyItNow` with nothing
-attached — decides it on the real DVM in minutes. OPEN, for the operator: keep the standard exactly, or close
-this.
+*Closing an ended auction through `BuyItNow` — CLOSED 2026-09-11.* `checkActive` returns 111 for any ended
+listing before it looks at the type (40 precedes 50), so `BuyItNow` on an ended **auction** took the branch that
+sends the unit back to the owner (510–540), and `resetVars(1)` left `currBidAddr` / `currBidAmt` behind. Anyone
+but the recorded owner could make that call with nothing attached from the first second after the end: the owner
+kept the asset, the winner's bid stayed in the contract with no call the winner could make to recover it, and a
+later `Bid()` with nothing attached on any ended listing of that asset — sale or auction, under a later owner —
+settled it to the stale bidder at the stale price (reproduced on the DVM: FINDINGS_2026-09-10 NFA-1, LIV-02,
+ADV-PRICE-01). Now `BuyItNow` 512–516 send an ended auction to `processHighestBidder`, so the same call settles it
+to its winner (or back to the owner if nobody bid), exactly as an empty `Bid` or the owner's `CloseListing` does;
+an ended sale still returns to the owner at 520. Every way an auction ends now settles its bid or refunds it
+(`CancelListing` 460), so a bid cannot outlive the listing that took it. This diverges from the standard in this
+one state (§2.5 item 2).
+*Covered:* yes — `tests/nfa_r4_test.go` (three cases, including the stale-bid chain across a change of owner),
+`tests/zzadv_market_test.go` `TestNFAEndedAuctionBuyItNowSettlesTheWinningBid`, `tests/zzadversarial_liveness_test.go`
+L3.
 
 **R5. `cancelBuffer` and a buyer inside it.** `Start` at time t; until t + 300 the owner may `CancelListing`
 (60). A **buyer** who `BuyItNow`s at t + 100 is done in that call: unit, payment and owner record all move
@@ -525,6 +585,30 @@ bidding from a second wallet is not stopped by anything, pays royalty, `protoFee
 wash, and gets the asset back with a new `previousAuctionPrice` on record. That is the standard's position and
 DMZ's: a fee paid is a fee paid; the record is what it says, a price someone paid. *Covered:* yes.
 
+**R15. A payee with no account — CLOSED 2026-09-11.** A DERO address is a curve point; whether its account exists
+is a fact about the chain that no DVM builtin can read. The standard paid the artificer (hard-coded) and the
+charity (typed by the seller) before the owner, and the DVM commits a call whose unregistered destination is not
+its last transfer, then drops that transfer and every one after it (§2.5 item 1). So a sale with an unregistered
+charity, or any sale of an NFA with `artificerFee` > 0 on a chain where Civilware's key never transacted — the DMZ
+simulator and testnet among them — gave the buyer the asset and the creator the royalty and destroyed the rest,
+the seller's remainder included (FINDINGS_2026-09-10 DVM-1, LIV-01). Now those shares are owed, not sent;
+`PayOwed` to a payee with no account is refused whole and can be retried once the account exists. Nobody loses a
+share to someone else's registration. A charity or artificer that never registers is never paid, and its share
+stays counted under `ow_`, where the app can show it. *Covered:* yes (§2.5 tests).
+
+**R16. A refused `Start` that poisons the charity share — CLOSED 2026-09-11.** The standard's clamp path stored
+the clamped `charityDonatePerc` at 170, before the address check at 175; a failed check goes to 400, which returns
+the unit and 0, so the store committed. The NFA then carried a share with no address (or with the `""` that
+`resetVars` writes), and every later settlement reverted: a live auction's bid could not be settled, and the only
+exit left stranded it (FINDINGS_2026-09-10 DVM-2). `Start` 170 now jumps to the check the unclamped share uses
+(195) and stores both values only after it (200–205). *Covered:* yes, `tests/zzsplitpay_test.go` S2 and S3.
+
+**R17. Value attached where a call takes none — CLOSED 2026-09-11.** The standard keeps it: DERO or the quote
+attached to `ClaimOwnership` or `Update`, DERO attached to any market call on a DERO-quoted NFA, the unit attached to
+`BuyItNow`, `Bid`, `CloseListing` or `CancelListing` (FINDINGS_2026-09-10 NFA-4). §2.5 item 4 says what each call now
+refuses, and why `ClaimOwnership` and `Start` above ring 2 keep the standard's path. *Covered:* yes,
+`tests/nfa_stray_test.go` `TestNFAStrayValueIsRefused`, on both quotes, including the ring>2 exception.
+
 ---
 
 ## 8. What the app never holds
@@ -592,6 +676,11 @@ Primary, read for this page (the derohe files are the vendored clone at upstream
   key it was given, which above ring 2 is 33 zero bytes;
   https://github.com/deroproject/derohe/blob/master/dvm/simulator.go
 - derohe `config/config.go` 32 — `BLOCK_TIME = 18`; https://github.com/deroproject/derohe/blob/master/config/config.go
+- derohe `dvm/simulator.go` `SanityCheckExternalTransfers` (196–241: the registry check keeps only the last
+  lookup's error) and `ProcessExternal` (301–382: state first, then transfers, panicking at an unregistered one);
+  `blockchain/transaction_execute.go` 277–282 (the recover that keeps the block); `dvm/sc.go` 172 and the
+  "First character must be Capital/Upper Case" refusal of lower-case entrypoints, which keeps `owe` internal — the
+  behaviour behind §2.5 item 1, read from the vendored clone and exercised by the tests §2.5 names.
 - `contracts/pool.bas` header lines 2–4 and the `DEROVALUE() != 0` guards (`AddLiquidity` 42; line 71 of
   `RemoveLiquidity`, `buyto`, `sellto`) — the quote extension DMZ already ships; `contracts/vault.bas` — header lines 4–9 (a halt is a lease and never blocks the exit),
   `ishalted`, `Burn` 20–47 (line 30: the non-wrapping basis-point product), `Reclaim` 10–21, `Halt` 41;

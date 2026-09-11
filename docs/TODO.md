@@ -39,8 +39,11 @@ FE-1(b) (revoking two legacy launch hashes de-lists a live market holding 145,33
 (the Founders anti-sweep floor is void at twenty editions); BL-90 (fees earned in a wrapped asset reach no pass
 holder); D-1 to D-13 in `docs/BACKLOG.md` §19; and the seventeen in `docs/ATOMIC_SWAP_STUDY.md` §5.
 
-**Now: the operator's final mainnet readiness pass** (received 2026-09-11). The study's step 0 is done: the
-documents match the code. The 20-minute loop is deleted while the pass runs.
+**Now: the final mainnet engineering pass** (the operator's directives of 2026-09-11: "don't stop until this is ready
+for mainnet"). The master checklist is `docs/MAINNET_TODO.md`: every item, its owner, its status and what done
+means; B marks what blocks mainnet. The gap analysis is `docs/MAINNET_GAP_ANALYSIS.md`. The trust model, the
+architecture, the threat model, key management and incident response are written beside it. The 20-minute loop is
+deleted while the pass runs.
 
 **Then, in order:** the operator's decisions in the study's §5 → BL-40b (the Zcash watcher, fee and broadcast) →
 BL-11 (the Monero companion on stagenet) → BL-10 (the spore rendezvous) → BL-80 (`deploy/federation.md`) → the
