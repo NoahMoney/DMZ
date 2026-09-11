@@ -970,13 +970,14 @@ func (s *Swap) stepBob(ctx context.Context) error {
 	return fmt.Errorf("bob: unknown phase %q", st.Phase)
 }
 
-// refundBlind is the Refund a maker who cannot read the contract must still send. Every chain read the
-// companion makes is one DERO.GetSC call over the whole contract, and htlc.bas is a permissionless bulletin
-// nothing prunes: enough junk locks and that call fails for every companion on that scid, for ever. A maker
-// who waits for a readable answer inside [t1, t2) never refunds, and at t2 the taker takes the whole locked
-// amount with Punish having deposited nothing. So a read that fails does not stop the refund — it goes out
-// without one, and the contract refuses it harmlessly if the lock has already moved. One attempt per eighth of
-// the window, so a read that keeps failing spends a handful of fees rather than one every pass.
+// refundBlind is the Refund a maker who cannot read the contract must still send. The companion reads htlc.bas
+// by named keys and walks its ids in windows (getKeys and FindLock in dero.go), so padding the contract with junk
+// locks no longer blinds it; but a read can still fail — a node that stops answering, a network that drops — and
+// a maker who waits for a readable answer inside [t1, t2) never refunds, after which the taker takes the whole
+// locked amount with Punish at t2 whether or not she ever locked any XMR. So a read that fails does not stop the
+// refund: it goes out without one, and the contract refuses it harmlessly if the lock has already moved. One
+// attempt per eighth of the window, so a read that keeps failing spends a handful of fees rather than one every
+// pass.
 func (s *Swap) refundBlind(ctx context.Context, readErr error) error {
 	st := s.st
 	h, herr := s.dero.Height(ctx)

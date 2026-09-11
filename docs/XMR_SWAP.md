@@ -45,8 +45,8 @@ contract will check is *the same value* as their share of the Monero key. Withou
 DERO by revealing a value that hashes correctly but is not her key share; Bob would then hold `s_a' + s_b`, which
 opens nothing, and the XMR would be locked forever. Without `π_b`, Bob could refund with a non-share and leave
 Alice's XMR locked forever. The proof is `research/crosschain/poc/proof-xmr`: a Bulletproofs rank-1 constraint
-system with no trusted setup, 37,460 multiplication gates, measured at 14.8 s to prove and 1.15 s to verify,
-1,601 bytes (`run.log`). Each party verifies the other's proof before anything is locked (build spec §4,
+system with no trusted setup, 37,460 multiplication gates, measured at 8.51 s to prove and 0.74 s to verify, plus about 1.6 s each time to
+build the generators, so about 10.1 s and 2.3 s from end to end; 1,601 bytes (`run.log`). Each party verifies the other's proof before anything is locked (build spec §4,
 invariants 3 and 4).
 
 **The joint address.** Spend public key `P = S_a + S_b`, view public key `V`, encoded as a standard Monero
@@ -56,7 +56,7 @@ until one of the reveals in §2 happens, and after that exactly one person does.
 
 **The gate secret `k_b`.** Without it, Alice could claim the DERO the moment Bob locked, never having locked any
 XMR. Bob hands `k_b` to Alice only after his own view-only wallet has seen her XMR at the joint address with at
-least ten confirmations (§4). A "claim delay" in place of the gate was reviewed and rejected on 2026-09-06: a delay
+least twenty confirmations by default, and never fewer than ten (§4). A "claim delay" in place of the gate was reviewed and rejected on 2026-09-06: a delay
 lets Bob *notice* a claim without an XMR lock; it does not let him stop it (build spec §1).
 
 ### 1.3 On chain, step by step
@@ -165,18 +165,19 @@ the block-time constant, and §9 R19 says why that conversion is an estimate.
 | DERO block time | 18 s | the unit of every DERO window | `config.BLOCK_TIME = 18`, vendored derohe `config/config.go:32` (upstream HEAD `e9df1205`) |
 | DERO stable depth | 8 blocks (≈ 2.4 min) | a block deeper than this is never replaced: the node refuses a block whose height is below `chain height − STABLE_LIMIT` (`blockchain/blockchain.go:483–486`) and reports `height − STABLE_LIMIT` as the stable height (`Get_Stable_Height`, line 1139) | `config.STABLE_LIMIT = 8`, `config/config.go:77` |
 | Monero block time | 120 s target | the unit of Alice's Monero wait | `DIFFICULTY_TARGET_V2 120`, `src/cryptonote_config.h` |
-| Monero confirmations before `k_b` | 10 | Monero itself refuses to spend an output younger than this, so no smaller number is even meaningful; below it the output could be unwound after Bob has released the gate | `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE 10`, `src/cryptonote_config.h` |
+| Monero confirmations before `k_b` | 20 by default; the companion refuses fewer than 10 | ten is Monero's own spend age, so no smaller number is even meaningful. Above it, a reorganisation deeper than the depth Bob chose could still unwind Alice's lock after he has released the gate, and Monero has no bound on that depth, so the default is twice the floor. It is the one number in the protocol that is an assumption rather than a proof | `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE 10`, `src/cryptonote_config.h`; `DefaultConfirmations`, `tools/xmrswap/swap.go:26-30` |
 | Monero reorganisation bound | none | `cryptonote_config.h` contains no constant limiting reorganisation depth (checked 2026-09-08); the 10-block spend age is a spend rule, not a finality rule | `src/cryptonote_config.h` |
 | the deepest Monero reorganisation this project knows of | 18 blocks (≈ 36 min at target), 2026 | reported by exchanges and swap services; **secondary sources only**, no primary record found (`research/crosschain/README.md`, "Monero timing and reorg: secondary sources only. Flagged.") | SOURCES.md row "Monero timing" |
-| `T1_MIN` | 400 DERO blocks (≈ 2 h) after the lock | Alice's whole path has to fit inside it: see the budget below | build spec §1; a design margin, not a measured interval |
-| `T2_MIN` | T1 + 400 blocks (≈ 2 h more) | Bob's refund window; long enough that a Bob who is merely offline for an hour is not punished | build spec §1 |
+| `T1_MIN` | 400 DERO blocks (≈ 2 h) after the lock; Bob's companion sets `t1` = lock + 420 by default, and Alice's refuses a `t1` more than 1,200 blocks (≈ 6 h) out | Alice's whole path has to fit inside it: see the budget below. The 20 blocks of slack are there because Alice reads the lock a block or two after Bob chose `t1` and measures it against the same floor; the ceiling stops a maker holding her XMR against a deadline months away | `tools/xmrswap/swap.go:24, 44, 99`; a design margin, not a measured interval |
+| `T2_MIN` | T1 + 400 blocks (≈ 2 h more), and no more than T1 + 1,200 | Bob's refund window; long enough that a Bob who is merely offline for an hour is not punished | `tools/xmrswap/swap.go:25, 45` |
 | contract bounds | `now + 1 < t1 < t2 ≤ now + 1,000,000` | ordering only; the contract cannot know Monero's state, so the minimums are policy in the companion, which refuses a lock below them | build spec §3.A |
 
 **Alice's budget inside T1, at target rates.** Bob's lock reaches stable depth: 8 DERO blocks, 144 s. Her XMR
-transaction is mined: one Monero block expected, 120 s. Ten confirmations: 1,200 s. Bob's watcher notices and
+transaction is mined: one Monero block expected, 120 s. Twenty confirmations, the default: 2,400 s. Bob's watcher notices and
 his companion sends `k_b`: a poll interval plus one channel delivery (over spore, one DERO transaction, about a
-block). Her Claim is mined and reaches stable depth before T1: 9 DERO blocks, 162 s. That is roughly half an hour
-of a two-hour window, at target rates. Block intervals are targets, not promises, and a stuck Monero transaction
+block). Her Claim is mined and reaches stable depth before T1: 9 DERO blocks, 162 s. That is roughly forty-eight
+minutes of a two-hour window, at target rates, and forty of them are the twenty Monero confirmations, which no
+construction on DERO can shorten. Block intervals are targets, not promises, and a stuck Monero transaction
 (fee too low, a full mempool) spends this budget with nothing to show; §9 R1 and R4 are what happens when it runs
 out, and the answer is "nobody loses coins".
 
@@ -187,8 +188,9 @@ it is that DERO's finality is a consensus rule at eight blocks rather than a pro
 **What the numbers are not.** They are margins derived from source constants, not from measured mainnet
 intervals; `research/crosschain/README.md` marks the timelock row "weakened … adequate for design margins, not
 for a spec". Ten Monero confirmations is the *floor* — the smallest number at which anyone can spend the output —
-not a number chosen for safety. For a large amount the companion should use more (the wrapper design uses 20
-above 50 XMR; `research/wrapper/DESIGN.md`, "Confirmation policy"), and T1 must grow with it. The 18-block figure
+not a number chosen for safety, which is why the companion defaults to twenty and refuses fewer than ten. For a
+large amount it should use more still, and T1 must grow with it: every ten more confirmations is twenty more
+minutes of Alice's budget. The 18-block figure
 is a report, and this page treats it as one.
 
 ---
@@ -289,8 +291,8 @@ T2 (Punish). Bob's companion must not sweep until the Claim is at or below the s
 Alice's XMR; if the Claim is later refused, Bob has both). With those two rules the race cannot start: a Claim
 Bob acts on is one DERO can no longer undo.
 
-**R3. A Monero reorganisation after the gate.** Bob sends `k_b` at ten confirmations. Monero then reorganises
-deeper than ten and Alice's lock transaction does not return — because its inputs were in the displaced blocks
+**R3. A Monero reorganisation after the gate.** Bob sends `k_b` at twenty confirmations, the default. Monero then
+reorganises deeper than twenty and Alice's lock transaction does not return — because its inputs were in the displaced blocks
 and no longer exist, or because Alice broadcast a conflicting spend of the same key image into the new chain.
 *Outcome:* Alice holds `k_b` and `s_a`; she claims the DERO. Bob forms `s_a + s_b` for an address that holds
 nothing. Bob has lost the DERO. *Covered:* by policy, not by a rule that can be proven. Monero has no consensus
@@ -408,7 +410,7 @@ companion takes `-daemon` and `-monero` as flags and should warn, loudly, when e
 
 **R19. Heights are not clocks.** T1 and T2 are DERO heights; Alice's wait is Monero confirmations; the two are
 coupled only through wall time. If DERO blocks run fast for an hour, Alice's two hours are shorter than she
-displayed; if Monero runs slow, her ten confirmations eat more of them. *Outcome:* R1 or R4 — no coins lost, a
+displayed; if Monero runs slow, her twenty confirmations eat more of them. *Outcome:* R1 or R4 — no coins lost, a
 swap that fails. *Covered:* partly; the minimums assume target rates. The companion should convert remaining
 blocks to minutes using the rate it has actually observed since the lock, and refuse to lock XMR when the remaining
 budget is below what its own path needs.
@@ -461,8 +463,26 @@ be closed, only stated and sized.
   check.
 - **Your own wallet, node and machine.** The companion runs on your machine and talks to a DERO wallet, a DERO
   daemon and a `monero-wallet-rpc` that you point it at. If any of those lies to you, the protocol cannot tell
-  (§9 R18). Run your own, or name the one you trust and know that you are trusting it.
+  (§9 R18). A remote node you do not run can cause a total loss that nothing in the protocol detects: run your own,
+  or name the one you trust and know that you are trusting it.
 - **The companion's code**, which holds your share and the gate. Read it or trust whoever did.
+- **DERO for the fee.** Every DERO transaction takes its fee from a DERO payload
+  (`vendor/derohe/blockchain/transaction_verify.go`, "we can not deduct fees, if no base"), so a holder who
+  arrives with only XMR cannot sign the Claim that pays them until they hold some DERO. Today that means buying it
+  from an exchange, a party nothing else on this page requires; `docs/ATOMIC_SWAP_STUDY.md` §2.0.1 proposes that
+  the maker send it.
+- **Each party's own machine, at its window.** If Bob's companion is not running between t1 and t2 he cannot
+  Refund, and from t2 Alice may Punish and take the DERO he locked. No construction on DERO removes that need: a
+  Refund held by anyone else is held by someone who could use `s_b` to steal (`docs/ATOMIC_SWAP_STUDY.md` §6).
+- **The taker, after t2 — a defect, LIV-07.** From t2 only the taker may call Punish (`contracts/htlc.bas`,
+  Punish, line 25), and Claim and Refund have both closed, so a lock she never punishes is frozen for ever
+  (`docs/audit/FINDINGS_2026-09-10.md`, LIV-07).
+- **DERO including Alice's Claim in time.** The companion sends no Claim from sixteen blocks before t1
+  (`tools/xmrswap/swap.go:34-37`), so that any Claim it did send is final before Bob's Refund opens. The mempool is
+  ordered by fee per byte (`vendor/derohe/blockchain/mempool/mempool.go:377`), and a miner, or a flood of
+  higher-fee transactions, that holds her Claim out for longer than that margin reopens the race the margin
+  exists to prevent, with `s_a` already readable in the Claim Bob saw. The margin prices the attack at sixteen
+  blocks of censorship; it does not rule it out.
 
 **What is not trusted.**
 
@@ -484,7 +504,8 @@ opposite by construction, and `research/wrapper/README.md` "Trust statement" say
 *"Nothing here is 'trustless'"*: k of the n signers, colluding, can pay themselves the reserve or mint units against
 deposits that never happened, and nothing on chain stops them. That is a custodian with a bond, and the app names
 it as one. The swap has no such party. It has an economic weakness (§3), an unaudited proof, a Monero-depth
-assumption, and a public DERO leg (§5) — none of which is a party who can take your coins, and "trustless" was
+assumption, a public DERO leg (§5), a window in which each party's own machine must be running, and a contract
+defect that freezes a lock nobody punishes (LIV-07) — none of which is a party who can take your coins, and "trustless" was
 never a claim that nothing can go wrong. It is the claim that when something does, it is not because someone
 else held your keys.
 
@@ -547,7 +568,8 @@ Primary, read for this page (fetch dates as noted; the derohe files are the vend
   primitives" (`SIGNER()` at ring size 2), "dero xmr" (the sketch and loss table).
 - `research/wrapper/MECHANISM_REVIEW.md` §3 (verdict by pair), §4 (spore), §6 (the operator's ruling).
 - `research/crosschain/SOURCES.md` — every external source the research rests on, with what each established.
-- `research/crosschain/poc/proof-xmr/run.log` — 37,460 gates; prove 14.85 s; verify 1.15 s; 1,601 bytes
+- `research/crosschain/poc/proof-xmr/run.log` — 37,460 gates; prove 8.51 s and verify 0.74 s, each after about
+  1.6 s building generators; 1,601 bytes
   (r1cs 1,441 + commitment 32 + sigma 128); wrong-H, wrong-S, tampered-sigma and other-secret rejections.
 - `research/crosschain/poc/simswap-run.log` — a claim mined after expiry and refused by the contract.
 - derohe `config/config.go` — `BLOCK_TIME = 18` (line 32), `STABLE_LIMIT = 8` (line 77);

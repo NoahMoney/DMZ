@@ -150,7 +150,9 @@ short values (`tools/simswap`: expiry a handful of blocks) to exercise the exits
 
 After `Accept`, the maker locks; a taker who then does nothing costs the maker eight hours of capital for one
 transaction fee. A taker who watches the price for two hours before deciding to lock ZEC has a free option on
-the maker's asset for that long.
+the maker's asset for that long. The option runs the other way too: once the taker has funded, the maker may
+decline to claim and let her refund at `cltv`, about two hours, so for that window the option is his
+(`docs/ATOMIC_SWAP_STUDY.md` §2.2).
 
 What v1 does: **nothing beyond disclosure and pricing.** The offer screen tells the maker the exposure in hours
 before they post; makers price it into `wantAmount`; the board shows a maker's completed and abandoned swaps by
@@ -257,7 +259,7 @@ provided, with the answer to "what does this provide that a smaller primitive ca
 | Z1 | Taker accepts, never locks ZEC | maker refunds at `T_dero` | maker: 8 h of capital + two fees |
 | Z2 | Maker never locks after accept | taker waits `P_lock`, walks; the accept row is dead | taker: one fee, an hour |
 | Z3 | Taker locks the wrong amount or a script with a wrong `H`, key or `cltv` | the maker's companion refuses to claim; both refund | both: time |
-| Z4 | Maker claims ZEC at the last block before `cltv` | `s` is public; taker claims DERO with ≥ 3.5 h left by policy (§5) | nobody |
+| Z4 | Maker claims ZEC at the last block before `cltv` | a race, not a safe exit: from `cltv` the taker's refund can spend the same output, and the maker's claim has already put `s` in a public mempool. If her refund is mined first she holds her ZEC and `s`, and claims the DERO as well | the maker, who loses both legs; the companion must claim well before `cltv` (`docs/ATOMIC_SWAP_STUDY.md` §2.2) |
 | Z5 | Zcash reorg removes the funding after the maker's claim | the claim is removed with it; `s` is already public; the taker refunds ZEC after `cltv` and claims DERO with `s` | maker: both assets gone. Prevented by `C_zec` = 10 before claiming |
 | Z6 | DERO reorg removes the maker's `Lock` after the taker funded ZEC | the taker's ZEC refunds after `cltv`; the maker cannot claim (no `s` was revealed) | taker: 2 h. Prevented by the 8-block wait |
 | Z7 | Maker posts one offer, two takers try to accept | the board takes the first; the second `Accept` fails on state | nobody |

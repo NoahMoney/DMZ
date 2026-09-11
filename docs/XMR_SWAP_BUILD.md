@@ -2,7 +2,7 @@
 
 **Status 2026-09-08: the build.** The design is `research/crosschain/RESEARCH.md` §4.4 and the verdict is
 `research/wrapper/MECHANISM_REVIEW.md` §3. The proof that makes it possible exists (`poc/proof-xmr`: SHA-256
-preimage ↔ ed25519 key share, Bulletproofs, no trusted setup, 14.8 s prove / 1.15 s verify / 1,601 bytes).
+preimage ↔ ed25519 key share, Bulletproofs, no trusted setup, 8.51 s prove / 0.74 s verify, about 10.1 s / 2.3 s with generators / 1,601 bytes).
 This document is what gets built, how it is split so five people can build it at once without touching each
 other's files, the interfaces they build against, and what must be true before any of it is called working.
 
@@ -35,8 +35,8 @@ holds it until a reveal.
 
 1. **Bob locks DERO** in `htlc.bas`: `Lock(ha, hk, hb, taker=Alice, t1, t2, asset)` with the DERO (or asset).
 2. Alice reads the lock, checks every field (§4 invariant 3), then **locks XMR** to the joint address.
-3. Bob watches the joint address through a view-only wallet. At **≥ 10 confirmations** of the right amount he
-   sends Alice `k_b` over the channel.
+3. Bob watches the joint address through a view-only wallet. At **≥ 20 confirmations** of the right amount (the
+   default; never fewer than 10) he sends Alice `k_b` over the channel.
 4. Alice **claims** DERO: `Claim(id, s_a, k_b)` — reveals `s_a` on chain.
 5. Bob reads `s_a`, forms `s_a + s_b`, imports the joint wallet with that spend key and **sweeps** the XMR to
    his own address.
@@ -63,9 +63,9 @@ DERO. Punish makes doing nothing cost Bob the DERO, so he refunds (revealing `s_
 
 | Constant | Value | Reason |
 |---|---|---|
-| `T1_MIN` | 400 blocks (~2 h) after the lock | Alice must lock XMR, wait 10 Monero confirmations (~20 min; the 18-block reorg observed on Monero argues for more on large amounts), receive `k_b`, and claim — all before T1 |
-| `T2_MIN` | T1 + 400 blocks (~2 h more) | Bob's refund window |
-| Monero confirmations before `k_b` | 10 (the `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE`) | the output cannot be spent before then anyway; below it a reorg could unwind Alice's lock after Bob has released the gate |
+| `T1_MIN` | 400 blocks (~2 h) after the lock; Bob's default is lock + 420, and Alice refuses a `t1` more than 1,200 blocks out | Alice must lock XMR, wait 20 Monero confirmations by default (~40 min; ten is the floor, and the 18-block reorganisation reported on Monero is why the default is twice it), receive `k_b`, and claim — all before T1 |
+| `T2_MIN` | T1 + 400 blocks (~2 h more), at most T1 + 1,200 | Bob's refund window |
+| Monero confirmations before `k_b` | 20 by default (`DefaultConfirmations`); refused below 10, the `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE` | below ten the output cannot be spent anyway; above it, a reorganisation deeper than the depth Bob chose could still unwind Alice's lock after he has released the gate, and Monero has no bound on that depth (invariant 10) |
 
 The companion refuses to participate in a lock whose T1/T2 are below these; the contract enforces ordering
 (`t1 > now + 1`, `t2 > t1`, both ≤ now + 1,000,000) and leaves the minimums to the client — they are policy.
@@ -234,8 +234,8 @@ sources by URL; no invented numbers.
 1. **A secret leaves the companion only by the protocol's own reveals**: `s_a` on DERO at Claim, `s_b` on DERO at
    Refund, `k_b` over the channel after confirmation. Never logged, never in a message of another kind, never in
    the browser.
-2. **Bob never sends `k_b`** until the joint address shows ≥ the agreed amount at ≥ 10 confirmations, read from
-   his own view-only wallet, not from anything Alice says.
+2. **Bob never sends `k_b`** until the joint address shows ≥ the agreed amount at the confirmation depth of invariant 10 (twenty by
+   default, never fewer than ten), read from his own view-only wallet, not from anything Alice says.
 3. **Alice never locks XMR** until she has read Bob's lock from the chain and checked: `ha == SHA256(s_a)`,
    `hk` equals the `H_k` Bob committed to over the channel, `hb` equals Bob's committed `H_b` and `π_b` verified
    against it, `taker` is her address, `t1 − now ≥ T1_MIN`, `t2 − t1 ≥ T2_MIN`, amount ≥ agreed, asset as agreed.

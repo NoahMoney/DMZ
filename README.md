@@ -180,7 +180,10 @@ application decides what is verified by hashing the code against the templates i
 | Every signature | Your own wallet, over XSWD on localhost | The application never holds a key and cannot sign |
 | A market is what it claims | The template hash the app checks, and the treasury it names | A contract whose code does not match ships as unverified and is refused |
 | Wrapped XMR / ZEC | **k of n named signers** | A quorum can take the reserve; you hold units backed by nothing |
-| An atomic swap | Your own node's answer, and your own companion being alive | The timelocks return your coins; nobody else can take them |
+| An atomic swap | Your own node's answer, and your own companion running at your window | Miss your window and the other side's exit opens; a lock past its last deadline that its taker never punishes is frozen for ever, until `htlc.bas` is replaced (LIV-07). Nobody else can take your coins |
+| Your first transaction on DERO | Whoever sells you DERO for its fee | DERO takes every fee from a DERO payload, so a holder who arrives with only XMR or ZEC must get a little DERO first — today, from an exchange |
+| An NFA staying what you bought | Its creator, for ever — and its owner too while `ownerCanUpdate` is set | They can rewrite its file, file-signature, cover, icon and tag URLs at any time (`contracts/nfa.bas`, `Update`); its name, its hashes and its collection cannot change |
+| The registry's settings | The factory's owner key | `SetTreasury` and `SetRegFee` stay in its hands for ever: the key cannot be renounced, because a transfer completes only when the new owner signs (SEC-K-02) |
 | The application itself | Whoever publishes the TELA index | A republished application could lie about anything on screen |
 
 The last row is the one with no cryptographic answer today: the publisher key can republish for ever, and the
