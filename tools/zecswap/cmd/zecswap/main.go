@@ -1,20 +1,65 @@
-// zecswap is the Zcash-side companion of the transparent-Zcash swap market (docs/ZEC_SWAP.md §7). This build has
-// the part that needs no node: the script both parties must agree on, its address, and what each transparent
-// address form means. The watcher and the spends come next (BL-40b).
+// zecswap is the Zcash-side companion of the transparent-Zcash swap market (docs/ZEC_SWAP.md §7). Each person runs
+// it on their own machine, against their own nodes and their own DERO wallet, for one swap; nobody hosts it and
+// nothing in it holds anyone else's coins.
 //
-//	zecswap script  {-hash <64 lower-case hex> | -secret <64 lower-case hex>} -claim <t-address or 40-hex key hash>
-//	                -refund <t-address or 40-hex key hash> -cltv <height> -tip <Zcash height> [-net testnet]
+//	zecswap maker  -network N -key K -zcash URL -daemon H:P -wallet H:P -board SCID -escrow SCID
+//	               {-give-amount N [-give-asset SCID] -want-zat N | -offer ID -secret-file F}  [-dir D] [-state S] [-payout T]
+//	zecswap taker  -network N -key K -zcash URL -daemon H:P -wallet H:P -board SCID -escrow SCID -offer ID
+//	               [-dir D] [-state S] [-refund-file F] [-payout T]
+//	zecswap status -zcash URL -daemon H:P [-dir D]
+//	zecswap script  {-hash H | -secret-file F} -claim <t-addr|pkh> -refund <t-addr|pkh> -cltv N -tip <Zcash height> [-net ...]
 //	zecswap address <t-address>
 //
-// Nothing here holds a key or talks to anything.
+// -network is mainnet, testnet or regtest, and has no default. The Zcash node must be on it and the DERO daemon on
+// the matching kind, or nothing runs (zecswap.CheckNetworks).
+//
+// -zcash and -daemon may be repeated. The first of each is the primary; every further one is a witness that must
+// agree before the step a swap's safety rests on (the maker's claim, which reveals the secret; the taker's funding).
+// Every node named is a TRUSTED PARTY: the companion believes it about what its chain contains, and a single node —
+// above all one on another machine — that colludes with the counterparty can cost the whole swap. More nodes make
+// it take more liars; they never remove the trust. Run your own.
+//
+// THE DERO WALLET must be started with --rpc-login user:password, and the companion given the same in the
+// VEIL_RPC_LOGIN environment variable (or -dero-login, refused on mainnet because the process list shows it). A
+// wallet RPC without a login authenticates nobody, and its /ws endpoint accepts every web page's connection, so
+// while a swap runs any page could spend the wallet; on mainnet the companion refuses a wallet that answers a call
+// made without credentials.
+//
+// -key is a file holding the one transparent Zcash key this swap spends with, as 64 hex characters or WIF: for the
+// maker the claim key (the offer pays its P2PKH address), for the taker the key whose address holds the ZEC to fund
+// with and which the refund pays back to. Use a key made for this purpose only. It is read for each signature and
+// zeroed after; it is never written anywhere by this program.
+//
+// FILES. The state lives in -dir (default: the user's configuration directory, zecswap/ — outside any repository),
+// as -state (default <role>.json). zecswap.WrittenFiles lists every file written beside it; the program prints the
+// list at start, and warns when any of them would land inside a git work tree.
+//
+// The Zcash node must be zebrad with its RPC enabled, or zcashd with txindex=1, experimentalfeatures=1 and
+// insightexplorer=1 (see tools/zecswap/node.go for each method and what it needs). A lightwalletd is not supported.
+//
+// WHAT HAS RUN. The Zcash side has run against one real node only: zebrad 6.3.0 on regtest, beside the DERO
+// simulator, through the same Swap machines and RPC clients this program drives (TestRegtestEndToEnd; every txid is
+// in research/regtest/zecswap-e2e.log). This command line itself has not been run against a node, and nothing has
+// run against zcashd, Zcash testnet or Zcash mainnet; the testnet run (BL-42) is still to be done.
 package main
 
 import (
+	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"log"
+	"net/url"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
 
 	"veil/tools/zecswap"
 )
@@ -24,8 +69,12 @@ func main() {
 		usage()
 	}
 	switch os.Args[1] {
+	case "maker", "taker":
+		run(os.Args[1], os.Args[2:])
+	case "status":
+		status(os.Args[2:])
 	case "script":
-		script(os.Args[2:])
+		script(os.Args[2:], os.Stdin)
 	case "address":
 		if len(os.Args) != 3 {
 			usage()
@@ -41,10 +90,318 @@ func main() {
 	}
 }
 
-func script(args []string) {
+// endpoints is a repeatable flag.
+type endpoints []string
+
+func (e *endpoints) String() string     { return strings.Join(*e, ",") }
+func (e *endpoints) Set(v string) error { *e = append(*e, v); return nil }
+
+type nodeFlags struct {
+	zcash     endpoints
+	zcashUser *string
+	zcashPass *string
+	zcashCook *string
+	daemons   endpoints
+	board     *string
+	escrow    *string
+	dir       *string
+}
+
+func addNodeFlags(fs *flag.FlagSet, n *nodeFlags) {
+	fs.Var(&n.zcash, "zcash", "a Zcash node's JSON-RPC (repeatable; the first is the primary). A witness's credentials go in its URL: http://user:pass@host:port")
+	n.zcashUser = fs.String("zcash-user", "", "the primary Zcash node's rpcuser")
+	n.zcashPass = fs.String("zcash-pass", "", "the primary Zcash node's rpcpassword")
+	n.zcashCook = fs.String("zcash-cookie", "", "the primary Zcash node's cookie file (instead of -zcash-user/-zcash-pass)")
+	fs.Var(&n.daemons, "daemon", "a DERO daemon's RPC (repeatable; the first is the primary)")
+	n.board = fs.String("board", "", "board.bas scid")
+	n.escrow = fs.String("escrow", "", "swap.bas scid")
+	def, _ := zecswap.DefaultDir()
+	n.dir = fs.String("dir", def, "the directory the swaps' files live in (default: outside any repository)")
+}
+
+func zcashSources(n *nodeFlags) ([]zecswap.ZcashSource, *zecswap.ZcashRPC) {
+	if len(n.zcash) == 0 {
+		log.Fatal("-zcash is required")
+	}
+	var out []zecswap.ZcashSource
+	var primary *zecswap.ZcashRPC
+	for i, e := range n.zcash {
+		user, pass, endpoint := "", "", e
+		if u, err := url.Parse(e); err == nil && u.User != nil {
+			user = u.User.Username()
+			pass, _ = u.User.Password()
+			u.User = nil
+			endpoint = u.String()
+		}
+		if i == 0 {
+			if *n.zcashCook != "" {
+				cu, cp, err := zecswap.ReadCookie(*n.zcashCook)
+				if err != nil {
+					log.Fatal(err)
+				}
+				user, pass = cu, cp
+			} else if *n.zcashUser != "" || *n.zcashPass != "" {
+				user, pass = *n.zcashUser, *n.zcashPass
+			}
+		}
+		c := zecswap.NewZcashRPC(endpoint, user, pass)
+		if i == 0 {
+			primary = c
+		}
+		out = append(out, zecswap.ZcashSource{Name: endpoint, Node: c})
+	}
+	return out, primary
+}
+
+func run(role string, args []string) {
+	fs := flag.NewFlagSet("zecswap "+role, flag.ExitOnError)
+	var n nodeFlags
+	addNodeFlags(fs, &n)
+	network := fs.String("network", "", "mainnet, testnet or regtest (required, no default)")
+	wallet := fs.String("wallet", "", "this party's DERO wallet RPC (it signs every DERO call, at ring size 2)")
+	deroLogin := fs.String("dero-login", "", "the DERO wallet RPC's --rpc-login user:password; refused on mainnet — use VEIL_RPC_LOGIN")
+	stateName := fs.String("state", role+".json", "the swap's state file, in -dir unless absolute (created 0600; for a maker it holds the secret)")
+	keyFile := fs.String("key", "", "the file holding this swap's Zcash key (64 hex or WIF)")
+	payout := fs.String("payout", "", "the transparent P2PKH address the claim (maker) or refund (taker) pays; default: the key's own")
+	fixedFee := fs.Uint64("fee", 5000, "the DERO fee for the calls the estimator cannot judge (Refund, Cancel, and Post/Lock above height 1,000,000)")
+	interval := fs.Duration("interval", 5*time.Second, "pause between passes while waiting on a chain")
+	giveAsset := fs.String("give-asset", "", "maker: the asset to give, a 64 lower-case hex SCID (empty: DERO)")
+	giveAmount := fs.Uint64("give-amount", 0, "maker: how much of it, in its atomic units")
+	wantZat := fs.Uint64("want-zat", 0, "maker: how many zatoshi")
+	offer := fs.Int64("offer", -1, "the board offer id: the taker's offer to take, or the maker's offer to adopt")
+	secretFile := fs.String("secret-file", "", "maker adopting an offer: the file holding its 32-byte secret as 64 lower-case hex (- for stdin)")
+	refundFile := fs.String("refund-file", "", "taker: where the pre-signed refund is written (default: beside the state file)")
+	fs.Parse(args)
+	if *keyFile == "" || *wallet == "" || len(n.daemons) == 0 {
+		log.Fatal("-key, -wallet and -daemon are required")
+	}
+	if len(*n.board) != 64 || len(*n.escrow) != 64 {
+		log.Fatal("-board and -escrow must be 64-hex scids")
+	}
+	mainnet := *network == "mainnet"
+	user, pass, err := zecswap.ResolveDeroLogin(*deroLogin, os.Getenv("VEIL_RPC_LOGIN"), mainnet)
+	if err != nil {
+		log.Fatal(err)
+	}
+	statePath := *stateName
+	if !filepath.IsAbs(statePath) {
+		if err := os.MkdirAll(*n.dir, 0o700); err != nil {
+			log.Fatal(err)
+		}
+		statePath = filepath.Join(*n.dir, statePath)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() { <-sig; cancel() }()
+
+	zsrc, zprimary := zcashSources(&n)
+	ci, err := zprimary.ChainInfo(ctx)
+	if err != nil {
+		log.Fatalf("Zcash node %s: %v", n.zcash[0], err)
+	}
+	dero := zecswap.NewDeroRPC(n.daemons[0], *wallet, *n.board, *n.escrow)
+	dero.FixedFee, dero.WalletUser, dero.WalletPass = *fixedFee, user, pass
+	testnet, deroNet, err := dero.Info(ctx)
+	if err != nil {
+		log.Fatalf("DERO daemon %s: %v", n.daemons[0], err)
+	}
+	if err := zecswap.CheckNetworks(*network, ci.Chain, testnet); err != nil {
+		log.Fatal(err)
+	}
+	if mainnet {
+		anon, err := dero.WalletAnswersWithoutLogin(ctx)
+		if err != nil {
+			log.Fatalf("DERO wallet %s: %v", *wallet, err)
+		}
+		if anon {
+			log.Fatalf("the DERO wallet %s answers a call made without credentials: any program on this machine, and any web page through its /ws endpoint, could spend it while the swap runs. Restart it with --rpc-login and give the companion VEIL_RPC_LOGIN.", *wallet)
+		}
+	}
+	var dwit []zecswap.DeroSource
+	for _, d := range n.daemons[1:] {
+		w := zecswap.NewDeroRPC(d, "", *n.board, *n.escrow)
+		wt, _, err := w.Info(ctx)
+		if err != nil {
+			log.Fatalf("DERO witness %s: %v", d, err)
+		}
+		if wt != testnet {
+			log.Fatalf("DERO witness %s is on another network than %s", d, n.daemons[0])
+		}
+		dwit = append(dwit, zecswap.DeroSource{Name: d, Node: w})
+	}
+	for _, z := range zsrc[1:] {
+		wi, err := z.Node.ChainInfo(ctx)
+		if err != nil {
+			log.Fatalf("Zcash witness %s: %v", z.Name, err)
+		}
+		if wi.Chain != ci.Chain {
+			log.Fatalf("Zcash witness %s is on %s, the primary on %s", z.Name, wi.Chain, ci.Chain)
+		}
+	}
+	myDero, err := dero.Address(ctx)
+	if err != nil {
+		log.Fatalf("DERO wallet %s: %v", *wallet, err)
+	}
+	if testnet == strings.HasPrefix(strings.ToLower(myDero), "dero1") {
+		log.Fatalf("the DERO wallet's address %s is not on the daemon's network (%s)", myDero, deroNet)
+	}
+	for _, w := range zecswap.TrustWarnings(n.zcash, n.daemons) {
+		fmt.Fprintln(os.Stderr, w)
+	}
+	if w := zecswap.StateFileWarning(statePath); w != "" {
+		fmt.Fprintf(os.Stderr, "WARNING: %s\n", w)
+	}
+	fmt.Fprintf(os.Stderr, "this swap's files: %s\n", strings.Join(zecswap.WrittenFiles(statePath), ", "))
+	for _, p := range []string{statePath, *keyFile, *refundFile} {
+		if p != "" && zecswap.InsideGitRepo(p) {
+			fmt.Fprintf(os.Stderr, "WARNING: %s is inside a git work tree; a commit can carry it off. Keep secrets and keys outside any repository (the default -dir is).\n", p)
+		}
+	}
+	fmt.Fprintln(os.Stderr, "zecswap's Zcash side has run only against zebrad 6.3.0 on regtest (research/regtest/zecswap-e2e.log); never against zcashd, Zcash testnet or Zcash mainnet.")
+
+	st, err := zecswap.LoadState(statePath, role)
+	if err != nil {
+		log.Fatal(err)
+	}
+	lock := &stateLock{path: statePath + ".lock", stale: staleAfter(*interval)}
+	if err := lock.take(); err != nil {
+		log.Fatal(err)
+	}
+	defer lock.release()
+
+	logf := func(format string, a ...interface{}) { fmt.Printf(time.Now().Format("15:04:05")+" "+format+"\n", a...) }
+	keyPath := *keyFile
+	cfg := zecswap.Config{
+		// §5's policy everywhere but regtest, which CheckNetworks above admitted only from a regtest node
+		Policy: zecswap.PolicyFor(*network), ZcashChain: zecswap.ChainFor(*network),
+		Board: *n.board, Escrow: *n.escrow, MyDero: myDero, DeroMainnet: !testnet,
+		Key:    func(net zecswap.Network) (*zecswap.Key, error) { return zecswap.LoadKey(keyPath, net) },
+		Payout: *payout, GiveAsset: *giveAsset, GiveAmount: *giveAmount, WantAmount: *wantZat,
+		RefundFile: *refundFile, ZcashName: n.zcash[0], DeroName: n.daemons[0],
+		ZcashWitnesses: zsrc[1:], DeroWitnesses: dwit, Log: logf,
+	}
+	if *offer >= 0 {
+		cfg.HaveOffer, cfg.OfferID = true, uint64(*offer)
+	}
+	if *secretFile != "" {
+		s, err := readSecret(*secretFile, os.Stdin)
+		if err != nil {
+			log.Fatal(err)
+		}
+		cfg.Secret = s
+	}
+	var sw *zecswap.Swap
+	if role == zecswap.RoleMaker {
+		if cfg.HaveOffer != (cfg.Secret != "") {
+			log.Fatal("a maker adopts an offer with both -offer and -secret-file, or posts a new one with neither")
+		}
+		sw, err = zecswap.NewMaker(cfg, st, dero, zprimary)
+	} else {
+		if !cfg.HaveOffer && st.Phase == "" {
+			log.Fatal("-offer is required")
+		}
+		sw, err = zecswap.NewTaker(cfg, st, dero, zprimary)
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("%s: DERO %s (%s), Zcash %s, state %s (phase %q)\n", role, myDero, deroNet, ci.Chain, statePath, st.Phase)
+	for ctx.Err() == nil {
+		if err := lock.touch(); err != nil {
+			log.Fatalf("the lock file %s: %v", lock.path, err)
+		}
+		before := sw.Phase()
+		done, err := sw.Step(ctx)
+		if err != nil && ctx.Err() == nil {
+			log.Printf("%v", err)
+		}
+		if done {
+			fmt.Printf("%s: %s\n", role, st.Outcome)
+			return
+		}
+		if sw.Phase() == before {
+			select {
+			case <-ctx.Done():
+			case <-time.After(*interval):
+			}
+		}
+	}
+	info := zecswap.Phases(role)[sw.Phase()]
+	fmt.Printf("%s: stopped in phase %s; run the same command to resume. If it stays stopped: %s\n", role, sw.Phase(), info.IfStopped)
+}
+
+func status(args []string) {
+	fs := flag.NewFlagSet("zecswap status", flag.ExitOnError)
+	var n nodeFlags
+	addNodeFlags(fs, &n)
+	fs.Parse(args)
+	if len(n.daemons) == 0 {
+		log.Fatal("-daemon is required")
+	}
+	ctx := context.Background()
+	zsrc, _ := zcashSources(&n)
+	for _, w := range zecswap.TrustWarnings(n.zcash, n.daemons) {
+		fmt.Println(w)
+	}
+	files, err := zecswap.StateFiles(*n.dir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			fmt.Printf("%s: %v\n", f, err)
+			continue
+		}
+		st, err := zecswap.ParseState(b)
+		if err != nil {
+			fmt.Printf("%s: not a zecswap state (%v)\n", f, err)
+			continue
+		}
+		st, err = zecswap.LoadState(f, st.Role)
+		if err != nil {
+			fmt.Printf("%s: %v\n", f, err)
+			continue
+		}
+		var dsrc []zecswap.DeroSource
+		for _, d := range n.daemons {
+			dsrc = append(dsrc, zecswap.DeroSource{Name: d, Node: zecswap.NewDeroRPC(d, "", st.Board, st.Escrow)})
+		}
+		for _, line := range zecswap.Status(ctx, st, zsrc, dsrc) {
+			fmt.Println(line)
+		}
+	}
+}
+
+// readSecret reads a secret from a file, or from stdin for "-" — never from the command line, where the process
+// list and the shell history would show it (GAP-029).
+func readSecret(path string, stdin io.Reader) (string, error) {
+	var b []byte
+	var err error
+	if path == "-" {
+		line, rerr := bufio.NewReader(io.LimitReader(stdin, 1024)).ReadString('\n')
+		if rerr != nil && rerr != io.EOF {
+			return "", rerr
+		}
+		b = []byte(line)
+	} else if b, err = os.ReadFile(path); err != nil {
+		return "", err
+	}
+	s := strings.TrimSpace(string(b))
+	if _, err := zecswap.ParseSecret(s); err != nil {
+		return "", err
+	}
+	return s, nil
+}
+
+// ---- the node-free commands ----
+
+func script(args []string, stdin io.Reader) {
 	fs := flag.NewFlagSet("script", flag.ExitOnError)
 	hashHex := fs.String("hash", "", "the board's h_<id>: SHA256 of the maker's 32-byte secret, 64 lower-case hex")
-	secretHex := fs.String("secret", "", "the maker's own secret, 64 lower-case hex (32 bytes); the hash is derived from it. Use instead of -hash")
+	secretFile := fs.String("secret-file", "", "a file holding the maker's own secret as 64 lower-case hex (32 bytes), or - for stdin; the hash is derived from it. Use instead of -hash")
 	claim := fs.String("claim", "", "the maker's transparent address (the offer's wantAddr) or its 40-hex key hash")
 	refund := fs.String("refund", "", "the taker's transparent address or its 40-hex key hash (the accept's refundPkh)")
 	cltv := fs.Uint("cltv", 0, "the Zcash height after which the taker may refund (the accept's cltv)")
@@ -53,13 +410,12 @@ func script(args []string) {
 	fs.Parse(args)
 	var h zecswap.HTLC
 	switch {
-	case (*hashHex == "") == (*secretHex == ""):
-		must(fmt.Errorf("give exactly one of them"), "-hash/-secret")
-	case *secretHex != "":
-		// The secret's length is not cosmetic: contracts/swap.bas Claim takes 32 bytes and nothing else, so a
-		// secret of any other length opens the Zcash leg and never the DERO one.
-		s, err := zecswap.ParseSecret(*secretHex)
-		must(err, "-secret")
+	case (*hashHex == "") == (*secretFile == ""):
+		must(errors.New("give exactly one of them"), "-hash/-secret-file")
+	case *secretFile != "":
+		str, err := readSecret(*secretFile, stdin)
+		must(err, "-secret-file")
+		s, _ := zecswap.ParseSecret(str)
 		h.Hash = sha256.Sum256(s[:])
 		fmt.Printf("hash          %x (SHA256 of the secret; this is what Post and Lock carry)\n", h.Hash[:])
 	default:
@@ -70,7 +426,7 @@ func script(args []string) {
 	must(keyHash(&h.ClaimPkh, *claim), "-claim")
 	must(keyHash(&h.RefundPkh, *refund), "-refund")
 	if *cltv > 0xffffffff || *tip > 0xffffffff {
-		must(fmt.Errorf("a Zcash height is a uint32"), "-cltv/-tip")
+		must(errors.New("a Zcash height is a uint32"), "-cltv/-tip")
 	}
 	if *tip == 0 {
 		must(zecswap.CheckCLTVHeight(uint32(*cltv)), "-cltv")
@@ -84,7 +440,7 @@ func script(args []string) {
 	case "mainnet":
 		net = zecswap.Mainnet
 	default:
-		must(fmt.Errorf("testnet or mainnet"), "-net")
+		must(errors.New("testnet or mainnet"), "-net")
 	}
 	fmt.Printf("redeem script %x (%d bytes)\nscriptPubKey  %x\naddress       %s (%s)\nnLockTime     %d (the refund transaction's, at least)\n",
 		h.RedeemScript(), len(h.RedeemScript()), h.ScriptPubKey(), h.Address(net), net, h.CLTV)
@@ -94,7 +450,12 @@ func script(args []string) {
 // the script pays a key, not another script.
 func keyHash(dst *[20]byte, s string) error {
 	if len(s) == 40 {
-		return decodeInto(dst[:], s)
+		b, err := hex.DecodeString(s)
+		if err != nil {
+			return err
+		}
+		copy(dst[:], b)
+		return nil
 	}
 	_, kind, hash, err := zecswap.ParseAddress(s)
 	if err != nil {
@@ -107,18 +468,6 @@ func keyHash(dst *[20]byte, s string) error {
 	return nil
 }
 
-func decodeInto(dst []byte, s string) error {
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		return err
-	}
-	if len(b) != len(dst) {
-		return fmt.Errorf("%d bytes, want %d", len(b), len(dst))
-	}
-	copy(dst, b)
-	return nil
-}
-
 func must(err error, what string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", what, err)
@@ -127,6 +476,56 @@ func must(err error, what string) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "zecswap script {-hash H|-secret S} -claim <t-addr|pkh> -refund <t-addr|pkh> -cltv N -tip <Zcash height> [-net testnet|mainnet]\nzecswap address <t-addr>")
+	fmt.Fprintln(os.Stderr, `zecswap maker  -network N -key K -zcash URL -daemon H:P -wallet H:P -board SCID -escrow SCID {-give-amount N [-give-asset SCID] -want-zat N | -offer ID -secret-file F} [-dir D] [-state S] [-payout T]
+zecswap taker  -network N -key K -zcash URL -daemon H:P -wallet H:P -board SCID -escrow SCID -offer ID [-dir D] [-state S] [-refund-file F] [-payout T]
+zecswap status -zcash URL -daemon H:P [-dir D]
+zecswap script {-hash H|-secret-file F} -claim <t-addr|pkh> -refund <t-addr|pkh> -cltv N -tip <Zcash height> [-net testnet|mainnet]
+zecswap address <t-addr>
+-network is mainnet, testnet or regtest and has no default; -zcash and -daemon repeat; every node named is a trusted party.
+The DERO wallet's login comes from VEIL_RPC_LOGIN (user:password).`)
 	os.Exit(2)
 }
+
+// ---- one companion per state file ----
+
+// stateLock keeps two companions off one state file: a second process would repeat the first one's broadcasts
+// and calls. The file's modification time is the heartbeat; only a file that has stood still for stale belonged
+// to a process that died without cleaning up.
+type stateLock struct {
+	path  string
+	stale time.Duration
+}
+
+func staleAfter(interval time.Duration) time.Duration {
+	d := 10 * interval
+	if d < time.Minute {
+		d = time.Minute
+	}
+	return d
+}
+
+func (l *stateLock) take() error {
+	f, err := os.OpenFile(l.path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		fi, serr := os.Stat(l.path)
+		if serr != nil {
+			return err
+		}
+		if age := time.Since(fi.ModTime()); age < l.stale {
+			return fmt.Errorf("%s was touched %s ago: another companion is running on this state", l.path, age.Round(time.Second))
+		}
+		f, err = os.OpenFile(l.path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+		if err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(f, "%d\n", os.Getpid())
+	return f.Close()
+}
+
+func (l *stateLock) touch() error {
+	now := time.Now()
+	return os.Chtimes(l.path, now, now)
+}
+
+func (l *stateLock) release() { os.Remove(l.path) }

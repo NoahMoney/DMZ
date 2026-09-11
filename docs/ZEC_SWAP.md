@@ -72,11 +72,11 @@ blocks (§5).
 | # | who | where | what |
 |---|---|---|---|
 | 1 | maker | `board.bas` `Post(chain, giveAsset, giveAmount, wantAmount, wantAddr, hash, expiry)` | `chain = "zcash-t"`; `giveAsset` empty for DERO or a 64-hex SCID (a token, or a wrapped asset); `wantAmount` in zatoshi; `wantAddr` the maker's transparent P2PKH address, whose key hash is the script's claim key; `hash = H`; `expiry` the height after which the offer dies by itself. Ring 2; the signer is the maker. Nothing is locked yet. |
-| 2 | taker | `board.bas` `Accept(id, refundPkh, cltv)` | Binds the offer to the signer (the DERO address that will receive the escrow) and publishes the two things the maker needs to compute the Zcash script: the taker's refund key hash and the absolute Zcash height after which the taker may refund. `cltv` must lie inside policy relative to the current Zcash height, or the maker will not lock (§5). One `Accept` per offer; the maker can `Cancel` only before it. |
-| 3 | maker | `swap.bas` `Lock(H, taker, T_dero, giveAsset)` with the asset attached | Within `P_lock` DERO blocks of the accept. `taker` is the accepting address; `T_dero` per policy. The maker's companion refuses to lock unless `cltv` and `T_dero` satisfy the margin in §5. |
+| 2 | taker | `board.bas` `Accept(id, refundPkh, cltv)` | Binds the offer to the signer (the DERO address that will receive the escrow) and publishes the two things the maker needs to compute the Zcash script: the taker's refund key hash and the absolute Zcash height after which the taker may refund. `cltv` must lie inside policy relative to the current Zcash height, or the maker will not lock (§5); the board itself refuses a `cltv` of 500,000,000 or more, which a Zcash script reads as a Unix time. v3 stores the acceptance deadline `ad_<id>`, the accept height + `aw` (200 blocks, `P_lock`). One `Accept` per offer; the maker can `Cancel` before it, and after it from `ad_<id>` or the offer's expiry, whichever comes first. |
+| 3 | maker | `swap.bas` `Lock(H, taker, T_dero, giveAsset)` with the asset attached | Before the board's `ad_<id>`, `P_lock` DERO blocks after the accept. `taker` is the accepting address — required: `swap.bas` refuses a lock that names none — and must be registered on DERO (a Claim's transfer to an unregistered one is refused and reverted: nothing is lost, and nothing is paid until she registers); `T_dero` per policy, and `swap.bas` refuses one fewer than its `wmin` blocks ahead. The maker's companion refuses to lock unless `cltv` and `T_dero` satisfy the margin in §5; the taker's funds nothing against a lock mined at or after `ad_<id>`. |
 | 4 | taker | Zcash | Waits until the DERO lock is `STABLE_LIMIT` = 8 blocks deep (DERO can replace a shallower block), checks every field — `H`, the taker address, `T_dero`, the asset and amount against the offer — then funds the P2SH script `IF SIZE <32> EQUALVERIFY SHA256 <H> EQUALVERIFY DUP HASH160 <makerPkh> EQUALVERIFY CHECKSIG ELSE <cltv> CHECKLOCKTIMEVERIFY DROP DUP HASH160 <refundPkh> EQUALVERIFY CHECKSIG ENDIF` (98 bytes) with exactly `wantAmount`. The maker can compute this script and its address from `Post` and `Accept` alone, so no message is needed. |
 | 5 | maker | Zcash | Watches the script's address. When the funding output has `C_zec` confirmations (§5) and at least `wantAmount`, claims it with `s` before `cltv`. **`s` is now public on Zcash.** |
-| 6 | taker | `swap.bas` `Claim(id, s)` | Reads `s` from the maker's claim transaction, claims the escrow before `T_dero`. Ring 2; the signer must be the taker `Lock` named. The contract stores `s` as `x_<id>`, so it is public on DERO too. |
+| 6 | anyone | `swap.bas` `Claim(id, s)` | Reads `s` from the maker's claim transaction and sends the Claim before `T_dero`. Ring 2, no value attached. v2 pays the taker `Lock` named whoever signs it, so the maker's companion can send it straight after its Zcash claim (`docs/ATOMIC_SWAP_STUDY.md` §2.2, Z-C), and so can the taker, her second device or anyone who reads `s`: the sender pays the fee and receives nothing. The contract stores `s` as `x_<id>`, so it is public on DERO too. |
 
 "Checks every field" is four equalities and a bound, and the companion performs each of them; a taker who
 skips one funds a script that cannot pay it back.
@@ -102,30 +102,79 @@ Exits:
   refunds after `T_dero`. Nobody loses coins; both lose time.
 - **The bad exit, prevented by policy**: the maker claims ZEC late and the taker cannot claim DERO before
   `T_dero`. Then the maker has both. §5 makes `T_dero` far enough past `cltv` that a maker who claimed at the
-  last possible Zcash block still leaves the taker hours on DERO.
+  last possible Zcash block still leaves the taker hours on DERO, and with `swap.bas` v2 they need not be her
+  own: anyone who reads `s` can send her Claim, and it pays only her (Z19).
 
 ## 4. The contracts
 
-**`swap.bas` is used as built.** `Lock(hash, taker, expiry, asset)` with the value attached (DERO, or one asset
-with no stray DERO — line 36 refuses both at once); `Claim(id, secret)` requires exactly 64 hex characters that
-decode to 32 bytes and hash to `H`, before `expiry`, by the named taker; `Refund(id)` by the locker at or after
-`expiry`. Every send is the last thing the call does (`tests/sendorder_test.go`). Expiry is bounded to one
-million blocks. The secret is stored on claim, which is what lets a *DERO* watcher recover it — not needed in
-this direction, but it is why the same contract serves a swap whose secret is revealed on DERO first.
+**`swap.bas` v2** (2026-09-11, `tests/swap_v2_test.go` and `tests/swap_gaps_test.go`, exercised by `tools/simswap`).
 
-**`board.bas` v2** (written 2026-09-10, `tests/board_test.go`, exercised by `tools/simswap -board`):
+- `Initialize(wmin)` fixes the minimum escrow width at install and stores it as `wmin`: 1,600 blocks for this
+  market (`T_dero`, §5), 20 on the simulator (Z-D, GAP-025). The install fails closed: the DVM refuses an
+  Initialize missing the argument (`vendor/derohe/dvm/sc.go:232-234`), line 6 refuses 0 and any width past the
+  million-block expiry ceiling, and a refused Initialize installs nothing
+  (`vendor/derohe/blockchain/transaction_execute.go:400-406` returns before the state is committed).
+- `Lock(hash, taker, expiry, asset)` with the value attached (DERO, or one asset with no stray DERO — line 36
+  refuses both at once). It must name its taker (GAP-024, as `htlc.bas` does), and its expiry must lie at least
+  `wmin` and at most a million blocks ahead (line 24).
+- `Claim(id, secret)` requires exactly 64 hex characters that decode to 32 bytes and hash to `H`, before `expiry`,
+  from a ring-2 signer, and pays the taker `Lock` named, whoever sends it (Z-C). v1 paid only the named taker's own
+  Claim, so a taker who was away when a late maker claim revealed `s` lost her DERO leg to the Refund; v2 lets
+  anyone complete it for her (`docs/ATOMIC_SWAP_STUDY.md` §2.2). It does nothing against Z17, where `s` is
+  revealed only after the maker has refunded.
+- `Refund(id)` by the locker at or after `expiry`.
+- Both exits refuse DERO attached and, since v2, the lock's own asset attached, which would otherwise stay in the
+  contract for ever (GAP-027). An asset the lock does not name cannot be seen: the DVM reads `ASSETVALUE` only for
+  an asset it is named.
+- Lock, Claim and Refund keep v1's arguments and keys; `v` is 2, and `wmin` is new. The named taker must be
+  registered on DERO, or every Claim is refused and reverted until she is; the contract cannot test registration
+  without paying for it, so the maker's companion checks it before locking. Every send is the last thing the call
+  does (`tests/sendorder_test.go`). The secret is stored on claim, which is what lets a *DERO* watcher recover it —
+  not needed in this direction, but it is why the same contract serves a swap whose secret is revealed on DERO first.
+  2,767 canonical bytes; 2,813 storage gas to install with `wmin` = 3, 2,816 with 1,600.
+
+**`wmin` belongs to a deployment, not to its code.** The same code installed with a smaller `wmin` has the same code
+hash, so pinning the code does not pin the width. The taker's companion reads `wmin` from the contract and refuses a
+`swap.bas` whose `wmin` is below its own policy (1,600 here) in the same step as it checks the code, and the app
+shows it beside the SCID.
+
+**`board.bas` v3** (2026-09-11, `tests/board_test.go` and `tests/board_v3_test.go`, exercised by
+`tools/simswap -board`). v2, written 2026-09-10:
 
 - `Post` gains `hash` (64 hex, stored as `h_<id>`); the secret is the maker's.
 - `Accept(id, refundPkh, cltv)` replaces `Accept(id, hash, lockRef)`: `refundPkh` twenty bytes as 40 hex,
   `cltv` a `Uint64` above zero, both stored; the signer is stored as the taker. The offer moves to state 1.
 - `Cancel`: the maker, at any time while the offer is open, and once it has expired whatever its state — so an
   accepted offer that went nowhere (v1 had no exit from `st_<id> = 1`) is closed by the maker without anyone
-  else, and a cancelled offer cannot be cancelled again. 2,106 canonical bytes, 2,144 storage gas.
-- Nothing on the board holds value, so nothing on the board can be drained. It is a bulletin, with signatures.
+  else, and a cancelled offer cannot be cancelled again.
+
+v3 keeps every entrypoint, argument and key of v2, and adds:
+
+- `aw` = 200, stored at install: the acceptance window, §5's `P_lock` (assumed, as every number there is until
+  BL-30). It is written into the code, not taken at install, because the DVM refuses a call missing a declared
+  argument and a window a deployer could leave out would fail open.
+- `Accept` stores `ad_<id>` = its height + `aw`, the height by which the maker must have locked. The taker's
+  companion funds nothing against a lock mined at or after it, and the app shows the accept dead from it — read
+  from the chain, not from anyone's word.
+- `Cancel` of an accepted offer from `ad_<id>` or `e_<id>`, whichever comes first. One `Accept` from anyone, which
+  need never fund, therefore holds an offer for at most `aw` blocks (about an hour), not until its expiry, up to a
+  million blocks out (ADV-PRICE-07). The deadline does not reopen the row to another taker: a maker who locked in
+  time named the first one, and a second `Accept` would overwrite the key hash and `cltv` his script was built
+  from. He cancels and posts again, under a new `H` (Z8).
+- `Accept` refuses `cltv` ≥ 500,000,000: a transparent script reads that as a Unix time, every one of them already
+  past, so the taker could refund at once (ZEC-3). Whether `cltv` sits inside §5's window of the Zcash tip only
+  the companions can tell; the DVM cannot see Zcash.
+- Every call refuses the offer's give asset attached, as it already refused DERO (GAP-027): Post line 29, Accept
+  line 28, Cancel line 25. An asset the offer does not name cannot be seen — the DVM has no builtin that lists what
+  a call carries — so nothing should be attached to a board call.
+- `v` is 3. 2,611 canonical bytes, 2,652 storage gas.
+- Nothing on the board holds value, so nothing on the board can be drained. It is a bulletin, with signatures. A
+  swap whose DERO leg was locked in time goes on in `swap.bas` whatever its row says, so the app reads the escrow,
+  not `st_<id>`, for a swap in progress.
 
 **Why not `htlc.bas`?** The Monero escrow has a third exit (`Punish`) because Monero cannot hash-lock and the
 gate secret has to be enforced by a penalty. Zcash's transparent side hash-locks natively, so the classic two-exit
-escrow is complete, and `swap.bas` is 3.5 KB against `htlc.bas`'s 5.8 KB of raw source.
+escrow is complete, and `swap.bas` is the smaller contract of the two.
 
 ## 5. Timelocks and confirmations — the numbers and where they come from
 
@@ -135,16 +184,17 @@ escrow is complete, and `swap.bas` is 3.5 KB against `htlc.bas`'s 5.8 KB of raw 
 | Zcash block | 75 s | mainnet target since Blossom |
 | `STABLE_LIMIT` (DERO) | 8 blocks | DERO may replace a shallower block; the taker locks ZEC only against a lock this deep |
 | `C_zec` | 10 confirmations (12.5 min) | the maker claims only a funding this deep; Zcash has no finality rule, and ten is the common exchange policy |
-| `T_dero − lock height` | 1,600 blocks (8 h) | the maker's exposure if the taker walks (§6); long enough to contain the whole Zcash leg plus the taker's DERO claim |
+| `T_dero − lock height` | 1,600 blocks (8 h) | the maker's exposure if the taker walks (§6); long enough to contain the whole Zcash leg plus the taker's DERO claim. `swap.bas` v2 refuses a lock narrower than its `wmin`, which a deployment for this market sets to 1,600 |
 | `cltv − Zcash height at lock` | 96 blocks (2 h) | the maker's window to claim; short, so a maker who walks costs the taker two hours, not eight |
 | taker's precondition to lock ZEC | `T_dero − now ≥ 1,200` DERO blocks (6 h) | so that after a claim at the last Zcash block (≤ 2 h + reorg slack) the taker still has ≥ 3.5 h on DERO |
-| `P_lock` | 200 DERO blocks (1 h) after `Accept` | the maker's deadline to lock; after it the taker treats the accept as dead and moves on |
+| `P_lock` | 200 DERO blocks (1 h) after `Accept` | the maker's deadline to lock. `board.bas` v3 carries it: `aw` = 200, and each accept's `ad_<id>` = the accept height + `aw`. From it the maker may cancel the row, and the taker's companion funds nothing against a lock mined at or after it |
 | secret | 32 bytes | `swap.bas` line 25–27 refuses any other length, and the redeem script says the same in `SIZE <32> EQUALVERIFY`, so the two legs accept the same set of secrets and the companion is not the only guard |
 | `cltv` tolerance | ± 32 blocks (40 min) around the 96 | the two parties read the tip at different moments and the accept is written before the lock. Below 64 blocks there is no window at all — the maker still needs `C_zec` = 10 confirmations (12.5 min) and time to broadcast; above 128 blocks the taker’s precondition `T_dero − now ≥ 1,200` stops holding. `zecswap.CheckCLTV` enforces it; nothing on DERO can, because the DVM cannot see the Zcash height |
 
 The margins are argued from block times, as the Monero swap's are. Measuring them against real reorg statistics
 on both chains is BL-30, and the numbers above are simulator policy until then. On the simulator the driver uses
-short values (`tools/simswap`: expiry a handful of blocks) to exercise the exits in minutes.
+short values (`tools/simswap`: `wmin` = 20 and expiries a few blocks past it) to exercise the exits in minutes, and
+the board's real `aw` = 200, so its acceptance deadline takes an hour.
 
 ## 6. The free option, and what is done about it
 
@@ -180,8 +230,7 @@ the app sends through the wallet (XSWD), exactly like a trade. The app can read 
 from the two contracts.
 
 **The Zcash leg needs a companion**, because no consumer Zcash wallet builds or spends a P2SH hash-time-locked
-script. `tools/zecswap` (to be built, BL-42's sibling): one binary, no host, run by the party on the Zcash side
-of each step:
+script. `tools/zecswap`: one binary, no host, run by the party on the Zcash side of each step:
 
 - for the taker: computes the script and address from the offer and the accept, verifies the DERO lock through
   a DERO node RPC of the taker's choosing (the same read the app makes), funds the script from a transparent
@@ -191,11 +240,44 @@ of each step:
 - for the maker: watches the script address, counts confirmations, claims with `s`, and refunds the DERO
   escrow after `T_dero` if it comes to that.
 
-It talks to Zcash through **`zcashd`/`zebrad` RPC on the user's own machine**, or through a light-client
-protocol — which trusts the `lightwalletd` server it connects to for what the chain contains. That server is a
-trusted party for liveness and for what it shows; the companion's `status` names it, and the default is a node
-the user runs. Keys stay in the user's Zcash wallet and DERO wallet; the companion signs the script spend with a
-key the user gives it for that purpose only, and the docs say so in those words.
+**The Zcash node.**
+- It talks to Zcash through node JSON-RPC, and through nothing else:
+  - **`zebrad`** first, with its RPC enabled;
+  - `zcashd` only with `txindex=1`, `experimentalfeatures=1`, `insightexplorer=1` and a reindex. zcashd is past its end
+    of support (2026-07-18), will not follow NU6.3, and is untested here;
+  - not `lightwalletd`: it speaks gRPC, which would need a new dependency, and it would be just as much a trusted party
+    (`tools/zecswap/node.go:23-29`).
+- It uses exactly seven methods (`node.go:34-64`): `getblockchaininfo`, `getblockhash`, `getaddressutxos`,
+  `getaddresstxids`, `getrawtransaction` (verbose), `sendrawtransaction` and `gettxout`.
+- All seven were exercised against zebrad 6.3.0 on regtest (`tools/regtest/README.md`,
+  `research/regtest/zecswap-e2e.log`).
+
+**The flags.**
+- `-network` is required and has no default. Only `-network regtest` reaches regtest, and only for a node whose block 0
+  is regtest's genesis.
+- `-zcash` may be repeated, with `-zcash-cookie` or `-zcash-user`/`-zcash-pass`.
+- `-daemon` (DERO) may be repeated.
+- `-wallet` takes its login from `VEIL_RPC_LOGIN`, or from `-dero-login`, which is refused on mainnet. On mainnet a
+  wallet that answers without credentials is refused.
+
+**Every node named is a trusted party**, the local one included, and above all a remote one. It is trusted for everything
+the companion knows about that chain: the height, the outputs paying the script, how deep they are, the transactions
+that spend them. One that colludes with the counterparty costs its reader a whole leg (Z14, Z15). Extra nodes are
+witnesses that must all agree before the maker reveals `s` and before the taker funds (`quorum.go`). They turn "one
+liar" into "every source colludes" and never remove the trust. A node on the user's own machine is the default.
+
+**What it checks and writes.**
+- It builds v5 or v6 transactions (ZIP 225, ZIP 229) and reads versions 1–6. It stops on any transaction at the script
+  address that it cannot read, and it refuses to credit a Sapling-bearing funding.
+- On every DERO node it checks the code pins of `board.bas` v3 and `swap.bas` v2 (`pin.go`), the escrow's `wmin` against
+  its own policy, and the taker's registration.
+- The maker's companion sends the taker's DERO Claim once its own Zcash claim is deep: swap v2 pays the named taker
+  whoever sends it.
+- The maker's secret is read from a file or stdin, never from the command line.
+- It lists every file it writes, in a directory outside any repository by default: the state, its lock, the
+  pre-signed refund, and the used-hash and consumed-funding registers.
+- Keys stay in the user's Zcash wallet and DERO wallet. The companion signs the script spend with a key the user gives
+  it for that purpose only, and the docs say so in those words.
 
 The Monero companion's crash-fuzz discipline applies: durable state before every irreversible step, a `status`
 command that says what happens if it stops now, a `resume` that reads both chains and continues.
@@ -212,7 +294,9 @@ provided, with the answer to "what does this provide that a smaller primitive ca
   (`tools/zecswap/blake2.go`, a hundred lines) because `golang.org/x/crypto/blake2b` cannot set the parameter
   block. A hash has no secret and no timing surface, so no library is needed; it is pinned by RFC 7693's vector
   and by every ZIP 244 vector the package can read.
-- **ZIP 244 digests and ZIP 225 serialization** for v5 transactions: transparent parts built and read, an
+- **ZIP 244 digests, ZIP 225 serialization for v5, and ZIP 229 for v6.** The v6 digests were added on
+  2026-09-11 and checked against real zebrad 6.3.0 transactions, with no new dependency. Current Zcash wallets
+  build v6 by default under NU6.3, so a claim that reveals `s` may be either. For v5: transparent parts built and read, an
   Orchard bundle read (a maker's wallet may add Orchard change to the claim that reveals the secret) but never
   built, a Sapling bundle refused by name. The transaction id and the SIGHASH_ALL digest match Zcash's own test
   vectors (`tools/zecswap/testdata/zip_0244.json`, four transactions with transparent inputs and Orchard
@@ -233,7 +317,8 @@ provided, with the answer to "what does this provide that a smaller primitive ca
 ## 8. The screen
 
 - **Market list** — the board, read from `board.bas`: for each open offer the asset, the amount, the price in
-  ZEC per unit, the maker's completed and abandoned counts, and time left. ZEC first: the tab reads *"Buy with
+  ZEC per unit, the maker's completed and abandoned counts, and time left. An accepted offer past its `ad_<id>` with no
+  lock under its `h_<id>` in `swap.bas` is shown dead from that block. ZEC first: the tab reads *"Buy with
   ZEC"* and *"Sell for ZEC"*, with DERO shown only where it is the asset offered.
 - **The privacy statement** (§1) on the accept screen and the post screen, above the fields, every time.
 - **Accept** — the taker enters a transparent refund address (the app derives the key hash, refuses shielded
@@ -248,7 +333,9 @@ provided, with the answer to "what does this provide that a smaller primitive ca
   holder, and the screen says that a lost secret means a refund after eight hours, not a loss.
 - **Swap page** — `#zswap/<board id>`: the state of both legs as the app can read them (the DERO leg live; the
   Zcash leg from the companion when connected, otherwise "not visible from here"), the next action for the
-  visitor's role, and every deadline as a wall-clock time with the block it comes from.
+  visitor's role — once `s` is public and the lock names a taker, *Claim for the taker* is an action for any
+  visitor, and it pays her, not them — and every deadline (`ad_<id>`, `cltv`, `T_dero`) as a wall-clock time with
+  the block it comes from.
 - Nothing in the browser holds a key. The maker's secret is the one new thing the browser generates, and it is
   handed to the companion, not stored.
 
@@ -257,7 +344,7 @@ provided, with the answer to "what does this provide that a smaller primitive ca
 | # | attack or failure | what happens | who bears it |
 |---|---|---|---|
 | Z1 | Taker accepts, never locks ZEC | maker refunds at `T_dero` | maker: 8 h of capital + two fees |
-| Z2 | Maker never locks after accept | taker waits `P_lock`, walks; the accept row is dead | taker: one fee, an hour |
+| Z2 | Maker never locks after accept | the accept is dead at the board's `ad_<id>` (the accept height + `aw` = 200); the taker's companion funds nothing against a later lock, and from then the maker may cancel the row | taker: one fee, an hour |
 | Z3 | Taker locks the wrong amount or a script with a wrong `H`, key or `cltv` | the maker's companion refuses to claim; both refund | both: time |
 | Z4 | Maker claims ZEC at the last block before `cltv` | a race, not a safe exit: from `cltv` the taker's refund can spend the same output, and the maker's claim has already put `s` in a public mempool. If her refund is mined first she holds her ZEC and `s`, and claims the DERO as well | the maker, who loses both legs; the companion must claim well before `cltv` (`docs/ATOMIC_SWAP_STUDY.md` §2.2) |
 | Z5 | Zcash reorg removes the funding after the maker's claim | the claim is removed with it; `s` is already public; the taker refunds ZEC after `cltv` and claims DERO with `s` | maker: both assets gone. Prevented by `C_zec` = 10 before claiming |
@@ -266,24 +353,35 @@ provided, with the answer to "what does this provide that a smaller primitive ca
 | Z8 | Same `H` reused across offers | the second taker to fund could be claimed with the first's `s`; the companion generates `s` per offer and refuses a reused `H` (the board can index `h_<id>`) | prevented |
 | Z9 | The taker funds with a transaction whose input is not final (`nSequence` max) or with `nLockTime` below `cltv` | the refund branch's `CHECKLOCKTIMEVERIFY` fails for a final input; the PoC's fifth and sixth cases | taker cannot refund early — which is the design |
 | Z10 | Fee attack: the maker's claim cannot pay a fee because the funding is dust-sized | the maker checks `wantAmount` against the fee floor before posting; the companion refuses to fund below it | prevented |
-| Z11 | Front-running `Claim` on DERO: someone sees `s` on Zcash and claims the escrow first | `Claim` requires the signer to be the named taker (line 30) | prevented |
+| Z11 | Front-running `Claim` on DERO: someone sees `s` on Zcash and sends the escrow's Claim first | v2 pays the taker `Lock` named whoever sends the call (Claim line 29), and `st_<id>` stops a second payout; the front-runner pays a fee to complete her leg | nobody; it is how a relayer helps (Z19) |
 | Z12 | Front-running the maker's Zcash claim | the script pays only the maker's key hash; knowing `s` is not enough | prevented |
 | Z13 | Linkability | §1: the pairs of addresses are joined by `H` and `s` on two public chains | everyone in the swap, forever; disclosed |
-| Z14 | The taker's DERO node lies about the lock | the taker locks ZEC against a lock that is not there; refunds after `cltv` | taker: 2 h. The node is a trusted party for that read; the app names it |
-| Z15 | The maker's `lightwalletd` lies about the funding | the maker claims a funding that is not there: the claim fails, nothing is revealed; or the maker misses a real one and the taker refunds | time only; the server is named as trusted |
+| Z14 | The taker's DERO node lies about the lock | she funds the script against a `swap.bas` lock that does not exist. A node that is merely wrong costs her a refund after `cltv`. A node that colludes with the maker lets him claim the ZEC with `s` before `cltv`, and her DERO Claim finds no lock | taker: 2 h if the node is merely wrong; **the whole ZEC leg** if it is the maker's accomplice (`docs/CROSS_CHAIN_TRUST_MODEL.md` §5). The node is a trusted party for that read, and the app names it |
+| Z15 | The maker's Zcash node lies about the funding | it shows a funding that does not exist, at full depth; the maker claims it, broadcasting the claim through that node, which reveals `s` to it. A node that is merely wrong costs a failed claim. A node that colludes with the taker hands her `s`, and `swap.bas` v2 Claim pays the stored taker whoever sends it: she takes the DERO leg without ever having funded. Or the node hides a real funding, and the taker refunds | maker: time if the node is merely wrong; **the DERO-side asset** if it is the taker's accomplice (`docs/CROSS_CHAIN_TRUST_MODEL.md` §5). The node is a trusted party for that read, and the companion names it (`tools/zecswap/node.go:23-29`) |
 | Z16 | Liveness: the maker's companion is off when the funding confirms | the taker refunds after `cltv`; the maker's escrow refunds after `T_dero` | both: time. The companion's `status` says how long it may sleep |
 | Z17 | The taker cannot broadcast a refund at `cltv` — offline, a crashed watcher, a signature under a branch id the chain has left behind | the claim branch of the redeem script carries no timelock, so it never expires. After `T_dero` the maker has refunded the DERO and can still spend the ZEC with `s`, at any later moment | taker: the whole ZEC leg. The margin is the six hours between `cltv` (2 h) and `T_dero` (8 h); the refund must be attempted at `cltv` and retried until it confirms |
+| Z18 | Any address accepts an offer it will never fund (ADV-PRICE-07) | board v3: the row is held until `ad_<id>`, then the maker cancels and posts again under a new `H`; v2 held it until the offer's expiry, up to a million blocks | maker: an hour per griefing `Accept`, which costs the griefer one fee; nobody's coins. A bond that would cost the griefer more is an operator decision (D-7, BL-45) |
+| Z19 | The maker claims ZEC late, revealing `s` shortly before `T_dero`, while the taker is away | swap v2: anyone who reads `s` — the maker's companion, her second device, a relayer — sends her Claim before `T_dero`, and it pays only her. v1 needed the taker herself; after `T_dero` the maker refunded and held both | taker: nothing, if anyone sends the Claim before `T_dero`. Z17 is the case v2 does not reach |
+
+Z14 and Z15 cost only time when the lying source is not the counterparty's accomplice, and a whole leg when it is.
+What reduces that, strongest first: each party's own nodes, which is the companions' default; reads from several
+independent nodes that must all agree before the step each side's safety rests on, which `zecswap` does (MT-C10;
+`tools/zecswap/quorum.go`) and which turn "one liar" into "every source colludes" without removing
+the trust; and checking Equihash and the Merkle path in the client before revealing `s` or funding, which is not
+built. A single remote node is disclosed as able to cause a loss that nothing in the protocol can detect.
 
 ## 10. Trust statement
 
 - **Trustless in what it settles**: no party can end with both assets while the other ends with neither,
-  given the policy margins of §5 and the confirmation waits of Z5/Z6. That is the whole of the claim.
+  given the policy margins of §5, the confirmation waits of Z5/Z6, and each party's honest view of both chains
+  (Z14, Z15). That is the whole of the claim.
 - **Not costless**: the free option on the maker (§6), the timelock on both sides' capital, and two chains'
   fees.
 - **Not private**: §1, in full, on the Zcash side; ring size 2 on the DERO side for every call that must know
   its signer.
-- **Trusted parties, named**: the DERO node each party reads (for what the chain contains); the Zcash node or
-  `lightwalletd` each party reads (the same); nothing else. No DMZ server, signer, relay or operator is in the
+- **Trusted parties, named**: the DERO node each party reads and the Zcash node (`zebrad` or `zcashd`) each party
+  reads, for what the two chains contain. A node that colludes with the counterparty costs its reader a whole leg,
+  not time (Z14, Z15; `docs/CROSS_CHAIN_TRUST_MODEL.md` §5). Nothing else. No DMZ server, signer, relay or operator is in the
   path, and nothing needs one to finish: every state has a timelocked exit.
 
 ## 11. What is built, what is not
@@ -296,8 +394,34 @@ in the HISTORY entry).
 Built 2026-09-10: `board.bas` v2 (§4) with its DVM test and the driver's board scenario; the script layer of
 `tools/zecswap` (§7) — the redeem script, its P2SH address on both networks, transparent-address parsing that
 refuses shielded forms with the reason, the two spend layouts — tested byte for byte against the PoC's vector.
-Not built: the rest of `tools/zecswap` (the watcher against a node, the funding and spending transactions); the Zcash testnet run (BL-42); the screens (§8); the
-measurement behind §5 (BL-30). In that order, each its own cycle, each verified before the next.
+Built 2026-09-11: `swap.bas` v2 and `board.bas` v3 (§4) with their DVM tests (`tests/swap_v2_test.go`,
+`tests/swap_gaps_test.go`, `tests/board_v3_test.go`, and the updated swap, board, reentry, market and conservation
+tests), and the driver's scenarios run on the simulator: a Claim sent by a third wallet paying the taker, a lock
+naming no taker and one narrower than `wmin` refused, a late claim refused, a refund to an empty escrow, and a board
+offer cancelled at its acceptance deadline, before its expiry.
+
+Built 2026-09-11, the rest of `tools/zecswap`:
+- the node client, the multi-node quorum, the watcher and the ZIP 317 fee;
+- the funding, claim and pre-signed refund builders, in v5 and v6;
+- maker and taker state machines, with durable state and a crash fuzz;
+- the DERO client, the code pins, and the command line.
+
+It is verified two ways:
+- unit tests against fake nodes plus real zebrad v6 transactions;
+- three swaps on zebrad 6.3.0 regtest with the DERO simulator, every txid in `research/regtest/zecswap-e2e.log`:
+  - a v5 claim, where the maker's companion sent the away taker's DERO Claim;
+  - a v6 claim, where the taker's own watcher read the secret;
+  - a refund refused before `cltv` and mined after it, broadcast by a third party holding only the pre-signed file.
+
+Not built, or not run, in this order, each its own cycle and each verified before the next:
+1. the `zecswap` command line itself against a node, as separate maker, taker and status processes (the regtest run
+   drove the same state machines and RPC clients from a test);
+2. the Zcash testnet run (BL-42);
+3. zcashd, which is past end of support and never run here;
+4. the screens (§8);
+5. the measurement behind §5 (BL-30).
+
+Mainnet, never from this repository.
 
 ## 12. Sources
 

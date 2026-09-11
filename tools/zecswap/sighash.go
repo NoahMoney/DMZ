@@ -7,18 +7,34 @@ import (
 	"fmt"
 )
 
-// Version-5 transactions (ZIP 225) with transparent inputs and outputs only, and their ZIP 244 digests: the
-// transaction id and the SIGHASH_ALL signature digest of a transparent input. That is all a swap needs — the
-// funding of the script, the claim, the refund — and nothing shielded is ever built here (the design note says
-// why: the market's Zcash leg is transparent by construction). The digest tree follows ZIP 244 exactly; the
-// official test vectors (testdata/zip_0244.json) pin every byte of it, on the vectors that carry no shielded
-// bundle.
+// Version-5 (ZIP 225) and version-6 (ZIP 229) transactions with transparent inputs and outputs only, and their
+// ZIP 244 digests: the transaction id and the SIGHASH_ALL signature digest of a transparent input. That is all a swap
+// needs — the funding of the script, the claim, the refund — and nothing shielded is ever built here (the design
+// note says why: the market's Zcash leg is transparent by construction). The v5 digest tree follows ZIP 244 exactly
+// and the official test vectors (testdata/zip_0244.json) pin every byte of it.
+//
+// Version 6 is what current wallets build under NU6.3 (librustzcash 0.30.1 proposes it by default, and zebrad 6.3.0
+// mines its coinbase as v6), so a maker's claim may well be one. Its transparent layout is v5's; the differences for a
+// transaction with no shielded parts are exactly three, taken from librustzcash 0.30.1 and the orchard crate 0.15.5
+// (zcash_primitives/src/transaction/txid.rs to_hash_v6, orchard/src/bundle/commitments.rs), and pinned by
+// transactions captured from a real zebrad 6.3.0 on regtest (testdata/regtest_v6.json):
+//
+//   - the header and version group are 0x80000006 and 0xD884B698, in the serialization and the header digest;
+//   - the empty Orchard bundle's digest is personalized "ZTxIdOrchardH_v6" (v5: "ZTxIdOrchardHash");
+//   - an empty Ironwood bundle digest, personalized "ZTxIdIronwd_H_v6", is the last child of the txid and of the
+//     signature digest, and its action count (0) is the last byte of the serialization.
+//
+// A v6 transaction with any shielded part is refused by name (ErrShielded): its digests move the anchors and are not
+// implemented here.
 
 const (
 	// V5Version is nVersion 5 with the fOverwintered bit set, as serialized.
 	V5Version = 0x80000005
 	// V5VersionGroupID is nVersionGroupId for v5 transactions.
 	V5VersionGroupID = 0x26A7270A
+	// V6Version and V6VersionGroupID are ZIP 229's.
+	V6Version        = 0x80000006
+	V6VersionGroupID = 0xD884B698
 	// MaxExpiryHeight is ZIP 203's ceiling on nExpiryHeight; above it a transaction is invalid, and the value
 	// is also where nLockTime stops meaning a height (BIP 65's LOCKTIME_THRESHOLD, one higher).
 	MaxExpiryHeight = 499_999_999
@@ -73,7 +89,7 @@ func (u Upgrade) height(net Network) uint32 {
 // transaction versions that came before it.
 func BranchIDForHeight(net Network, height uint32) (uint32, error) {
 	if height < Upgrades[0].height(net) {
-		return 0, fmt.Errorf("zecswap: %s height %d is before NU5 (%d); this package handles v5 transactions only", net, height, Upgrades[0].height(net))
+		return 0, fmt.Errorf("zecswap: %s height %d is before NU5 (%d); this package handles v5 and v6 transactions only", net, height, Upgrades[0].height(net))
 	}
 	id := Upgrades[0].BranchID
 	for _, u := range Upgrades {
@@ -94,6 +110,15 @@ func KnownBranchID(id uint32) bool {
 	return false
 }
 
+func upgradeIndex(id uint32) int {
+	for i, u := range Upgrades {
+		if u.BranchID == id {
+			return i
+		}
+	}
+	return -1
+}
+
 // CheckBranchID is what a caller runs before it signs: nodeBranchID is getblockchaininfo's consensus.nextblock
 // branch id and nextBlockHeight is the height that block will have (the tip plus one). It fails closed in both
 // directions — an id this build has never heard of means the binary is older than the chain and must not guess,
@@ -109,6 +134,34 @@ func CheckBranchID(net Network, nextBlockHeight, nodeBranchID uint32) error {
 	}
 	if want != nodeBranchID {
 		return fmt.Errorf("zecswap: the node reports consensus branch id %08x for %s height %d, but this build's upgrade schedule says %08x; one of the two is wrong", nodeBranchID, net, nextBlockHeight, want)
+	}
+	return nil
+}
+
+// CheckBranchIDOnSchedule is CheckBranchID against a schedule the node itself reports: regtest's, whose heights are
+// the operator's to choose (zebrad's regtest activates NU5 at 2 and NU6.3 at 6). It is reached only through a node
+// whose genesis block is regtest's (ChainInfo.Regtest), which no mainnet or testnet node has; on those networks the
+// schedule is always this build's own. The id must still be one this build knows, and it must be the one the node's
+// own table puts at the next block.
+func CheckBranchIDOnSchedule(schedule []NodeUpgrade, nextBlockHeight, nodeBranchID uint32) error {
+	if !KnownBranchID(nodeBranchID) {
+		return fmt.Errorf("zecswap: the regtest node reports consensus branch id %08x, which this build does not know", nodeBranchID)
+	}
+	want, best, bestIdx := uint32(0), uint32(0), -1
+	for _, u := range schedule {
+		idx := upgradeIndex(u.BranchID)
+		if idx < 0 || u.Height > nextBlockHeight || u.Status == "disabled" {
+			continue
+		}
+		if bestIdx < 0 || u.Height > best || (u.Height == best && idx > bestIdx) {
+			want, best, bestIdx = u.BranchID, u.Height, idx
+		}
+	}
+	if bestIdx < 0 {
+		return fmt.Errorf("zecswap: the regtest node's upgrade table has no epoch this build knows at height %d", nextBlockHeight)
+	}
+	if want != nodeBranchID {
+		return fmt.Errorf("zecswap: the regtest node's own upgrade table puts %08x at height %d, and its consensus.nextblock says %08x", want, nextBlockHeight, nodeBranchID)
 	}
 	return nil
 }
@@ -135,15 +188,33 @@ type TxOut struct {
 	ScriptPubKey []byte
 }
 
-// Tx is a v5 transaction with transparent parts and, when read from the chain, an Orchard bundle; never a
+// Tx is a v5 or v6 transaction with transparent parts and, for v5 read from the chain, an Orchard bundle; never a
 // Sapling one. The companion builds only transparent transactions (Orchard stays nil).
 type Tx struct {
+	// Version is 5 (also when 0) or 6.
+	Version      uint32
 	BranchID     uint32
 	LockTime     uint32
 	ExpiryHeight uint32
 	In           []TxIn
 	Out          []TxOut
 	Orchard      *OrchardBundle
+}
+
+func (t *Tx) v6() bool { return t.Version == 6 }
+
+func (t *Tx) header() uint32 {
+	if t.v6() {
+		return V6Version
+	}
+	return V5Version
+}
+
+func (t *Tx) groupID() uint32 {
+	if t.v6() {
+		return V6VersionGroupID
+	}
+	return V5VersionGroupID
 }
 
 func blake256(person string, data []byte) [32]byte {
@@ -173,12 +244,12 @@ func CompactSize(n uint64) []byte {
 
 func withLen(b []byte) []byte { return append(CompactSize(uint64(len(b))), b...) }
 
-// ---- ZIP 244 digests --------------------------------------------------------------------------------------
+// ---- ZIP 244 digests (and ZIP 229's for v6) --------------------------------------------------------------------
 
 func (t *Tx) headerDigest() [32]byte {
 	var b bytes.Buffer
-	b.Write(le32(V5Version))
-	b.Write(le32(V5VersionGroupID))
+	b.Write(le32(t.header()))
+	b.Write(le32(t.groupID()))
 	b.Write(le32(t.BranchID))
 	b.Write(le32(t.LockTime))
 	b.Write(le32(t.ExpiryHeight))
@@ -225,17 +296,34 @@ func (t *Tx) transparentDigest() [32]byte {
 
 func saplingEmptyDigest() [32]byte { return blake256("ZTxIdSaplingHash", nil) }
 
+// shieldedTail is what follows the transparent digest in both the txid and the signature digest: the Sapling and
+// Orchard digests, and for v6 the Ironwood one. A v6 transaction here has no shielded parts.
+func (t *Tx) shieldedTail() []byte {
+	var b bytes.Buffer
+	sa := saplingEmptyDigest()
+	b.Write(sa[:])
+	if t.v6() {
+		or := blake256("ZTxIdOrchardH_v6", nil)
+		iw := blake256("ZTxIdIronwd_H_v6", nil)
+		b.Write(or[:])
+		b.Write(iw[:])
+		return b.Bytes()
+	}
+	or := t.Orchard.digest()
+	b.Write(or[:])
+	return b.Bytes()
+}
+
 func (t *Tx) txPerson() string { return "ZcashTxHash_" + string(le32(t.BranchID)) }
 
-// TxID is the ZIP 244 transaction id: the four digests under the branch-personalized hash. Explorers show it
+// TxID is the ZIP 244 transaction id: the digests under the branch-personalized hash. Explorers show it
 // byte-reversed; this is the serialized order, the one a prevout carries.
 func (t *Tx) TxID() [32]byte {
 	var b bytes.Buffer
-	h, tr, sa, or := t.headerDigest(), t.transparentDigest(), saplingEmptyDigest(), t.Orchard.digest()
+	h, tr := t.headerDigest(), t.transparentDigest()
 	b.Write(h[:])
 	b.Write(tr[:])
-	b.Write(sa[:])
-	b.Write(or[:])
+	b.Write(t.shieldedTail())
 	return blake256(t.txPerson(), b.Bytes())
 }
 
@@ -248,6 +336,12 @@ func (t *Tx) SigDigest(i int, hashType byte) ([32]byte, error) {
 	}
 	if i < 0 || i >= len(t.In) {
 		return zero, fmt.Errorf("zecswap: input %d of %d", i, len(t.In))
+	}
+	if t.Version != 0 && t.Version != 5 && t.Version != 6 {
+		return zero, fmt.Errorf("zecswap: transaction version %d", t.Version)
+	}
+	if t.v6() && t.Orchard != nil {
+		return zero, errors.New("zecswap: a v6 transaction with an Orchard bundle is not signed here")
 	}
 	if !KnownBranchID(t.BranchID) {
 		return zero, fmt.Errorf("zecswap: will not sign under consensus branch id %08x, which this build does not know; read it from the node (getblockchaininfo → consensus.nextblock) and check it with CheckBranchID", t.BranchID)
@@ -283,22 +377,22 @@ func (t *Tx) SigDigest(i int, hashType byte) ([32]byte, error) {
 	transparentSig := blake256("ZTxIdTranspaHash", tb.Bytes())
 
 	var b bytes.Buffer
-	h, sa, or := t.headerDigest(), saplingEmptyDigest(), t.Orchard.digest()
+	h := t.headerDigest()
 	b.Write(h[:])
 	b.Write(transparentSig[:])
-	b.Write(sa[:])
-	b.Write(or[:])
+	b.Write(t.shieldedTail())
 	return blake256(t.txPerson(), b.Bytes()), nil
 }
 
-// ---- serialization (ZIP 225, no shielded bundle) ------------------------------------------------------------
+// ---- serialization (ZIP 225 / ZIP 229, no shielded bundle) ------------------------------------------------------
 
-// Serialize is the wire form: header, transparent inputs and outputs, then the empty Sapling bundle (zero
-// spends, zero outputs, nothing else present) and the empty Orchard bundle (zero actions).
+// Serialize is the wire form: header, transparent inputs and outputs, then the empty Sapling bundle (zero spends,
+// zero outputs) and the Orchard bundle (zero actions, for anything this package builds) — and for v6 the empty
+// Ironwood bundle (zero actions).
 func (t *Tx) Serialize() []byte {
 	var b bytes.Buffer
-	b.Write(le32(V5Version))
-	b.Write(le32(V5VersionGroupID))
+	b.Write(le32(t.header()))
+	b.Write(le32(t.groupID()))
 	b.Write(le32(t.BranchID))
 	b.Write(le32(t.LockTime))
 	b.Write(le32(t.ExpiryHeight))
@@ -316,31 +410,48 @@ func (t *Tx) Serialize() []byte {
 	}
 	b.Write(CompactSize(0)) // nSpendsSapling
 	b.Write(CompactSize(0)) // nOutputsSapling
+	if t.v6() {
+		b.Write(CompactSize(0)) // nActionsOrchard
+		b.Write(CompactSize(0)) // nActionsIronwood
+		return b.Bytes()
+	}
 	t.Orchard.serialize(&b)
 	return b.Bytes()
 }
 
-// ErrShielded is returned by ParseV5 for a transaction that carries a Sapling bundle: this package does not
-// read those and says so rather than misreading them.
-var ErrShielded = errors.New("zecswap: the transaction has a Sapling bundle")
+// ErrShielded is returned by the parsers for a transaction that carries a Sapling bundle, or for a v6 one that
+// carries any shielded bundle: this package does not read those and says so rather than misreading them.
+var ErrShielded = errors.New("zecswap: the transaction has a shielded bundle this package does not read")
 
-// ParseV5 reads a serialized v5 transaction with transparent parts and at most an Orchard bundle. Inputs come
-// back without Value and ScriptPubKey (the wire form does not carry them); fill them in from the outputs being
-// spent before asking for a signature digest.
-func ParseV5(raw []byte) (*Tx, error) {
-	r := &reader{b: raw}
-	if v := r.u32(); v != V5Version {
-		return nil, fmt.Errorf("zecswap: version %08x is not v5", v)
+// ParseTx reads a serialized v5 or v6 transaction (ParseV5, ParseV6).
+func ParseTx(raw []byte) (*Tx, error) {
+	if len(raw) < 4 {
+		return nil, errors.New("zecswap: transaction truncated")
 	}
-	if g := r.u32(); g != V5VersionGroupID {
-		return nil, fmt.Errorf("zecswap: version group %08x is not v5", g)
+	switch binary.LittleEndian.Uint32(raw) {
+	case V5Version:
+		return ParseV5(raw)
+	case V6Version:
+		return ParseV6(raw)
+	}
+	return nil, fmt.Errorf("zecswap: transaction header %08x is neither v5 nor v6", binary.LittleEndian.Uint32(raw))
+}
+
+// parseCommon reads the header and the transparent parts, which v5 and v6 share.
+func parseCommon(raw []byte, version, group uint32) (*Tx, *reader, error) {
+	r := &reader{b: raw}
+	if v := r.u32(); v != version {
+		return nil, nil, fmt.Errorf("zecswap: header %08x is not %08x", v, version)
+	}
+	if g := r.u32(); g != group {
+		return nil, nil, fmt.Errorf("zecswap: version group %08x is not %08x", g, group)
 	}
 	t := &Tx{BranchID: r.u32(), LockTime: r.u32(), ExpiryHeight: r.u32()}
 	if r.err != nil {
-		return nil, r.err
+		return nil, nil, r.err
 	}
 	if t.ExpiryHeight > MaxExpiryHeight {
-		return nil, fmt.Errorf("zecswap: nExpiryHeight %d is above ZIP 203's maximum %d", t.ExpiryHeight, MaxExpiryHeight)
+		return nil, nil, fmt.Errorf("zecswap: nExpiryHeight %d is above ZIP 203's maximum %d", t.ExpiryHeight, MaxExpiryHeight)
 	}
 	nIn := r.compact()
 	for i := uint64(0); i < nIn && r.err == nil; i++ {
@@ -359,15 +470,30 @@ func ParseV5(raw []byte) (*Tx, error) {
 		t.Out = append(t.Out, out)
 	}
 	if r.err != nil {
-		return nil, r.err
+		return nil, nil, r.err
 	}
 	nSpends, nOutputs := r.compact(), r.compact() // nSpendsSapling, nOutputsSapling
 	if r.err != nil {
-		return nil, r.err
+		return nil, nil, r.err
 	}
 	if nSpends != 0 || nOutputs != 0 {
-		return nil, ErrShielded
+		return nil, nil, ErrShielded
 	}
+	return t, r, nil
+}
+
+// ParseV5 reads a serialized v5 transaction with transparent parts and at most an Orchard bundle. Inputs come
+// back without Value and ScriptPubKey (the wire form does not carry them); fill them in from the outputs being
+// spent before asking for a signature digest.
+func ParseV5(raw []byte) (*Tx, error) {
+	t, r, err := parseCommon(raw, V5Version, V5VersionGroupID)
+	if err != nil {
+		if err.Error() == fmt.Sprintf("zecswap: header %08x is not %08x", binaryHeader(raw), uint32(V5Version)) {
+			return nil, fmt.Errorf("zecswap: version %08x is not v5", binaryHeader(raw))
+		}
+		return nil, err
+	}
+	t.Version = 5
 	orchard, err := parseOrchard(r)
 	if err != nil {
 		return nil, err
@@ -377,6 +503,34 @@ func ParseV5(raw []byte) (*Tx, error) {
 		return nil, fmt.Errorf("zecswap: %d trailing bytes", len(raw)-r.p)
 	}
 	return t, nil
+}
+
+// ParseV6 reads a serialized v6 transaction with transparent parts only: any Orchard or Ironwood action is
+// ErrShielded.
+func ParseV6(raw []byte) (*Tx, error) {
+	t, r, err := parseCommon(raw, V6Version, V6VersionGroupID)
+	if err != nil {
+		return nil, err
+	}
+	t.Version = 6
+	nOrchard, nIronwood := r.compact(), r.compact()
+	if r.err != nil {
+		return nil, r.err
+	}
+	if nOrchard != 0 || nIronwood != 0 {
+		return nil, ErrShielded
+	}
+	if r.p != len(raw) {
+		return nil, fmt.Errorf("zecswap: %d trailing bytes", len(raw)-r.p)
+	}
+	return t, nil
+}
+
+func binaryHeader(raw []byte) uint32 {
+	if len(raw) < 4 {
+		return 0
+	}
+	return binary.LittleEndian.Uint32(raw)
 }
 
 type reader struct {
