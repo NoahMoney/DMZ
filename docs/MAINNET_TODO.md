@@ -21,6 +21,28 @@ This is the working checklist for the final mainnet pass. Every item has an owne
 
 ---
 
+## Phase W: everything that can be done while the public test chains sync
+
+*Opened 2026-09-11 at the operator's instruction: "complete everything that can be done in a massive phase while we
+wait for the chains". The Monero stagenet and Zcash testnet nodes are syncing (MT-F03, MT-F04). This phase is every
+remaining item that waits on neither the syncs, the external audits nor the operator's decisions.*
+
+| ID | Item | Owner | Status |
+|---|---|---|---|
+| W-01 | **DERO private testnet**, with the current contracts, the swap contracts and the app on a ring-16 INDEX; verified by `verifydeploy`, the factory renounced, exercised with trades and swaps. It starts the 7-day clock of MT-F05. The public DERO testnet seed is unreachable, so it has to be the private testnet | testnet agent | wip |
+| W-02 | **Client-side Zcash header verification** (MT-C14): Equihash (200, 9), the header chain, target and difficulty checks, Merkle inclusion, in a new package `tools/zecspv` that zecswap can call. With it a lying node needs real Zcash work to fake a funding | header-verification agent | wip |
+| W-03 | **The app:** the Zcash swap screen (MT-D05); the age of cached figures on every screen (MT-D07, BL-129); copy saying the swaps have run on real node software (MT-D08); the treasury carried in the bundle (GAP-005); start time measured (MT-M02) | app agent | wip |
+| W-04 | **The Monero proof's audit package** (preparing MT-G03): the statement, circuit, transcript and soundness argument, with vectors; property tests of the SHA-256 gadget; rejection of malformed and mismatched proofs; replay across swaps; a reproducible prover build checked against xmrswap's pin (the rest of GAP-013); timings on the release build (MT-M03); whether a second verifier is feasible (MT-G04) | proof agent | wip |
+| W-05 | **Supply chain and measurements:** telainstall built from locked modules (GAP-017); derohe's vendored dependencies checked against the Go vulnerability database (GAP-018); Playwright pinned (MT-H03); one-command validation `tools/check.sh`; the bundle's install cost measured (MT-E07); a latency table from the regtest logs (MT-M01) | supply agent | wip |
+| W-06 | go1.26.8 for every build; `x/crypto` and `x/sys` to latest; `vendor/bin` rebuilt and re-pinned (MT-G10, MT-G07) | coordinator | waits for W-08 and W-09 to release the simulator |
+| W-07 | `rpcgate` restarted with the hardened build | coordinator | **done** 2026-09-11. The gate runs the hardened build (sha256 `9b89b5ba…`), verified against the live testnet node: a body naming `stop` then `getblockhash` came back as `getblockhash 0`, `stop` alone was refused with -32601, a batch with -32600, no cookie with 401. The gate now has a `wsl.exe` host of its own. `zcash-testnet-up.sh --restart-gate` swaps in a new build without stopping zebrad, and the status report warns when the gate running is not the current build. That is how the old build ran unnoticed for 30 minutes. As for the "stale simulator htlc lock": the recorded simulator `htlc.bas` (`b01a9e7c…`) holds nothing (`n = 0`, balance 0), so no lock was left to close |
+| W-08 | **Monero companion.** Now: the reorganisation (MT-B11) and the command-line run. Then:<br>• a resumable sweep (MT-B12)<br>• the scan time measured (MT-B13)<br>• the recovery card and wake (MT-B15)<br>• contract ids taken from the record (MT-A18)<br>• RPC-parser fuzzing (MT-G06)<br>• no secret in output (MT-L02)<br>• an authenticated, encrypted rendezvous (GAP-019) | Monero agent | wip |
+| W-09 | **Zcash companion.** Now: the reorganisation, the command-line run and the status fix. Then:<br>• contract ids from the record (MT-A18)<br>• RPC-parser fuzzing (MT-G06)<br>• no secret in output (MT-L02)<br>• W-02 wired into the watcher | Zcash agent | wip |
+| W-10 | The docs, the gate, the testing record and the README updated as each item lands; each piece committed and pushed | coordinator | continuous |
+
+**Not in this phase:** the stagenet and testnet swaps (they wait on the syncs), the external audits, the operator
+decisions (§J) and the seven days of DERO testnet time.
+
 ## A. Contracts (DVM-BASIC, `contracts/`)
 
 | ID | B | Item | Owner | Status | Done means |
@@ -139,7 +161,7 @@ This is the working checklist for the final mainnet pass. Every item has an owne
 | MT-E04 | B | `simdeploy -network mainnet` installs `htlc`, `swap` and `board` and records them, and refuses to install a vault | eng | wip | installs and records them on any network, and never installs a vault. `swap.bas` gets its minimum width from `-swap-wmin` (default 1,600), checked against the contract's own bounds before anything is installed (`tools/simdeploy/swapwmin_test.go`). The install path ran on the simulator (htlc `ae5044c0…`, swap `92d3e44b…`, board `fc33535d…`) before `wmin` existed. Open: the final run on the final contracts |
 | MT-E09 | B | `simdeploy` refuses a Founders Pass that `founders.bas` would refuse, before installing anything. The default description was 258 bytes against a 240-byte limit, so every founders install from commit 59a5851 onwards failed after the factory and social contracts were paid for; the mainnet runbook's was 268 | eng | done | `checkPassHeaders`; `tools/simdeploy/passheaders_test.go` ties the limits to `founders.bas:22-24` and checks the runbook's own `-pass-descr`; redeployed on the simulator |
 | MT-E05 | B | The revocation ceremony as a script: SetTreasury and SetRegFee, then Renounce, then `verifydeploy` confirming no owner remains | eng | done | `simdeploy -renounce -factory <scid>` calls Renounce from the owner wallet at ring 2, then reads back that `owner` is absent and `renounced` set, and exits 1 otherwise. Live on the simulator (`research/release/simdeploy-renounce-sim.log`): a stranger's call was refused at the estimate (nothing sent, owner still present); the owner's call ended ownership at height 552; a second run was a no-op. `verifydeploy` checks the same state (MT-E01). `MAINNET_DEPLOYMENT.md` §5 step 8 uses it |
-| MT-E06 | B | `verifyvendor` green; `binaries.lock` re-pinned from a clean tree | eng | open | green |
+| MT-E06 | B | `verifyvendor` green; `binaries.lock` re-pinned from a clean tree | eng | done | re-pinned from the committed tree in `50d4e78`, with provenance checked: `telainstall.exe` was rebuilt from the committed source, and no pinned binary imports `tools/simrpc`. `verifyvendor`: "vendor tree matches deploy/vendor.lock". The go1.26.6 rebuild (GAP-015) will re-pin again |
 | MT-E07 | | The install cost of the current bundle measured on the simulator (the STALE table in `deploy/README.md`) | eng | open | a new measured table |
 | MT-E08 | | Base set redeployed on the fresh simulator, then `simvault -install` and `simwrapmkt` | eng | wip | the record updated; the UI pass green |
 
@@ -161,9 +183,14 @@ This is the working checklist for the final mainnet pass. Every item has an owne
 | MT-B23 | B | `get_height` on the wallet-rpc is the wallet's scanned height, not the chain's. Find every use of it as chain height and fix it | eng | done | the client refreshes before reading it, and the meaning is documented |
 | MT-B24 | | Make the fake wallet match the real responses (31 differences recorded), so the unit tests stop passing on a server that does not exist | eng | done | the fake returns -4 when nothing is unlocked, omits empty arrays, and treats a txset reply as unsent |
 | MT-F02 | B | MT-B10 and MT-C13 run on it | eng | blocked | as above |
-| MT-F03 | B | Monero stagenet: all three exits (MT-B19) | eng | open | txids |
-| MT-F04 | B | Zcash testnet: fund, claim, refund (MT-C15) | eng | open | txids |
-| MT-F05 | B | DERO testnet: the current contracts, the swap contracts and the app, live and exercised for at least a week | eng | open | `deploy/README.md` testnet record |
+| MT-F03 | B | Monero stagenet: all three exits (MT-B19) | eng | wip | a pruned stagenet node is syncing (`tools/regtest/stagenet-up.sh`: monerod 0.18.5.1, outbound-only P2P, loopback RPC `127.0.0.1:38081`, no update or DNS checks). The database is ≤ 15 GiB. Started 2026-09-11 08:41Z. It ran about 170 blocks/s at first, then 10–20/s once blocks filled; it is CPU-bound, and the estimate is now **1–2 days** (`research/regtest/public-testnets.log`). Then: two wallet-rpcs, stagenet XMR, the three exits |
+| MT-F04 | B | Zcash testnet: fund, claim, refund (MT-C15) | eng | wip | **zebrad 6.3.0 testnet syncing** since 2026-09-11 08:54Z (`tools/regtest/zcash-testnet-up.sh`):
+- **Testnet only:** every start and status check requires testnet's genesis block.
+- **No inbound P2P:** it listens on 127.0.0.1 only.
+- **Gated RPC:** zebrad sits behind `tools/regtest/rpcgate`, which serves only zecswap's seven methods with the cookie.
+- **Estimate:** 10 h to 2 days, limited by testnet peers. Then testnet ZEC and the three swaps.
+- **Reviewed and hardened on 2026-09-11.** `rpcgate` now forwards a request rebuilt from the fields it checked, never the client's bytes. A duplicated `"method"` key can otherwise pass the check as one method and reach zebrad as another. `tools/regtest/rpcgate/main_test.go` covers the rebuild, the smuggling attempt, and every refusal. The hardened build has been running on the testnet node since 2026-09-11 (W-07); no client used the older one |
+| MT-F05 | B | DERO testnet: the current contracts, the swap contracts and the app, live and exercised for at least a week | eng | open | **The public DERO testnet cannot be used from here:** its only seed in derohe's source (`212.8.242.60:40401`) refused TCP twice on 2026-09-11, while other outbound connections worked. The gate can be met on the private testnet procedure in `deploy/README.md`, a testnet in every rule but with no outside peers. The alternative is a public seed someone else runs |
 | MT-F06 | B | The mainnet stage of `docs/MAINNET_TEST_PLAN.md` at the smallest amounts, reconciled four ways | op | blocked | the plan's reconciliation records |
 
 ## G. Security
@@ -176,7 +203,12 @@ This is the working checklist for the final mainnet pass. Every item has an owne
 | MT-G04 | | A second, independent verifier of the proof | eng | open | both verifiers agree on the pinned vectors |
 | MT-G05 | B | A regression test for each attack in `CROSS_CHAIN_TRUST_MODEL.md` §5 (a data source colluding with the counterparty) | eng | wip | named tests in both companions |
 | MT-G06 | | Fuzz every companion parser of RPC responses | eng | open | fuzz targets run for a fixed time with no crash |
-| MT-G07 | B | `govulncheck` on every module; known vulnerabilities fixed or justified | eng | open | a clean report, or each exception written down |
+| MT-G07 | B | `govulncheck` on every module; known vulnerabilities fixed or justified | eng | wip | Measured 2026-09-11 over the tools packages that load (simdeploy, netcfg, verifydeploy, release, treasurybot, vaultsigner, hygiene, xmrswap, zecswap).
+- **Reachable (called):** 9 standard-library vulnerabilities under go1.26.2; **none under go1.26.8**.
+- **Imported but never called:** 22 findings. 21 are in `golang.org/x/crypto` v0.33.0 (fixed up to v0.56.0), and one, GO-2026-5932, has no fix yet. One more is in `golang.org/x/sys` v0.30.0 (fixed in v0.44.0).
+- **Next:** move both pins to their latest with the go1.26.8 switch (MT-G10), then rerun. GO-2026-5932 stays, justified, until upstream fixes it.
+- **Not covered:** derohe's vendored code, which govulncheck cannot see (GAP-018) |
+| MT-G10 | B | GAP-015: move every build off go1.26.2, whose standard library has 10 reachable vulnerabilities fixed in go1.26.3–1.26.6. **Target: go1.26.8**, the newest patch of the same line (go.dev lists go1.27.1 and go1.26.8 as current on 2026-09-11), so the change is a security fix and not a language upgrade | eng | wip | go1.26.8 installed beside the default and checked by `golang.org/dl`. Rebuild `vendor/bin` and the companions with it, rerun `govulncheck`, re-pin `binaries.lock`, and record the toolchain in `MAINNET_DEPLOYMENT.md` §2. This waits until the running regtest work finishes, so no build changes under it |
 | MT-G08 | | Five Windows executables sit in the pushed git history (provenance, not a secret leak) | op | decide | rewrite history (destructive; the operator's call), or record them |
 | MT-G09 | B | No secret anywhere: the tree, the history, the bundle, the logs | eng | wip | the gap analysis §3 |
 
