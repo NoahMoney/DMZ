@@ -1,0 +1,20 @@
+zecspv benchmarks, 2026-09-11T10:09:55Z, from <repo>/tools, single-threaded code, nothing else of this work running
+$ go test -run '^$' -bench . -benchmem -count=3 ./zecspv
+goos: windows
+goarch: amd64
+pkg: veil/tools/zecspv
+cpu: AMD Ryzen 7 5700X 8-Core Processor             
+BenchmarkCheckHeader-16      	    4212	    368718 ns/op	   26841 B/op	       9 allocs/op
+BenchmarkCheckHeader-16      	    5746	    302927 ns/op	   26840 B/op	       9 allocs/op
+BenchmarkCheckHeader-16      	    4687	    325822 ns/op	   26840 B/op	       9 allocs/op
+BenchmarkVerifyHeaders-16    	     109	  10442735 ns/op	    254701 ns/header	 1206971 B/op	    1249 allocs/op
+BenchmarkVerifyHeaders-16    	     100	  15093489 ns/op	    368134 ns/header	 1206975 B/op	    1249 allocs/op
+BenchmarkVerifyHeaders-16    	     100	  12622946 ns/op	    307876 ns/header	 1206973 B/op	    1249 allocs/op
+BenchmarkVerifyFunding-16    	      96	  10858929 ns/op	 1215335 B/op	    1395 allocs/op
+BenchmarkVerifyFunding-16    	     100	  10901738 ns/op	 1215328 B/op	    1395 allocs/op
+BenchmarkVerifyFunding-16    	      99	  10375632 ns/op	 1215333 B/op	    1395 allocs/op
+BenchmarkNextBits-16         	  736624	      1995 ns/op	    2392 B/op	      59 allocs/op
+BenchmarkNextBits-16         	  699940	      2153 ns/op	    2392 B/op	      59 allocs/op
+BenchmarkNextBits-16         	  745021	      2043 ns/op	    2392 B/op	      59 allocs/op
+PASS
+ok  	veil/tools/zecspv	19.814s

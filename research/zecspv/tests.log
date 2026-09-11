@@ -1,0 +1,262 @@
+zecspv test run, 2026-09-11T10:11:36Z, from <repo>/tools
+$ go version
+go version go1.26.2 windows/amd64
+$ gofmt -l zecspv   (no output = clean)
+$ go vet ./zecspv   (no output = clean)
+$ go test -count=1 -v ./zecspv
+=== RUN   TestBlake2bRFC7693
+--- PASS: TestBlake2bRFC7693 (0.00s)
+=== RUN   TestBlake2bAgainstXCrypto
+--- PASS: TestBlake2bAgainstXCrypto (0.00s)
+=== RUN   TestBlake2bIncremental
+--- PASS: TestBlake2bIncremental (0.00s)
+=== RUN   TestRealHeaderChains
+    chain_test.go:34: testdata\mainnet-3436131.json: 41 headers 3436131..3436171, 13 with nBits recomputed, work 74039486949906
+    chain_test.go:34: testdata\mainnet-653572.json: 78 headers 653572..653649, 50 with nBits recomputed, work 42549625800561
+    chain_test.go:34: testdata\testnet-299160.json: 71 headers 299160..299230, 43 with nBits recomputed, work 240242393
+--- PASS: TestRealHeaderChains (0.06s)
+=== RUN   TestAnchor
+--- PASS: TestAnchor (0.10s)
+=== RUN   TestTestnetRulesOnMainnetHeaders
+    chain_test.go:96: Testnet rules on mainnet-653572.json: first recomputed gap over 450 s at 0 (0 = none); result <nil>
+    chain_test.go:96: Testnet rules on mainnet-3436131.json: first recomputed gap over 450 s at 0 (0 = none); result <nil>
+--- PASS: TestTestnetRulesOnMainnetHeaders (0.04s)
+=== RUN   TestGenesisHashes
+--- PASS: TestGenesisHashes (0.00s)
+=== RUN   TestParseHeaderStrict
+--- PASS: TestParseHeaderStrict (0.00s)
+=== RUN   TestChainNegativeCases
+=== RUN   TestChainNegativeCases/broken_link:_two_headers_swapped
+=== RUN   TestChainNegativeCases/broken_link:_one_header_missing
+=== RUN   TestChainNegativeCases/tampered_solution
+=== RUN   TestChainNegativeCases/wrong_nonce
+=== RUN   TestChainNegativeCases/header_above_its_target
+=== RUN   TestChainNegativeCases/nBits_not_the_rule's
+=== RUN   TestChainNegativeCases/nBits_out_of_range
+=== RUN   TestChainNegativeCases/time_not_after_the_median
+=== RUN   TestChainNegativeCases/time_too_far_past_the_median
+=== RUN   TestChainNegativeCases/ahead_of_the_local_clock
+=== RUN   TestChainNegativeCases/easier_than_the_floor
+=== RUN   TestChainNegativeCases/version_below_4
+--- PASS: TestChainNegativeCases (0.06s)
+    --- PASS: TestChainNegativeCases/broken_link:_two_headers_swapped (0.01s)
+    --- PASS: TestChainNegativeCases/broken_link:_one_header_missing (0.00s)
+    --- PASS: TestChainNegativeCases/tampered_solution (0.01s)
+    --- PASS: TestChainNegativeCases/wrong_nonce (0.01s)
+    --- PASS: TestChainNegativeCases/header_above_its_target (0.00s)
+    --- PASS: TestChainNegativeCases/nBits_not_the_rule's (0.01s)
+    --- PASS: TestChainNegativeCases/nBits_out_of_range (0.00s)
+    --- PASS: TestChainNegativeCases/time_not_after_the_median (0.00s)
+    --- PASS: TestChainNegativeCases/time_too_far_past_the_median (0.00s)
+    --- PASS: TestChainNegativeCases/ahead_of_the_local_clock (0.00s)
+    --- PASS: TestChainNegativeCases/easier_than_the_floor (0.00s)
+    --- PASS: TestChainNegativeCases/version_below_4 (0.00s)
+=== RUN   TestForgeryCost
+    cost_test.go:135: 
+        confirmations  below  factor  forger's work (honest blocks)  fork index  (of which below the funding)
+                    1     28       1                           1.00          28  0
+                    1     28       2                           1.00          28  0
+                    1     28       4                           1.00          28  0
+                    1     28       8                           0.80          26  2
+                    1     28      16                           0.46          25  3
+                    1     50       1                           1.00          50  0
+                    1     50       2                           1.00          50  0
+                    1     50       4                           1.00          50  0
+                    1     50       8                           1.00          50  0
+                    1     50      16                           1.00          50  0
+                    1    100       1                           1.00         100  0
+                    1    100       2                           1.00         100  0
+                    1    100       4                           1.00         100  0
+                    1    100       8                           1.00         100  0
+                    1    100      16                           1.00         100  0
+                    1    200       1                           1.00         200  0
+                    1    200       2                           1.00         200  0
+                    1    200       4                           1.00         200  0
+                    1    200       8                           1.00         200  0
+                    1    200      16                           1.00         200  0
+                    3     28       1                           3.00          28  0
+                    3     28       2                           3.00          28  0
+                    3     28       4                           2.55          23  5
+                    3     28       8                           1.37          22  6
+                    3     28      16                           0.71          22  6
+                    3     50       1                           3.00          50  0
+                    3     50       2                           3.00          50  0
+                    3     50       4                           3.00          50  0
+                    3     50       8                           3.00          50  0
+                    3     50      16                           2.21          21  29
+                    3    100       1                           3.00         100  0
+                    3    100       2                           3.00         100  0
+                    3    100       4                           3.00         100  0
+                    3    100       8                           3.00         100  0
+                    3    100      16                           3.00         100  0
+                    3    200       1                           3.00         200  0
+                    3    200       2                           3.00         200  0
+                    3    200       4                           3.00         200  0
+                    3    200       8                           3.00         200  0
+                    3    200      16                           3.00         200  0
+                    6     28       1                           6.00          28  0
+                    6     28       2                           5.85          26  2
+                    6     28       4                           3.46          22  6
+                    6     28       8                           1.88          22  6
+                    6     28      16                           0.98          21  7
+                    6     50       1                           6.00          50  0
+                    6     50       2                           6.00          50  0
+                    6     50       4                           6.00          50  0
+                    6     50       8                           4.81          21  29
+                    6     50      16                           2.45          21  29
+                    6    100       1                           6.00         100  0
+                    6    100       2                           6.00         100  0
+                    6    100       4                           6.00         100  0
+                    6    100       8                           6.00         100  0
+                    6    100      16                           6.00         100  0
+                    6    200       1                           6.00         200  0
+                    6    200       2                           6.00         200  0
+                    6    200       4                           6.00         200  0
+                    6    200       8                           6.00         200  0
+                    6    200      16                           6.00         200  0
+                   10     28       1                          10.00          28  0
+                   10     28       2                           7.93          24  4
+                   10     28       4                           4.49          22  6
+                   10     28       8                           2.39          21  7
+                   10     28      16                           1.23          20  8
+                   10     50       1                          10.00          50  0
+                   10     50       2                           8.94          50  0
+                   10     50       4                           8.94          50  0
+                   10     50       8                           5.46          21  29
+                   10     50      16                           2.77          21  29
+                   10    100       1                          10.00         100  0
+                   10    100       2                           8.94         100  0
+                   10    100       4                           8.94         100  0
+                   10    100       8                           8.94         100  0
+                   10    100      16                           8.84          22  78
+                   10    200       1                          10.00         200  0
+                   10    200       2                           8.94         200  0
+                   10    200       4                           8.94         200  0
+                   10    200       8                           8.94         200  0
+                   10    200      16                           8.94         200  0
+                   20     28       1                          20.00          28  0
+                   20     28       2                          12.93          24  4
+                   20     28       4                           6.99          22  6
+                   20     28       8                           3.64          21  7
+                   20     28      16                           1.85          20  8
+                   20     50       1                          20.00          50  0
+                   20     50       2                          15.17          50  0
+                   20     50       4                          14.17          22  28
+                   20     50       8                           7.29          22  28
+                   20     50      16                           3.70          21  29
+                   20    100       1                          20.00         100  0
+                   20    100       2                          15.17         100  0
+                   20    100       4                          15.17         100  0
+                   20    100       8                          15.17         100  0
+                   20    100      16                          10.93          22  78
+                   20    200       1                          20.00         200  0
+                   20    200       2                          15.17         200  0
+                   20    200       4                          15.17         200  0
+                   20    200       8                          15.17         200  0
+                   20    200      16                          15.17         200  0
+        
+        anchored, no floor: confirmations → forger's work (honest blocks)
+                    1  1.00
+                    3  3.00
+                    6  6.00
+                   10  8.94
+                   20  15.17
+                   40  26.00
+        
+--- PASS: TestForgeryCost (1.16s)
+=== RUN   TestEquihashZcashdValidatorVectors
+--- PASS: TestEquihashZcashdValidatorVectors (0.00s)
+=== RUN   TestEquihashAllBitsMatter
+--- PASS: TestEquihashAllBitsMatter (0.01s)
+=== RUN   TestEquihashLibrustzcashVectors
+    equihash_test.go:142: librustzcash: map[[96 5]:26 [144 5]:12 [200 9]:8] valid solutions by (n, k), 9 invalid
+--- PASS: TestEquihashLibrustzcashVectors (0.00s)
+=== RUN   TestEquihashSpecEncodingExample
+--- PASS: TestEquihashSpecEncodingExample (0.00s)
+=== RUN   TestDecodeBitsLibrustzcash
+--- PASS: TestDecodeBitsLibrustzcash (0.00s)
+=== RUN   TestEquihashRefusesBadParameters
+--- PASS: TestEquihashRefusesBadParameters (0.00s)
+=== RUN   TestEquihashRealHeaders
+    equihash_test.go:213: 190 real (200, 9) solutions verified
+--- PASS: TestEquihashRealHeaders (0.06s)
+=== RUN   TestEquihashTamperedRealHeader
+--- PASS: TestEquihashTamperedRealHeader (0.14s)
+=== RUN   TestVerifyFundingRealNU63
+    funding_test.go:76: funding at 3436162, tip 3436171 (the Zebra checkpoint), 10 confirmations, work 20663700197648, least per block 1923176952010
+--- PASS: TestVerifyFundingRealNU63 (0.01s)
+=== RUN   TestVerifyFundingRealBlossom
+--- PASS: TestVerifyFundingRealBlossom (0.02s)
+=== RUN   TestVerifyFundingNegativeCases
+=== RUN   TestVerifyFundingNegativeCases/wrong_Merkle_branch
+=== RUN   TestVerifyFundingNegativeCases/wrong_index
+=== RUN   TestVerifyFundingNegativeCases/index_past_the_branch
+=== RUN   TestVerifyFundingNegativeCases/transaction_not_in_the_block
+=== RUN   TestVerifyFundingNegativeCases/transaction_in_another_block
+=== RUN   TestVerifyFundingNegativeCases/too_shallow
+=== RUN   TestVerifyFundingNegativeCases/too_few_headers_below
+=== RUN   TestVerifyFundingNegativeCases/no_floor
+=== RUN   TestVerifyFundingNegativeCases/floor_above_the_chain
+=== RUN   TestVerifyFundingNegativeCases/stale_tip
+=== RUN   TestVerifyFundingNegativeCases/headers_from_the_future
+=== RUN   TestVerifyFundingNegativeCases/a_confirmation_with_a_tampered_solution
+=== RUN   TestVerifyFundingNegativeCases/a_confirmation_with_a_wrong_nonce
+=== RUN   TestVerifyFundingNegativeCases/a_confirmation_that_does_not_link
+=== RUN   TestVerifyFundingNegativeCases/the_funding_block_with_other_nBits
+--- PASS: TestVerifyFundingNegativeCases (0.18s)
+    --- PASS: TestVerifyFundingNegativeCases/wrong_Merkle_branch (0.01s)
+    --- PASS: TestVerifyFundingNegativeCases/wrong_index (0.02s)
+    --- PASS: TestVerifyFundingNegativeCases/index_past_the_branch (0.02s)
+    --- PASS: TestVerifyFundingNegativeCases/transaction_not_in_the_block (0.02s)
+    --- PASS: TestVerifyFundingNegativeCases/transaction_in_another_block (0.02s)
+    --- PASS: TestVerifyFundingNegativeCases/too_shallow (0.00s)
+    --- PASS: TestVerifyFundingNegativeCases/too_few_headers_below (0.00s)
+    --- PASS: TestVerifyFundingNegativeCases/no_floor (0.00s)
+    --- PASS: TestVerifyFundingNegativeCases/floor_above_the_chain (0.00s)
+    --- PASS: TestVerifyFundingNegativeCases/stale_tip (0.01s)
+    --- PASS: TestVerifyFundingNegativeCases/headers_from_the_future (0.00s)
+    --- PASS: TestVerifyFundingNegativeCases/a_confirmation_with_a_tampered_solution (0.01s)
+    --- PASS: TestVerifyFundingNegativeCases/a_confirmation_with_a_wrong_nonce (0.02s)
+    --- PASS: TestVerifyFundingNegativeCases/a_confirmation_that_does_not_link (0.02s)
+    --- PASS: TestVerifyFundingNegativeCases/the_funding_block_with_other_nBits (0.02s)
+=== RUN   TestVerifyTip
+--- PASS: TestVerifyTip (0.05s)
+=== RUN   TestVerifyFundingTestnetFloor
+--- PASS: TestVerifyFundingTestnetFloor (0.04s)
+=== RUN   TestMerkleRealBlocks
+    merkle_test.go:63: 20 real blocks' Merkle roots, by coinbase version: map[80000004:12 80000005:2 80000006:6]
+--- PASS: TestMerkleRealBlocks (0.01s)
+=== RUN   TestMerkleDuplicationBehaviour
+--- PASS: TestMerkleDuplicationBehaviour (0.00s)
+=== RUN   TestMerkleEdges
+--- PASS: TestMerkleEdges (0.00s)
+=== RUN   TestParseHash
+--- PASS: TestParseHash (0.00s)
+=== RUN   TestCompactZcashdVectors
+--- PASS: TestCompactZcashdVectors (0.00s)
+=== RUN   TestPowLimitCompact
+--- PASS: TestPowLimitCompact (0.00s)
+=== RUN   TestTargetRange
+--- PASS: TestTargetRange (0.00s)
+=== RUN   TestWork
+--- PASS: TestWork (0.00s)
+=== RUN   TestFloorFromBits
+--- PASS: TestFloorFromBits (0.00s)
+=== RUN   TestCalculateNextWorkRequiredZcashd
+--- PASS: TestCalculateNextWorkRequiredZcashd (0.00s)
+=== RUN   TestNextBitsRealChains
+    target_test.go:170: testdata\mainnet-3436131.json: 13 headers' nBits recomputed, 0 of them minimum-difficulty
+    target_test.go:170: testdata\mainnet-653572.json: 50 headers' nBits recomputed, 0 of them minimum-difficulty
+    target_test.go:170: testdata\testnet-299160.json: 43 headers' nBits recomputed, 3 of them minimum-difficulty
+--- PASS: TestNextBitsRealChains (0.00s)
+=== RUN   TestBlossomSpacingMatters
+--- PASS: TestBlossomSpacingMatters (0.05s)
+=== RUN   TestTestnetMinimumDifficulty
+    target_test.go:225: first minimum-difficulty block in the range: 299188
+--- PASS: TestTestnetMinimumDifficulty (0.01s)
+=== RUN   ExampleTargetToCompact
+--- PASS: ExampleTargetToCompact (0.00s)
+PASS
+ok  	veil/tools/zecspv	2.396s
+$ go test -count=1 ./hygiene
+ok  	veil/tools/hygiene	0.881s

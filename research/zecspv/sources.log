@@ -1,0 +1,77 @@
+zecspv — where every vector and header in tools/zecspv/testdata came from
+Recorded 2026-09-11 (UTC). Paths are relative to <repo>. Nothing here touched mainnet funds; every read was public data.
+
+== Primary sources read or copied ==
+
+zcashd (zcash/zcash, branch master at 558f686599586f55def3db86955d74d3be44605e), raw.githubusercontent.com
+  src/test/equihash_tests.cpp      sha256 7d5d32d2ccbf859b82534a0fc088478738ee23e2cebac04f9c70d5d52f25feb6
+      validator_testvectors (10 cases, (96, 5)) copied into equihash_test.go as written;
+      validator_allbitsmatter's procedure (flip every bit) reproduced
+  src/test/pow_tests.cpp           sha256 c42571a9f0a2a4d87c8ef721e6678c0726ebd467acffaa01b3a695b53356965f
+      the eight CalculateNextWorkRequired cases, copied into target_test.go
+  src/util/test.cpp                sha256 da6b3c00f94f6c4196c73101947c4b1b5201e911be9f8317301ae89afc4cce74
+      RegtestActivateBlossom(true): Blossom at 0, UpdateRegtestPow(32, 16, 0007ff…ff) — the _blossom cases' params
+  src/test/arith_uint256_tests.cpp sha256 7b6cb33c0293b56262bc5583557d1c2ad15f368f987af6dcf87002a46eadb7a5
+      bignum_SetCompact, copied into target_test.go
+  src/pow.cpp                      sha256 7af1ece8809e09601022b0e6fec7147c131463ab386edf984a560449673db224
+      GetNextWorkRequired / CalculateNextWorkRequired / CheckProofOfWork / GetBlockProof: the reference followed
+  src/chainparams.cpp              sha256 06392f1604c1fe643f7bb5ebd6b504a771cc78458b5945e16199d1167cbd26ba
+      powLimit, nPowAveragingWindow 17, 32/16, nPowAllowMinDifficultyBlocksAfterHeight 299187 (Testnet),
+      Blossom heights, nFutureTimestampSoftForkHeight (Testnet: Blossom + 6)
+  src/consensus/params.cpp         sha256 673d3c7dbd81b7c33e472798aeb19d4e6c18b5b16b54c99f0e420ba0c7d6d0a7
+  src/consensus/merkle.cpp         sha256 465d4e22aea91beda87be1fb980cccc3fff9c07019f8805c0fac7b1b30a3afb7
+  src/main.cpp (ContextualCheckBlockHeader: bad-diffbits, time-too-old, time-too-far-ahead-of-mtp, time-too-new)
+
+librustzcash (zcash/librustzcash, branch main at 62d35428927450492223d478cc9ebc1401902372), the equihash crate
+zcashd calls (pow.cpp CheckEquihashSolution -> equihash::is_valid)
+  components/equihash/src/test_vectors/valid.rs    sha256 229a0c7bdc8cd037e09aa7406b67b13b6213fa4543037e162d89e8b8731cae18
+  components/equihash/src/test_vectors/invalid.rs  sha256 a36a6a61362e3bfccb949f7226a983df45446a1fd988438ced1556b39807db0c
+      converted field for field into testdata/equihash-librustzcash.json: 21 valid vectors (46 solutions:
+      26 of (96, 5), 8 of (200, 9), 12 of (144, 5)) and 9 invalid vectors with their error kinds
+  components/equihash/src/verify.rs                sha256 1d2398f57391481d9f10030aadcbbc7a3230e0b0cbaabfcfd9793faa71ce097d
+      the check order followed; all_bits_matter's minimal encoding copied into equihash_test.go
+  components/equihash/src/minimal.rs               sha256 74bec30cd45cb772422bd76e4144774a880792e7ef6d59bc4e12b86e40d846f9
+      the two 21-bit array_compression_and_expansion vectors copied into equihash_test.go
+
+Zebra (ZcashFoundation/zebra, tag v6.3.0 = 9d527513eb394162e2735ee8a3f0592b405bead0), the node DMZ runs
+  zebra-chain/src/parameters/checkpoint/main-checkpoints.txt  sha256 732e1dc28025e9f9cc7a4ed79fcc44c5938448b3fab5d2495b131b66fe6cfb39
+  zebra-chain/src/parameters/checkpoint/test-checkpoints.txt  sha256 bde4871f003a66dd12e08c74129a815be2598eb769c863eb23e1d516523451f1
+      height-0 lines = Params.Genesis; the pins below
+  zebra-state/src/service/check/difficulty.rs  sha256 5cccce370ad330e11bd36f068dc0369400a0bd40da203fb6814db771ebbbcb5a
+  zebra-chain/src/parameters/network_upgrade.rs sha256 b66050e570a610e5e65d05be2795ea8b60dac2af55acb72bf37ef617e61b4a51
+      cross-check of the difficulty rule: TESTNET_MINIMUM_DIFFICULTY_START_HEIGHT 299188, gap multiplier 6 with
+      "greater than", TESTNET_MAX_TIME_START_HEIGHT 653606, trunc toward zero in the damping
+
+Zcash Protocol Specification, https://zips.z.cash/protocol/protocol.pdf, Version v2026.7.0-187-ge753a6 [NU6.2]
+  sha256 a4892df6688130d1d1f9aae2e16c06c0426f122a329cf4556e1fa789423de148
+  §5.3 constants, §5.4.1.11 EquihashGen, §7.6 header rules, §7.7.1–7.7.5
+RFC 7693 Appendix A (BLAKE2b-512("abc")), quoted in blake2b_test.go
+
+== Real headers ==
+
+testdata/mainnet-653572.json   sha256 aba7a2ea57e1ebad9b614fc01306d8d99abd20e76797946c53bdfde08759dede
+  Mainnet 653572..653649, 78 headers (Blossom activates at 653600), txids of 653572, 653577, 653581, 653600,
+  653601, 653603. Pin: 653649 = 0000000002be3f100cba287ea383787dafeae18bdc4b7a5f32a38fe041f33b38 (main-checkpoints.txt)
+testdata/mainnet-3436131.json  sha256 d62c5a0763e6e4f3b5dcf3dc28bfcb802cfc960df7938a4dc3522ee0f714fefc
+  Mainnet 3436131..3436171, 41 headers (NU6.3), txids of 3436140, 3436159, 3436161, 3436162, 3436163, 3436166,
+  3436170, 3436171 (coinbases v5 and v6). Pin: 3436171 = 000000000007ec04a25dc7552851b4cd512b71f9af26bfb77e4ff6b465c257fa,
+  the last Mainnet checkpoint Zebra 6.3.0 ships
+  Both fetched from https://api.blockchair.com/zcash/raw/block/<height>, one request per height, 2.2 s apart,
+  09:24–09:31Z. Blockchair is not a primary source; the pins are. The builder refused any header whose SHA-256d
+  differed from decoded_raw_block.hash, any break in hashPrevBlock, and a run not holding its pin.
+testdata/testnet-299160.json   sha256 68afc3e42fbb8c50035963bf0caab826920e3f2d40e205953a4f4003533335cd
+  Testnet 299160..299230, 71 headers (the minimum-difficulty rule starts at 299188; 299188, 299189 and 299202
+  are at PoWLimit), txids of 299180, 299184, 299185, 299186, 299190, 299202. Pin: 299200 =
+  00604b163e34bcbf447a5aed105cca5d8d4311afe435fdcec9b4f8bec5769c48 (test-checkpoints.txt)
+  Read 09:42Z from the local zebrad 6.3.0 Testnet node (tools/regtest/zcash-testnet-up.sh) on its internal RPC,
+  127.0.0.1:18242 inside WSL, with its cookie: getblockhash <h>, getblock <hash> 0 (raw block, header = first
+  1487 bytes) and getblock <hash> 1 (txid list). The same builder checks applied.
+
+Node calls made, all read-only: getblockhash and getblock (verbosity 0 and 1). getblockchaininfo was also called
+four times at the start to see how far the sync had got; the fetcher then waited with getblockhash alone.
+
+testdata/equihash-librustzcash.json sha256 c8bd578a5d470e77245e7257d5772652a57d2937ecdc1cf5edd2e0f8ffd0dd22
+
+The converter and the header builder were throwaway programs outside the tree; the checks they made are the
+ones listed above, and the tests re-check everything that matters from the recorded bytes (hashes, links, pins,
+Equihash, nBits, Merkle roots).
