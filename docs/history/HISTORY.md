@@ -3243,3 +3243,58 @@ duration. Then BL-40b's watcher and broadcast.
 
 The operator's decisions in §5 first. Then the study's step 0 — correcting the stale documents — and, if the
 operator adopts it, `htlc.bas` v2 for LIV-07; then its step 2, the asset leg and the stipend on stagenet.
+
+## 2026-09-11, cycle — the documents brought back into line with the code (the study's step 0)
+
+### SHIPPED
+
+- **The atomic-swap study's step 0: every number the operator will sign off on now matches the code.** The swap
+  companion's Monero gate waits twenty confirmations by default and refuses fewer than ten; `docs/XMR_SWAP.md` and
+  `docs/XMR_SWAP_BUILD.md` said ten in eleven places. Bob's default `t1` is lock + 420 and both windows have a
+  ceiling of 1,200 blocks, which neither document mentioned. Alice's path inside T1 is about forty-eight minutes,
+  not half an hour, and forty of them are the twenty confirmations. The proof's timings are the ones `run.log`
+  records — 8.51 s to prove and 0.74 s to verify, plus about 1.6 s building generators each time — parsed from the
+  log rather than retyped.
+- **`docs/XMR_SWAP.md` §10 names what it had left out:** DERO for the fee; each party's own machine at its window;
+  LIV-07; DERO including Alice's Claim in time; and a remote node's power to cause a total loss nothing detects.
+  The paragraph on why the word trustless is justified now lists them among the weaknesses that are not a party
+  who can take your coins.
+- **`docs/ZEC_SWAP.md` Z4:** a maker's claim at the last block before `cltv` is a race he loses both legs to, not
+  a safe exit. §6 and `docs/BACKLOG.md` BL-40a: once the taker has funded, the maker holds a free option of his
+  own for about two hours.
+- **`README.md` §5:** the trust table gains the first DERO for gas, an NFA's creator (who can rewrite its URLs for
+  ever), and the factory's owner key; the atomic-swap row says what missing your window costs, including LIV-07.
+- **The findings document marks each of the 34 repaired findings** with the commit that repaired it — three of them
+  in part, with the part that is left for the operator — and says that every unmarked finding is open. The study
+  misread APP-1 as open because nothing said otherwise.
+- **`tools/xmrswap`:** the comment above `refundBlind` described the whole-contract reads the companion no longer
+  makes.
+
+### ALSO FIXED
+
+- Nothing else.
+
+### VERIFIED
+
+- Every replaced passage was checked to occur exactly once, and every number written was checked against its
+  source — `swap.go`'s constants, `run.log`'s timing lines, the findings file — before anything was written. The
+  first attempt at the proof timings refused to write because `run.log` records verification in milliseconds,
+  which is the check doing its job.
+- DVM suite green in 64.5 s; `go build`, `go vet` and `go test` of `tools/xmrswap` green after the comment change.
+  The UI pass could not run: the machine had restarted, and the simulator, its wallets, the XSWD endpoint and the
+  app's static server were all down. No app file changed this cycle, so the last green pass (at `099a4b1`)
+  still describes the app as it is.
+
+### UNCONSIDERED
+
+- The findings document's status lines are kept by hand. Nothing checks that a finding marked repaired stays
+  repaired, or that a newly repaired one gets marked.
+- `research/wrapper/MECHANISM_REVIEW.md` still counts 35 DVM built-ins where the vendored table has 37, and
+  `tools/vaultsigner` uses a flat ten confirmations on mainnet where the wrapper design says twenty above 50 XMR.
+  The study's ground pass found both; neither was in its step 0.
+- A restart takes down the whole local test bed — simulator, twenty-two wallets, XSWD, app server — and nothing
+  brings it back. Every live test this project runs depends on someone noticing.
+
+### NEXT
+
+The operator's final mainnet readiness pass, received during this cycle.

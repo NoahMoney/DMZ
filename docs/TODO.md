@@ -39,8 +39,10 @@ FE-1(b) (revoking two legacy launch hashes de-lists a live market holding 145,33
 (the Founders anti-sweep floor is void at twenty editions); BL-90 (fees earned in a wrapped asset reach no pass
 holder); D-1 to D-13 in `docs/BACKLOG.md` §19; and the seventeen in `docs/ATOMIC_SWAP_STUDY.md` §5.
 
-**Then, in order:** the operator's decisions in the study's §5 → its step 0 (correct the documents that are stale
-against the code) → BL-40b (the Zcash watcher, fee and broadcast) →
+**Now: the operator's final mainnet readiness pass** (received 2026-09-11). The study's step 0 is done: the
+documents match the code. The 20-minute loop is deleted while the pass runs.
+
+**Then, in order:** the operator's decisions in the study's §5 → BL-40b (the Zcash watcher, fee and broadcast) →
 BL-11 (the Monero companion on stagenet) → BL-10 (the spore rendezvous) → BL-80 (`deploy/federation.md`) → the
 backlog by priority.
 
