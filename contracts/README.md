@@ -1,30 +1,37 @@
 # DMZ contracts
 
-Ten immutable DVM-BASIC contracts. None defines `UpdateCode`. Every state-changing entrypoint that pays the caller
+Twelve immutable DVM-BASIC contracts. None defines `UpdateCode` or calls `UPDATE_SC_CODE`. Every state-changing entrypoint that pays the caller
 requires **ringsize 2** (the node only reveals `SIGNER()` at ringsize 2; DECISIONS §2.4); the `…To` entrypoints pay a
 named address and work at any ring size (§ private mode below). Arithmetic rules: DECISIONS §10.2. Executable
 specification: `../reference/`. Tests: `../tests/` (run with `tests/run.ps1`).
 
-Sizes and install cost (storage gas units, cap 20000 per TX — the code counts; install gas is the byte count plus
-a few hundred units, measured where given):
+Sizes and install cost, **measured** on 2026-09-12 by the DVM suite's tests (`tools/withlock.sh dvm bash tests/run.sh
+-v`, go1.26.8) on the contracts of `e06c28a` (`factory.bas` v2, `htlc.bas` v3), which `contracts/` has not changed
+since. A contract is installed in its canonical form, `reference.Canon`, which drops comment and blank lines
+(`tools/simdeploy/main.go:153`), so only those bytes are charged. Install storage gas is capped at 20,000 per
+transaction. It moves a little with the install arguments, so each figure names the tests that measured it:
 
-| Contract | Bytes (2026-09-07) | Install storage gas | Compute gas |
-|---|---|---|---|
-| `pool.bas` | 13 262 | ~13 520 | 409 000 |
-| `launch.bas` | 16 416 | ~16 680 | ~1 200 000 |
-| `founders.bas` | 10 398 | 10 795 (measured 2026-09-11) | — |
-| `vault.bas` | 19 059 | 19 400 of 20 000 (measured) | — |
-| `nft.bas` | 3 873 (2026-09-11) | 4 489 (measured) | — |
-| `swap.bas` | 3 599 | — | — |
-| `htlc.bas` v3 | 11 206 (5 104 installed, 2026-09-12) | 5 169–5 180 (measured; 5 177 at 400/400/2 400) | Reclaim 434 600 |
-| `factory.bas` v2 | 3 452 (1 443 installed, 2026-09-12) | 1 680 (measured) | — |
-| `nfa.bas` | 14 937 (2026-09-11) | 15 876 DERO-quoted, 15 941 wrapped (measured) | ~1 050 000 (install) |
-| `board.bas` | 2 848 | — | — |
-| `social.bas` | 1 736 (2026-09-11) | — | — |
+| Contract | Source bytes | Installed bytes (`Canon`) | Install storage gas, measured | Install compute gas | Measured by (`tests/`) |
+|---|---|---|---|---|---|
+| `board.bas` v3 | 6,602 | 2,611 | 2,652 | — | `board_test.go`, `board_v3_test.go` |
+| `chat.bas` | 2,401 | 1,146 | 1,315–1,320 (fee and `maxlen` vary) | — | `chat_test.go` |
+| `factory.bas` v2 | 3,452 | 1,443 | 1,680 (`regfee` 10,000) | — | `registry_test.go` |
+| `founders.bas` | 12,637 | 10,398 | 10,795–10,804 | — | `founders_test.go`, `founders_attack_test.go` |
+| `htlc.bas` v3 | 11,206 | 5,104 | 5,168–5,180: 5,169 at `w1min` 2, `w2min` 1, `g2` 50; 5,177 at 400, 400, 2,400 | — | `htlc_test.go`, `htlc_v3_test.go` |
+| `launch.bas` | 17,074 | 15,257 | 15,842–15,891; **16,915** with every metadata field at its maximum | 1,193,400–1,517,200 | `launch_test.go`; `zzquote_test.go` `TestLaunchMaxMetadataInstallGas` |
+| `nfa.bas` | 24,234 | 14,937 | 15,874–15,877 DERO-quoted; 15,940–15,942 wrapped | 1,045,800 DERO-quoted; 1,066,600 wrapped | `nfa_test.go` |
+| `nft.bas` | 4,959 | 3,873 | 4,489 | — | `registry_test.go` |
+| `pool.bas` | 14,250 | 10,604 | 10,940 | 488,000 | `pool_test.go` |
+| `social.bas` | 2,355 | 1,736 | **not measured**: no test and no install log prints it | — | — |
+| `swap.bas` v2 | 5,967 | 2,767 | 2,816 at `wmin` 1,600; 2,813 at `wmin` 3 | — | `swap_gaps_test.go`, `swap_test.go` |
+| `vault.bas` v3 | 22,196 | 16,027 | 16,358 (`k` 2) | — | `vault_smoke_test.go` |
 
-`vault.bas` has 771 gas units of headroom under the 20 000 cap, comments included: any change to it must be
-byte-neutral or shrink something. Re-measure with `DERO.GetGasEstimate` before deploying rather than trusting an
-estimate.
+The byte counts are `TestEveryContractFitsTheInstallGasCapAsInstalled` (`tests/canon_test.go`). Every measured figure
+is under the cap. The closest is `launch.bas` with every metadata field at its maximum, 3,085 units below it, and next
+`vault.bas`, 3,642 below. Per call, in the same run: an `htlc.bas` Claim
+takes 304 storage and 537,800 compute gas, a Reclaim 231 and 434,600, a Punish 90 and 322,200 (`htlc_test.go`,
+`htlc_v3_test.go`, `htlc_v2_test.go`); a founders `PayBatch` of 15 holders 620 and 6,814,600
+(`founders_attack_test.go`). Re-measure with `DERO.GetGasEstimate` before deploying rather than trusting a table.
 
 Worst-case compute gas seen in fuzzing (limit 10 000 000 per call): AddLiquidity 1.72 M, Unstake 1.78 M, Stake 1.69 M,
 launch Buy 1.61 M, pool swaps 1.06 M.
@@ -54,7 +61,9 @@ launch Buy 1.61 M, pool swaps 1.06 M.
 
 ## pool.bas — LP-owned constant-product pool (asset ↔ DERO)
 
-`InitializePrivate(asset H, treasury S, fee U, pfee U)` — asset ≠ DERO, fee ≤ 100, pfee ≤ 10000, treasury valid.
+`InitializePrivate(asset H, quote H, treasury S, fee U, pfee U)` — asset ≠ DERO, asset ≠ quote, fee ≤ 100,
+pfee ≤ 10000, treasury valid. `quote` is the 32-byte id of what the pool prices the asset in, DERO or another asset,
+stored as `qt`; where this section says DERO, read the quote.
 
 | Entrypoint | Params | Value in | Effect |
 |---|---|---|---|
@@ -77,8 +86,10 @@ wrapping the real balance (`reserve + fees + incoming`).
 
 ## launch.bas — memecoin: bonding curve → built-in AMM, fee, tax, staking
 
-`InitializePrivate(name S, ticker S, descr S, icon S, tags S, dec U, supply U, grad U, cbps U, tax U, tmode U, treasury S, fee U, pfee U)`
-- `supply ∈ [10⁶, 2⁶³)`, `grad ∈ [10 DERO, 10⁷ DERO]`, `cbps ≤ 500` (creator allocation ≤ 5 %), `tax ≤ 1000` (≤ 10 %),
+`InitializePrivate(name S, ticker S, descr S, icon S, tags S, quote H, dec U, supply U, grad U, cbps U, tax U, tmode U, treasury S, fee U, pfee U)`
+- `quote` is the 32-byte id of what the curve and the AMM price the token in, DERO or another asset, stored as `qt`.
+- `supply ∈ [10⁶, 2⁶³)`, `grad ∈ [10⁶, 10¹⁵]` atomic units of the quote (10 to 10¹⁰ DERO when it is DERO; `launch.bas`
+  BASIC line 25), `cbps ≤ 500` (creator allocation ≤ 5 %), `tax ≤ 1000` (≤ 10 %),
   `tmode ∈ {0 none, 1 creator, 2 buyback-and-lock, 3 stakers}` (`tax` must be 0 iff `tmode` = 0), `fee ≤ 100`, `pfee ≤ 10000`.
 - Derived: `alloc = ⌊supply·cbps/10⁴⌋` (sent to the creator at install), `rest = supply − alloc`, `Lq = ⌊rest/5⌋`,
   `cs = rest − Lq` (curve supply), `vd0 = ⌊grad/3⌋`, `vt0 = ⌊(grad + vd0)·cs / grad⌋`.
@@ -163,6 +174,25 @@ holding 0) and `TestFactoryOldEntrypointsAreGone` (from the source: only `Initia
 (`fl_` entries stay; the app filters on `f_`). No entrypoint takes value; each refuses DERO attached (2026-09-11,
 GAP-027). As everywhere, an asset the contract cannot name is not seen, and is kept.
 
+## chat.bas — rooms of messages, append-only
+
+`InitializePrivate(treasury S, fee U, maxlen U)`: the address every message fee goes to, the exact fee a message pays
+(0 is allowed) and the longest message, `1 ≤ maxlen ≤ 400`; all fixed at install. `Post(room, text)` needs ring size 2,
+since the author is the signer, and public, and exactly `fee` DERO attached, which is forwarded to the treasury in the
+same call, so the contract keeps no DERO (`TestChatFeeIsExactAndPaid`). `room` is 1–32 bytes and `text` 1 to `maxlen`.
+There is no owner, no edit and no delete: the fee is the only spam control. Like `social.bas`, it cannot see an asset
+attached, which is then kept.
+
+Keys: `kind v treasury fee maxlen n`, and per room `rn_<room>`, its message count, and `rm_<room>_<j>` =
+`author|height|text`, the author as its `dero1…` string. **What a client must do:**
+- read a room as `rn_<room>` and then the last few `rm_<room>_<j>` by exact key, never by scanning the contract;
+- split a record on its first two `|` only, because the text may contain the separator;
+- mute, hide unknown senders and strip control characters on the reader's own device; nothing a client does changes
+  what is stored.
+
+The DMZ app names a market's room `#` plus the first 12 characters of its contract id (`app/chat.js:23`) and opens on
+the room `#dmz`. Tested in `tests/chat_test.go`.
+
 ## nft.bas — holder NFT collection (ART-NFA headers)
 
 `InitializePrivate(name, descr, icon, file, tags, collection, token H, minhold U, holdblocks U, maxsupply U, price U, treasury S, fee U)`.
@@ -244,16 +274,20 @@ which makes the operator the party trusted to be fair.
 
 ## swap.bas — hash-time-locked escrow (atomic swaps)
 
-The DERO leg of a cross-chain atomic swap. No fee, no admin, immutable.
+The DERO leg of the transparent-Zcash atomic swap (v2). No fee, no admin, immutable.
+
+`Initialize(wmin U)`: the least `expiry − lock height`, fixed for the contract's life, refused at 0 and above
+1,000,000 (Z-D, MT-A04).
 
 | Entry | Who | What |
 |---|---|---|
-| `Lock(hash, taker, expiry, asset)` | anyone, ringsize 2 | locks the DERO sent with the call (asset = "") or the asset sent (asset = 64-hex SCID) under `hash` = hex(sha256(secret)); `taker` is an address or "" for anyone; `expiry` is an absolute height at most 1 000 000 ahead |
-| `Claim(id, secret)` | the taker (or anyone when none was named) | before expiry, with the right secret: the funds go to the caller and the secret is stored in `x_<id>` for the other chain's leg |
-| `Refund(id)` | the maker | after expiry: the funds go back |
+| `Lock(hash, taker, expiry, asset)` | anyone, ringsize 2 | locks the DERO sent with the call (asset = "") or the asset sent (asset = 64-hex SCID) under `hash` = 64 lower-case hex of sha256(secret); `taker` is required (GAP-024); `expiry` is an absolute height at least `wmin` and at most 1,000,000 ahead |
+| `Claim(id, secret)` | **anyone**, ringsize 2 | before expiry, with the right secret: the funds go to the stored taker `t_<id>` whoever sends it, and the secret is stored in `x_<id>` |
+| `Refund(id)` | the maker | from expiry: the funds go back |
 
-Each lock is final in one of two ways (`st_<id>` 1 claimed / 2 refunded). The other chain runs the mirror escrow keyed to the
-same hash (a script on Bitcoin/Litecoin/transparent Zcash, a small program on Solana). Tested in `tests/swap_test.go`.
+Each lock is final in one of two ways (`st_<id>` 1 claimed / 2 refunded). Every exit refuses DERO and the lock's own
+asset attached (GAP-027). The Zcash side is the P2SH script keyed to the same hash (`tools/zecswap/script.go`).
+Tested in `tests/swap_test.go`, `swap_v2_test.go`, `swap_gaps_test.go` and `zzconservation_test.go`.
 
 ## htlc.bas — the Monero swap's DERO leg (v3)
 
@@ -285,10 +319,15 @@ Keys: `kind v n w1min w2min g2`, per lock `m_ t_ ha_ hk_ hb_ a_ v_ t1_ t2_ st_ x
 
 ## board.bas — atomic-swap order board
 
-Holds no funds. `Post(chain, giveAsset, giveAmount, wantAmount, wantAddr, expiry)` advertises an offer (the maker's
-counter-chain address travels with it); `Accept(id, hash, lockRef)` is the taker's answer once their counter-chain
-escrow is locked under `hash`; `Cancel(id)` withdraws an open offer. The maker then locks the DERO leg in `swap.bas`
-for the taker with an expiry shorter than the taker's counter-chain lock. Tested in `tests/board_test.go`.
+Holds no funds (v3). `Post(chain, giveAsset, giveAmount, wantAmount, wantAddr, hash, expiry)`, from the maker at
+ring 2, advertises an offer: `hash` is 64 lower-case hex of sha256 of the maker's secret, and `wantAddr` is where he
+wants the counter-chain coins. `Accept(id, refundPkh, cltv)` is the taker's answer, from any ring-2 address but the
+maker's, before the offer's expiry: `refundPkh` is the 40-hex hash of her refund key and `cltv` her refund height, a
+block height below 500,000,000. It stores her as `t_<id>` and sets the acceptance deadline `ad_<id>` = the accept
+height + `aw` (200, fixed at install; ADV-PRICE-07). `Cancel(id)` is the maker's: an open offer at any time, an
+accepted one from its expiry or its acceptance deadline. After Accept the maker locks the DERO leg in `swap.bas` for
+the taker under the same `hash`, and the taker funds the Zcash script. No call takes value: each refuses DERO, and the
+offered asset (GAP-027). Tested in `tests/board_test.go`, `board_v3_test.go` and `zzconservation_test.go`.
 
 ## vault.bas — k-of-n bonded federation wrapper (v3)
 
@@ -476,6 +515,10 @@ preceded by a numeric or fixed-length one, so no two logical tuples can produce 
 6. **`Uint64 + String` is a parse error; key builders start with a string literal.** `LOAD` of a missing key
    panics (which reverts and refunds): guard with `EXISTS` where a key may be absent.
 7. **`IF cond THEN GOTO n` is the only conditional form**, and line numbers must ascend within a function.
+8. **A transfer to an address not known to have signed must be the last transfer the call makes.** The DVM keeps only
+   the last registry lookup of a call's transfers, and half-commits a call whose unregistered destination is not the
+   last (FINDINGS_2026-09-10 DVM-1, DVM-3). `tests/sendorder_test.go` `TestNoUnverifiedPayeeBeforeTheLastTransfer`
+   reads every contract and fails one that breaks this rule.
 
 ## Named-recipient swaps (launch.bas and pool.bas, 2026-09-06)
 

@@ -1,13 +1,14 @@
 # DMZ: the cross-chain trust model
 
-*2026-09-11, the final mainnet pass, branch `wip/2026-09-09-swap-nfa`. This page answers, for each direction of
-value between Monero or Zcash and DERO, who can release, mint, censor, alter, halt, deanonymise, fake or double-count
-anything. It then sets out what proving a Monero or Zcash payment actually requires, and whether DERO could check any
-of it. Contract lines are those of the working tree on this date: `contracts/htlc.bas` v2, `contracts/swap.bas` v2,
-`contracts/board.bas` v3. Related pages:*
+*2026-09-11, the final mainnet pass; brought to `htlc.bas` v3 on 2026-09-12 (X-20, MT-I03). This page answers, for
+each direction of value between Monero or Zcash and DERO, who can release, mint, censor, alter, halt, deanonymise, fake
+or double-count anything. It then sets out what proving a Monero or Zcash payment actually requires, and whether DERO
+could check any of it. Contract lines are those of `e06c28a`, where `contracts/` has not changed since:
+`contracts/htlc.bas` v3, `contracts/swap.bas` v2, `contracts/board.bas` v3. Related pages:*
 - *`DECENTRALIZATION_ARCHITECTURE.md` covers the components and the choice of architecture;*
 - *`docs/XMR_SWAP.md` and `docs/ZEC_SWAP.md` are the protocol specifications;*
-- *`docs/ATOMIC_SWAP_STUDY.md` has the reasoning behind every design choice.*
+- *`docs/ATOMIC_SWAP_STUDY.md` has the reasoning behind every design choice;*
+- *`docs/HTLC_V3_COMPANION_NOTES.md` has what `htlc.bas` v3 changed for each side of the Monero swap.*
 
 **The word "trustless" on this page** means one thing: *no party other than the two people in a swap can take or
 freeze either side's coins.* It never means that nothing can go wrong. Every assumption that remains is in §1, by
@@ -43,11 +44,11 @@ These are all of them. Nothing else is trusted: no operator, signer, relayer, or
 | T1 | **The cryptography holds.** SHA-256 preimage resistance (every hashlock); the discrete log on ed25519 (the Monero key shares) and on secp256k1 (the Zcash spend keys); **the soundness of the Bulletproofs proof in `research/crosschain/poc/proof-xmr`**, which has not been audited outside this project | everyone | a broken hash lets a stranger claim; an unsound proof means a counterparty can reveal a value that hashes correctly but is not their key share, and the other side's XMR is locked for good |
 | T2 | **DERO executes the contracts as written, and never reorganises deeper than 8 blocks** (`STABLE_LIMIT`, `vendor/derohe/config/config.go:77`, a consensus rule) | everyone | out of scope: DERO consensus failing |
 | T3 | **Monero and Zcash do not reorganise deeper than the confirmation policy** (Monero 20 by default and never below 10; Zcash 10). **Neither chain has a consensus bound.** Zebra finalises blocks more than 1,000 deep, and that is local node policy, not consensus (`MAX_BLOCK_REORG_HEIGHT = 1000`, `zebra-chain/src/parameters/constants.rs`) | whoever receives on that chain | the receiver loses: §4 |
-| T4 | **DERO includes an exit within its margin.** Alice's Claim within the claim cutoff (16 blocks before `t1`, and G with U2); the maker's Refund within `[t1, t2)`. The mempool is ordered by fee per byte (`vendor/derohe/blockchain/mempool/mempool.go:377`) | the party sending | censoring Alice's Claim until `t1` lets Bob take both legs (attack A, `docs/ATOMIC_SWAP_STUDY.md` §2.1); the cost is the fee on that block space for that many blocks, or a mining majority |
+| T4 | **DERO includes an exit within its margin.** Alice's Claim within the claim cutoff (16 blocks before `t1`, and G with U2); the maker's Refund within `[t1, t2)`; a Punish within `[t2, t2 + g2)` (`htlc.bas` v3). A transaction is mined at most 10 blocks after the height it was built at, or never (`TX_VALIDITY_HEIGHT` = 11, `vendor/derohe/blockchain/miner_block.go:43, 275`), and a contract judges an exit at the height it executes, so each sender stops before its window ends. The mempool is ordered by fee per byte (`vendor/derohe/blockchain/mempool/mempool.go:377`) | the party sending | censoring Alice's Claim until `t1` lets Bob take both legs (attack A, `docs/ATOMIC_SWAP_STUDY.md` §2.1); the cost is the fee on that block space for that many blocks, or a mining majority. Censoring every Punish until `t2 + g2` leaves the lock to the maker's Reclaim, and the taker then recovers her XMR only if he sends it (T8) |
 | T5 | **Zcash includes the taker's refund between `cltv` and the maker's spend** | the Zcash taker | the claim branch of the script never expires, so a maker who has refunded the DERO can later spend the ZEC with `s` (Z17). The pre-signed refund lets anyone broadcast it |
 | T6 | **Each party's own view of each chain is honest.** The DERO node, Zcash node and Monero daemon each party reads | each party, for itself | **total loss of that party's leg**, when the lying source colludes with the counterparty (§5) |
 | T7 | **Each party's companion is what its source says** (`tools/xmrswap`, `tools/zecswap`) | each party | a malicious build can hand over the party's key share or secret. Mitigated by reproducible builds (`tools/release`); who publishes them is operator decision 14 |
-| T8 | **Each party is present at its window**, or has a machine or delegate that is: the Monero maker in `[t1, t2)`; the Zcash taker from `cltv` | each party | the Monero maker loses the locked asset to Punish; the Zcash taker loses the ZEC (Z17), unless someone broadcasts her pre-signed refund |
+| T8 | **Each party is present at its window**, or has a machine or delegate that is: the Monero maker in `[t1, t2)`, and for his Reclaim from `t2 + g2`, which has no end; the Monero taker, or anyone she asks, in `[t2, t2 + g2)`, when the maker has neither let her Claim nor refunded; the Zcash taker from `cltv` | each party | the Monero maker loses the locked asset to a Punish sent in `[t2, t2 + g2)`. **A Monero taker whose Punish window passes unused gets her XMR back only if the maker reclaims**, because his Reclaim is what publishes `s_b` (`htlc.bas:191-214`). A maker who never reclaims, whether hostile or having lost his state or `s_b`, leaves her XMR and his DERO locked for ever. Anyone may send the Punish for her, since it pays only her. The Zcash taker loses the ZEC (Z17), unless someone broadcasts her pre-signed refund |
 | T9 | **The page or command line that names the contract id** is honest | each party | a look-alike contract. The companions compare the installed code with canonical `htlc.bas` before trusting it (U4); the app is covered in §6 |
 | T10 | **A little DERO for fees** exists in the receiving wallet, because every DERO transaction pays its fee from a DERO payload (`vendor/derohe/blockchain/transaction_verify.go:265-276`) | each party | the party cannot send the transaction that pays them until they hold DERO (Path 0, `docs/ATOMIC_SWAP_STUDY.md` §2.0.1) |
 
@@ -59,38 +60,38 @@ These are all of them. Nothing else is trusted: no operator, signer, relayer, or
 
 | Question | Answer | Where |
 |---|---|---|
-| Who can cause funds to be released? | **DERO leg:** anyone who presents `s` before expiry, and the payment goes only to the stored taker; after expiry only the maker, by Refund. **ZEC leg:** the maker, with `s` and his key (the claim branch); the taker, with her key, after `cltv` (the refund branch). Nobody else | `swap.bas:70-93`, `:96-112`; `tools/zecswap/script.go` (the redeem script: `OP_SIZE 32 OP_EQUALVERIFY` on the claim branch, `OP_CHECKLOCKTIMEVERIFY` on the refund branch) |
+| Who can cause funds to be released? | **DERO leg:** anyone who presents `s` before expiry, and the payment goes only to the stored taker; after expiry only the maker, by Refund. **ZEC leg:** the maker, with `s` and his key (the claim branch); the taker, with her key, after `cltv` (the refund branch). Nobody else | `swap.bas:78-101`, `:104-122`; `tools/zecswap/script.go` (the redeem script: `OP_SIZE 32 OP_EQUALVERIFY` on the claim branch, `OP_CHECKLOCKTIMEVERIFY` on the refund branch) |
 | Who can cause tokens to be minted? | **Nobody.** No contract represents ZEC | the mainnet record names no vault |
 | Who can falsely claim a deposit? | No contract accepts a claim that a deposit happened. A party's **own data source** can show that party a funding or a lock that does not exist (§5) | — |
 | Who can censor a withdrawal? | There is no withdrawal, only exits. DERO miners can delay a Claim or Refund; Zcash miners can delay a claim or refund. Each exit has a window, so censorship past a window moves value (T4, T5). No operator can censor | — |
 | Who can alter verification logic? | **Contracts: nobody.** None calls `UPDATE_SC_CODE`, and a DVM contract cannot change its own code any other way. **Companion: its publisher.** **The app: whoever can update the TELA INDEX** (§6) | `swap.bas`, `board.bas` in full |
 | Who can upgrade the contract? | **Nobody.** A fix is a new contract at a new id | — |
-| Who can change settlement addresses? | After Accept and Lock, nobody. The taker is fixed in `t_<id>`; the maker's ZEC key hash and the taker's refund key hash are inside the P2SH script, which the funding commits to | `board.bas:76-80`, `swap.bas:51-58` |
+| Who can change settlement addresses? | After Accept and Lock, nobody. The taker is fixed in `t_<id>`; the maker's ZEC key hash and the taker's refund key hash are inside the P2SH script, which the funding commits to | `board.bas:85-87`, `swap.bas:61-67` |
 | Who can steal bridge reserves? | **There are none.** Each lock holds only its own swap's value | — |
 | Who can halt the system? | **Nobody.** No contract has a pause. A DERO network halt stops DERO-side exits until it resumes, while Zcash heights keep advancing (§4) | — |
 | Who can deanonymise users? | Anyone reading both chains. `H` appears on `board.bas`, on `swap.bas` and in the P2SH script, and `s` in both claims. That links the maker's and taker's transparent Zcash addresses to the ring-2 DERO addresses that signed Post, Accept, Lock and Claim. Stated before anything else in `docs/ZEC_SWAP.md` §1. The operator of any node a party uses also sees that party's IP address and queries | `docs/ZEC_SWAP.md` §1 |
 | Who can manipulate confirmation state? | The party's **own data source** (§5); Zcash miners, by reorganising | — |
 | Who can exploit a reorganisation? | A Zcash mining majority that reorganises deeper than 10 blocks after the maker has claimed. The funding vanishes, `s` is already public, and the taker refunds her ZEC and claims the DERO with `s`: **the maker loses both legs** (Z5). DERO cannot reorganise deeper than 8, and the companions act only on DERO state that deep | `docs/ZEC_SWAP.md` §9 Z5, Z6 |
-| Who can double-credit a deposit? | **Nobody.** Nothing is credited. Each lock's `st_<id>` moves from 0 exactly once (`swap.bas:23, 40, 101, 104`). The P2SH output can be spent once (Zcash consensus). A companion refuses a hash it has already used for another swap (`tools/zecswap/state.go:287-343`, `ErrHashReused`) | as cited |
+| Who can double-credit a deposit? | **Nobody.** Nothing is credited. Each lock's `st_<id>` moves from 0 exactly once (`swap.bas:67` sets it; Claim checks and moves it at `:83, 93`, Refund at `:109, 115`). The P2SH output can be spent once (Zcash consensus). A companion refuses a hash it has already used for another swap (`tools/zecswap/state.go:287-343`, `ErrHashReused`) | as cited |
 | Who can double-spend a withdrawal? | **Nobody**, for the same reasons | as cited |
 
-### 2.2 The Monero swap (`htlc.bas` v2 + `tools/xmrswap`)
+### 2.2 The Monero swap (`htlc.bas` v3 + `tools/xmrswap`)
 
 | Question | Answer | Where |
 |---|---|---|
-| Who can cause funds to be released? | **DERO leg:** the taker, before `t1`, with `s_a` and the gate secret `k_b` (Claim); the maker, in `[t1, t2)`, with `s_b` (Refund); **anyone**, from `t2`, and the payment goes only to the stored taker (Punish). **XMR leg:** whoever holds `s_a + s_b`, which is Bob once Claim publishes `s_a`, or Alice once Refund publishes `s_b`. After Punish, Alice's XMR stays under the joint key unless Bob ever reveals `s_b` | `htlc.bas:69-93`, `:97-120`, `:125-141` |
+| Who can cause funds to be released? | **DERO leg,** four exits in disjoint windows, so at most one is open at any height: the taker, before `t1`, with `s_a` and the gate secret `k_b` (Claim); the maker, in `[t1, t2)`, with `s_b` (Refund); **anyone**, in `[t2, t2 + g2)`, and the payment goes only to the stored taker (Punish); the maker alone, from `t2 + g2` with no end, with `s_b` (Reclaim, new in v3). `g2` is fixed at install. **XMR leg:** whoever holds `s_a + s_b`, which is Bob once Claim publishes `s_a`, or Alice once Refund or Reclaim publishes `s_b` (both store it in `xb_<id>`). After Punish, Alice's XMR stays under the joint key unless Bob ever reveals `s_b`. **If nobody punishes in `[t2, t2 + g2)`, Alice gets her XMR back only if Bob reclaims; if he never does, her XMR and his DERO stay locked for ever** (T8; `docs/HTLC_V3_COMPANION_NOTES.md` §4). v2 let anyone Punish from `t2` with no end | `htlc.bas:99-125` (Claim), `:129-154` (Refund), `:165-185` (Punish), `:191-214` (Reclaim) |
 | Who can cause tokens to be minted? | **Nobody** | — |
 | Who can falsely claim a deposit? | No contract accepts a claim that a deposit happened. A party's own data source can (§5) | — |
-| Who can censor a withdrawal? | DERO miners can hold Alice's Claim out past `t1` (T4). Monero miners can delay Alice's XMR lock, which ends in a Refund, at the cost of time | — |
+| Who can censor a withdrawal? | DERO miners can hold Alice's Claim out past `t1`, or every Punish out past `t2 + g2`, after which only the maker's Reclaim moves the lock (T4). Monero miners can delay Alice's XMR lock, which ends in a Refund, at the cost of time | — |
 | Who can alter verification logic? | Contracts: nobody. The companion and the proof verifier: their publisher. The app: the TELA INDEX (§6) | `htlc.bas` in full |
 | Who can upgrade the contract? | **Nobody** | — |
-| Who can change settlement addresses? | Nobody after Lock. The maker `m_<id>` is the Lock's signer; the taker `t_<id>` is fixed at Lock; the joint Monero address is fixed by `S_a + S_b` | `htlc.bas:51-61` |
+| Who can change settlement addresses? | Nobody after Lock. The maker `m_<id>` is the Lock's signer; the taker `t_<id>` is fixed at Lock; the joint Monero address is fixed by `S_a + S_b` | `htlc.bas:81-91` |
 | Who can steal bridge reserves? | **There are none** | — |
 | Who can halt the system? | **Nobody** | — |
-| Who can deanonymise users? | On DERO, the maker, the taker, the amount, the three hashes, `s_a` (after Claim) and `s_b` (after Refund) are public. The maker holds the joint address's private view key, so a dominant maker sees every taker's XMR amount and timing. On Monero the joint address looks like any other; only timing ties it to the DERO lock | `docs/XMR_SWAP.md` §5, §6 |
+| Who can deanonymise users? | On DERO, the maker, the taker, the amount, the three hashes, `s_a` (after Claim) and `s_b` (after Refund or Reclaim) are public. The maker holds the joint address's private view key, so a dominant maker sees every taker's XMR amount and timing. On Monero the joint address looks like any other; only timing ties it to the DERO lock | `docs/XMR_SWAP.md` §5, §6 |
 | Who can manipulate confirmation state? | The party's own data source (§5); Monero miners | — |
 | Who can exploit a reorganisation? | A Monero mining majority that reorganises Alice's XMR lock away after Bob has released the gate. She can still Claim the DERO, and Bob finds nothing to sweep: **the maker bears the Monero reorganisation risk** (R3). The largest Monero miner observed in 2025 averaged 23.38 % of blocks, and 28.33 % in its selfish-mining periods ([arXiv 2512.01437](https://arxiv.org/html/2512.01437)) | `docs/XMR_SWAP.md` §9 R3 |
-| Who can double-credit a deposit? | **Nobody.** `st_<id>` moves from 0 once (`htlc.bas:74, 84, 103, 111, 130, 132`). A Monero output can be spent once (its key image). The companion refuses a secret it has generated before (`tools/xmrswap/state.go:245-300`, `UsedSecrets`; `TestRefusesReusedSecret`) | as cited |
+| Who can double-credit a deposit? | **Nobody.** `st_<id>` moves from 0 once (`htlc.bas:90` sets it; each exit checks it and moves it: Claim `:104, 117`, Refund `:135, 146`, Punish `:171, 177`, Reclaim `:196, 206`). A Monero output can be spent once (its key image). The companion refuses a secret it has generated before (`tools/xmrswap/state.go:245-300`, `UsedSecrets`; `TestRefusesReusedSecret`) | as cited |
 | Who can double-spend a withdrawal? | **Nobody**, for the same reasons | as cited |
 
 ### 2.3 Summary
@@ -99,7 +100,7 @@ These are all of them. Nothing else is trusted: no operator, signer, relayer, or
 
 | Question | ZEC → DMZ | DMZ → ZEC | XMR → DMZ | DMZ → XMR | *Federation (not deployed)* |
 |---|---|---|---|---|---|
-| Release funds | the counterparty, through the exits; the timelocks | same | same | same | *k of n signers* |
+| Release funds | the counterparty, through the exits; the timelocks | same | the same, except that past `t2 + g2` an open lock moves only by the maker's Reclaim | same | *k of n signers* |
 | Mint | nobody | nobody | nobody | nobody | *k of n signers, against nothing if they wish* |
 | Falsely claim a deposit | your own data source, to you | same | same | same | *k of n signers* |
 | Censor | miners, bounded by the windows | same | same | same | *any one signer can strand a marked withdrawal (LIV-03)* |
@@ -188,8 +189,8 @@ which §5 prices.
 
 | Chain | Event | Identity | Why it cannot be replayed |
 |---|---|---|---|
-| DERO | an escrow | the contract's SCID and the lock id `id`, from the contract's own counter `n` (`htlc.bas:50, 61`; `swap.bas:52, 58`) | `st_<id>` moves from 0 once, and every exit checks it first. A SCID exists on one network only, so a testnet lock names nothing on mainnet. Contract calls are DERO transactions, which cannot be replayed (a transaction is valid for 11 blocks, `vendor/derohe/blockchain/miner_block.go:43`, and each spends its own ring inputs) |
-| DERO | an offer | `board.bas` SCID and `id` | `st_<id>`: one Accept, one Cancel, no reopening (`board.bas:72-76`, `:92-97`) |
+| DERO | an escrow | the contract's SCID and the lock id `id`, from the contract's own counter `n` (`htlc.bas:80, 91`; `swap.bas:60, 68`) | `st_<id>` moves from 0 once, and every exit checks it first. A SCID exists on one network only, so a testnet lock names nothing on mainnet. Contract calls are DERO transactions, which cannot be replayed (a transaction is mined within 10 blocks of the height it was built at or never, `TX_VALIDITY_HEIGHT` = 11, `vendor/derohe/blockchain/miner_block.go:43, 275`, and each spends its own ring inputs) |
+| DERO | an offer | `board.bas` SCID and `id` | `st_<id>`: one Accept, one Cancel, no reopening (Accept `board.bas:78, 84`; Cancel `:105-108`) |
 | Zcash | a swap's funding | `(network, txid, vout)` of the P2SH output, whose script is unique to the swap (`H`, both key hashes, `cltv`) | Zcash consensus spends an output once. A testnet outpoint does not exist on mainnet, and the addresses differ by prefix (`t2…` against `t3…` for P2SH). `H` is fresh per offer, and a companion refuses one it has used (`ErrHashReused`) |
 | Zcash | a claim or refund | the spending transaction's id (ZIP 244, not malleable) | only one transaction can spend the funding |
 | Monero | a swap's lock | `(txid, output index)` at the joint address, which is fresh per swap (fresh `s_a`, `s_b`) | the key image prevents a second spend. The companion refuses a reused secret (`UsedSecrets`) |

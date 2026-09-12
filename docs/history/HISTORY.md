@@ -3448,3 +3448,184 @@ The operator's final mainnet readiness pass, received during this cycle.
 5. Monero stagenet and Zcash testnet.
 6. The DERO testnet for a week.
 7. The external reviews.
+
+## 2026-09-11, evening — Phase W: the public test chains behind a gate, Zcash headers checked by the companion, the Zcash swap screen, the supply chain pinned
+
+### SHIPPED
+
+- **The public test networks** (`6539e1f`).
+  - Monero stagenet: pruned monerod 0.18.5.1, outbound P2P only, no update check or DNS checkpoints.
+  - Zcash testnet: zebrad 6.3.0, P2P on loopback.
+  - Each node is refused unless it answers as its test network.
+  - zebrad cannot limit its RPC by method, so clients reach it through `tools/regtest/rpcgate`. The gate serves only
+    the methods zecswap calls, and forwards a request rebuilt from the fields it checked.
+  - Measurements, sources and the unreachable DERO testnet seed are in `research/regtest/public-testnets.log`.
+- **Phase W** (`df077b8`): `docs/MAINNET_TODO.md` gained ten items that wait on neither the syncs, the audits nor the
+  operator.
+- **Zcash header verification** (`88c8f20`, W-02). `tools/zecspv` checks:
+  - Equihash (200, 9) and the exact difficulty rule;
+  - the header time rules and the links between headers;
+  - Merkle inclusion.
+
+  Evidence: `research/zecspv/tests.log`, `bench.log` and `sources.log`. That evening it was not yet wired into zecswap.
+- **The app** (`fccd52a`, W-03):
+  - the Zcash swap screen, `#zswap`;
+  - the age of cached figures, on every screen;
+  - the treasury set in the bundle (GAP-005);
+  - start time measured: 212 ms to the first data render, cold, at 430 px.
+- **The supply chain** (`e32a96e`, W-05):
+  - `telainstall` builds read-only against a pinned fork (GAP-017);
+  - `docs/DEPENDENCIES.md` inventories derohe's 52 vendored modules (GAP-018);
+  - Playwright is pinned at 1.62.0 (MT-H03);
+  - `tools/check.sh` runs the whole validation in one command;
+  - swap latency on regtest is in `research/regtest/latency.md` (MT-M01).
+- **The records** (`6483040`, `ce2205e`, `50d4e78`): W-02 and W-05 in the list; the findings name the commit that
+  repaired each one; `binaries.lock` re-pinned from the committed tree.
+
+### ALSO FIXED
+
+- `rpcgate` forwarded the client's own bytes once it had checked them, so a body naming `"method"` twice could pass as
+  one method and reach zebrad as another. It now forwards a request rebuilt from the checked fields
+  (`tools/regtest/rpcgate/main_test.go`).
+- The first gate ran an older build for 30 minutes and nobody noticed. The status report now warns when the gate
+  running is not the build on disk (W-07).
+
+### VERIFIED
+
+- **`rpcgate` against the live testnet node** (W-07):
+  - a body naming `stop` then `getblockhash` came back as `getblockhash 0`;
+  - `stop` alone was refused with -32601, a batch with -32600, no cookie with 401.
+- **`tools/zecspv`** reproduces zcashd's `pow_tests` and 106 real headers across Blossom and NU6.3. It checks zcashd's
+  and librustzcash's Equihash vectors and 20 real Merkle roots, at about 0.3 ms a header.
+- **The Zcash swap screen on the simulator**, from a wallet on neither side: the taker received exactly the lock
+  (MT-D05).
+
+### UNCONSIDERED
+
+- **Exact difficulty is not enough on its own:** a node can send easy headers below a funding. With an anchor, or 100
+  headers below it, forging 10 confirmations costs about 8.9 blocks of network work, roughly 14 ZEC of mining. So 10
+  confirmations do not protect a large swap (W-02).
+- **Two gaps in the app, from W-03:**
+  - market names were cut to "B.." in the Markets table at 1024 px (MT-D12, fixed on 2026-09-12);
+  - the dead state of an accepted, never-locked offer is coded, but was not seen on screen.
+
+### NEXT
+
+The rest of Phase W, the next day.
+
+## 2026-09-12 — real reorganisations, go1.26.8, both command lines on regtest, `factory.bas` v2 and `htlc.bas` v3
+
+### SHIPPED
+
+- **The Monero proof's audit package** (`6095872`, W-04):
+  - `docs/audit/PROOF_XMR_AUDIT_PACKAGE.md` and 23 Rust tests;
+  - a reproducible prover build: `7293e9c9…` from any checkout;
+  - finding L1 (GAP-040): the circuit does not require the hashed value to be below ℓ.
+
+  Evidence: `research/crosschain/poc/proof-xmr/test.log`, `repro.log` and `bench.log` (prove 9.01 s, verify 1.92 s,
+  medians of 25).
+- **go1.26.8 for every build** (`8830715`, W-06, GAP-015):
+  - x/crypto v0.57.0 and x/sys v0.48.0;
+  - `vendor/bin` rebuilt with `-trimpath`, and `binaries.lock` re-pinned with 10 binaries;
+  - govulncheck finds nothing reachable (`research/release/govulncheck-2026-09-12.log`);
+  - the companions still build reproducibly on it, 62 of 62 on `-verify` (`009dd4a`,
+    `research/release/reproducible-build-go1268.log`).
+- **The Monero companion** (`b3a707b`, W-08):
+  - a real Monero reorganisation on regtest, before and after the gate (`research/regtest/xmrswap-reorg.log`, MT-B11);
+  - L1 handled: a revealed share is reduced mod ℓ (MT-B25);
+  - the prover pin moved to the reproducible build (MT-B26);
+  - the rendezvous sealed (GAP-019);
+  - a sweep that resumes after a kill (MT-B12, XMR-R1);
+  - the joint wallet's scan time (`research/regtest/xmrswap-scan.log`, MT-B13);
+  - the recovery card and the wake (MT-B15);
+  - reads confirmed by every DERO node (MT-B09);
+  - parser fuzzing (MT-G06), and no secret in output (MT-L02).
+- **The Zcash companion** (`8201fa6`, W-09):
+  - three real Zcash reorganisations (`research/regtest/zecswap-reorg.log`);
+  - the header gate behind `-verify-headers`, its plumbing checked on the real testnet node
+    (`research/regtest/zecswap-headers.log`);
+  - then ZIP 244's Sapling digest (`323371b`, GAP-039), so no v5 transaction id is taken on the node's word.
+- **The gate's reorganisation line turned PASS** (`cc92174`).
+- **Both command lines ran as separate processes on regtest:**
+  - xmrswap: the maker and the taker, through Bob's sweep (`a11ad3c`, `research/regtest/xmrswap-cli.log`);
+  - zecswap: maker, taker and status, through a swap and a refund (`35e044e`, `research/regtest/zecswap-cli.log`).
+    It was rerun on the refactored harness, which the Zcash testnet driver `TestTestnetSwap` shares; the driver has
+    not run yet (`70fbba9`, MT-C15).
+- **The simulator restored, and the app's install cost measured** (`43eb595`):
+  - after the rebuild wiped the simulator: every contract, both vaults, the wrapped markets, an NFA and the swap-board
+    seed redeployed;
+  - installing the whole app took 36 transactions and 3.227 DERO (`research/release/tela-install-cost.log`, MT-E07);
+  - the DOC cap is 18,250, and `feed.js` and `wrap.js` were split to fit under it (`78cfe61`, MT-E10);
+  - market names read at 1024 px (`7d6ee95`, MT-D12).
+- **Monero lock rules and the mainnet profile** (`fa0e24b`):
+  - a lock that carries an `unlock_time` opens no gate, shown on regtest (`research/regtest/xmrswap-unlock.log`,
+    MT-B14);
+  - the companion's defaults are generated from the policy in `tools/xmrswap/mainnet_profile.json` (MT-B16).
+- **The stagenet chain moved to WSL's own disk** (`9b9675d`, with `40f1ed9` and `04a543f`). LMDB over the 9p mount ran
+  at 0.6 blocks/s; on ext4 it ran at 10.6 blocks/s, with 7 peers.
+- **`factory.bas` v2 and `htlc.bas` v3** (`e06c28a`), at the operator's rulings MT-J15(b), MT-J13(b) and MT-A03(a):
+  - the factory has no owner, setter or `Renounce`, and `Initialize` fixes the treasury and the fee (canonical hash
+    `73f281df…`);
+  - the htlc takes `Initialize(w1min, w2min, g2)`, and Lock refuses a window narrower than the first two;
+  - Punish is accepted only in [`t2`, `t2 + g2`), and from `t2 + g2` the maker's Reclaim reveals `s_b` (state 4;
+    canonical hash `b785028d…`);
+  - xmrswap adopted v3.
+- **The test plan and the review packages** (`e2c99c9`; X-03, X-12, X-13):
+  - `docs/MAINNET_TEST_PLAN.md` made current;
+  - `docs/audit/CONTRACT_REVIEW_PACKAGE.md`, for the external contract review;
+  - the proof package checked against `e06c28a`.
+- **Phase X** opened in `docs/MAINNET_TODO.md`: everything the mainnet test stage needs.
+
+### ALSO FIXED
+
+- **An xmrswap stall** (`b3a707b`). Every state save launched `icacls`, which died once the console was torn down, and
+  the swap stood still. The companion failed closed. The ACL is now set through the Windows API.
+- **A false alarm** (`a11ad3c`): a maker, who registers no wake, reported that he could not remove one.
+- **A Zcash maker who waited for ever** (`8201fa6`). After a deep reorganisation he re-sent a claim that could never be
+  mined, and stayed in `claimed`. Now he puts the funding back, refunds at `T_dero`, or ends `lost`.
+- **Two stagenet status errors:** progress read 100 % when monerod had lost its peers (`40f1ed9`), and a slow monerod
+  was reported as not answering (`04a543f`).
+- **A commit message that promised too much** (`a50d041`). `fa0e24b`'s message said `tools/check.sh` gave the crash fuzz
+  30 minutes, but the edit had not been written. `a50d041` made it.
+- **The "11 blocks" wording** (`e06c28a`). The documents said a DERO transaction executes up to 11 blocks after it is
+  built; derohe mines it at most 10 after. The companion still counts 11, one block conservative.
+
+### VERIFIED
+
+- **The DVM suite on the contracts of `e06c28a`:** 175 runs, 0 failures, 643 s, go1.26.8, with `-timeout 45m`. It ran
+  for this record, and `go vet` passed first.
+  - An earlier run the same day stopped after 149 passes, when go test's 10-minute default ran out in
+    `TestDVMArithmeticMatchesMathBig` on a loaded machine.
+  - The second run printed every install-gas figure the first did, and three the first never reached. One is
+    `launch.bas` with every metadata field at its maximum: 16,915, 3,085 under the cap
+    (`TestLaunchMaxMetadataInstallGas`). `contracts/README.md` gives them all.
+- **`e06c28a`'s own evidence:**
+  - `tools/check.sh --verifydeploy`: 11 of 11 steps;
+  - the UI pass, normal and mainnet-shaped;
+  - `verifydeploy`: 31 PASS, 13 WARN, no failure (`research/release/verifydeploy-final-sim.log`);
+  - all three exits on v3 against real monerod and monero-wallet-rpc 0.18.5.1 (`research/regtest/xmrswap-e2e.log`,
+    run 3);
+  - the command-line happy path on v3 (`xmrswap-cli.log`, run 3).
+- **The rescan for secrets** (MT-G09, `docs/MAINNET_GAP_ANALYSIS.md` §3.1): no real secret in the tree or the history
+  since `0fba2c6`. `tools/hygiene` passes on go1.26.8.
+- **Day 0 of MT-F05's week, on the private DERO testnet:** the seven contracts are installed, factory v2 and htlc v3
+  among them (`research/testnet/README.md`, not yet committed).
+
+### UNCONSIDERED
+
+- **Reclaim has not run live through the companions.** Only the DVM and unit tests cover it (X-08, X-18).
+- **A taker who misses the whole Punish window** gets her XMR back only if the maker reclaims. If he never does, both
+  stay locked: v3's residual, `docs/HTLC_V3_COMPANION_NOTES.md` §4.
+- **`tests/run.sh` passes go test no `-timeout`.** On a loaded machine the suite outruns the 10-minute default, as the
+  crash fuzz did before `a50d041`.
+- **`social.bas`'s install gas** is printed by no test and no install log.
+- **`TestAGateAfterTheDeadlineIsNotUsed`** failed once under load, then passed alone three times (X-19).
+
+### NEXT
+
+Phase X of `docs/MAINNET_TODO.md`:
+- the public chains at their tip (X-01);
+- stage 1 of the test plan (X-04);
+- the private DERO testnet's week (X-05; day 7 is 2026-09-19);
+- Reclaim, live (X-08);
+- the operator's re-confirmations and open decisions (X-14).

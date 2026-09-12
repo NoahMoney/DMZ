@@ -1,6 +1,6 @@
 # DMZ: decentralisation architecture
 
-*2026-09-11, the final mainnet pass, branch `wip/2026-09-09-swap-nfa`. This page covers what DMZ is built from, what
+*2026-09-11, the final mainnet pass; the swap exits and line citations brought to `htlc.bas` v3 on 2026-09-12 (X-20). This page covers what DMZ is built from, what
 each part depends on, which of five cross-chain architectures it uses and why, and what is left once the operator has
 gone. Two companion pages go with it:*
 - *`CROSS_CHAIN_TRUST_MODEL.md` answers, direction by direction, who can release, mint, censor or deanonymise, and
@@ -60,7 +60,9 @@ holds XMR.
 
 If the swap stalls:
 - Bob refunds in `[t1, t2)`, which publishes `s_b` so Alice can recover her XMR;
-- or, from `t2`, anyone sends Punish, which pays Alice (`htlc.bas:125-141`).
+- or, in `[t2, t2 + g2)`, anyone sends Punish, which pays Alice (`htlc.bas:165-185`);
+- or, from `t2 + g2`, only Bob can move the lock, by Reclaim, which publishes `s_b` as a Refund does
+  (`htlc.bas:191-214`). If nobody punished in time, Alice gets her XMR back only if he reclaims.
 
 **The Zcash swap** (`contracts/board.bas`, `contracts/swap.bas`, `tools/zecswap`, `docs/ZEC_SWAP.md`). The maker holds a
 DERO-side asset and the taker holds transparent ZEC.
@@ -69,7 +71,7 @@ DERO-side asset and the taker holds transparent ZEC.
 3. The maker locks the asset in `swap.bas`.
 4. The taker funds a P2SH script on Zcash.
 5. The maker claims the ZEC with `s`, which publishes it.
-6. Anyone who reads `s` can then send the escrow's Claim, and it pays only the taker (`swap.bas:70-93`).
+6. Anyone who reads `s` can then send the escrow's Claim, and it pays only the taker (`swap.bas:78-101`).
 
 If the swap stalls, each side has a height after which it recovers its own coins.
 
@@ -96,7 +98,7 @@ Each row answers the directive's seven questions. **Nothing in this table is run
 | Dependency | Why it exists | Mandatory? | Can it be eliminated? | Adds trust? | Availability dependence | Privacy leakage | Decentralised replacement |
 |---|---|---|---|---|---|---|---|
 | **zcashd** | — | **not used** | — | — | — | — | It reached its automatic end of support on 2026-07-18 at height 3,417,100 and refuses to restart ([zcashd book](https://zcash.github.io/zcash/user/end-of-life.html)). `tools/zecswap/node.go:55` does not depend on which node it talks to |
-| **zebrad** (Zcash full node) | the ZEC-side party's companion reads the P2SH funding and the counterparty's claim, and broadcasts | yes, for each participant in a Zcash swap: their own, or one they name. **Not for the operator** | no. Someone must read Zcash for that party | a node the party does not run is trusted for safety-critical reads, and a lie can cost them the swap (`CROSS_CHAIN_TRUST_MODEL.md` §5) | while it is down that party's companion waits. Timelocks keep the coins safe, and the taker's pre-signed refund can be broadcast through any other node | a remote node sees the party's IP address, the P2SH address it asks about, and where its broadcasts came from | the party's own node; or several independent nodes, where every safety-critical read must agree (reduces the trust, does not remove it); client-side header verification (§7, not built) |
+| **zebrad** (Zcash full node) | the ZEC-side party's companion reads the P2SH funding and the counterparty's claim, and broadcasts | yes, for each participant in a Zcash swap: their own, or one they name. **Not for the operator** | no. Someone must read Zcash for that party | a node the party does not run is trusted for safety-critical reads, and a lie can cost them the swap (`CROSS_CHAIN_TRUST_MODEL.md` §5) | while it is down that party's companion waits. Timelocks keep the coins safe, and the taker's pre-signed refund can be broadcast through any other node | a remote node sees the party's IP address, the P2SH address it asks about, and where its broadcasts came from | the party's own node; or several independent nodes, where every safety-critical read must agree (reduces the trust, does not remove it); client-side header verification (§7: built behind `-verify-headers`, off by default until a testnet swap, MT-C14) |
 | **lightwalletd / Zaino** (ZIP 307 light-wallet server) | an alternative to a full node for reads | no. `zecswap` speaks node JSON-RPC and does not use it | yes | if ever used, a named trusted party, the same as a remote node | the same | it sees the addresses and blocks asked for | the same as above |
 | **monerod** | the Monero party's wallet reads the chain through it | yes, for each participant in a Monero swap: their own, or one they name | no | a remote `monerod` is trusted. Monero wallets do not check proof of work, so a remote daemon can show a payment that is not on the chain (`docs/XMR_SWAP.md` R18) | while it is down that party's companion waits; timelocks keep the coins safe | IP address, timing, and where a transaction was first broadcast | the party's own node. Monero has no trust-minimised light client in production (`CROSS_CHAIN_TRUST_MODEL.md` §3.2) |
 | **monero-wallet-rpc** | `xmrswap` restores the joint wallet from keys, opens a view-only wallet and sweeps | yes, for the Monero swap | no | none beyond the software itself. It runs locally, on keys the party holds | — | — | — |
@@ -105,7 +107,7 @@ Each row answers the directive's seven questions. **Nothing in this table is run
 | **Indexers** | — | **none**. The app reads contracts directly (`RISKS.md` R-12) | — | — | — | — | — |
 | **Databases** | — | **none**. Contract storage is the ledger. Each companion's state file is local to its owner | — | — | — | — | — |
 | **Message queues** | — | **none** | — | — | — | — | — |
-| **Relayers** | — | **none required.** Three optional senders exist, and anyone may be one: Punish on `htlc.bas` from `t2` (pays the stored taker); Claim on `swap.bas` with a published `s` (pays the stored taker); broadcasting the Zcash taker's pre-signed refund (pays only her refund key). **None can direct value anywhere else** | — | none | — | a sender learns nothing that is not already public, except the holder of a pre-signed refund, who learns of the swap early | — |
+| **Relayers** | — | **none required.** Three optional senders exist, and anyone may be one: Punish on `htlc.bas` in [`t2`, `t2 + g2`) (pays the stored taker); Claim on `swap.bas` with a published `s` (pays the stored taker); broadcasting the Zcash taker's pre-signed refund (pays only her refund key). **None can direct value anywhere else** | — | none | — | a sender learns nothing that is not already public, except the holder of a pre-signed refund, who learns of the swap early | — |
 | **Bridge signers** | — | **none on mainnet**. `vault.bas` is not deployed; `deploy/networks.json` `mainnet.vault` is empty and `vaults` is null | — | — | — | — | — |
 | **Oracle operators** | — | **none**. No contract reads a price. An AMM's price is its own reserves | — | — | — | — | — |
 | **API providers** | — | **none** | — | — | — | — | — |
@@ -147,13 +149,16 @@ A DERO contract would check Monero and Zcash headers, proof of work, Merkle incl
 
 Each party's own software checks the foreign chain. The contract checks only a hash, a height and who signed.
 
-- **Security.** No party can take another's coins. Every state has an exit that needs no particular person:
-  - Punish on `htlc.bas` may be sent by anyone from `t2` (`htlc.bas:125-141`);
-  - `swap.bas` Claim may be sent by anyone holding `s` (`swap.bas:70-93`);
-  - `swap.bas` Refund opens at expiry (`swap.bas:96-112`).
+- **Security.** No party can take another's coins. Every state has an exit, and all but one need no particular
+  person:
+  - Punish on `htlc.bas` may be sent by anyone in [`t2`, `t2 + g2`) (`htlc.bas:165-185`);
+  - `swap.bas` Claim may be sent by anyone holding `s` (`swap.bas:78-101`);
+  - `swap.bas` Refund opens at expiry (`swap.bas:104-122`);
+  - the exception: from `t2 + g2` an `htlc.bas` lock nobody punished moves only by its maker's Reclaim
+    (`htlc.bas:191-214`), the per-party window the operator accepted (MT-J11(a)), and the taker's XMR waits on him.
 - **Trust.** Each party's own nodes, the chains' consensus to a stated depth, the companion software, the
   cryptography (including an unaudited proof on the Monero path), and the party's presence at stated windows.
-- **Complexity.** Three small contracts: `htlc.bas` 141 lines, `swap.bas` 112, `board.bas` 100. Two companions.
+- **Complexity.** Three small contracts: `htlc.bas` 214 lines, `swap.bas` 122, `board.bas` 111. Two companions.
 - **Latency.** The foreign confirmations plus about three minutes: ≈48 min for XMR at 20 confirmations, ≈21 min for ZEC
   at 10 (`docs/ATOMIC_SWAP_STUDY.md` §1). A second trade is one DERO transaction.
 - **Privacy.**
@@ -215,7 +220,7 @@ N of M verifiers vote, and the contract mints or releases at the threshold.
 | Zcash node | for its user only | for Zcash swap participants | yes: own node, or several with unanimity | each participant's own `zebrad` by default; named remotes are disclosed as trusted |
 | Monero node | for its user only | for Monero swap participants | only by running one's own | each participant's own `monerod` |
 | DERO node | for its user only | yes | yes: anyone can run one | the node the person names in Settings; companions read their own |
-| Relayer | no | no | already permissionless | anyone may send Punish, the `swap.bas` Claim, or a pre-signed refund; none can redirect value |
+| Relayer | no | no | already permissionless | anyone may send Punish (in [`t2`, `t2 + g2`)), the `swap.bas` Claim, or a pre-signed refund; none can redirect value |
 | Oracle | — | no | — | none exists |
 | Signer | — | no | — | none on mainnet |
 | Database | — | no | — | none exists |
@@ -241,7 +246,7 @@ where value goes:
 | Role | Who may do it | What the protocol checks for itself | What a malicious sender can do |
 |---|---|---|---|
 | Send Punish on `htlc.bas` | anyone, in [`t2`, `t2 + g2`) (v3) | the height; the lock is still open; the payee is `t_<id>` from storage (`htlc.bas`, `Punish`) | choose the moment the lock closes within that window, never who is paid |
-| Send Claim on `swap.bas` | anyone holding `s` | the preimage, the expiry, the open state; the payee is `t_<id>` (`swap.bas:73-90`) | pay the fee to complete the taker's leg |
+| Send Claim on `swap.bas` | anyone holding `s` | the preimage, the expiry, the open state; the payee is `t_<id>` (`swap.bas:78-101`) | pay the fee to complete the taker's leg |
 | Broadcast the taker's pre-signed Zcash refund | anyone holding its hex | Zcash consensus: the locktime, and the taker's signature over the whole transaction | broadcast it, or not; it pays only the taker's refund key |
 
 Each sender still pays DERO gas and needs a valid ring-2 signer, as every exit does.
@@ -257,7 +262,7 @@ custody by k named parties and must never be called trustless.
 These are different claims, and they are stated separately.
 
 **Protocol autonomy.** Once deployed, the swap contracts have:
-- no owner, admin, fee, pause or upgrade path (`htlc.bas:11`, `swap.bas:3`, `board.bas:1-16`);
+- no owner, admin, fee, pause or upgrade path (`htlc.bas:22`, `swap.bas:3`; `board.bas` stores no owner, admin or pause key and never calls `UPDATE_SC_CODE`);
 - storage that only their own entrypoints change, under the rules written in them.
 
 Nobody, the operator included, can change a rule, stop a swap or redirect a payment. That can be verified: fetch the
@@ -284,7 +289,7 @@ Each is a named item in `MAINNET_SECURITY_GATE.md`.
 
 ---
 
-## 7. Upgrades that would reduce trust further (not built)
+## 7. Upgrades that would reduce trust further (the first two built since 2026-09-11)
 
 1. **Client-side header verification for Zcash.**
    - **What it buys.** The companion would check the Equihash proof of work (n = 200, k = 9, over BLAKE2b; `zecswap`
@@ -293,9 +298,13 @@ Each is a named item in `MAINNET_SECURITY_GATE.md`.
      funding, instead of a single false answer.
    - **What it costs.** Parsing v4 and v5 transactions well enough to compute every transaction id in a block (v5 ids
      are ZIP 244 digests), plus checking difficulty against recent headers. Weeks of work.
-   - **Status.** Recommended after the regtest and testnet runs.
-2. **Reads from several sources, which must all agree**, for every read that gates an irreversible step. Being added to
-   `zecswap`'s node client in this pass. It reduces "one liar" to "every source colludes". It does not remove the trust.
+   - **Status.** Built since this page was written. `tools/zecspv` came with W-02 (`88c8f20`), and is wired into
+     `zecswap` behind `-verify-headers` (`8201fa6`). It stays off by default until it has run against the Zcash
+     testnet (MT-C14). Under the shipped policy a faked funding costs about 8.9 blocks of network work
+     (`docs/ZCASH_HEADER_VERIFICATION.md` §4).
+2. **Reads from several sources, which must all agree**, for every read that gates an irreversible step. Built:
+   `zecswap` requires every configured source to agree (MT-C10), and `xmrswap` reads its DERO checks from several
+   (MT-B09). It reduces "one liar" to "every source colludes". It does not remove the trust.
 3. **Monero: no equivalent is practical.** Checking RandomX needs a 256 MiB cache per key epoch. Detecting a payment
    needs a wallet scan with the view key. So the answer for Monero stays the party's own `monerod`. The FCMP++/Carrot
    hard fork will change Monero's transaction and address layer when it activates; no mainnet height was set as of

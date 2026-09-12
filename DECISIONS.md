@@ -310,7 +310,7 @@ Consequences: (a) the launch form defaults to 1 000 000 tokens × 3 decimals = 1
 | File | Role |
 |---|---|
 | `contracts/pool.bas` | LP-owned constant-product pool, one per (asset ↔ DERO). Installed by any user, registered on the factory. |
-| `contracts/factory.bas` | Registry + social directory: pools, launches, NFT collections, profiles, follows, protocol treasury address. Owned by the operator until `Renounce`: **only the treasury pointer and the registration fee are mutable**, only by the owner (`SetTreasury`, `SetRegFee`), and the owner's `Renounce` ends both for ever by deleting `owner` (2026-09-11; there is no transfer of ownership — the two-step `TransferOwnership`/`ClaimOwnership` was removed, FINDINGS_2026-09-10 SEC-K-02, LIV-08). Until it renounces, the factory owner is a trusted party: the app copies the treasury pointer from here. |
+| `contracts/factory.bas` | Registry + social directory: pools, launches, NFT collections, profiles, follows, protocol treasury address. Owned by the operator until `Renounce`: **only the treasury pointer and the registration fee are mutable**, only by the owner (`SetTreasury`, `SetRegFee`), and the owner's `Renounce` ends both for ever by deleting `owner` (2026-09-11; there is no transfer of ownership — the two-step `TransferOwnership`/`ClaimOwnership` was removed, FINDINGS_2026-09-10 SEC-K-02, LIV-08). Until it renounces, the factory owner is a trusted party: the app copies the treasury pointer from here. *Superseded on 2026-09-12 by v2, which has no owner: see the addendum below this table.* |
 | `contracts/launch.bas` | Per-token memecoin contract: fixed supply minted at install, bonding-curve sale, **built-in AMM after graduation** (contract-owned, permanently locked liquidity), 50 bps fee, optional creator tax with three modes (creator / buyback-and-lock / holder staking rewards), staking vault. |
 | `contracts/nft.bas` | ART-NFA-header NFT collection whose editions are **earned by holding**: lock ≥ `min_hold` of a chosen token for ≥ `hold_blocks` blocks, then mint one edition. Optional DERO mint price to creator. |
 | `contracts/social.bas` | Profiles + follow graph (kept separate from the factory so the factory stays tiny and auditable). |
@@ -324,6 +324,14 @@ Four contracts were added by later decisions and belong to the same set: `contra
 §10.12), `contracts/founders.bas` (Founders Pass, §10.11), `contracts/vault.bas` (federation wrapper, §10.13) and
 `contracts/board.bas` (the swap order board). None of them defines `UpdateCode` either, so the immutability claim in
 the heading holds across all nine.
+
+*Addendum, 2026-09-12.* The set is now twelve contracts (`contracts/*.bas`): the nine above, `contracts/htlc.bas` (the
+Monero swap's DERO leg, `docs/XMR_SWAP.md`), `contracts/chat.bas` (rooms of messages) and `contracts/nfa.bas` (one
+ART-NFA-MS1 asset per contract, `docs/NFA.md`). None defines `UpdateCode` or calls `UPDATE_SC_CODE`.
+`contracts/factory.bas` is v2 (`e06c28a`, operator ruling MT-J15(b)): it has no owner, no setter and no `Renounce`.
+`Initialize(treasury, regfee)` fixes the treasury pointer and the registration fee for the factory's life, and nothing
+else writes them (`tests/registry_test.go` `TestFactoryFixedAtInstall`, `TestFactoryOldEntrypointsAreGone`). The
+row above describes v1, and is kept as it was decided.
 
 ### 10.2 Fixed-point / overflow discipline (D-2)
 - All maths in atomic units. Every product `a*b` with both operands possibly ≥ 2^32 goes through `mulhi/muldiv`

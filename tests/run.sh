@@ -21,4 +21,6 @@ if grep -rnE "float32|float64|Float64" "$ROOT/reference" "$ROOT/tests/harness" "
 fi
 cd "$ROOT/vendor/derohe"
 go vet -mod=vendor ./veil/...
-go test -mod=vendor -count=1 ./veil/... "$@"
+# The suite took about 640 s on a loaded machine on 2026-09-12, past go test's default 10-minute timeout. A -timeout
+# in "$@" comes later on the command line and wins.
+go test -mod=vendor -count=1 -timeout 45m ./veil/... "$@"

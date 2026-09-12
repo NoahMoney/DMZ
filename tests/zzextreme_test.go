@@ -57,10 +57,12 @@ func TestPoolQuoteBalanceNearWrap(t *testing.T) {
 	}
 }
 
-// TestLaunchGradCeilingIsUnmodelled: contracts/launch.bas line 25 accepts grad up to 1e15; reference/launch.go
-// NewLaunch refuses anything above 1e12. app/forms.js offers the contract's range. Every graduation target
-// between them — 1 to 1000 XMR on a twelve-decimal quote, the product's own market — installs on chain and has
-// no model, so no differential test has ever run over it.
+// TestLaunchGradCeilingIsUnmodelled: contracts/launch.bas (its BASIC line 25) accepts grad up to 1e15, and
+// reference/launch.go NewLaunch now models the same range (reference/launch.go:33). When this test was written the
+// reference refused anything above 1e12, so the targets between them — 1 to 1000 XMR on a twelve-decimal quote, the
+// product's own market — installed on chain with no model. The test keeps the two ceilings together: every target
+// the contract installs must be one the reference models, or the differential fuzz cannot reach it. Its name dates
+// from before the fix.
 func TestLaunchGradCeilingIsUnmodelled(t *testing.T) {
 	code := readContract(t, "launch.bas")
 	for _, grad := range []uint64{1000000000001, 1e13, 1e14, 1000000000000000} {
@@ -77,7 +79,8 @@ func TestLaunchGradCeilingIsUnmodelled(t *testing.T) {
 }
 
 // TestLaunchExtremeCurve: the largest supply the contract accepts with the fee and tax at their ceilings,
-// driven to graduation and beyond, at the largest graduation target the reference will model.
+// driven to graduation and beyond, at a graduation target of 1e12 (the reference's ceiling when this test was
+// written; it now models up to 1e15).
 func TestLaunchExtremeCurve(t *testing.T) {
 	const supply = uint64(9223372036854775807)
 	const grad = uint64(1000000000000)
@@ -92,7 +95,8 @@ func TestLaunchExtremeCurve(t *testing.T) {
 	t.Logf("phase=%d sold=%d real=%d rd=%d ra=%d tacc=%d fd=%d", e.m.Phase, e.m.Sold, e.m.Real, e.m.RD, e.m.RA, e.m.TAcc, e.m.FD)
 }
 
-// What the curve actually looks like at the contract's real ceiling, which no model covers.
+// What the curve actually looks like at the contract's real ceiling, grad 1e15, read from the contract's own keys.
+// The reference now models this range too (TestLaunchGradCeilingIsUnmodelled).
 func TestLaunchCurveAtContractCeiling(t *testing.T) {
 	code := readContract(t, "launch.bas")
 	for _, sup := range []uint64{1000000, 1e12, 9223372036854775807} {

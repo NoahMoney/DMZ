@@ -1,6 +1,6 @@
 # DMZ: security threat model
 
-*2026-09-11, the final mainnet pass, branch `wip/2026-09-09-swap-nfa`. This page covers what is being protected, who
+*2026-09-11, the final mainnet pass; updated on 2026-09-12 for `htlc.bas` v3 (X-20). This page covers what is being protected, who
 attacks it, where they can reach, what stops them, and what happens in every failure the directive lists. The finding
 lists are elsewhere:*
 - *`docs/audit/FINDINGS_2026-09-10.md`: 125 findings, most reproduced;*
@@ -13,8 +13,8 @@ lists are elsewhere:*
 
 | Asset | Where it lives | Who may move it |
 |---|---|---|
-| A DERO-side asset in a Monero-swap escrow | `htlc.bas` storage and balance | the three exits only (`htlc.bas:69-141`) |
-| A DERO-side asset in a Zcash-swap escrow | `swap.bas` | Claim (paid to the stored taker) and Refund (`swap.bas:70-112`) |
+| A DERO-side asset in a Monero-swap escrow | `htlc.bas` storage and balance | the four exits only: Claim, Refund, Punish in [`t2`, `t2 + g2`), and Reclaim (`htlc.bas:99-214`) |
+| A DERO-side asset in a Zcash-swap escrow | `swap.bas` | Claim (paid to the stored taker) and Refund (`swap.bas:78-122`) |
 | XMR at a swap's joint address | Monero | whoever holds `s_a + s_b` |
 | ZEC at a swap's P2SH output | Zcash | the maker with `s`, or the taker after `cltv` |
 | Pool reserves and LP shares | `pool.bas` | swaps under `min_out`; liquidity providers, for their own share |
@@ -71,7 +71,7 @@ lists are elsewhere:*
 |---|---|---|---|
 | uint64 overflow in a price, a fee or a share | pool, launch, nfa, founders | bounds checked before every product (`RISKS.md` R-1; `nfa.bas` note 4); `tests/zzdvmarith_test.go`, `zzextreme_test.go`, `uint128_test.go` | none known |
 | A transfer sent before a failure exit, which DERO does not roll back | every contract | every send comes after every check (`tests/sendorder_test.go`, `TestNoExternalSendBeforeAFailureExit`) | none known |
-| An unregistered payee destroys a settlement (the DVM keeps only the last registry error, then panics mid-list; LIV-01/DVM-1) | nfa (repaired: `PayOwed`); any contract that pays several addresses in one call | `nfa.bas` pays only signers in a settlement and owes everyone else; the treasury and other contracts pay one address per call | a static check across every contract is open (`MAINNET_TODO.md` MT-A10) |
+| An unregistered payee destroys a settlement (the DVM keeps only the last registry error, then panics mid-list; LIV-01/DVM-1) | nfa (repaired: `PayOwed`); any contract that pays several addresses in one call | `nfa.bas` pays only signers in a settlement and owes everyone else; the treasury and other contracts pay one address per call | none known: a static check reads every contract and fails one that pays an address not known to have signed before its last transfer (`tests/sendorder_test.go` `TestNoUnverifiedPayeeBeforeTheLastTransfer`, MT-A10) |
 | A refused call loses its value when above ring 2 (`transaction_execute.go:395-404`) | every contract | the app and the companions call at ring 2; the `...To` wrappers are the ring-16 exceptions and carry no refund risk | a user who calls by hand above ring 2 can lose attached value |
 | The Monero Claim is withheld until `t1` (attack A) | `htlc.bas` + DERO miners | the claim cutoff; the gate deadline G (U2) | priced, not closed (T4) |
 | A secret front-run in the mempool | `swap.bas` Claim; `htlc.bas` Claim | swap v2 pays the stored taker whoever sends it. The `htlc` Claim is taker-only, and `s_a` in it helps only Bob, who already knows the swap | none |
@@ -108,11 +108,11 @@ Every case the directive lists. "Funds safe" means no party loses coins it did n
 | **Network partition** | a party cut off from a chain is offline for it | — | as for "offline" | reconnect |
 | **A chain split** | a party follows whichever branch its node follows | — | at risk, as for a reorganisation | none. T3 |
 | **Database corruption** | there is no database. A corrupt companion state file or used-hash register makes the companion refuse to continue (`tools/zecswap/state.go:321`) | — | yes, if backed up. **Losing Alice's state file after she sent XMR loses that XMR**, because she cannot form the joint key | the recovery card (U9, MT-B15) |
-| **Process crash** | the companion resumes from durable state written before every irreversible step | — | yes (`TestCrashFuzz` kills both sides at random points). XMR-R1: a crash during Bob's sweep is terminal today (MT-B12) | `resume` |
-| **Transaction timeout** | a DERO transaction is valid for 11 blocks (`miner_block.go:43`); the companion re-sends at a doubled fee, twice at most, inside its margins | — | yes, inside the margins | re-send |
+| **Process crash** | the companion resumes from durable state written before every irreversible step | — | yes (`TestCrashFuzz` kills both sides at random points). A kill during Bob's sweep is resumed (XMR-R1, MT-B12: `TestASweepInterruptedByAKillIsResumed`, and the crash fuzz covers the sweep) | `resume` |
+| **Transaction timeout** | a DERO transaction is mined at most 10 blocks after the height it was built at, or never (`TX_VALIDITY_HEIGHT` = 11, `miner_block.go:43, 275`); the companion re-sends at a doubled fee, twice at most, inside its margins | — | yes, inside the margins | re-send |
 | **RPC timeout** | reads are bounded and retried (MT-B07, MT-C11) | — | yes | — |
 | **RPC lies** | see `CROSS_CHAIN_TRUST_MODEL.md` §5 | — | **no, when the liar colludes with the counterparty** | own nodes; several sources that must agree |
-| **Stale data** | companions re-read at every irreversible step; the app marks cached figures on failure (`app/feed.js:389`), but not yet their age on every screen (BL-129) | — | yes | — |
+| **Stale data** | companions re-read at every irreversible step; the app marks cached figures on failure, with their age, on every screen (a `#stale` banner, `app/app.js:32`; MT-D07, BL-129) | — | yes | — |
 | **Invalid proof** | Alice will not lock XMR unless Bob's proof verifies; Bob will not release the gate unless Alice's does | the swap ends in a Refund | yes | — |
 | **Malformed transaction** | companions refuse to parse it (bounded parsers; `zecswap` refuses a Sapling bundle by name) | — | yes | — |
 | **Duplicate transaction** | DERO: `st_<id>` single-shot. Zcash and Monero: consensus | the duplicate is refused | yes | — |
@@ -126,7 +126,10 @@ Every case the directive lists. "Funds safe" means no party loses coins it did n
 | **External fee spike** | Zcash: the refund is pre-signed at several fee levels (ZIP 317 picks each transaction on its own fee). Monero: Bob's sweep and Alice's recovery have no deadline | — | yes | re-broadcast a higher-fee refund |
 
 **Every state has an exit that needs no particular person**, with the exceptions T8 names:
-- `htlc.bas`: every open lock ends in Claim, Refund or Punish, and Punish needs nobody in particular.
+- `htlc.bas`: an open lock ends in Claim, Refund, Punish or Reclaim. Punish, in [`t2`, `t2 + g2`), needs nobody in
+  particular. From `t2 + g2` only the maker's Reclaim can end it, and it has no deadline: if nobody punished in time and
+  the maker never reclaims, the lock stays open for ever, with any XMR the taker locked (the maker's per-party window,
+  MT-J11(a)).
 - `swap.bas`: every open lock ends in Claim, which needs nobody in particular, or Refund.
 - `board.bas`: every row ends by time.
 - `nfa.bas`: every owed share leaves by `PayOwed`, which anyone may send.
@@ -139,7 +142,7 @@ Every case the directive lists. "Funds safe" means no party loses coins it did n
   loops over a structure a stranger can grow: `founders.bas` PayBatch takes at most 15 holders per call
   (`founders.bas:162`). String arguments have length caps.
 - **Companions.** Every node response is read through a size cap with a timeout, and anything malformed is refused
-  deterministically (MT-B07, MT-C11; in progress). Proof verification is a fixed ≈0.74 s, plus ≈1.57 s of generator
+  deterministically (MT-B07, MT-C11). Proof verification is a fixed ≈0.74 s, plus ≈1.57 s of generator
   setup (`research/crosschain/poc/proof-xmr/run.log`), once per swap.
 - **The app.** It reads only the node the user names. A hostile node can send large responses to that user's own tab
   and nobody else's. Every write goes through the user's wallet, which asks before signing.
@@ -150,7 +153,7 @@ Every case the directive lists. "Funds safe" means no party loses coins it did n
 
 | Use | Primitive | Implementation | Notes |
 |---|---|---|---|
-| Hashlocks | SHA-256 | the DVM's `SHA256`; Go `crypto/sha256`; Zcash script `OP_SHA256` | the preimage is exactly 32 bytes everywhere: `htlc.bas:78`, `swap.bas:26-27`, the Zcash script's `OP_SIZE 32` |
+| Hashlocks | SHA-256 | the DVM's `SHA256`; Go `crypto/sha256`; Zcash script `OP_SHA256` | the preimage is exactly 32 bytes everywhere: `htlc.bas:108-109, 111-112, 140-141, 200-201`, `swap.bas:86-87`, the Zcash script's `OP_SIZE 32` |
 | Monero key shares | ed25519 scalars and points | `filippo.io/edwards25519` v1.1.1 (constant time) | per-swap shares from `crypto/rand` (`tools/xmrswap/swap.go`) |
 | Tying a hash to a key share | Bulletproofs R1CS with a SHA-256 gadget | dalek `bulletproofs` 5, feature `yoloproofs`, patched locally; `curve25519-dalek` 4; `merlin` 3 | **not audited outside this project; the R1CS API is marked unstable upstream.** Mainnet gate MT-G03 |
 | Zcash spend signatures | ECDSA over secp256k1, RFC 6979 nonces | `github.com/decred/dcrd/dcrec/secp256k1/v4` v4.3.0 (constant time, no cgo) | the spend key is loaded for one use and overwritten straight after (`tools/zecswap/swap.go:370-377` `withKey` → `defer k.Zero()`; `sign.go:49-50`). In Go this is best effort: the collector may have copied the scalar before it is overwritten |
@@ -187,8 +190,9 @@ No DMZ code implements a curve, a signature scheme or a proof system of its own.
 3. **Foreign reorganisations deeper than the policy** cost the party who receives on that chain (T3). Neither chain has
    a consensus bound.
 4. **DERO censorship over a margin** (T4, attack A). Priced by fees and bounded by G; not closed.
-5. **Liveness windows** (T8): the Monero maker in `[t1, t2)`; the Zcash taker from `cltv`. Operator decision 15.
+5. **Liveness windows** (T8): the Monero maker in `[t1, t2)`; the Monero taker's Punish in `[t2, t2 + g2)`, after which
+   her XMR depends on the maker's Reclaim; the Zcash taker from `cltv`. Operator decision 15, answered (a) (MT-J11).
 6. **The TELA INDEX key**, until its final state is reached and verified (T9).
 7. **The companion's publisher** (T7; operator decision 14).
-8. **Nothing has run against real Monero or Zcash software yet.** The regtest harness and the public test networks
-   close this (MT-F01 to MT-F04).
+8. **Nothing has run on a public Monero or Zcash test network yet.** Every exit of both swaps has run on real node
+   software in regtest (MT-B10, MT-C13); Monero stagenet and Zcash testnet are MT-F03 and MT-F04.

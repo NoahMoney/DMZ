@@ -10,7 +10,24 @@ on something named.
 
 ---
 
-## RESUME HERE — updated 2026-09-11 06:35
+## RESUME HERE — updated 2026-09-12
+
+**The mainnet work is tracked in `docs/MAINNET_TODO.md`**, and its Phase X (ready for the mainnet test stage, opened
+2026-09-12) is the current work. `docs/MAINNET_SECURITY_GATE.md` gives the verdict, NOT MAINNET READY, and what turns it
+to PASS. The sections below this note are older and are kept as they stood.
+
+**Landed on 2026-09-11 and 2026-09-12**, recorded in `docs/history/HISTORY.md` under those dates:
+- the final mainnet pass (`47cdd4c` to `cccb564`, then `ce2205e` and `50d4e78`);
+- Phase W (`6539e1f` to `6483040`): the public test chains behind a gate, the Zcash header check, the Zcash swap
+  screen, the supply chain;
+- on 2026-09-12: real reorganisations on regtest for both swaps; every build on go1.26.8; both companions' command
+  lines as separate processes on regtest; `factory.bas` v2, with no owner, and `htlc.bas` v3, with the study's windows
+  (`e06c28a`); the test plan and both review packages (`e2c99c9`).
+
+**Waiting:** the public test chains reaching their tip (X-01); five answers the operator was asked to re-confirm, and
+the open decisions (G2, the Punish cutoff, the source of testnet ZEC); the external reviews (MT-A17, MT-G03).
+
+## Earlier resume note — 2026-09-11 06:35
 
 `main` and `wip/2026-09-09-swap-nfa` are equal at `f680069`, pushed and green: DVM suite, Go build/vet/test with
 `TestCrashFuzz -count=3`, `tests/js` 44/44, every app file under the DOC cap, `genconfig -dist`, the UI pass.

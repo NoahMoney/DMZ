@@ -91,7 +91,7 @@ Every txid is in `research/regtest/zecswap-e2e.log`. Swap C was rerun after a fi
 | Figure | Value | Source |
 |---|---|---|
 | Monero proof | ≈10.1 s to prove, ≈2.3 s to verify, generators included | `research/crosschain/poc/proof-xmr/run.log` |
-| `htlc.bas` | installs at 3,907 storage gas (3,870 bytes); a Claim costs 304 | the Monero agent's DVM run |
+| `htlc.bas` v3 | installs at 5,168–5,180 storage gas across the tested install arguments (5,169 at the tests' `w1min` 2, `w2min` 1, `g2` 50; 5,177 at 400, 400, 2,400), for 5,104 installed bytes (11,206 in the source). A Claim takes 304 storage and 537,800 compute gas, a Reclaim 231 and 434,600, a Punish 90 and 322,200 | the DVM suite's tests, 2026-09-12, on the contracts of `e06c28a` (`htlc_test.go`, `htlc_v3_test.go`, `htlc_v2_test.go`, `canon_test.go`) |
 | `swap.bas` | 2,816 storage gas with `wmin` 1,600 (2,767 bytes) | the contracts agent's DVM run |
 | `board.bas` | 2,652 storage gas (2,611 bytes) | same |
 | `nfa.bas` | 15,876 (DERO-quoted) and 15,941 (wrapped) storage gas; 14,937 bytes | the asset agent's DVM run |

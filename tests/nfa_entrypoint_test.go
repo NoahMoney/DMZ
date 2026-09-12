@@ -1,9 +1,11 @@
 package tests
 
-// The DVM has no private functions: blockchain/transaction_execute.go 359-378 takes "entrypoint" verbatim from
-// the transaction's SCDATA and dvm/sc.go 172 looks it up in sc_parsed.Functions with no filter, so every
-// Function a contract declares is callable by anyone and its parameters come from SCDATA by name. These are the
-// helper functions of contracts/nfa.bas and contracts/founders.bas, called directly.
+// A transaction can call only a Function whose name starts with an upper-case ASCII letter: dvm/sc.go 262 hands the
+// entrypoint to RunSmartContract (dvm/dvm.go 342-370), which refuses any other name before anything runs. So the
+// lower-case helpers of contracts/nfa.bas and contracts/founders.bas are private to their contract. These tests call
+// each helper directly, as a stranger's transaction would (and nfa's InitializePrivate, an entrypoint that refuses a
+// second run), and fail if any such call moves ownership, pays out, mints, forges a credit or erases a record.
+// This comment once said the DVM has no private functions, which is false (GAP-038); the test names date from then.
 
 import (
 	"testing"
