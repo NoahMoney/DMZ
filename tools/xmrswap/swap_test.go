@@ -20,8 +20,10 @@ import (
 // Phases at which each side saves durable state, in protocol order: the crash fuzz kills a process right after
 // each one and restarts it from the file.
 var (
-	bobPhases   = []string{"setup", "verified_pi_a", "dero_locking", "dero_locked", "stipend_sending", "watching_xmr", "xmr_confirmed", "gate_sending", "gate_sent", "claimed", "sweep_ready", "sweeping", "swept", "refund_window", "refunding", "refunded", "punish_window", "closing", "punished"}
-	alicePhases = []string{"setup", "offer_checked", "verified_pi_b", "lock_announced", "saw_dero_lock", "xmr_locking", "xmr_locked", "gate_received", "claiming", "claim_confirming", "claimed", "await_refund", "refund_seen", "sweep_ready", "sweeping", "swept", "punish_window", "punishing", "punished"}
+	bobPhases = []string{"setup", "verified_pi_a", "dero_locking", "dero_locked", "stipend_sending", "watching_xmr", "xmr_confirmed", "gate_sending", "gate_sent", "claimed", "sweep_ready", "sweeping", "sweep_sent", "swept", "refund_window", "refunding", "refunded", "punish_window", "closing", "punished"}
+	// sweep_sent is not a phase: it is the moment after sweep_all returned and before the sweep was recorded, the one
+	// death between two saves that decides where coins are (MT-B12), and the crash hook fires there too
+	alicePhases = []string{"setup", "offer_checked", "verified_pi_b", "lock_announced", "saw_dero_lock", "xmr_locking", "xmr_locked", "gate_received", "claiming", "claim_confirming", "claimed", "await_refund", "refund_seen", "sweep_ready", "sweeping", "sweep_sent", "swept", "punish_window", "punishing", "punished"}
 )
 
 const (
@@ -492,6 +494,21 @@ func (r *run) check() {
 	}
 }
 
+// noUnknownSweep is MT-B12 in the fuzz: once alice's XMR is at the joint address, this fake node makes it spendable,
+// so a side that ends with its sweep's fate unknown got there by dying, and a death must never leave a sweep
+// unfinished. When her transfer never went out (a death at its intent: it is never sent after a restart), the joint
+// address holds nothing, and sweep_unknown is the honest end of a sweep of it.
+func (r *run) noUnknownSweep() {
+	if r.aliceW.transfers == 0 {
+		return
+	}
+	for _, role := range []string{"bob", "alice"} {
+		if st := r.loadState(role); st.Phase == "sweep_unknown" {
+			r.t.Fatalf("%s (crash bob %v alice %v): %s ended in sweep_unknown: %s\n%s", r.plan.scenario, r.plan.bobCrash, r.plan.aliceCrash, role, st.Outcome, strings.Join(r.logs, "\n"))
+		}
+	}
+}
+
 func (r *run) expectExit(want uint64) {
 	lock, _ := r.chain.read(0)
 	if lock.State != want {
@@ -527,12 +544,14 @@ func TestCrashFuzz(t *testing.T) {
 			r := newRun(t, plan{scenario: scenario, bobCrash: map[string]bool{phase: true}, aliceCrash: map[string]bool{alicePhases[int(seed)%len(alicePhases)]: true}, seed: seed})
 			r.drive()
 			r.check()
+			r.noUnknownSweep()
 		}
 		for _, phase := range alicePhases {
 			seed++
 			r := newRun(t, plan{scenario: scenario, aliceCrash: map[string]bool{phase: true}, bobCrash: map[string]bool{bobPhases[int(seed)%len(bobPhases)]: true}, seed: seed})
 			r.drive()
 			r.check()
+			r.noUnknownSweep()
 			// the exits are decided by who is present, not by where a process died — except that a death
 			// at the XMR lock intent means the XMR was never sent (and never sent twice), so the swap
 			// degrades to a refund of the untouched DERO
@@ -552,6 +571,7 @@ func TestCrashFuzz(t *testing.T) {
 			r := newRun(t, plan{scenario: scenario, randomCrash: 0.2, seed: seed})
 			r.drive()
 			r.check()
+			r.noUnknownSweep()
 			t.Logf("%s random run %d: %d restarts, %d transient step errors retried", scenario, i, r.bobRestarts+r.aliceRestarts, r.stepErrors)
 		}
 		t.Logf("%s: %d runs done", scenario, len(bobPhases)+len(alicePhases)+fuzzN(t))

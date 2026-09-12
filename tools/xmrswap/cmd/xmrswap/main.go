@@ -42,6 +42,10 @@
 // companion (xmrswap.ProverSHA256) before every run (GAP-003). A build whose sha256 differs is refused; off mainnet
 // -prover-sha256 may name a development build instead.
 //
+// The rendezvous is sealed (GAP-019): the maker makes a key for the swap with `xmrswap channel-key` and gives it to
+// the taker with the offer; both companions read it from XMRSWAP_CHANNEL_KEY and refuse to start without it. Every
+// message in the -channel directory is AES-256-GCM under it, and one that does not open is dropped and said.
+//
 // status prints every swap whose state file is in -dir beside what the DERO chain and, with -monero, the joint
 // Monero wallet say now, and lists every divergence; it exits 1 when there is one. It reads and never writes.
 package main
@@ -68,11 +72,19 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "channel-key" {
+		k, err := xmrswap.NewChannelKey()
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(k)
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "status" {
 		os.Exit(runStatus(os.Args[2:]))
 	}
 	if len(os.Args) < 2 || (os.Args[1] != "bob" && os.Args[1] != "alice") {
-		fmt.Fprintln(os.Stderr, "usage: xmrswap bob|alice|status [flags]")
+		fmt.Fprintln(os.Stderr, "usage: xmrswap bob|alice|status [flags], or xmrswap channel-key")
 		os.Exit(2)
 	}
 	role := os.Args[1]
@@ -81,6 +93,11 @@ func main() {
 		if errors.Is(err, flag.ErrHelp) {
 			os.Exit(2)
 		}
+		log.Fatal(err)
+	}
+	// GAP-019: the channel is sealed under this swap's key, read from the environment before anything is contacted
+	chanKey, err := channelKeyFrom(os.Getenv)
+	if err != nil {
 		log.Fatal(err)
 	}
 	if o.confs < xmrswap.DefaultConfirmations {
@@ -121,6 +138,35 @@ func main() {
 		deroNet = "mainnet"
 	case simulator:
 		deroNet = "simulator"
+	}
+	// MT-A18: an omitted -htlc is the contract the record names for this daemon's DERO network; given or recorded, it
+	// must be the pinned htlc.bas v2 (U4) before anything else is read from it
+	if o.htlc == "" {
+		scid, err := xmrswap.RecordedHTLC(deroNet)
+		if err != nil {
+			log.Fatal(err)
+		}
+		o.htlc = scid
+		fmt.Fprintf(os.Stderr, "-htlc not given: using %s, the htlc.bas deploy/networks.json records for %s\n", scid, deroNet)
+	}
+	dero.SCID = o.htlc
+	if h, err := dero.CodeSHA256(ctx); err != nil || h != xmrswap.HTLCCodeSHA256 {
+		log.Fatalf("the contract %s is not the pinned htlc.bas v2 (code sha256 %q, %v): refused before anything is read from it (U4)", o.htlc, h, err)
+	}
+	// MT-B09: every further -daemon is a node the taker's lock check must agree with before she locks XMR. Each is
+	// only read, and each must be on this party's DERO network.
+	var witnesses []xmrswap.LockReader
+	for _, addr := range o.daemons[1:] {
+		w := xmrswap.NewDeroRPC(addr, "", o.htlc)
+		w.Log = logf
+		wt, wn, err := w.Info(ctx)
+		if err != nil {
+			log.Fatalf("DERO node %s: %v", addr, err)
+		}
+		if err := sameDeroNetwork(o.daemon, testnet, name, addr, wt, wn); err != nil {
+			log.Fatal(err)
+		}
+		witnesses = append(witnesses, w)
 	}
 	// The minimums are what keep the free option and the reorg risk inside §1's numbers, the gate deadline what
 	// prices a suppressed Claim, the stipend what lets the taker pay for her own exits. They may be lowered to run
@@ -187,10 +233,19 @@ func main() {
 	if runtime.GOOS == "windows" {
 		xmrswap.HardenFile = xmrswap.OwnerOnlyACL // the state and the register, restricted to this account (GAP-020)
 	}
-	ch, err := xmrswap.NewDirChannel(o.channel, role)
+	dir, err := xmrswap.NewDirChannel(o.channel, role)
 	if err != nil {
 		log.Fatal(err)
 	}
+	peer := "alice"
+	if role == "alice" {
+		peer = "bob"
+	}
+	ch, err := xmrswap.NewSealedChannel(dir, chanKey, role, peer)
+	if err != nil {
+		log.Fatal(err)
+	}
+	ch.OnDrop = func(reason string) { logf("channel: %s", reason) }
 	st, err := xmrswap.LoadState(o.state, role, o.htlc)
 	if err != nil {
 		log.Fatal(err)
@@ -206,10 +261,16 @@ func main() {
 	if w := xmrswap.StateFileWarning(o.state); w != "" {
 		fmt.Fprintf(os.Stderr, "\nWARNING: %s\n\n", w)
 	}
+	// U9 (MT-B15): the card prints, and the wake runs, the very command that started this companion
+	exe, err := os.Executable()
+	if err != nil {
+		exe = os.Args[0]
+	}
 	cfg := xmrswap.Config{HTLC: o.htlc, AmountDero: o.amountDero, AmountXmr: o.amountXmr, Asset: o.asset, AssetDecimals: o.assetDecimals,
 		Net: network, DeroNet: deroNet, MyDero: myDero, MoneroWalletName: o.moneroName, MoneroWalletPassword: o.moneroWalletPass, MoneroWalletDir: o.moneroWalletDir, Monerod: o.monerod,
 		T1Min: o.t1Min, T2Min: o.t2Min, T1Max: o.t1Max, T2Max: o.t2Max, T1Delta: o.t1, T2Delta: o.t2, Confirmations: o.confs, StableBlocks: o.stable, ClaimMargin: o.margin,
-		GateDeadline: o.gateDeadline, Stipend: o.stipend, StipendMin: o.stipendMin, CloseAfter: o.closeAfter, Log: logf}
+		GateDeadline: o.gateDeadline, Stipend: o.stipend, StipendMin: o.stipendMin, CloseAfter: o.closeAfter, Witnesses: witnesses,
+		ResumeCommand: resumeCommand(exe, os.Args[1:]), Wake: xmrswap.RegisterWake, Log: logf}
 	var sw *xmrswap.Swap
 	if role == "bob" {
 		sw, err = xmrswap.NewBob(cfg, st, dero, wallet, prov, ch)
@@ -230,7 +291,7 @@ func main() {
 			log.Printf("%v", err)
 		}
 		if done {
-			fmt.Printf("%s: %s\n", role, st.Outcome)
+			endSwap(role, st, logf)
 			return
 		}
 		if sw.Phase() == before {
@@ -243,17 +304,77 @@ func main() {
 	fmt.Printf("%s: stopped in phase %s; run the same command to resume\n", role, sw.Phase())
 }
 
+// removeWake removes a swap's wake task; tests replace it.
+var removeWake = xmrswap.UnregisterWake
+
+// endSwap prints how the swap ended and removes the wake the recovery card registered (MT-B15): a finished swap leaves
+// no task behind to open a console at a window that no longer matters.
+func endSwap(role string, st *xmrswap.State, logf func(string, ...interface{})) {
+	fmt.Printf("%s: %s\n", role, st.Outcome)
+	name := xmrswap.WakeTaskName(st.SwapID)
+	if err := removeWake(name); err != nil {
+		logf("the wake task %s was not removed (%v): delete it from the task scheduler", name, err)
+	}
+}
+
 // options is one companion's command line, checked before anything is contacted.
 type options struct {
 	role                                                              string
 	state, deroWallet, daemon, htlc, monero, monerod, netName, prover string
 	proverSHA, channel, asset, moneroName, moneroWalletDir            string
 	deroLogin, moneroUser, moneroPass, moneroWalletPass               string
+	daemons                                                           []string // every -daemon, in order; the first is this party's own node
 	mainnet                                                           bool
 	amountDero, amountXmr, assetDecimals, stipend, stipendMin         uint64
 	t1, t2, t1Min, t2Min, t1Max, t2Max, gateDeadline, closeAfter      uint64
 	confs, stable, margin, fee                                        uint64
 	interval                                                          time.Duration
+}
+
+// resumeCommand is the command line that resumes this companion: the executable and the same arguments, each quoted
+// where a shell would split it. The logins and the channel key are not in it; they come from the environment.
+func resumeCommand(exe string, args []string) string {
+	q := func(a string) string {
+		if a == "" || strings.ContainsAny(a, " \t\"&|<>^") {
+			return `"` + strings.ReplaceAll(a, `"`, `\"`) + `"`
+		}
+		return a
+	}
+	parts := []string{q(exe)}
+	for _, a := range args {
+		parts = append(parts, q(a))
+	}
+	return strings.Join(parts, " ")
+}
+
+// channelKeyFrom reads the swap's channel key from XMRSWAP_CHANNEL_KEY (GAP-019). There is no flag for it: a command
+// line is readable by every local process, and the key is what keeps the rendezvous private and unforgeable. A
+// companion without one does not start; no plain channel is offered on any network.
+func channelKeyFrom(getenv func(string) string) ([]byte, error) {
+	v := getenv("XMRSWAP_CHANNEL_KEY")
+	if v == "" {
+		return nil, errors.New("XMRSWAP_CHANNEL_KEY is not set: the maker makes one per swap with `xmrswap channel-key` and gives it to the taker with the offer, and both companions read it from the environment (GAP-019)")
+	}
+	k, err := xmrswap.ParseChannelKey(v)
+	if err != nil {
+		return nil, fmt.Errorf("XMRSWAP_CHANNEL_KEY: %w", err)
+	}
+	return k, nil
+}
+
+// listFlag is a flag that may be given more than once; every value is kept, in order.
+type listFlag []string
+
+func (l *listFlag) String() string     { return strings.Join(*l, ",") }
+func (l *listFlag) Set(v string) error { *l = append(*l, v); return nil }
+
+// sameDeroNetwork refuses a witness node on another DERO network than this party's own: what it says about a lock
+// says nothing about the chain the lock is on (MT-B09).
+func sameDeroNetwork(own string, ownTestnet bool, ownName, addr string, testnet bool, name string) error {
+	if testnet != ownTestnet || !strings.EqualFold(name, ownName) {
+		return fmt.Errorf("DERO node %s reports %q (testnet=%v), not %q (testnet=%v) as %s does: a node on another network cannot confirm a lock", addr, name, testnet, ownName, ownTestnet, own)
+	}
+	return nil
 }
 
 // parseOptions reads the flags and the environment and refuses, before any endpoint is contacted, every
@@ -266,7 +387,7 @@ func parseOptions(role string, args []string, getenv func(string) string) (*opti
 	fs.StringVar(&o.state, "state", role+".json", "durable state (holds this party's key share; created 0600, owner-only on Windows)")
 	fs.StringVar(&o.netName, "net", "", "Monero network: mainnet (needs -mainnet), stagenet, testnet, or regtest (a local monerod --regtest; only against the DERO simulator). No default")
 	fs.BoolVar(&o.mainnet, "mainnet", false, "name mainnet explicitly: required whenever the DERO daemon or -net is mainnet, refused unless both are")
-	fs.StringVar(&o.daemon, "daemon", "", "this party's DERO daemon rpc, host:port. No default")
+	fs.Var((*listFlag)(&o.daemons), "daemon", "this party's DERO daemon rpc, host:port. No default. Give it again to name further DERO nodes: alice locks XMR only once every one of them shows her the same lock (MT-B09)")
 	fs.StringVar(&o.deroWallet, "dero", "", "this party's DERO wallet rpc, host:port, started with --rpc-login. No default")
 	fs.StringVar(&o.deroLogin, "dero-login", "", "user:password of the DERO wallet's --rpc-login; better VEIL_RPC_LOGIN, which mainnet requires (the command line is refused there)")
 	fs.StringVar(&o.monero, "monero", "", "this party's monero-wallet-rpc URL, started with --rpc-login. No default")
@@ -275,7 +396,7 @@ func parseOptions(role string, args []string, getenv func(string) string) (*opti
 	fs.StringVar(&o.moneroPass, "monero-pass", "", "monero-wallet-rpc --rpc-login password; refused on mainnet, where the command line is readable by every local process")
 	fs.StringVar(&o.moneroName, "monero-name", "", "the open wallet's file name, so it can be reopened after the joint wallets are made on the same rpc (its password: XMRSWAP_MONERO_WALLET_PASSWORD)")
 	fs.StringVar(&o.moneroWalletDir, "monero-wallet-dir", "", "the wallet-rpc's --wallet-dir on this machine: the joint wallets' files are deleted there after the sweep. Required on mainnet")
-	fs.StringVar(&o.htlc, "htlc", "", "htlc.bas scid")
+	fs.StringVar(&o.htlc, "htlc", "", "htlc.bas scid (default: the one deploy/networks.json records for the daemon's DERO network, MT-A18); either way its code must hash to the pinned htlc.bas v2")
 	fs.StringVar(&o.prover, "prover", "", "the absolute path of the proof-xmr binary; it must hash to the pinned build")
 	fs.StringVar(&o.proverSHA, "prover-sha256", "", "off mainnet only: run a proof-xmr build with this sha256 instead of the pinned one")
 	fs.StringVar(&o.channel, "channel", "./swap-channel", "directory both parties can reach (the rendezvous)")
@@ -301,6 +422,9 @@ func parseOptions(role string, args []string, getenv func(string) string) (*opti
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
+	if len(o.daemons) > 0 {
+		o.daemon = o.daemons[0]
+	}
 	typed := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { typed[f.Name] = true })
 
@@ -313,8 +437,8 @@ func parseOptions(role string, args []string, getenv func(string) string) (*opti
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("%s must be given: which network, whose daemon and wallets, and which prover are never left to a default (GAP-007)", strings.Join(missing, ", "))
 	}
-	if len(o.htlc) != 64 || o.amountDero == 0 || o.amountXmr == 0 {
-		return nil, errors.New("-htlc (64 hex), -amount-dero and -amount-xmr are required")
+	if (o.htlc != "" && len(o.htlc) != 64) || o.amountDero == 0 || o.amountXmr == 0 {
+		return nil, errors.New("-amount-dero and -amount-xmr are required, and -htlc, when given, is 64 hex (omitted, it is the htlc.bas deploy/networks.json records for the daemon's DERO network)")
 	}
 	// Invariant 10: the confirmation depth is the one number in the protocol that is policy rather than proof.
 	// Below the default it is taken only from the operator's own hand; below Monero's spendable age it is refused

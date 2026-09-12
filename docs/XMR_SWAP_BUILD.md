@@ -142,11 +142,16 @@ proof-xmr keygen                                      → stdout JSON {"secret":
 
 `secret` is the little-endian 32-byte scalar **already reduced mod ℓ** (`keygen` guarantees it; `prove` refuses
 an unreduced input rather than silently reducing — the hash on DERO is of the exact bytes, and the Monero side
-reduces, so the two would disagree). Proof bytes: `r1cs.to_bytes()` ‖ commitment (32) ‖ sigma `a1`(32) `a2`(32)
+reduces, so the two would disagree). The circuit itself does not enforce it (L1 of the proof audit): a peer with
+another prover can prove and reveal `s + kℓ`, so the companion reduces a revealed share after checking its hash and
+its point (MT-B25, `keys.go` `RecoverShare`). Proof bytes: `r1cs.to_bytes()` ‖ commitment (32) ‖ sigma `a1`(32) `a2`(32)
 `z1`(32) `z2`(32); document the layout in the README with a worked vector. `cargo test` must cover: round trip;
 wrong H; wrong S; tampered sigma; tampered r1cs; truncated proof; the "reduced scalar" refusal. Rebuild in WSL
 (`research/crosschain/poc/wsl/build.sh proof-xmr build --release`), re-record `run.log` with the measurements
-and the vector. No new dependency beyond what `Cargo.toml` already has except `serde_json` if needed for output —
+and the vector. That development build's hash depends on where the checkout sits; the build the companion pins
+(`ProverSHA256`) is made by `research/crosschain/poc/proof-xmr/build-reproducible.sh`, which builds the committed
+sources at a fixed path and gives sha256 `7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d`,
+1,340,640 bytes, from any checkout with the same toolchain (MT-B26). No new dependency beyond what `Cargo.toml` already has except `serde_json` if needed for output —
 say why if you add it.
 
 ### 3.C `tools/xmrswap` — the Monero side (agent C)
@@ -234,12 +239,19 @@ Invariants (§4) are asserted in tests, not assumed. `cmd/xmrswap` runs one side
 XMRSWAP_MONERO_LOGIN=<u>:<p> xmrswap bob|alice -state <file> -net <network> -daemon <rpc> -dero <wallet-rpc>
 -monero <wallet-rpc> -htlc <scid> -prover <absolute path> -channel <dir> -amount-dero N -amount-xmr M`, plus, on
 mainnet, `-mainnet -monerod <loopback> -monero-wallet-dir <dir>`; `-net`, `-daemon`, `-dero`, `-monero` and
-`-prover` have no defaults. `xmrswap status -dir <dir> -daemon <rpc> [-monero <wallet-rpc>]` reconciles every state
+`-prover` have no defaults. `-daemon` may be given more than once: the first is the party's own node, and alice
+locks no XMR until every further one, on the same DERO network, shows her the same lock (MT-B09). Both companions
+read the swap's channel key from `XMRSWAP_CHANNEL_KEY` (`xmrswap channel-key` makes one; GAP-019) and do not start
+without it. `xmrswap status -dir <dir> -daemon <rpc> [-monero <wallet-rpc>]` reconciles every state
 file with the chains. `tools/simhtlc` drives a whole swap on the local DERO simulator, two companions in-process,
 with the Monero side either the fake wallet (`-fake-monero`) or two real `monero-wallet-rpc` on a regtest `monerod`
 (`-regtest`, `tools/regtest`), and exercises **all three exits**: happy path; Bob refunds and Alice recovers XMR with
 `s_b`; Bob vanishes and Alice punishes. It prints every txid, looks every real Monero txid up on the `monerod`, and
-reads every contract key back.
+reads every contract key back. With `-regtest`, `-paths reorg-before,reorg-after` makes a real reorganisation of the
+Monero chain under a live swap (MT-B11): `pop_blocks` takes Alice's lock off the chain below Bob's depth, or after
+he has released the gate, a longer branch is mined in its place, and in the second case Alice spends the lock's
+inputs again on it (`research/regtest/xmrswap-reorg.log`). A DERO-side reorganisation cannot be made on the
+simulator, which is one node mining its own chain.
 
 ### 3.E `docs/XMR_SWAP.md` (agent E)
 
@@ -332,6 +344,24 @@ Added 2026-09-11 from `docs/ATOMIC_SWAP_STUDY.md` and the mainnet gap analysis:
 19. **Every reply is bounded and read one way** (bounded input): a size cap and a timeout on every daemon, wallet and
     prover answer; trailing data, or neither a result nor an error, is refused. A Monero send counts only when the
     wallet's own record lists it: 0.18.5.1 answers a view-only wallet's transfer with a hash it never broadcast.
+20. **The rendezvous is sealed** (GAP-019). Every message is AES-256-GCM under a per-direction key derived from the
+    swap's channel key, agreed out of band; a message that does not open is dropped before the state machine sees it.
+21. **A sweep interrupted by a kill is resumed, never abandoned** (MT-B12, XMR-R1). After a restart in `sweeping`
+    the joint spend wallet's own record decides: a transfer out of it is the sweep, and is recorded; none, with
+    something to spend, and the sweep is made again, which can only pay the party's own address.
+22. **No secret reaches the output** (MT-L02). s_a, s_b, k_b, the view key, the joint spend key and the wallet
+    passwords appear in no log line, error or outcome; the DERO and Monero clients withhold their own secret arguments
+    from any error a server makes of the request (`redact.go`; `TestNoSecretReachesTheCompanionsOutput`,
+    `TestTheClientsWithholdSecretsFromTheirErrors`).
+23. **The taker gets a recovery card before her XMR moves, and a wake** (U9, MT-B15). The card names the state file as
+    a secret, prints the resume command, and gives every height — the claim cutoff, t1 − G, t1, t2 — as a clock time
+    at 18 s a block. The companion then asks the OS to wake the machine ten minutes before the first window closes:
+    a Windows Task Scheduler task with WakeToRun (run here, `TestRegisterWakeOnThisOS`), a systemd user timer with
+    WakeSystem on Linux (not run here), and on macOS nothing, because only root can schedule a wake there.
+24. **`-htlc` defaults to the record, never past the pin** (MT-A18). Omitted, it is the scid deploy/networks.json
+    records for the daemon's DERO network (compiled in by `go generate ./xmrswap`, checked against the file by
+    `TestRecordedHTLCIsTheDeployRecord`); given or recorded, the companion refuses it at start unless its code is the
+    pinned htlc.bas v2.
 
 Policy the companion states rather than proves (review R18, R19, R24): it warns loudly when `-daemon` or
 `-monero` is not loopback, because a lying node is the one loss the protocol cannot see; it converts remaining

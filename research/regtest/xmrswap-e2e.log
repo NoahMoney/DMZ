@@ -2,7 +2,7 @@ xmrswap end to end, all three exits, against REAL monerod and monero-wallet-rpc 
 =============================================================================================================
 Run 2026-09-11 16:45-17:24 AEST, tools/simhtlc built from the working tree (htlc.bas v2, the regtest fixes in
 tools/xmrswap/monero.go and fakewallet.go). The raw driver output follows this header; machine paths are replaced
-with <scratch>, <repo>, <home>.
+with <tmp>, <repo>, <user>.
 
 What was real and what was not
 - Monero: monerod 0.18.5.1-release, nettype fakechain (--regtest), http://127.0.0.1:28081, and two
@@ -19,7 +19,7 @@ What was real and what was not
   The companion's own defaults are t1 >= 400 blocks, G = 100, 20 confirmations, fee 3000.
 
 Command (from <repo>/tools, built to simhtlc_e2e.exe):
-  simhtlc -regtest -prover "wsl.exe -e <path to the pinned proof-xmr release build>" -state-dir <scratch>/e2estate
+  simhtlc -regtest -prover "wsl.exe -e <path to the pinned proof-xmr release build>" -state-dir <tmp>/e2estate
   (every other flag at its default: -daemon 127.0.0.1:20000 -bob 127.0.0.1:30006 -alice 127.0.0.1:30007
    -monero-alice http://127.0.0.1:28083 -monero-bob http://127.0.0.1:28084 -monerod http://127.0.0.1:28081
    -paths happy,refund,punish -amount-dero 2000 -amount-xmr 1000000000000 -stipend 14016)
@@ -123,7 +123,7 @@ raw driver output
            16:51:50 bob: sent dero_locked
            16:51:57 alice: the maker's stipend of 14016 DERO atomic units is at stable depth (tx c24dd00984f2361a6e8da5823167c7ee64a98313c0ab68ede2c398c735078006, height 585); this wallet can spend 860492
            16:51:57 alice: locking 1000000000000 piconero against t1 622 and t2 630 — about 0 and 0 hours from height 593, and until t1 the XMR has no exit of its own
-           16:51:57 alice: RECOVERY: back up <scratch> now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. If this companion stops, run the same command again before t1 622 (about 2026-09-11 17:00 AEST) and in any case by t2 630 (about 2026-09-11 17:03 AEST), at DERO's 18 s target
+           16:51:57 alice: RECOVERY: back up <tmp> now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. If this companion stops, run the same command again before t1 622 (about 2026-09-11 17:00 AEST) and in any case by t2 630 (about 2026-09-11 17:03 AEST), at DERO's 18 s target
            16:51:57 alice: saw_dero_lock -> xmr_locking
            16:52:02 alice: XMR locked: tx e68e7437223b65ccd98d83997482dd921c16e859bab8ea4a0a74185490b234be to 47rinAMWJsX92FTvPJt9Ywe73t1qJM7qghQFHeatZyQ1GogSkmam1Fe46NKY8dubHoV9aHPG9kRei6wnmWFie2x8UgrPoSf
            16:52:02 alice: xmr_locking -> xmr_locked
@@ -207,7 +207,7 @@ raw driver output
            16:59:37 alice: the stipend (tx 825ee174dc200cab025bcb5813614687bb14ee24e71bb986ae6fe1fb57168a1f, height 619) is not at stable depth yet (stable height 618); no XMR is locked until it is
            16:59:55 alice: the maker's stipend of 14016 DERO atomic units is at stable depth (tx 825ee174dc200cab025bcb5813614687bb14ee24e71bb986ae6fe1fb57168a1f, height 619); this wallet can spend 876004
            16:59:55 alice: locking 1000000000000 piconero against t1 656 and t2 664 — about 0 and 0 hours from height 627, and until t1 the XMR has no exit of its own
-           16:59:55 alice: RECOVERY: back up <scratch> now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. If this companion stops, run the same command again before t1 656 (about 2026-09-11 17:08 AEST) and in any case by t2 664 (about 2026-09-11 17:11 AEST), at DERO's 18 s target
+           16:59:55 alice: RECOVERY: back up <tmp> now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. If this companion stops, run the same command again before t1 656 (about 2026-09-11 17:08 AEST) and in any case by t2 664 (about 2026-09-11 17:11 AEST), at DERO's 18 s target
            16:59:55 alice: saw_dero_lock -> xmr_locking
            16:59:59 alice: XMR locked: tx 1b3c1681e3ce4d4b2baed22b8d7d26875e6af63d8655d0e26f10bddd1b15854c to 44gVDDPTuVoBUtGjs54ynBaaPGaZmLt7MYCMadjt9r2BZgkQFLAnQVu8t1uTAJFNQMbRaF5kuLaxY5v7FHUNPt3nDDzDrik
            16:59:59 alice: xmr_locking -> xmr_locked
@@ -301,7 +301,7 @@ raw driver output
            17:13:44 alice: the stipend (tx 228b2429f4710efd2a6f546ef9eb2455957dd919050f92b1f733adbb71bb3c46, height 672) is not at stable depth yet (stable height 671); no XMR is locked until it is
            17:14:02 alice: the maker's stipend of 14016 DERO atomic units is at stable depth (tx 228b2429f4710efd2a6f546ef9eb2455957dd919050f92b1f733adbb71bb3c46, height 672); this wallet can spend 890020
            17:14:02 alice: locking 1000000000000 piconero against t1 709 and t2 717 — about 0 and 0 hours from height 680, and until t1 the XMR has no exit of its own
-           17:14:02 alice: RECOVERY: back up <scratch> now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. If this companion stops, run the same command again before t1 709 (about 2026-09-11 17:22 AEST) and in any case by t2 717 (about 2026-09-11 17:25 AEST), at DERO's 18 s target
+           17:14:02 alice: RECOVERY: back up <tmp> now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. If this companion stops, run the same command again before t1 709 (about 2026-09-11 17:22 AEST) and in any case by t2 717 (about 2026-09-11 17:25 AEST), at DERO's 18 s target
            17:14:02 alice: saw_dero_lock -> xmr_locking
            17:14:04 alice: XMR locked: tx 504a4b85530416e701581e4074ebb6f13862261f5165991904a409afbbe34b9c to 45sTDWzqcrydWF4oSuMuM524LXHKDcucvEd1pFXdSoPKc8Y3HrGcFzZWcWgnyG53spK6dx7HW3KDjBiKTD986yt1N7uR7Uy
            17:14:04 alice: xmr_locking -> xmr_locked
@@ -369,7 +369,7 @@ Pre-run check (first line below): no other simhtlc or xmrswap process, and no tr
 height 753; read again after the run, both wallets' histories hold only this run's transactions.
 
 Command (from <repo>/tools, built to simhtlc_e2e2.exe):
-  simhtlc -regtest -prover "wsl.exe -e <path to the pinned proof-xmr release build>" -state-dir <scratch>/e2estate2
+  simhtlc -regtest -prover "wsl.exe -e <path to the pinned proof-xmr release build>" -state-dir <tmp>/e2estate2
   (every other flag at its default, as in run 1)
 Result: exit 0; each exit ended with the contract holding 0 DERO.
 set_daemon 127.0.0.1:28081, sent after every open and every generate: 55 accepted, 0 refused over the three paths
@@ -459,7 +459,7 @@ raw driver output, run 2
            17:42:33 bob: sent dero_locked
            17:42:36 alice: the maker's stipend of 14016 DERO atomic units is at stable depth (tx 78f6185138c7715aa2ca14f59bdb74d2c85a79b18fca1a7dfac3f04dcfc75931, height 776); this wallet can spend 899929
            17:42:36 alice: locking 1000000000000 piconero against t1 813 and t2 821 — about 0 and 0 hours from height 784, and until t1 the XMR has no exit of its own
-           17:42:36 alice: RECOVERY: back up <scratch> now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. If this companion stops, run the same command again before t1 813 (about 2026-09-11 17:51 AEST) and in any case by t2 821 (about 2026-09-11 17:53 AEST), at DERO's 18 s target
+           17:42:36 alice: RECOVERY: back up <tmp> now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. If this companion stops, run the same command again before t1 813 (about 2026-09-11 17:51 AEST) and in any case by t2 821 (about 2026-09-11 17:53 AEST), at DERO's 18 s target
            17:42:36 alice: saw_dero_lock -> xmr_locking
            17:42:45 alice: XMR locked: tx f0dd40b15b4711d8800ce1bf706c13f0d105b8a6ce5b7c85ccd3daaa212b58f0 to 46NQjxaqNrniXeBZ1voPtTeRqSkpGg4op6GMUxegiqF1KUYouxWkbk8SXrFdFzmcV65BeJLR8YEJjNgbegUciu8NUh8qxxE
            17:42:45 alice: xmr_locking -> xmr_locked
@@ -545,7 +545,7 @@ raw driver output, run 2
            17:52:03 alice: the stipend (tx 3a35aea127dcdc1b40d6e1f5bec177b7e2202bd0f1a7f9c5932aa64afddd95c6, height 810) is not at stable depth yet (stable height 809); no XMR is locked until it is
            17:52:21 alice: the maker's stipend of 14016 DERO atomic units is at stable depth (tx 3a35aea127dcdc1b40d6e1f5bec177b7e2202bd0f1a7f9c5932aa64afddd95c6, height 810); this wallet can spend 915441
            17:52:21 alice: locking 1000000000000 piconero against t1 847 and t2 855 — about 0 and 0 hours from height 818, and until t1 the XMR has no exit of its own
-           17:52:21 alice: RECOVERY: back up <scratch> now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. If this companion stops, run the same command again before t1 847 (about 2026-09-11 18:01 AEST) and in any case by t2 855 (about 2026-09-11 18:03 AEST), at DERO's 18 s target
+           17:52:21 alice: RECOVERY: back up <tmp> now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. If this companion stops, run the same command again before t1 847 (about 2026-09-11 18:01 AEST) and in any case by t2 855 (about 2026-09-11 18:03 AEST), at DERO's 18 s target
            17:52:21 alice: saw_dero_lock -> xmr_locking
            17:52:24 alice: XMR locked: tx 1897f2a539624c36a675a6c8d18e3a61a43f8381e0a02866391ae7dd65948f26 to 48YskLQYebwB2SdWNXoNB4SGKWfx3SDLnVULxGX3dNc6MJVseHRVbizNTq7muxNcaP4E8AzK9M3pZ2gWNUcBd7U3VCGkiCB
            17:52:24 alice: xmr_locking -> xmr_locked
@@ -642,7 +642,7 @@ raw driver output, run 2
            18:07:23 alice: the stipend (tx 55332849c4b46ca44e8b144245f3aa71066f274c331e99aba7364cee43fc85b2, height 864) is not at stable depth yet (stable height 863); no XMR is locked until it is
            18:07:41 alice: the maker's stipend of 14016 DERO atomic units is at stable depth (tx 55332849c4b46ca44e8b144245f3aa71066f274c331e99aba7364cee43fc85b2, height 864); this wallet can spend 929457
            18:07:41 alice: locking 1000000000000 piconero against t1 901 and t2 909 — about 0 and 0 hours from height 872, and until t1 the XMR has no exit of its own
-           18:07:41 alice: RECOVERY: back up <scratch> now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. If this companion stops, run the same command again before t1 901 (about 2026-09-11 18:16 AEST) and in any case by t2 909 (about 2026-09-11 18:18 AEST), at DERO's 18 s target
+           18:07:41 alice: RECOVERY: back up <tmp> now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. If this companion stops, run the same command again before t1 901 (about 2026-09-11 18:16 AEST) and in any case by t2 909 (about 2026-09-11 18:18 AEST), at DERO's 18 s target
            18:07:41 alice: saw_dero_lock -> xmr_locking
            18:07:46 alice: XMR locked: tx 51cdd567222c90cb3d35b85ef22fd0acfc020f4bdb1929724a10fa2bc93ce2b1 to 45k5ciDNp6o6LszNJWZB2mTXdV5rK6a1uYZZPY2TWqFw27Nn7RhL35LVQMeHjDoPWn5xbiodwuFdGER9yXY6LA3NSq5mFmE
            18:07:46 alice: xmr_locking -> xmr_locked

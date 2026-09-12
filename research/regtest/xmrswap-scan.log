@@ -1,0 +1,43 @@
+MT-B13: the joint wallet's restore and scan time on the real regtest monero-wallet-rpc 0.18.5.1
+===============================================================================================
+Measured 2026-09-12 10:43-10:44 AEST, with nothing else using the regtest wallet-rpc (no companion or driver running).
+monerod 0.18.5.1-release, nettype fakechain, http://127.0.0.1:28081, at height 6346; alice's wallet-rpc
+http://127.0.0.1:28083, in WSL2.
+
+What was timed: the two calls the companion makes for each joint wallet (tools/xmrswap/swap.go openJoint), made as it
+makes them. generate_from_keys creates the wallet from an address and its private view key (view-only, as the
+companion's watching wallet) or with the spend key too (as its sweeping wallet), encrypted under a password; refresh
+then scans from the restore height. The keys are those of a regtest wallet with real history (the reorganisation
+runs' alice), so the scan has outputs to find. Timed with curl from the Windows side; each figure is one run.
+
+kind       restore  blocks    gen_ms     scan_ms    blocks_per_s note
+view       6296     50        4086       292        171          balance seen 0
+view       5846     500       3857       310        1612         balance seen 0
+spend      5846     500       3190       303        1650         balance seen 0
+view       1346     5000      2462       461        10845        balance seen 417596222266292
+
+Reading it
+- Making the wallet costs seconds whatever the restore height: 2.5 to 4.1 s here. It is the wallet-rpc creating and
+  encrypting the file, not the scan.
+- The scan costs a few hundred milliseconds here, and grows with the blocks scanned: 0.29 s for 50, 0.46 s for 5,000.
+- The companion's restore height is the chain's height at setup, so a real swap scans only its own blocks (a few
+  hundred at the default 20 confirmations and 400-block windows).
+- From the reorganisation runs (research/regtest/xmrswap-reorg.log): 169 of the sweep's passes took 28 minutes, about
+  10 s for a whole pass — reopen the encrypted joint wallet, name the monerod, refresh, read the balance.
+- Regtest blocks are nearly empty. A mainnet block carries far more outputs for the wallet to test, so the scan there
+  is slower in proportion to them. That has not been measured: there is no mainnet or stagenet run behind these figures.
+
+The wallets this made (mtb13-*) are left in the wallet-rpc's --wallet-dir inside WSL, encrypted under the password x;
+they hold only regtest keys.
+
+raw output
+----------
+[mtb13] 2026-09-12 10:43:47 regtest wallet-rpc idle (no companion or driver process); the machine otherwise quiet
+monerod http://127.0.0.1:28081 height 6346; wallet-rpc http://127.0.0.1:28083; the address and view key of xmrswap-e2e-1789116433-alice (a regtest wallet with real history)
+kind       restore  blocks    gen_ms     scan_ms    blocks_per_s note
+view       6296     50        4086       292        171          balance seen 0
+view       5846     500       3857       310        1612         balance seen 0
+spend      5846     500       3190       303        1650         balance seen 0
+view       1346     5000      2462       461        10845        balance seen 417596222266292
+(the mtb13-* wallets are left in the wallet-rpc's --wallet-dir inside WSL, encrypted under the password x; they hold only regtest keys)
+[mtb13] exit 0 at 10:44:04

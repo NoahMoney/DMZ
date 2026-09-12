@@ -12,13 +12,15 @@ package xmrswap
 // contract.
 const HTLCCodeSHA256 = "44864ec3cddac871286b9cfd18d18e0b1d2ef0e31960436cee3bacc3025fef06"
 
-// ProverSHA256 is the SHA-256 of the one proof-xmr binary the companion runs (GAP-003): the release build of
-// research/crosschain/poc/proof-xmr that this project measured (run.log: 8.51 s prove, 0.74 s verify, 1,601-byte
-// proofs), 1,340,392 bytes. The cross-curve proof's verdict is the tool's word, so the tool is pinned like the
-// contract: an absolute path, hashed before every run, and any other binary refused — a stale build, another
+// ProverSHA256 is the SHA-256 of the one proof-xmr binary the companion runs (GAP-003): the reproducible build of the
+// committed research/crosschain/poc/proof-xmr, made by its build-reproducible.sh (MT-B26), 1,340,640 bytes. Anyone with
+// the same toolchain rebuilds it byte for byte (rustc and cargo 1.98.1, x86_64-unknown-linux-gnu, Ubuntu 24.04's cc;
+// the script's own header and repro.log). The cross-curve proof's verdict is the tool's word, so the tool is pinned like
+// the contract: an absolute path, hashed before every run, and any other binary refused — a stale build, another
 // program that happens to be called proof-xmr, one swapped after the companion started.
 //
-// The build is not reproducible yet (GAP-013, BL-14): the same source built on another machine hashes to
-// something else and is refused here until a reproducible build replaces this pin. And pinning says which binary
-// runs, not that it is sound: its Bulletproofs R1CS back end is upstream's unaudited feature (GAP-003, U8).
-const ProverSHA256 = "4d3bde0afda735e851e31a3d24cc4d040aa4611a39f96ef4a7baa9c8c20ac444"
+// It replaced 4d3bde0a…, a release build of the same sources whose hash held only in the checkout that made it
+// (absolute paths end up in the binary); proofs from either verify with the other. Pinning says which binary runs, not
+// that it is sound: its Bulletproofs R1CS back end is upstream's unaudited feature (GAP-003, U8), and the companion
+// binary that carries this pin is not itself reproducible or signed yet (BL-14).
+const ProverSHA256 = "7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d"

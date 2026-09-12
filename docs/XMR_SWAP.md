@@ -273,10 +273,36 @@ What the companion refuses before anything of either party is locked (`tools/xmr
   companion names the monerod to the wallet-rpc with `set_daemon` after every wallet it opens, because the rpc keeps
   it only for the wallet open when it was sent (GAP-010, `swap.go:902`).
 - **Another contract or another prover.** The contract's code must hash to `HTLCCodeSHA256`, and `-prover` must be the
-  absolute path of the proof-xmr build pinned by `ProverSHA256` (`pin.go:24`), hashed before every run (GAP-003).
+  absolute path of the proof-xmr build pinned by `ProverSHA256` (`pin.go:26`), hashed before every run (GAP-003).
+  An omitted `-htlc` is the scid `deploy/networks.json` records for the daemon's DERO network, compiled in and checked
+  against the file by a test; recorded or given, the contract is refused at start unless its code is the pinned
+  `htlc.bas` v2 (MT-A18, `tools/xmrswap/record.go`).
 - **An answer it cannot read the same way twice.** Every daemon and wallet reply is read through a size cap and a
   timeout; one with trailing data, or with neither a result nor an error, is refused (`dero.go:256-295`,
   `monero.go:157`).
+
+Every parser of those answers — the JSON-RPC envelope, each DERO and Monero reply, the digest challenge, the prover's
+verdict, addresses and keys, the sealed channel's envelope — has a fuzz target; each ran for 30 seconds with no crash,
+from 47,414 executions (the DERO replies, one HTTP round trip each) to 2,142,902 (the envelope) (MT-G06,
+`tools/xmrswap/fuzz_test.go`).
+
+Three things the companion does without being asked. It withholds s_a, s_b, k_b, the keys and the wallet passwords
+from every error a daemon or wallet makes of a request that carried them, so a server that echoes a failed Claim
+cannot put s_a in a log (MT-L02, `tools/xmrswap/redact.go`). It prints Alice a recovery card before her XMR moves —
+the state file named as a secret, the command that resumes her, every window as a clock time — and asks the operating
+system to wake the machine ten minutes before the first window closes: a Task Scheduler task set to WakeToRun on
+Windows, a systemd timer with WakeSystem on Linux, and on macOS nothing, since only root can schedule a wake there
+(U9, MT-B15, `tools/xmrswap/recovery.go`). And a companion killed during its sweep resumes it: the joint spend
+wallet's own record says whether the sweep went out, and if it did not, it is made, which can pay no one but the
+party itself (MT-B12).
+
+The joint wallets cost seconds, not minutes (MT-B13, `research/regtest/xmrswap-scan.log`). On the regtest
+`monero-wallet-rpc` 0.18.5.1, a view-only wallet made from the joint address and view key took 2.5 to 4.1 s to create
+(`generate_from_keys`, whatever the restore height) and 0.29 s to scan 50 blocks, 0.31 s for 500 and 0.46 s for 5,000;
+a spend wallet, 3.2 s and 0.30 s for 500. The companion's restore height is the chain's height at setup, so its scan is
+the swap's own few hundred blocks. In the reorganisation runs a whole pass — reopen the joint wallet, name the
+`monerod`, refresh, read the balance — took about 10 s. Regtest blocks are nearly empty; a mainnet block carries far more
+outputs to test, so the scan there is slower in proportion, and it has not been measured.
 
 `xmrswap status` prints each swap in a state directory beside what the DERO chain and the joint Monero wallet say now,
 and names every divergence: a state that says open where the chain says refunded, a lock whose fields are not the
@@ -304,12 +330,30 @@ The channel is a conversation and nothing more, and the protocol is built so tha
   rendezvous; do not adopt its Monero code; "do not describe it as making the cross-chain part trustless — it
   makes the *conversation* serverless; the value transfer is still whichever row of §3 applies."
 
-**The directory transport is neither authenticated nor encrypted (GAP-019).** Its messages are plain JSON files
-(`tools/xmrswap/channel.go:33-121`): anyone who can read the directory reads the private view key `v`, `S_a`, `S_b`,
-`H_a`, `H_b`, `H_k`, both DERO addresses and Alice's Monero txid, and so learns the joint address and the amount and
-timing of the Monero lock; anyone who can write it can put messages in either party's box. For the coins this is
-the rule above — every message that matters is checked against a proof or the chain — and for privacy it is a full
-disclosure of the swap to that reader. Keep the directory where only the two parties can reach it.
+**The channel is sealed (GAP-019).** The directory transport alone writes plain JSON files
+(`tools/xmrswap/channel.go:33-121`): anyone who could read the directory — a sync provider, the other users of a
+shared drive — read the private view key `v`, `S_a`, `S_b`, `H_a`, `H_b`, `H_k`, both DERO addresses and Alice's
+Monero txid, and so learned the joint address and the amount and timing of the Monero lock; anyone who could write
+it could put messages in either party's box as the other. The companion now seals every message
+(`tools/xmrswap/sealed.go`):
+
+- The maker makes a 32-byte key for this swap alone (`xmrswap channel-key`) and gives it to the taker with the offer,
+  over whatever the two already trust; each companion takes it from `XMRSWAP_CHANNEL_KEY`, never the command line,
+  and refuses to start without it.
+- Each direction has its own key, HMAC-SHA256 of the swap key and a label naming the direction (HKDF-Expand for one
+  block), and each message is AES-256-GCM under it with a fresh random nonce and the direction as associated data.
+- A message that does not open — written by someone without the key, sealed under another swap's key, altered, or
+  copied back to its own sender — is dropped and said; it never reaches the state machine
+  (`TestSealedChannelRefusesImpersonationAndTampering`).
+
+Why this and not more: the parties already need a trusted path to agree the offer, and a key handed over on it
+costs nothing further; a key exchange on the directory itself would need that same path to authenticate it. The
+primitives are the standard library's, so the channel adds no dependency (`golang.org/x/crypto`, which the module
+already requires for Keccak, would have served as well).
+What stays visible to the directory's reader: that two parties are talking, when, and how much (file names carry a
+timestamp and the sender's name). What it does not stop: a replay of one of this swap's own messages into the box it
+came from, which is a duplicate the channel already delivers by design and each side consumes once. For the coins
+nothing changes: every message that matters is still checked against a proof or the chain.
 
 ---
 
@@ -353,6 +397,17 @@ he has released the gate. The companion should take that depth as a parameter, d
 amount that would hurt, and the spec should state the default rather than "more for large amounts". Note the
 asymmetry: below ten nobody can spend the output anyway, so releasing at exactly ten buys Bob nothing but time
 against T1.
+
+*Measured* (MT-B11, `research/regtest/xmrswap-reorg.log`): on a real regtest `monerod`, with the companions on the DERO
+simulator, Alice's lock was taken off the chain with `pop_blocks` after Bob had released `k_b` at 12 confirmations
+(his depth in that run: 10), a longer branch was mined in its place, and Alice spent the lock's input again on it,
+with the same key image. She claimed the DERO. Bob read `s_a`, formed `s_a + s_b`, and his joint spend wallet held
+nothing: `sweep_all` answered -4, his companion ended in `sweep_unknown`, and the joint address shows 0 received on
+the chain that won. Alice's own wallet ended with what it held before the swap less the second spend's fee. Bob bore
+it, as this paragraph says. The same reorganisation below his depth — at 3 confirmations, before any gate — opened no
+gate: Bob refunded at t1, and Alice's XMR was back in her wallet to the piconero (R4). A DERO-side reorganisation
+cannot be made on the simulator, which is one node mining its own chain: Invariant 9 and U3 have run only against the
+in-memory fake chain.
 
 **R4. Alice's lock never confirms in time.** Her transaction sits unmined, or confirms too late for the gate and
 the Claim to land before T1. *Outcome:* Bob never sends `k_b` (invariant 2), refunds at T1 and reveals `s_b`;
@@ -425,10 +480,17 @@ forever, again unless she buys the real `s_b`. Bob lost nothing. *Covered:* yes,
 against the `H_b` that `π_b` was verified for.
 
 **R15. The proof is valid but the bytes differ.** The DERO contract hashes the exact 32 bytes; Monero reduces a
-scalar modulo ℓ (`src/crypto/crypto.cpp`). A secret at or above ℓ would hash to one value on DERO and act as a
-different scalar on Monero. *Outcome:* a sweep with the wrong key. *Covered:* yes; `proof-xmr keygen` produces a
-reduced scalar and `prove` refuses an unreduced one rather than silently reducing (build spec §3.B, and a test
-that must exist).
+scalar modulo ℓ (`src/crypto/crypto.cpp`). *Found* (L1, `docs/audit/PROOF_XMR_AUDIT_PACKAGE.md`): the circuit proves
+`S = x·G` and `H = SHA256(x)` for the 32 bytes `x` and never that `x < ℓ`. Our `proof-xmr keygen` makes reduced
+scalars and our `prove` refuses others, but nothing makes the peer use them: a party can prove, commit and reveal
+`x = s + kℓ`, the contract accepts it on Claim or Refund (it checks the hash alone), and `(s + kℓ)·G = s·G`, so it is
+the same share. *Outcome before the fix:* the companion refused the reveal as "not reduced mod l" and stopped —
+griefing: no coins lost, the automatic path stalled. *Covered* (MT-B25): wherever the companion reads a revealed share
+(`s_a` from a Claim, `s_b` from a Refund; `swap.go` `checkRevealed`), it checks that the 32 bytes as revealed hash to
+the committed `H`, reduces them mod ℓ, checks that the result is the discrete log of the committed `S`, and uses the
+reduced scalar; only a value failing one of those is refused (`keys.go` `RecoverShare`;
+`TestARevealedShareNotReducedModLStillOpensTheKey`: `s + ℓ` and `s + 15ℓ` each open the joint key, a value reducing to
+another share is refused). The circuit's own fix, a range check on `x`, is left for the auditor to rank.
 
 **R16. A phantom taker, or a call at the wrong ring size.** Two readings. (a) Bob names as `taker` an address
 nobody controls: Alice's check that `taker` is her own address fails and she never locks; Bob refunds. (b) A
@@ -466,7 +528,12 @@ on mainnet it refuses a wallet-rpc, a DERO wallet or a `monerod` that is not loo
 to the wallet-rpc with `set_daemon` after every wallet it opens (`-monerod`, GAP-010), because it cannot ask which
 `monerod` a wallet-rpc was started with and the rpc keeps a `set_daemon` only for the wallet open when it is sent
 (`research/regtest/monero-smoke.log`). Elsewhere it warns. Reading from several independent sources and acting
-only when they agree narrows "one liar" to "every source colludes"; it is not built for the Monero swap.
+only when they agree narrows "one liar" to "every source colludes". For Alice's side it is built (MT-B09): she may
+name further DERO nodes with `-daemon`, and she locks no XMR until every one shows her the same lock on the pinned
+contract — same terms, open, inside her policy by its own height. A node that shows other terms makes her refuse;
+one that shows no lock makes her wait until her budget refuses it (`tools/xmrswap/swap.go` `witnessCheck`;
+`TestALyingDeroNodeBlocksTheXmrLock`). It moves the trust from one node to all of them, and only if they are run by
+different people. For Bob's Monero side it is not built.
 
 **R19. Heights are not clocks.** T1 and T2 are DERO heights; Alice's wait is Monero confirmations; the two are
 coupled only through wall time. If DERO blocks run fast for an hour, Alice's two hours are shorter than she
@@ -528,9 +595,10 @@ be closed, only stated and sized.
   (§9 R18). A remote node you do not run can cause a total loss that nothing in the protocol detects: run your own,
   or name the one you trust and know that you are trusting it.
 - **The companion's code**, which holds your share and the gate. Read it or trust whoever did. It pins the contract's
-  code and the proof tool's binary by hash (`tools/xmrswap/pin.go`), and that pin is only as good as the build that
-  carries it: until a reproducible, signed build exists (BL-14), whoever built your binary is trusted to have pinned
-  the right ones.
+  code and the proof tool's binary by hash (`tools/xmrswap/pin.go`). The proof tool's pin can be checked by anyone: its
+  build reproduces byte for byte from the committed sources (`research/crosschain/poc/proof-xmr/build-reproducible.sh`,
+  sha256 `7293e9c9…`, MT-B26). The companion's own binary, which carries both pins, does not yet (BL-14): until it
+  does, whoever built your companion is trusted to have pinned the right ones.
 - **DERO for the fee comes from the counterparty.** Every DERO transaction takes its fee from a DERO payload
   (`vendor/derohe/blockchain/transaction_verify.go`, "we can not deduct fees, if no base"), so a holder who
   arrives with only XMR cannot sign the Claim that pays them. The maker sends the taker a stipend once his lock is
@@ -662,6 +730,15 @@ Primary, read for this page (fetch dates as noted; the derohe files are the vend
   on regtest and `htlc.bas` v2 on the DERO simulator, every txid looked up on its chain; the second run with the
   companions naming the `monerod` after every open (55 `set_daemon` calls accepted, none refused). Neither run is
   testnet or mainnet.
+- `research/regtest/xmrswap-reorg.log` — a real reorganisation of the regtest chain under a live swap (MT-B11):
+  `pop_blocks`, `flush_txpool` and a longer branch, once below Bob's depth before the gate and once after it with
+  Alice spending the lock's input again; every txid, block hash and balance, and what each companion did.
+- `research/regtest/xmrswap-cli.log` — the `xmrswap` command line as two processes on regtest and the simulator, with
+  `-monerod`, logins and the channel key from the environment, the witness check and the recovery card and wake;
+  interrupted after Alice's Claim was mined, by a stall of the companion's own (every state save's `icacls` failed),
+  to be run again. Fixed: the owner-only ACL (GAP-020) is now set through the Windows API, with no program started
+  (`tools/xmrswap/acl_windows.go`; `TestOwnerOnlyACLStartsNoProgram`, which runs with nothing reachable on PATH).
+- `research/regtest/xmrswap-scan.log` — the joint wallet's restore and scan times on the regtest wallet-rpc (MT-B13).
 - `docs/CROSS_CHAIN_TRUST_MODEL.md` §5 — a lying node that colludes with the counterparty costs a whole leg.
 - monero-project/monero `src/cryptonote_config.h` (fetched 2026-09-08) — `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE 10`,
   `DIFFICULTY_TARGET_V2 120`, `CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW 60`; no reorganisation-depth constant;

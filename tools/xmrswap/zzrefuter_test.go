@@ -46,6 +46,7 @@ func (s *zzRefW) Refresh(context.Context, uint64) error {
 }
 func (s *zzRefW) Incoming(context.Context, uint64) ([]Incoming, error) { return s.incoming, nil }
 func (s *zzRefW) UnlockedBalance(context.Context) (uint64, error)      { return s.unlocked, nil }
+func (s *zzRefW) Outgoing(context.Context) ([]string, error)           { return nil, nil }
 func (s *zzRefW) SweepAll(context.Context, string) ([]string, error) {
 	s.sweeps++
 	if len(s.sweepErr) > 0 {

@@ -114,6 +114,14 @@ type Config struct {
 	// set_daemon after every open and every generate, because the rpc keeps a set_daemon only for the wallet that
 	// was open when it was sent.
 	Monerod string
+	// Witnesses are further DERO daemons that must show the taker the very lock her own node shows before she locks
+	// any XMR (MT-B09). Her own node alone could show her a lock that is not on the chain: she would lock XMR against
+	// nothing, and her Claim would hand s_a to whoever runs that node. Each is only read.
+	Witnesses []LockReader
+	// ResumeCommand is the command that resumes this companion, as the recovery card prints it and the wake runs it
+	// (U9, MT-B15). Wake, when set, registers that wake with the operating system; nil registers none.
+	ResumeCommand string
+	Wake          WakeFunc
 
 	T1Min, T2Min     uint64 // policy floors (Alice refuses a lock below them; Bob refuses to choose below them)
 	T1Max, T2Max     uint64 // policy ceilings: Alice refuses an offer, and a lock, whose windows are wider
@@ -152,6 +160,14 @@ type Config struct {
 	Poll        time.Duration // how long one Step waits on the channel when a message is expected
 	ResendAfter time.Duration // how often the last message is repeated while the protocol has not moved on
 	Log         func(format string, a ...interface{})
+}
+
+// LockReader is what a witness node is asked: the reads the taker's lock check makes, and nothing that sends. A
+// DeroRPC with no wallet is one.
+type LockReader interface {
+	Height(ctx context.Context) (uint64, error)
+	ReadLock(ctx context.Context, id uint64) (Lock, error)
+	CodeSHA256(ctx context.Context) (string, error)
 }
 
 func (c Config) withDefaults() Config {
@@ -218,6 +234,8 @@ type Swap struct {
 	frozenWarned bool
 	// scanWarned: the operator has been told once that the joint wallet holds nothing spendable yet.
 	scanWarned bool
+	// witnessWaiting is the last reason a witness node gave the taker to wait before her XMR lock, said once (MT-B09).
+	witnessWaiting string
 	// blindWarned: the operator has been told once that the contract cannot be read and the refund goes out blind.
 	blindWarned bool
 	// stipendNote is the last reason the operator was given for the XMR lock waiting on the stipend; a reason is
@@ -669,21 +687,17 @@ func (s *Swap) spendKey() (string, error) {
 	return AddScalars(own, peer).Hex(), nil
 }
 
-// checkRevealed verifies a share read from the chain is the peer's: it hashes to their H and is the discrete
-// log of their S. The contract checked the hash; the proof at setup tied that hash to S, and this is the last
-// look before a key is formed from it.
+// checkRevealed verifies a share read from the chain is the peer's and keeps it in the form a key is made from:
+// the 32 bytes as revealed hash to their H, and the value reduced mod ℓ is the discrete log of their S
+// (RecoverShare, MT-B25). The contract checked the hash; the proof at setup tied that hash to S; this is the last look
+// before a key is formed from it. A value the peer revealed unreduced — x = s + kℓ, which the circuit and the contract
+// both accept — is the same share, and the swap goes on with s rather than stalling on it.
 func (s *Swap) checkRevealed(x string) error {
-	sc, err := ParseScalar(x)
+	sc, err := RecoverShare(x, s.st.Peer.H, s.st.Peer.S)
 	if err != nil {
 		return fmt.Errorf("revealed share: %w", err)
 	}
-	if SHA256Hex(sc[:]) != s.st.Peer.H {
-		return errors.New("revealed share does not hash to the peer's H")
-	}
-	if sc.Public().Hex() != s.st.Peer.S {
-		return errors.New("revealed share is not the discrete log of the peer's S")
-	}
-	s.st.Revealed = x
+	s.st.Revealed = sc.Hex()
 	return nil
 }
 
@@ -852,6 +866,9 @@ func (s *Swap) sweep(ctx context.Context) error {
 		}
 		txs, err := s.xmr.SweepAll(ctx, s.st.MyXmr)
 		s.closeJoint(ctx, name)
+		if err == nil && s.crash != nil && s.crash("sweep_sent") {
+			return errCrashed // the test hook: killed after the sweep went out and before it was recorded (MT-B12)
+		}
 		if err != nil {
 			// the intent stands: nothing is retried automatically, and the operator sees why — and whether anything
 			// can have gone out, which a refusal the wallet made before sending rules out
@@ -869,8 +886,48 @@ func (s *Swap) sweep(ctx context.Context) error {
 		s.removeJointWallets()
 		return s.finish("swept", "swept the XMR to "+s.st.MyXmr)
 	case "sweeping":
+		// MT-B12 (XMR-R1): the process stopped between the durable intent and the record of the sweep. Whether the
+		// sweep went out is a question the joint spend wallet answers: it lists every transfer out of it, mined or
+		// in the pool, and nobody but this party can have made one (after a Claim only Bob holds s_a + s_b, after
+		// a Refund only Alice). A transfer out is the sweep, and it is recorded. None, and the wallet can spend:
+		// the sweep never went out, and it is made now. That repeat cannot pay anyone else — sweep_all pays only
+		// this party's own address — and if a sweep had gone out unseen, the daemon would refuse the second as a
+		// double spend of the same key images. None and nothing to spend: the scan may be behind, and it waits as
+		// sweep_ready does, for as many passes as SweepWaits allows.
+		spend, err := s.spendKey()
+		if err != nil {
+			return err
+		}
+		name := s.walletName("spend")
+		if err := s.openJoint(ctx, name, spend); err != nil {
+			return err
+		}
+		out, err := s.xmr.Outgoing(ctx)
+		if err != nil {
+			return err
+		}
+		if len(out) > 0 {
+			s.closeJoint(ctx, name)
+			s.st.Sweep.Txs = out
+			s.cfg.Log("%s: restarted during the sweep: the joint wallet lists it (%v); recording it", s.st.Role, out)
+			s.removeJointWallets()
+			return s.finish("swept", "swept the XMR to "+s.st.MyXmr+" (the sweep was found in the joint wallet after a restart)")
+		}
+		unlocked, err := s.xmr.UnlockedBalance(ctx)
+		if err != nil {
+			return err
+		}
+		if unlocked > 0 {
+			s.cfg.Log("%s: restarted during the sweep: the joint wallet has sent nothing and can spend %d; sweeping again", s.st.Role, unlocked)
+			return s.save("sweep_ready")
+		}
+		if s.st.Sweep.Waits < s.cfg.SweepWaits {
+			s.st.Sweep.Waits++
+			return s.st.Save()
+		}
+		s.closeJoint(ctx, name)
 		s.st.Sweep.Unknown = true
-		return s.finish("sweep_unknown", "restarted during the sweep: it was attempted once and is not attempted again; the spend key is in the state file under "+s.walletName("spend"))
+		return s.finish("sweep_unknown", "restarted during the sweep, and the joint wallet shows neither a transfer out nor anything to spend; the spend key is in the state file under "+name)
 	}
 	return nil
 }
@@ -1575,6 +1632,79 @@ type LockExpect struct {
 }
 
 // CheckLock is every §4.3 check, and names the first that fails.
+// witnessCheck is MT-B09: before the taker locks XMR, every witness node must show the pinned contract and the lock
+// her own node shows, field for field, still open and inside the policy by that node's own height. A witness that
+// shows other terms, another contract, or a lock outside the policy is lying or on another chain, and she refuses
+// with nothing of hers locked (refusal). One that cannot be reached, or does not show the lock yet, may only be
+// behind: she waits (wait), saying so once, and the budget the second sight shrinks on every pass turns a wait that
+// never ends into the same refusal.
+func (s *Swap) witnessCheck(ctx context.Context, l Lock, e LockExpect) (refusal string, wait bool) {
+	for i, w := range s.cfg.Witnesses {
+		name := fmt.Sprintf("DERO node %d of %d", i+2, len(s.cfg.Witnesses)+1)
+		code, err := w.CodeSHA256(ctx)
+		if err != nil {
+			return "", s.witnessWait(name + " cannot be read (" + err.Error() + ")")
+		}
+		if code != HTLCCodeSHA256 {
+			return fmt.Sprintf("%s shows contract code %s, not the pinned htlc.bas v2", name, code), false
+		}
+		wl, err := w.ReadLock(ctx, l.ID)
+		if errors.Is(err, ErrNoSuchLock) {
+			return "", s.witnessWait(fmt.Sprintf("%s does not show lock %d", name, l.ID))
+		}
+		if err != nil {
+			return "", s.witnessWait(name + " cannot be read (" + err.Error() + ")")
+		}
+		if d := lockDifference(l, wl); d != "" {
+			return fmt.Sprintf("%s shows lock %d with %s", name, l.ID, d), false
+		}
+		h, err := w.Height(ctx)
+		if err != nil {
+			return "", s.witnessWait(name + " cannot be read (" + err.Error() + ")")
+		}
+		if err := CheckLock(wl, h, e); err != nil {
+			return fmt.Sprintf("%s, at its height %d: %v", name, h, err), false
+		}
+	}
+	if n := len(s.cfg.Witnesses); n > 0 {
+		s.cfg.Log("alice: %d other DERO node(s) show lock %d on the pinned contract, with the same terms, open", n, l.ID)
+	}
+	return "", false
+}
+
+// witnessWait says once why the XMR lock waits on a witness, and reports that it does.
+func (s *Swap) witnessWait(why string) bool {
+	if why != s.witnessWaiting {
+		s.witnessWaiting = why
+		s.cfg.Log("alice: not locking XMR yet: %s", why)
+	}
+	return true
+}
+
+// lockDifference names the first field in which two readings of one lock differ, or "" when none does.
+func lockDifference(a, b Lock) string {
+	for _, f := range []struct {
+		differ bool
+		name   string
+	}{
+		{a.Maker != b.Maker, "another maker"},
+		{a.Taker != b.Taker, "another taker"},
+		{a.HA != b.HA, "another ha"},
+		{a.HK != b.HK, "another hk"},
+		{a.HB != b.HB, "another hb"},
+		{a.Asset != b.Asset, "another asset"},
+		{a.Amount != b.Amount, fmt.Sprintf("amount %d, not %d", b.Amount, a.Amount)},
+		{a.T1 != b.T1, fmt.Sprintf("t1 %d, not %d", b.T1, a.T1)},
+		{a.T2 != b.T2, fmt.Sprintf("t2 %d, not %d", b.T2, a.T2)},
+		{a.State != b.State, fmt.Sprintf("state %d, not %d", b.State, a.State)},
+	} {
+		if f.differ {
+			return f.name
+		}
+	}
+	return ""
+}
+
 func CheckLock(l Lock, now uint64, e LockExpect) error {
 	switch {
 	case l.State != LockOpen:
@@ -1791,13 +1921,17 @@ func (s *Swap) stepAlice(ctx context.Context) error {
 		if ok, err := s.stipendArrived(ctx); err != nil || !ok {
 			return err
 		}
+		// MT-B09: every other DERO node configured shows the same lock, or no XMR moves
+		if refusal, wait := s.witnessCheck(ctx, l, e); refusal != "" {
+			return s.finish("refused", "lock refused: "+refusal)
+		} else if wait {
+			return nil
+		}
 		s.cfg.Log("alice: locking %d piconero against t1 %d and t2 %d — about %d and %d hours from height %d, and until t1 the XMR has no exit of its own",
 			st.Terms.AmountXmr, l.T1, l.T2, (l.T1-h)*18/3600, (l.T2-h)*18/3600, h)
-		// U9, the recovery card: what to keep and when to be back, said before the one payment that needs it
-		now := time.Now()
-		s.cfg.Log("alice: RECOVERY: back up %s now: it holds this party's key share, and without it XMR locked now cannot be recovered after a refund. "+
-			"If this companion stops, run the same command again before t1 %d (about %s) and in any case by t2 %d (about %s), at DERO's 18 s target",
-			st.Path(), l.T1, now.Add(time.Duration(l.T1-h)*18*time.Second).Format("2006-01-02 15:04 MST"), l.T2, now.Add(time.Duration(l.T2-h)*18*time.Second).Format("2006-01-02 15:04 MST"))
+		// U9 (MT-B15), the recovery card: what to keep secret, what to run, and when every window opens and closes, said
+		// before the one payment that needs it — and the OS asked to wake this machine before the first window closes
+		s.printRecoveryCard(l, h, time.Now())
 		// Invariant 5: the intent is durable before the transfer
 		return s.save("xmr_locking")
 

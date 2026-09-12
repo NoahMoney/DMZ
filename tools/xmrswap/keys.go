@@ -236,6 +236,35 @@ func AddPoints(a, b Point) (Point, error) {
 }
 
 // SHA256Hex is the hash the escrow compares against: HEX(SHA256(raw)) in htlc.bas, lowercase.
+// RecoverShare is MT-B25 (L1 of docs/audit/PROOF_XMR_AUDIT_PACKAGE.md): the key share in a secret revealed on chain.
+// proof-xmr proves S = x·G and H = SHA256(x) for the 32 bytes x, and never that x < ℓ; so a party can prove, commit
+// and reveal x = s + kℓ, which the contract accepts (it checks only the hash) and which is the same share, since
+// (s + kℓ)·G = s·G. Refusing it as "not reduced" would stall the companion's automatic path on a value that is
+// correct: no coins lost, the swap stopped. So the value is checked as revealed and then used reduced: the 32 bytes
+// (hex, either case, as the contract's HEXDECODE takes them) must hash to wantHash; x mod ℓ must be the discrete log
+// of wantPub; and x mod ℓ is what is returned. Only a value that fails one of those checks is refused.
+func RecoverShare(x, wantHash, wantPub string) (Scalar, error) {
+	raw, err := hex.DecodeString(x)
+	if err != nil || len(raw) != 32 {
+		return Scalar{}, errors.New("not 32 bytes of hex")
+	}
+	if SHA256Hex(raw) != wantHash {
+		return Scalar{}, errors.New("does not hash to the committed H")
+	}
+	var wide [64]byte
+	copy(wide[:32], raw)
+	r, err := edwards25519.NewScalar().SetUniformBytes(wide[:])
+	if err != nil {
+		return Scalar{}, err
+	}
+	var s Scalar
+	copy(s[:], r.Bytes())
+	if s.Public().Hex() != wantPub {
+		return Scalar{}, errors.New("reduced mod ℓ, it is not the discrete log of the committed S")
+	}
+	return s, nil
+}
+
 func SHA256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])

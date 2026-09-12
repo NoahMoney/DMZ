@@ -14,8 +14,18 @@
 //     mainnet companion does, and each path prints how many of those calls the server accepted and refused.
 //     Regtest addresses are mainnet-form; nothing here touches a public network.
 //
-//     cd tools && go run ./simhtlc -fake-monero -prover "<proof-xmr command>"
-//     cd tools && go run ./simhtlc -regtest -prover "<proof-xmr command>"     # after tools/regtest/monero-up.sh
+// With -regtest two more paths make a real reorganisation of the Monero chain under a live swap (MT-B11): monerod's
+// pop_blocks takes alice's lock and every block after it off the chain, flush_txpool keeps the lock out of the pool,
+// and a longer branch is mined in their place.
+//
+//   - reorg-before: at 3 confirmations, below bob's depth, while he is still watching. He must never release k_b.
+//   - reorg-after: once bob has released k_b, and alice then spends the lock's inputs again on the new branch
+//     (docs/XMR_SWAP.md R3): she claims the DERO, and bob's s_a + s_b opens an empty address.
+//
+// A DERO-side reorganisation cannot be made here: the simulator is one node that mines its own chain.
+//
+//	cd tools && go run ./simhtlc -fake-monero -prover "<proof-xmr command>"
+//	cd tools && go run ./simhtlc -regtest -prover "<proof-xmr command>"     # after tools/regtest/monero-up.sh
 //
 // Wallets: 30006 is bob (has DERO, locks first), 30007 is alice (has XMR, claims; also pays the install). The
 // driver prints both DERO balances against what the three exits need and stops if either is short; -fund N
@@ -84,7 +94,7 @@ var (
 	closeAfter    = flag.Uint64("close-after", 3, "blocks past t2 after which bob closes an abandoned lock himself")
 	confs         = flag.Uint64("confs", 10, "Monero confirmations bob waits for before the gate (policy: 20; a block is mined per round)")
 	fee           = flag.Uint64("fee", 2000, "fixed fee for Refund and Punish")
-	paths         = flag.String("paths", "happy,refund,punish", "which exits to run, in order")
+	paths         = flag.String("paths", "happy,refund,punish", "which exits to run, in order: happy, refund, punish; with -regtest also reorg-before and reorg-after (MT-B11)")
 	stateDir      = flag.String("state-dir", "", "where state files and the channel go (default: a temp dir)")
 	round         = flag.Duration("round", time.Second, "pause between driver rounds")
 	timeout       = flag.Duration("timeout", 40*time.Minute, "give up on one path after this long")
@@ -174,6 +184,17 @@ func main() {
 		log.Fatal(err)
 	}
 	pathList := strings.Split(*paths, ",")
+	for _, p := range pathList {
+		switch p {
+		case "happy", "refund", "punish":
+		case "reorg-before", "reorg-after":
+			if !*regtest {
+				log.Fatalf("-paths %s needs -regtest: the reorganisation is made on a real monerod", p)
+			}
+		default:
+			log.Fatalf("-paths: unknown exit %q (happy, refund, punish, reorg-before, reorg-after)", p)
+		}
+	}
 	// bob, per swap: what his companion checks before it locks (the lock when it is DERO, the stipend, the fee
 	// reserve), plus the lock's own fee; alice: the install (~4,000) and nothing else of her own, since each swap's
 	// stipend pays her Claim or Punish
@@ -393,6 +414,183 @@ func monerodWhere(txid string) string {
 	return "NOT on the regtest chain"
 }
 
+// monerodPost is one call to a monerod path outside JSON-RPC (/get_transactions, /pop_blocks).
+func monerodPost(path string, req, out interface{}) error {
+	b, _ := json.Marshal(req)
+	resp, err := http.Post(strings.TrimSuffix(*monerod, "/")+path, "application/json", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// monerodHeight is the number of blocks in the monerod's chain; the tip is one less.
+func monerodHeight() uint64 {
+	var info struct {
+		Height uint64 `json:"height"`
+	}
+	if err := jsonRPC(*monerod, "get_info", nil, &info); err != nil {
+		log.Fatalf("monerod get_info: %v", err)
+	}
+	return info.Height
+}
+
+// monerodTx is where the monerod has txid: the block it is in, or its pool; ok is false when it has it nowhere.
+func monerodTx(txid string) (height uint64, inPool, ok bool) {
+	var r struct {
+		Txs []struct {
+			InPool      bool   `json:"in_pool"`
+			BlockHeight uint64 `json:"block_height"`
+		} `json:"txs"`
+	}
+	if err := monerodPost("/get_transactions", map[string]interface{}{"txs_hashes": []string{txid}}, &r); err != nil || len(r.Txs) != 1 {
+		return 0, false, false
+	}
+	return r.Txs[0].BlockHeight, r.Txs[0].InPool, true
+}
+
+// keyImages are the key images txid spends, from the monerod's decoded copy of it.
+func keyImages(txid string) ([]string, error) {
+	var r struct {
+		Txs []struct {
+			AsJSON string `json:"as_json"`
+		} `json:"txs"`
+	}
+	if err := monerodPost("/get_transactions", map[string]interface{}{"txs_hashes": []string{txid}, "decode_as_json": true}, &r); err != nil {
+		return nil, err
+	}
+	if len(r.Txs) != 1 || r.Txs[0].AsJSON == "" {
+		return nil, fmt.Errorf("the monerod has no copy of %s", txid)
+	}
+	var tx struct {
+		Vin []struct {
+			Key struct {
+				KImage string `json:"k_image"`
+			} `json:"key"`
+		} `json:"vin"`
+	}
+	if err := json.Unmarshal([]byte(r.Txs[0].AsJSON), &tx); err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, in := range tx.Vin {
+		out = append(out, in.Key.KImage)
+	}
+	return out, nil
+}
+
+// blockHash is the hash of the monerod's block at height.
+func blockHash(height uint64) string {
+	var r struct {
+		BlockHeader struct {
+			Hash string `json:"hash"`
+		} `json:"block_header"`
+	}
+	if err := jsonRPC(*monerod, "get_block_header_by_height", map[string]interface{}{"height": height}, &r); err != nil {
+		log.Fatalf("monerod get_block_header_by_height %d: %v", height, err)
+	}
+	return r.BlockHeader.Hash
+}
+
+// walletBalance opens a party's own wallet on its wallet-rpc, refreshes it, and reads its total balance. The
+// companion opens the wallet it needs by name before every use, so opening another here costs it nothing.
+func walletBalance(url, name string) (uint64, error) {
+	if err := jsonRPC(url, "open_wallet", map[string]interface{}{"filename": name, "password": ""}, nil); err != nil {
+		return 0, err
+	}
+	if err := jsonRPC(url, "refresh", map[string]interface{}{}, nil); err != nil {
+		return 0, err
+	}
+	var r struct {
+		Balance uint64 `json:"balance"`
+	}
+	if err := jsonRPC(url, "get_balance", map[string]interface{}{"account_index": 0}, &r); err != nil {
+		return 0, err
+	}
+	return r.Balance, nil
+}
+
+// reorg is MT-B11: a real reorganisation of the regtest chain under a live swap. pop_blocks takes the lock's block
+// and every block after it off the chain (their transactions go back to the pool), flush_txpool takes alice's lock
+// out of the pool so that no branch can include it again, and the blocks mined next are a different, longer branch
+// at the same heights. With spendAgain, alice's own wallet then spends the lock's inputs a second time on the new
+// branch, which is docs/XMR_SWAP.md R3's own case: the lock can never be mined again, by anyone.
+func reorg(say func(string, ...interface{}), xm *moneroSide, path, lockTx string, spendAgain bool) {
+	lh, inPool, ok := monerodTx(lockTx)
+	if !ok || inPool {
+		log.Fatalf("%s: alice's lock %s is not in a block: %s", path, lockTx, monerodWhere(lockTx))
+	}
+	kis, err := keyImages(lockTx)
+	if err != nil {
+		log.Fatalf("%s: the lock's key images: %v", path, err)
+	}
+	top := monerodHeight()
+	n := top - lh
+	before := blockHash(lh)
+	say("%s: REORG: alice's lock %s is in block %d with %d confirmations (bob's depth: %d); it spends key images %s", path, lockTx, lh, n, *confs, strings.Join(kis, ", "))
+	var pr struct {
+		Height uint64 `json:"height"`
+		Status string `json:"status"`
+	}
+	if err := monerodPost("/pop_blocks", map[string]interface{}{"nblocks": n}, &pr); err != nil || pr.Status != "OK" {
+		log.Fatalf("%s: pop_blocks %d: %v (status %q)", path, n, err, pr.Status)
+	}
+	say("%s: REORG: pop_blocks took blocks %d..%d off the chain (height now %d); the lock is %s", path, lh, top-1, pr.Height, monerodWhere(lockTx))
+	if err := jsonRPC(*monerod, "flush_txpool", map[string]interface{}{"txids": []string{lockTx}}, nil); err != nil {
+		log.Fatalf("%s: flush_txpool: %v", path, err)
+	}
+	say("%s: REORG: flush_txpool: the lock is %s", path, monerodWhere(lockTx))
+	xm.mine(n + 2)
+	after := blockHash(lh)
+	if after == before {
+		log.Fatalf("%s: block %d is still %s: no new branch was mined", path, lh, before)
+	}
+	say("%s: REORG: mined %d blocks of a new branch: block %d was %s and is now %s; tip %d; the lock is %s", path, n+2, lh, before, after, monerodHeight()-1, monerodWhere(lockTx))
+	if !spendAgain {
+		return
+	}
+	if err := jsonRPC(*moneroAlice, "open_wallet", map[string]interface{}{"filename": xm.aliceName, "password": ""}, nil); err != nil {
+		log.Fatalf("%s: alice's own wallet: %v", path, err)
+	}
+	if err := jsonRPC(*moneroAlice, "refresh", map[string]interface{}{}, nil); err != nil {
+		log.Fatalf("%s: refreshing alice's own wallet: %v", path, err)
+	}
+	if err := jsonRPC(*moneroAlice, "rescan_spent", nil, nil); err != nil {
+		say("%s: REORG: rescan_spent on alice's own wallet: %v", path, err)
+	}
+	var sw struct {
+		TxHashList []string `json:"tx_hash_list"`
+	}
+	if err := jsonRPC(*moneroAlice, "sweep_all", map[string]interface{}{"address": xm.aliceAddr, "account_index": 0}, &sw); err != nil {
+		log.Fatalf("%s: alice's second spend: %v", path, err)
+	}
+	xm.mine(1)
+	lockSet := map[string]bool{}
+	for _, k := range kis {
+		lockSet[k] = true
+	}
+	var shared []string
+	for _, tx := range sw.TxHashList {
+		ks, err := keyImages(tx)
+		if err != nil {
+			say("%s: REORG: alice's second spend %s: %v", path, tx, err)
+			continue
+		}
+		for _, k := range ks {
+			if lockSet[k] {
+				shared = append(shared, k)
+			}
+		}
+		say("%s: REORG: alice's second spend %s, to her own address: %s", path, tx, monerodWhere(tx))
+	}
+	if len(shared) == 0 {
+		say("%s: REORG: none of the second spend's key images is one the lock spent: only the flush keeps the lock off the chain", path)
+		return
+	}
+	say("%s: REORG: the second spend uses %d of the lock's %d key images (%s): the lock can never be mined again", path, len(shared), len(kis), strings.Join(shared, ", "))
+}
+
 // jsonRPC is one JSON-RPC 2.0 call to a monerod or monero-wallet-rpc, for the driver's own setup.
 func jsonRPC(base, method string, params, out interface{}) error {
 	body := map[string]interface{}{"jsonrpc": "2.0", "id": "0", "method": method}
@@ -442,15 +640,27 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 			GateDeadline: *gateDeadline, Stipend: *stipend, StipendMin: *stipend, CloseAfter: *closeAfter,
 			Poll: 200 * time.Millisecond, ResendAfter: 30 * time.Second, Log: logf}
 	}
+	// GAP-019: the companions' channel is sealed under a key made for this swap alone, as the command line's is
+	keyHex, err := xmrswap.NewChannelKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+	chanKey, _ := xmrswap.ParseChannelKey(keyHex)
+	say("%s: the channel is sealed (AES-256-GCM) under a fresh swap key (GAP-019)", path)
 	start := func(role string) *xmrswap.Swap {
 		st, err := xmrswap.LoadState(filepath.Join(pdir, role+".json"), role, scid)
 		if err != nil {
 			log.Fatal(err)
 		}
-		ch, err := xmrswap.NewDirChannel(filepath.Join(pdir, "channel"), role)
+		dir, err := xmrswap.NewDirChannel(filepath.Join(pdir, "channel"), role)
 		if err != nil {
 			log.Fatal(err)
 		}
+		ch, err := xmrswap.NewSealedChannel(dir, chanKey, role, map[string]string{"bob": "alice", "alice": "bob"}[role])
+		if err != nil {
+			log.Fatal(err)
+		}
+		ch.OnDrop = func(reason string) { logf("%s: channel: %s", role, reason) }
 		var sw *xmrswap.Swap
 		if role == "bob" {
 			sw, err = xmrswap.NewBob(cfg(role, bobAddr, xm.bobName), st, bobD, xm.bob, prov, ch)
@@ -465,6 +675,16 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 	bob, alice := start("bob"), start("alice")
 	deadline := time.Now().Add(*timeout)
 	bobGone, bobBack := false, false
+	reorged := false
+	var aliceXmrBefore uint64
+	if strings.HasPrefix(path, "reorg") {
+		b, err := walletBalance(*moneroAlice, xm.aliceName)
+		if err != nil {
+			log.Fatalf("%s: alice's own Monero wallet: %v", path, err)
+		}
+		aliceXmrBefore = b
+		say("%s: alice's own Monero wallet holds %d piconero before the swap", path, b)
+	}
 	for {
 		if time.Now().After(deadline) {
 			log.Fatalf("%s: no end within %v (bob %s, alice %s)", path, *timeout, bob.Phase(), alice.Phase())
@@ -492,6 +712,22 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 			if paid && !bobGone {
 				bobGone = true
 				say("bob vanishes after his lock and the stipend (t2 = %d); alice will punish", bs.Lock.T2)
+			}
+		case "reorg-before":
+			// (a): alice's lock goes while bob is still counting it, below his depth
+			if lock := alice.State().Xmr.LockTx; !reorged && bs.Phase == "watching_xmr" && lock != "" {
+				if lh, inPool, ok := monerodTx(lock); ok && !inPool {
+					if c := monerodHeight() - lh; c >= 3 && c < *confs {
+						reorg(say, xm, path, lock, false)
+						reorged = true
+					}
+				}
+			}
+		case "reorg-after":
+			// (b): it goes after bob has released k_b, and alice spends its inputs again so it can never come back
+			if lock := alice.State().Xmr.LockTx; !reorged && bs.Phase == "gate_sent" && lock != "" {
+				reorg(say, xm, path, lock, true)
+				reorged = true
 			}
 		}
 		if !bobGone || (path == "punish" && alice.State().Done) {
@@ -549,6 +785,17 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 	}
 	if path == "punish" {
 		say("the XMR alice locked stays under the joint key %s: nobody holds s_a + s_b", as.Joint)
+	}
+	if strings.HasPrefix(path, "reorg") {
+		if !reorged {
+			log.Fatalf("%s: the swap ended before the reorganisation was made (bob %s, alice %s)", path, bs.Phase, as.Phase)
+		}
+		say("%s: alice received k_b: %v; bob's outcome: %s; alice's lock %s is %s", path, as.Gate != "", bs.Outcome, as.Xmr.LockTx, monerodWhere(as.Xmr.LockTx))
+		if b, err := walletBalance(*moneroAlice, xm.aliceName); err == nil {
+			say("%s: alice's own Monero wallet: %d piconero before the swap, %d after (%+d)", path, aliceXmrBefore, b, int64(b)-int64(aliceXmrBefore))
+		} else {
+			say("%s: alice's own Monero wallet could not be read: %v", path, err)
+		}
 	}
 }
 

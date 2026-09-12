@@ -958,7 +958,7 @@ func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg,
 		}
 		g, err := c.estimate(ctx, me, "", nil, all)
 		if err != nil {
-			return "", fmt.Errorf("%s refused at estimate: %w", entry, err)
+			return "", fmt.Errorf("%s refused at estimate: %w", entry, withholdArgs(err, all))
 		}
 		fee = g.GasStorage + 200
 		if c.Log != nil {
@@ -970,14 +970,14 @@ func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg,
 		var err error
 		txid, err = c.submit(ctx, "", nil, all, fee)
 		if err != nil {
-			return "", err
+			return "", withholdArgs(err, all)
 		}
 		_, err = c.waitTx(ctx, txid)
 		if err == nil {
 			break
 		}
 		if !errors.Is(err, errNotMined) || attempt >= c.Resends {
-			return txid, err
+			return txid, withholdArgs(err, all)
 		}
 		h, herr := c.Height(ctx)
 		if herr != nil {
@@ -991,7 +991,7 @@ func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg,
 			return txid, fmt.Errorf("%s %s not mined, and the lock has moved on (st_%d = %d)", entry, txid, id, l.State)
 		}
 		if !canResend(entry, h, l, cutoff) {
-			return txid, fmt.Errorf("%s %s not mined, and at height %d a re-send could no longer land in its window (t1 %d, t2 %d): %w", entry, txid, h, l.T1, l.T2, err)
+			return txid, fmt.Errorf("%s %s not mined, and at height %d a re-send could no longer land in its window (t1 %d, t2 %d): %w", entry, txid, h, l.T1, l.T2, withholdArgs(err, all))
 		}
 		fee *= 2
 		if c.Log != nil {

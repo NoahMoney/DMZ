@@ -43,6 +43,9 @@ type Wallet interface {
 	// refresh, so a wallet made from keys knows nothing about the chain until this is called or the server's
 	// own idle loop reaches it. A balance read before it is a balance of zero, whatever is at the address.
 	Refresh(ctx context.Context, startHeight uint64) error
+	// Outgoing lists the txids of every transfer out of the open wallet, mined or still in the pool. A view-only
+	// wallet cannot see its own spends, so it answers only for a wallet that holds its spend key.
+	Outgoing(ctx context.Context) ([]string, error)
 	// Incoming lists confirmed incoming transfers to the open wallet at height >= minHeight
 	// (get_transfers{in:true, filter_by_height:true}).
 	Incoming(ctx context.Context, minHeight uint64) ([]Incoming, error)
@@ -420,11 +423,8 @@ func (w *walletRPC) Transfer(ctx context.Context, to string, amount uint64) (str
 	return r.TxHash, nil
 }
 
-// confirmSent asks the wallet for its own record of what it says it sent — an outgoing transfer, pending or mined
-// (get_transfers out and pending) — before a hash in a reply is taken as a send. A hash alone proves nothing:
-// 0.18.5.1 hands one back for a view-only wallet's transfer it never broadcast. A hash the wallet does not list is an
-// error that is not a refusal, so the caller treats the payment's fate as unknown and never pays twice.
-func (w *walletRPC) confirmSent(ctx context.Context, method string, txids []string) error {
+// Outgoing is get_transfers out and pending: the open wallet's own record of what it has sent, mined or in the pool.
+func (w *walletRPC) Outgoing(ctx context.Context) ([]string, error) {
 	var r struct {
 		Out []struct {
 			TxID string `json:"txid"`
@@ -434,14 +434,30 @@ func (w *walletRPC) confirmSent(ctx context.Context, method string, txids []stri
 		} `json:"pending"`
 	}
 	if err := w.call(ctx, "get_transfers", map[string]interface{}{"out": true, "pending": true, "account_index": 0}, &r); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(r.Out)+len(r.Pending))
+	for _, e := range r.Out {
+		ids = append(ids, e.TxID)
+	}
+	for _, e := range r.Pending {
+		ids = append(ids, e.TxID)
+	}
+	return ids, nil
+}
+
+// confirmSent asks the wallet for its own record of what it says it sent — an outgoing transfer, pending or mined
+// (get_transfers out and pending) — before a hash in a reply is taken as a send. A hash alone proves nothing:
+// 0.18.5.1 hands one back for a view-only wallet's transfer it never broadcast. A hash the wallet does not list is an
+// error that is not a refusal, so the caller treats the payment's fate as unknown and never pays twice.
+func (w *walletRPC) confirmSent(ctx context.Context, method string, txids []string) error {
+	ids, err := w.Outgoing(ctx)
+	if err != nil {
 		return fmt.Errorf("monero-wallet-rpc %s: reading the wallet's record of it: %w", method, err)
 	}
 	seen := map[string]bool{}
-	for _, e := range r.Out {
-		seen[e.TxID] = true
-	}
-	for _, e := range r.Pending {
-		seen[e.TxID] = true
+	for _, id := range ids {
+		seen[id] = true
 	}
 	for _, id := range txids {
 		if !seen[id] {
@@ -499,7 +515,8 @@ func (w *walletRPC) GenerateFromKeys(ctx context.Context, name, address, viewKey
 		Info    string `json:"info"`
 	}
 	if err := w.call(ctx, "generate_from_keys", params, &r); err != nil {
-		return err
+		// MT-L02: the request carried the keys and the password; an error that echoes it must not print them
+		return withhold(err, [2]string{"view key", viewKey}, [2]string{"spend key", spendKey}, [2]string{"wallet password", password})
 	}
 	if r.Address != address {
 		return fmt.Errorf("monero-wallet-rpc generate_from_keys: the wallet reports address %q, expected %q", r.Address, address)
