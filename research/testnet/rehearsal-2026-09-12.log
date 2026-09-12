@@ -1,0 +1,491 @@
+# X-09: MAINNET_DEPLOYMENT.md §5 rehearsed on the private DERO testnet, 2026-09-12, with -network testnet.
+# The rehearsal's own wallets (.testnet/rehearsal/, git-ignored) and a scratch record; the recorded testnet
+# deployment of W-01 (deploy/networks.json testnet, deploy/tela-testnet.json, dist/testnet) was not written.
+# Times UTC. No recovery words, password or RPC login is in this file.
+
+== steps: start, end, balances in atomic units (1 DERO = 100000)
+step3 start 2026-09-12T08:58:49Z
+probe 2026-09-12T09:01:21Z
+fund-treasury 79afcc3a30652602ca828a96aa3546a64e8886f9d9b4c6207e6b1bff070ed668 100000 2026-09-12T09:13:31Z
+fund-deployer 012b56164f2695437316f8f6eb2f61aef12736f4a0dfa137481bbb1f53259c31 5000000 2026-09-12T09:48:45Z (a first transfer, sent as the registration was being mined, returned no txid)
+step3 end 2026-09-12T09:49:17Z deployer 5800000 treasury 900000
+step4 start 2026-09-12T09:49:23Z deployer 5800000 treasury 900000
+step4 end 2026-09-12T10:05:40Z exit 0 deployer 5772005 treasury 900000
+step5 start 2026-09-12T10:06:03Z
+step5 end 2026-09-12T10:06:12Z exit 0
+deployer passes: "balance":4
+step6 start deployer 5772005 treasury 900000 2026-09-12T10:06:21Z
+step6 genconfig done 2026-09-12T10:06:29Z
+step6 telainstall attempt 1 exit 127 2026-09-12T10:34:38Z
+step6 end exit 127 deployer 5629741 treasury 900000 2026-09-12T10:36:16Z
+step6 INTERRUPTED 2026-09-12T10:34:38Z: the coordinator's pause (operator offline) killed telainstall after 16 DOCs, before the INDEX; resumed with -reuse naming those 16 2026-09-12T11:26:57Z
+step6 resume start deployer 5629741 treasury 900000 2026-09-12T11:27:38Z
+step6 telainstall attempt 2 exit 0 2026-09-12T12:10:39Z
+step6 end exit 0 deployer 5441790 treasury 900000 2026-09-12T12:11:54Z
+step6 INDEX 80bc3a5acff82117b7f4face1f70fec4f6a84fc9ade5c7b2f46737d645005ee6 recorded under testnet.tela.index of the scratch record 2026-09-12T12:12:03Z
+step7 start 2026-09-12T12:12:03Z
+step7 end exit 0 2026-09-12T12:12:04Z
+step8 start 2026-09-12T12:12:04Z
+step8 end exit 0 2026-09-12T12:12:05Z
+step11 start treasury 900000 2026-09-12T12:12:05Z
+step11 end exit 0 treasury 900000 2026-09-12T12:12:37Z
+
+== step4-probe
+2026/09/12 19:01:33 GetAddress: decode: invalid character 'A' looking for beginning of value
+exit status 1
+
+== step4
+owner deto1qyx25s690zszlx0rk4n2kzecp62mt3ed8y27wtmdpn3vq72csmmusqgd0t4yk
+treasury deto1qyt9m4a4lrg5zplva9yjz0prejas6gpa96jt60kll9tnrvtdq378sqgjev22t
+installing factory.bas
+installing social.bas
+installing founders.bas
+installing chat.bas
+installing htlc.bas
+installing swap.bas
+installing board.bas
+factory  d23611808424f439a8bcb290a664cb395e1864a2a486004f0df8add8dc1c0194
+social   a4c1b592fd89e52e0e8ad24778baaa2e2e6f0d330e52484d8c2282652d3499fe
+founders 99554a8b5097452b08b1833d5bc93623118b11bcfb75967f2d03e1483ef519be
+chat     dd58586a8d9718e699f09c202f69ed33185a002f76bc978a867deed9562e13ee
+htlc     b87b53b2211253d815213b862eeade14a5251cc14c14ce3f30303c36bf64ed86
+swap     ec076c0f8878c3395d5f0754250003e98b51281bcf2ddae7eee557932fb0f8db
+board    bae95da8ade51c8ddc1430a1213746b2fa5925d7fda5bad0770a37f9e39d50a8
+recorded testnet in ../.testnet/rehearsal/networks.json
+wrote ..\.testnet\rehearsal\app\config.js
+
+== step5
+DMZ deployment verification (tools/verifydeploy)
+network testnet · daemon 127.0.0.1:40402 (, height 7208, stable 7200)
+source  ../contracts · git ec56c6c6db1d…, contracts/ clean
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+PASS    templates.nfa: sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114 = sha256(reference.Canon(contracts/nfa.bas))
+PASS    templates.nft: sha256 345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2 = sha256(reference.Canon(contracts/nft.bas))
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory d23611808424…: installed code sha256 73f281df0258863d46930452624d95fdc566b8cb8c6c11b618ece324c9174ac1 = sha256(reference.Canon(contracts/factory.bas)), 53 lines
+PASS    social a4c1b592fd89…: installed code sha256 da7ef3f09fccf468c9c03605e0de14a4b129b8cfbb29ced6efad8bf9b5b617ad = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders 99554a8b5097…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat dd58586a8d97…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+PASS    htlc b87b53b22112…: installed code sha256 b785028da4a2554521d47f989f1011ec1f0a26be491e6a7eb2786c1f50834c36 = sha256(reference.Canon(contracts/htlc.bas)), 150 lines
+PASS    swap ec076c0f8878…: installed code sha256 b9830de831dbaf34f61ea15b484c8f25105e41dc790aa06412db421a990fd6e3 = sha256(reference.Canon(contracts/swap.bas)), 88 lines
+PASS    board bae95da8ade5…: installed code sha256 162f8d46ad400b1fef981d029ba99f61c9646d6453c3bf9f0cc4bd9e63bc5ab1 = sha256(reference.Canon(contracts/board.bas)), 71 lines
+
+== Market templates: every contract in the factory registry
+INFO    registry d23611808424…: pc=0 lc=0 nc=0: 0 registered contracts, checked against 5 accepted template hashes (current and legacy)
+
+== Roles
+factory d23611808424… (factory)
+  INFO    treasury       -      payee     dero1qyt9m4a4lrg5zplva9yjz0prejas6gpa96jt60kll9tnrvtdq378sqggqsj0r
+          receives every registration fee (reg, line 35); cannot act; fixed for ever: only Initialize writes it, and Initialize refuses a second run
+          reads: factory.bas:23,75
+  INFO    regfee         -      parameter regfee=10000
+          fixed for ever: only Initialize writes it
+          reads: factory.bas:25,73
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,29
+social a4c1b592fd89… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders 99554a8b5097… (founders)
+  INFO    creator        -      inert     dero1qyx25s690zszlx0rk4n2kzecp62mt3ed8y27wtmdpn3vq72csmmusqghkhdp7
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qyt9m4a4lrg5zplva9yjz0prejas6gpa96jt60kll9tnrvtdq378sqggqsj0r
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=100000 maxsupply=20 start=0 reserve=4
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat dd58586a8d97… (chat)
+  INFO    treasury       -      payee     dero1qyt9m4a4lrg5zplva9yjz0prejas6gpa96jt60kll9tnrvtdq378sqggqsj0r
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+htlc b87b53b22112… (htlc)
+  INFO    windows        -      parameter w1min=400 w2min=400 g2=4800
+          the least t1 - lock height, the least t2 - t1 and the Punish window, written only at install: the same code with other values has the same code hash, so a companion must read them
+          reads: htlc.bas:37,41-43,66,173,197
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: htlc.bas:35,44
+swap ec076c0f8878… (swap)
+  INFO    wmin           -      parameter wmin=1600
+          the minimum lock width, written only at install: the same code with another wmin has the same code hash, so a companion must read it
+          reads: swap.bas:18,22,45
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: swap.bas:17,23
+board bae95da8ade5… (board)
+  INFO    aw             -      parameter aw=200
+          written only at install
+          reads: board.bas:27,88
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: board.bas:23,28
+
+== TELA: the app's INDEX and DOCs
+INFO    index: the record names no TELA INDEX on testnet (tela.index is empty)
+
+summary: 12 INFO, 19 PASS — no failure
+
+== step6-genconfig
+testnet → ..\.testnet\rehearsal\dist\testnet
+  amm.js                   9232 B  doc   4708 B
+  app.js                  33752 B  doc  16024 B
+  chart.js                15632 B  doc   7632 B
+  chat.js                  9832 B  doc   4868 B
+  desk.css                 7735 B  doc   3444 B
+  feed.js                 30167 B  doc  13516 B
+  forms.js                29914 B  doc  12968 B
+  founders.js              4052 B  doc   2404 B
+  home.js                 26487 B  doc  12200 B
+  index.html               4810 B  doc   1844 B
+  live.js                  3989 B  doc   2264 B
+  markets.js              20627 B  doc  10496 B
+  names.js                11610 B  doc   5792 B
+  nfas.js                 32402 B  doc  14172 B
+  nft.js                   6854 B  doc   3340 B
+  nfts.js                 15723 B  doc   7240 B
+  notice.js               10909 B  doc   5656 B
+  parts.css               15411 B  doc   5740 B
+  rpc.js                  10350 B  doc   5400 B
+  screens.js              28560 B  doc  13636 B
+  sheets.js               15391 B  doc   6612 B
+  stats.js                11985 B  doc   6664 B
+  styles.css               9390 B  doc   4856 B
+  templates/founders.bas  10398 B  doc   3844 B
+  templates/launch.bas    15257 B  doc   5368 B
+  templates/nfa.bas       14937 B  doc   4480 B
+  templates/nft.bas        3873 B  doc   1508 B
+  templates/pool.bas      10604 B  doc   3668 B
+  token.js                32853 B  doc  15192 B
+  ui.css                  11773 B  doc   4832 B
+  ui.js                   20709 B  doc  11344 B
+  vault.js                 5527 B  doc   3028 B
+  wrap.js                 29081 B  doc  12960 B
+  wrapui.js                7029 B  doc   4176 B
+  xswd.js                  8023 B  doc   3960 B
+  zswap.js                24550 B  doc  11884 B
+  config.js                1915 B  doc   1488 B
+  37 files, manifest.json written
+
+== step6-telainstall
+stopped cmd.exe 25416
+stopped netwallet.exe 21948
+== telainstall attempt 1 2026-09-12T10:06:40Z
+INDEX ring 16: its owner will be "anon" and UpdateCode will refuse every caller; a later release is a new INDEX
+network testnet
+wallet deto1qyx25s690zszlx0rk4n2kzecp62mt3ed8y27wtmdpn3vq72csmmusqgd0t4yk height 7208
+DOC index.html               4810 bytes →   3093 on-chain (gzip)  gas  3444  ring 2  scid ba4fe375706740cc95278ead503f07f966877461d74384d8d6a93e6c229778ed
+DOC amm.js                   9232 bytes →   5946 on-chain (gzip)  gas  6286  ring 2  scid 8b4f43b94d8aefcc4eb46ab3f54185d7dd66c028893549b902ff053f0750daba
+DOC app.js                  33752 bytes →  17262 on-chain (gzip)  gas 17602  ring 2  scid bee043e03a9a0d6c3b5b54b6139581db9528cdb618f537250e86014e8f99e0c0
+DOC chart.js                15632 bytes →   8875 on-chain (gzip)  gas  9220  ring 2  scid ff9237e259fbaa4a4a80c790e73dbf1cbd67a227c4e338e84b98e86e4062aad8
+DOC chat.js                  9832 bytes →   6109 on-chain (gzip)  gas  6452  ring 2  scid ea30612ccd5862b19e8b6101491d507c1ea5053210214cbd4d617380a62928f5
+DOC config.js                1915 bytes →   2732 on-chain (gzip)  gas  3078  ring 2  scid ce0d93f3c0a6916f157ee11065516be1f62db16f3f15d0902336aa0c8e50d8df
+DOC desk.css                 7735 bytes →   4688 on-chain (gzip)  gas  5034  ring 2  scid f49eaf7f34b33afefc507810fcd055ae36ee79765cb15cfb9fbc8775ed311ddc
+DOC feed.js                 30167 bytes →  14757 on-chain (gzip)  gas 15100  ring 2  scid a5651b00c1bb87f7c628e77dc6d045a2dcde009c106369185244690459aef3cb
+DOC forms.js                29914 bytes →  14211 on-chain (gzip)  gas 14556  ring 2  scid f2fe62000d9514f39c0751323e1ffea156b11d31befc744fe7c4ea242797ff96
+DOC founders.js              4052 bytes →   3651 on-chain (gzip)  gas  4000  ring 2  scid ea22bbddc19c044766608634d5467e091d6d302ba2320c1fc02dcd778c0acf88
+DOC home.js                 26487 bytes →  13441 on-chain (gzip)  gas 13784  ring 2  scid af04b6238e67fb96491f9ae27d30fcaebf2cb96103ddf1239ba7c4802740adef
+DOC live.js                  3989 bytes →   3505 on-chain (gzip)  gas  3848  ring 2  scid 8cacf9a8106565b152c7e464a97e0343d6660c96937586a68e44f63817cd519b
+DOC manifest.json            6312 bytes →   4279 on-chain (gzip)  gas  4636  ring 2  scid 88805d2b76f06827263dd9d2b6ffe135859e909def00fb5428b0470251187b8d
+DOC markets.js              20627 bytes →  11742 on-chain (gzip)  gas 12090  ring 2  scid fbab137c351457aa3d70fce257ab484879733a132d515e31240d5c604786d8cd
+DOC names.js                11610 bytes →   7035 on-chain (gzip)  gas  7380  ring 2  scid c25c78df79e9d1b9eaa537a3bf1dc9b5db638d87ab63b7b722400eb5a8ef9ded
+DOC nfas.js                 32402 bytes →  15412 on-chain (gzip)  gas 15754  ring 2  scid ba5034907aa7f9ef577bd329876335d2beb0e1675d3e62e40709efc17842d9b6
+deployer wallet restarted, pid 15288
+stopped cmd.exe 15288
+stopped netwallet.exe 18456
+== telainstall attempt 2 (resumed after the pause) 2026-09-12T11:27:49Z
+INDEX ring 16: its owner will be "anon" and UpdateCode will refuse every caller; a later release is a new INDEX
+network testnet
+wallet deto1qyx25s690zszlx0rk4n2kzecp62mt3ed8y27wtmdpn3vq72csmmusqgd0t4yk height 7302
+DOC index.html             already on chain (-reuse, content hash verified), pointing at ba4fe375706740cc
+DOC amm.js                 already on chain (-reuse, content hash verified), pointing at 8b4f43b94d8aefcc
+DOC app.js                 already on chain (-reuse, content hash verified), pointing at bee043e03a9a0d6c
+DOC chart.js               already on chain (-reuse, content hash verified), pointing at ff9237e259fbaa4a
+DOC chat.js                already on chain (-reuse, content hash verified), pointing at ea30612ccd5862b1
+DOC config.js              already on chain (-reuse, content hash verified), pointing at ce0d93f3c0a6916f
+DOC desk.css               already on chain (-reuse, content hash verified), pointing at f49eaf7f34b33afe
+DOC feed.js                already on chain (-reuse, content hash verified), pointing at a5651b00c1bb87f7
+DOC forms.js               already on chain (-reuse, content hash verified), pointing at f2fe62000d9514f3
+DOC founders.js            already on chain (-reuse, content hash verified), pointing at ea22bbddc19c0447
+DOC home.js                already on chain (-reuse, content hash verified), pointing at af04b6238e67fb96
+DOC live.js                already on chain (-reuse, content hash verified), pointing at 8cacf9a8106565b1
+DOC manifest.json          already on chain (-reuse, content hash verified), pointing at 88805d2b76f06827
+DOC markets.js             already on chain (-reuse, content hash verified), pointing at fbab137c351457aa
+DOC names.js               already on chain (-reuse, content hash verified), pointing at c25c78df79e9d1b9
+DOC nfas.js                already on chain (-reuse, content hash verified), pointing at ba5034907aa7f9ef
+DOC nft.js                   6854 bytes →   4577 on-chain (gzip)  gas  4916  ring 2  scid ae0776d200281d6fee25fdab812399500809cfeefcfef0d5a4b7f50d8c704ae8
+DOC nfts.js                 15723 bytes →   8480 on-chain (gzip)  gas  8822  ring 2  scid baaf1dea42a2896f27523fed957c5781f6543aa5d58cabfaf5e8990565816cb3
+DOC notice.js               10909 bytes →   6900 on-chain (gzip)  gas  7246  ring 2  scid eae744ecfa3e4cf0615eca75387f1852eb614839bc860a7c706409e138f3bdb8
+DOC parts.css               15411 bytes →   6986 on-chain (gzip)  gas  7334  ring 2  scid d72f2c624707563014632cc1a6e546334ed3245794078d82427896dcbe4a77ba
+DOC rpc.js                  10350 bytes →   6638 on-chain (gzip)  gas  6978  ring 2  scid ea6a17e3194e2aff73c06d383c879492e986a37802a4ac1c4520ebb4e6d019d9
+DOC screens.js              28560 bytes →  14881 on-chain (gzip)  gas 15228  ring 2  scid 94e285a32efc97537753c7f928e7d4db0df0f84ceeb70ddd9806fbbc14a356db
+DOC sheets.js               15391 bytes →   7857 on-chain (gzip)  gas  8204  ring 2  scid 801311fe6012cdfac936ec8be80b8066dfe86f5fbe2423a9d4b804c12927ffb9
+DOC stats.js                11985 bytes →   7907 on-chain (gzip)  gas  8252  ring 2  scid ff1feb31ed1ec9f5606a65786ec3a819304cf7161dc1dfe227f9871a7428efbe
+DOC styles.css               9390 bytes →   6103 on-chain (gzip)  gas  6452  ring 2  scid d4f2f1d1b4d99a1d797337b5e288eba2ceb2b7b03f341f6f1547f8df0f644cae
+DOC templates/founders.bas  10398 bytes →   5118 on-chain (gzip)  gas  5494  ring 2  scid d751a3a141985dde35e286400f21f0f382f93d9b1076fb99e542d343cab510f1
+DOC templates/launch.bas    15257 bytes →   6638 on-chain (gzip)  gas  7010  ring 2  scid d24af3afed1a564b547d9a889b8a8a79ba625725480eb0bfc9d45a427489dce7
+DOC templates/nfa.bas       14937 bytes →   5744 on-chain (gzip)  gas  6110  ring 2  scid b507f0d1bd27257d0d172317e975f07a36bbc7e424def4c692f3321a2dc2b6d0
+DOC templates/nft.bas        3873 bytes →   2772 on-chain (gzip)  gas  3138  ring 2  scid efe94f3d77a54960f0aebce4428973a06187acf62655894a1af511ccd1d211da
+DOC templates/pool.bas      10604 bytes →   4934 on-chain (gzip)  gas  5302  ring 2  scid 8e4dd2b0129e3e5af6fb3da6d1d7cd10ba15fcaeb21270c454bc88c5e879dfd9
+DOC token.js                32853 bytes →  16435 on-chain (gzip)  gas 16780  ring 2  scid ffb0054a1fd17336f9ca022b97f4611d7762c6c500cc25cee6b6c000e5273cb9
+DOC ui.css                  11773 bytes →   6070 on-chain (gzip)  gas  6410  ring 2  scid cf29abce9a52d1c53241659d8a43b2b0bc08f9f0c3c60beaeea1c248dfff6598
+DOC ui.js                   20709 bytes →  12581 on-chain (gzip)  gas 12920  ring 2  scid ec44c85b3258d9508c5a9bf29db0bbd1c33743108894c1d53bf5e4b972f34195
+DOC vault.js                 5527 bytes →   4270 on-chain (gzip)  gas  4614  ring 2  scid ee1bc59e5b0e6a1da21087b471bac252a80f15f73a8254d60eeab3a0febdaf95
+DOC wrap.js                 29081 bytes →  14200 on-chain (gzip)  gas 14542  ring 2  scid bc75e1786b20fde83a8180b0325fd62ccb1565d1e45c25e9b6aeeaa25c8fcdb6
+DOC wrapui.js                7029 bytes →   5421 on-chain (gzip)  gas  5768  ring 2  scid fcd14602069146da791ec8e8fd02ff9f6c9958621a65017746b27062b67edbb6
+DOC xswd.js                  8023 bytes →   5200 on-chain (gzip)  gas  5542  ring 2  scid 865516cf4a718e53a35b47b098d49b256a262ee9139d4d0c48ae761790920693
+DOC zswap.js                24550 bytes →  13127 on-chain (gzip)  gas 13472  ring 2  scid 97b2f75e2d389e43eb9ab35c5a74f73b8667d025a942f042177035e95cef4daf
+INDEX 80bc3a5acff82117b7f4face1f70fec4f6a84fc9ade5c7b2f46737d645005ee6 ring 16 gas 7417 (38 DOCs, 4.69 KB)
+INDEX 80bc3a5acff82117b7f4face1f70fec4f6a84fc9ade5c7b2f46737d645005ee6 dURL dmz.tela owner anon docs 38 commit 0
+deployer wallet restarted, pid 26148
+
+== step7
+DMZ deployment verification (tools/verifydeploy)
+network testnet · daemon 127.0.0.1:40402 (, height 7346, stable 7338)
+source  ../contracts · git fbe3901b5c69…, contracts/ clean
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+PASS    templates.nfa: sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114 = sha256(reference.Canon(contracts/nfa.bas))
+PASS    templates.nft: sha256 345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2 = sha256(reference.Canon(contracts/nft.bas))
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory d23611808424…: installed code sha256 73f281df0258863d46930452624d95fdc566b8cb8c6c11b618ece324c9174ac1 = sha256(reference.Canon(contracts/factory.bas)), 53 lines
+PASS    social a4c1b592fd89…: installed code sha256 da7ef3f09fccf468c9c03605e0de14a4b129b8cfbb29ced6efad8bf9b5b617ad = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders 99554a8b5097…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat dd58586a8d97…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+PASS    htlc b87b53b22112…: installed code sha256 b785028da4a2554521d47f989f1011ec1f0a26be491e6a7eb2786c1f50834c36 = sha256(reference.Canon(contracts/htlc.bas)), 150 lines
+PASS    swap ec076c0f8878…: installed code sha256 b9830de831dbaf34f61ea15b484c8f25105e41dc790aa06412db421a990fd6e3 = sha256(reference.Canon(contracts/swap.bas)), 88 lines
+PASS    board bae95da8ade5…: installed code sha256 162f8d46ad400b1fef981d029ba99f61c9646d6453c3bf9f0cc4bd9e63bc5ab1 = sha256(reference.Canon(contracts/board.bas)), 71 lines
+
+== Market templates: every contract in the factory registry
+INFO    registry d23611808424…: pc=0 lc=0 nc=0: 0 registered contracts, checked against 5 accepted template hashes (current and legacy)
+
+== Roles
+factory d23611808424… (factory)
+  INFO    treasury       -      payee     dero1qyt9m4a4lrg5zplva9yjz0prejas6gpa96jt60kll9tnrvtdq378sqggqsj0r
+          receives every registration fee (reg, line 35); cannot act; fixed for ever: only Initialize writes it, and Initialize refuses a second run
+          reads: factory.bas:23,75
+  INFO    regfee         -      parameter regfee=10000
+          fixed for ever: only Initialize writes it
+          reads: factory.bas:25,73
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,29
+social a4c1b592fd89… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders 99554a8b5097… (founders)
+  INFO    creator        -      inert     dero1qyx25s690zszlx0rk4n2kzecp62mt3ed8y27wtmdpn3vq72csmmusqghkhdp7
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qyt9m4a4lrg5zplva9yjz0prejas6gpa96jt60kll9tnrvtdq378sqggqsj0r
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=100000 maxsupply=20 start=0 reserve=4
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat dd58586a8d97… (chat)
+  INFO    treasury       -      payee     dero1qyt9m4a4lrg5zplva9yjz0prejas6gpa96jt60kll9tnrvtdq378sqggqsj0r
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+htlc b87b53b22112… (htlc)
+  INFO    windows        -      parameter w1min=400 w2min=400 g2=4800
+          the least t1 - lock height, the least t2 - t1 and the Punish window, written only at install: the same code with other values has the same code hash, so a companion must read them
+          reads: htlc.bas:37,41-43,66,173,197
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: htlc.bas:35,44
+swap ec076c0f8878… (swap)
+  INFO    wmin           -      parameter wmin=1600
+          the minimum lock width, written only at install: the same code with another wmin has the same code hash, so a companion must read it
+          reads: swap.bas:18,22,45
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: swap.bas:17,23
+board bae95da8ade5… (board)
+  INFO    aw             -      parameter aw=200
+          written only at install
+          reads: board.bas:27,88
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: board.bas:23,28
+tela index 80bc3a5acff8… (tela)
+  PASS    owner          ended  must end  anon
+          installed at ring size > 2: SIGNER() was 33 zero bytes, address() stored "anon", and UpdateCode refuses every caller at line 10. The INDEX can never change
+          reads: tela_index_1.bas:21,33-35,53,55,57; transaction_execute.go:430; dvm_functions.go:309
+
+== TELA: the app's INDEX and DOCs
+PASS    index 80bc3a5acff8…: code is the standard TELA-INDEX-1 v1.1.0, token for token (tools/verifydeploy/tela_index_1.bas); 38 DOCs; commit 0 (UpdateCode has replaced the code 0 times)
+PASS    index state 80bc3a5acff8…: owner "anon" (DERO.GetSC hex 616e6f6e), commit 0, hash and commit-0 hash both equal to its own SCID: the code is the code installed, and UpdateCode can never replace it
+PASS    docs: all 38 DOCs are the standard TELA-DOC-1, which has no UpdateCode and no UPDATE_SC_CODE: no key can change what they serve
+PASS    DOC1 ba4fe3757067…: the entrypoint serves index.html
+PASS    DOC6 config.js ce0d93f3c0a6…: equals netcfg.ConfigJS(testnet record) after its first line: the app trusts exactly the record's contracts and template hashes
+PASS    DOC13 manifest.json 88805d2b76f0…: lists exactly the 37 other served files with their sha256, and the record's contracts
+PASS    DOC26 templates/founders.bas d751a3a14198…: serves the record's current founders template (sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a)
+PASS    DOC27 templates/launch.bas d24af3afed1a…: serves the record's current launch template (sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4)
+PASS    DOC28 templates/nfa.bas b507f0d1bd27…: serves the record's current nfa template (sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114)
+PASS    DOC29 templates/nft.bas efe94f3d77a5…: serves the record's current nft template (sha256 345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2)
+PASS    DOC30 templates/pool.bas 8e4dd2b0129e…: serves the record's current pool template (sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580)
+PASS    bundle: the INDEX serves exactly the 38 files of the dist bundle ../.testnet/rehearsal/dist/testnet, each byte for byte
+PASS    tela-record 80bc3a5acff8…: the INDEX's 38 DOCs are exactly the ones ../.testnet/rehearsal/tela-rehearsal.json publishes
+
+summary: 11 INFO, 33 PASS — no failure
+
+== step8
+DMZ deployment verification (tools/verifydeploy)
+network testnet · daemon 127.0.0.1:40402 (, height 7346, stable 7338)
+source  ../contracts · git fbe3901b5c69…, contracts/ clean
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+PASS    templates.nfa: sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114 = sha256(reference.Canon(contracts/nfa.bas))
+PASS    templates.nft: sha256 345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2 = sha256(reference.Canon(contracts/nft.bas))
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory d23611808424…: installed code sha256 73f281df0258863d46930452624d95fdc566b8cb8c6c11b618ece324c9174ac1 = sha256(reference.Canon(contracts/factory.bas)), 53 lines
+PASS    social a4c1b592fd89…: installed code sha256 da7ef3f09fccf468c9c03605e0de14a4b129b8cfbb29ced6efad8bf9b5b617ad = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders 99554a8b5097…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat dd58586a8d97…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+PASS    htlc b87b53b22112…: installed code sha256 b785028da4a2554521d47f989f1011ec1f0a26be491e6a7eb2786c1f50834c36 = sha256(reference.Canon(contracts/htlc.bas)), 150 lines
+PASS    swap ec076c0f8878…: installed code sha256 b9830de831dbaf34f61ea15b484c8f25105e41dc790aa06412db421a990fd6e3 = sha256(reference.Canon(contracts/swap.bas)), 88 lines
+PASS    board bae95da8ade5…: installed code sha256 162f8d46ad400b1fef981d029ba99f61c9646d6453c3bf9f0cc4bd9e63bc5ab1 = sha256(reference.Canon(contracts/board.bas)), 71 lines
+
+== Market templates: every contract in the factory registry
+INFO    registry d23611808424…: pc=0 lc=0 nc=0: 0 registered contracts, checked against 5 accepted template hashes (current and legacy)
+
+== Roles
+factory d23611808424… (factory)
+  INFO    treasury       -      payee     dero1qyt9m4a4lrg5zplva9yjz0prejas6gpa96jt60kll9tnrvtdq378sqggqsj0r
+          receives every registration fee (reg, line 35); cannot act; fixed for ever: only Initialize writes it, and Initialize refuses a second run
+          reads: factory.bas:23,75
+  INFO    regfee         -      parameter regfee=10000
+          fixed for ever: only Initialize writes it
+          reads: factory.bas:25,73
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,29
+social a4c1b592fd89… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders 99554a8b5097… (founders)
+  INFO    creator        -      inert     dero1qyx25s690zszlx0rk4n2kzecp62mt3ed8y27wtmdpn3vq72csmmusqghkhdp7
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qyt9m4a4lrg5zplva9yjz0prejas6gpa96jt60kll9tnrvtdq378sqggqsj0r
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=100000 maxsupply=20 start=0 reserve=4
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat dd58586a8d97… (chat)
+  INFO    treasury       -      payee     dero1qyt9m4a4lrg5zplva9yjz0prejas6gpa96jt60kll9tnrvtdq378sqggqsj0r
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+htlc b87b53b22112… (htlc)
+  INFO    windows        -      parameter w1min=400 w2min=400 g2=4800
+          the least t1 - lock height, the least t2 - t1 and the Punish window, written only at install: the same code with other values has the same code hash, so a companion must read them
+          reads: htlc.bas:37,41-43,66,173,197
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: htlc.bas:35,44
+swap ec076c0f8878… (swap)
+  INFO    wmin           -      parameter wmin=1600
+          the minimum lock width, written only at install: the same code with another wmin has the same code hash, so a companion must read it
+          reads: swap.bas:18,22,45
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: swap.bas:17,23
+board bae95da8ade5… (board)
+  INFO    aw             -      parameter aw=200
+          written only at install
+          reads: board.bas:27,88
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: board.bas:23,28
+tela index 80bc3a5acff8… (tela)
+  PASS    owner          ended  must end  anon
+          installed at ring size > 2: SIGNER() was 33 zero bytes, address() stored "anon", and UpdateCode refuses every caller at line 10. The INDEX can never change
+          reads: tela_index_1.bas:21,33-35,53,55,57; transaction_execute.go:430; dvm_functions.go:309
+
+== TELA: the app's INDEX and DOCs
+PASS    index 80bc3a5acff8…: code is the standard TELA-INDEX-1 v1.1.0, token for token (tools/verifydeploy/tela_index_1.bas); 38 DOCs; commit 0 (UpdateCode has replaced the code 0 times)
+PASS    index state 80bc3a5acff8…: owner "anon" (DERO.GetSC hex 616e6f6e), commit 0, hash and commit-0 hash both equal to its own SCID: the code is the code installed, and UpdateCode can never replace it
+PASS    docs: all 38 DOCs are the standard TELA-DOC-1, which has no UpdateCode and no UPDATE_SC_CODE: no key can change what they serve
+PASS    DOC1 ba4fe3757067…: the entrypoint serves index.html
+PASS    DOC6 config.js ce0d93f3c0a6…: equals netcfg.ConfigJS(testnet record) after its first line: the app trusts exactly the record's contracts and template hashes
+PASS    DOC13 manifest.json 88805d2b76f0…: lists exactly the 37 other served files with their sha256, and the record's contracts
+PASS    DOC26 templates/founders.bas d751a3a14198…: serves the record's current founders template (sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a)
+PASS    DOC27 templates/launch.bas d24af3afed1a…: serves the record's current launch template (sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4)
+PASS    DOC28 templates/nfa.bas b507f0d1bd27…: serves the record's current nfa template (sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114)
+PASS    DOC29 templates/nft.bas efe94f3d77a5…: serves the record's current nft template (sha256 345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2)
+PASS    DOC30 templates/pool.bas 8e4dd2b0129e…: serves the record's current pool template (sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580)
+PASS    bundle: the INDEX serves exactly the 38 files of the dist bundle ../.testnet/rehearsal/dist/testnet, each byte for byte
+PASS    tela-record 80bc3a5acff8…: the INDEX's 38 DOCs are exactly the ones ../.testnet/rehearsal/tela-rehearsal.json publishes
+
+summary: 11 INFO, 33 PASS — no failure
+
+== step11
+DRY RUN (network "testnet"): nothing will be sent; pass -yes on mainnet to move funds
+treasury deto1qyt9m4a4lrg5zplva9yjz0prejas6gpa96jt60kll9tnrvtdq378sqgjev22t
+factory  d23611808424f439a8bcb290a664cb395e1864a2a486004f0df8add8dc1c0194
+founders 99554a8b5097452b08b1833d5bc93623118b11bcfb75967f2d03e1483ef519be (share 5000 bps, 0 registered units)
+dry run: 0 units already claimed and owed to the pass
+
+== testnetcheck-during-rehearsal
+== 2026-09-12T10:17:46Z  day 0 of 7  (tools/testnetcheck, read-only)
+PASS  node        testnet, genesis 44292f0c65e41c14…, height 7219, stable 7211, top block 31s old, average of the last 50 blocks 61 s, 1 miner(s), 0 peer(s), pool 4
+PASS  verify      verifydeploy -network testnet -dist -tela-record -extra tela=836969a905a7ea1c…, no -allow: exit 0; summary: 11 INFO, 35 PASS — no failure
+PASS  factory     a902d8f37dfe529b… factory.bas v2, no owner key; treasury dero1qy067pxeld7… and regfee 10000 as installed; lists 1 pool(s), 1 launch(es), 0 NFT/NFA(s)
+PASS  launch      e0b741e9aade2b47… 1 published trade(s), reserves 427833 DERO units / 806128695 asset units, phase 0, sold 228537713
+PASS  pool        ff28a85ef1c1bc8d… 1 published trade(s), reserves 263767 DERO units / 758818 asset units, lp 200000
+PASS  htlc 0      a80f38f2587b144e… lock 0 is claimed by the taker (st 1)
+INFO  htlc 1      a80f38f2587b144e… lock 1 open as intended until 7377 (158 blocks from 7219); then it must be refunded by the maker
+INFO  htlc 2      a80f38f2587b144e… lock 2 open as intended until 7781 (562 blocks from 7219); then it must be punished (taker paid)
+PASS  swap 0      8ccee4e2b81df678… lock 0 is claimed by the taker (st 1)
+INFO  swap 1      8ccee4e2b81df678… lock 1 open as intended until 8593 (1374 blocks from 7219); then it must be refunded after expiry
+PASS  board 0     955bcb40b99101c1… offer 0 is cancelled by its maker (st 2)
+PASS  board 1     955bcb40b99101c1… offer 1 is accepted by the taker (st 1)
+result: PASS (0 FAIL, 0 WARN)
+

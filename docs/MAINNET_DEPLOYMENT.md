@@ -119,21 +119,54 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
    deployer runs `-verify` and publishes its result (MT-H05).
 
 3. **Node and wallets.** Run your own synced `derod`. Create a deployer wallet and a treasury wallet with
-   `tools/netwallet -create`: the seed is printed once, `-write-seed` is refused, and `-rpc-login` is required.
-   `SECURITY_KEY_MANAGEMENT.md` §3 has the rest. Fund the deployer.
+   `tools/netwallet -create`, each in a console window of its own:
+   ```
+   set VEIL_WALLET_PASSWORD=<the wallet's password>
+   set VEIL_RPC_LOGIN=<user>:<password>
+   vendor\bin\netwallet.exe -network mainnet -daemon 127.0.0.1:10102 -wallet .mainnet\deployer.db -rpc-bind 127.0.0.1:10103 -create
+   ```
+   and the same with `.mainnet\treasury.db` on `127.0.0.1:10104`.
+   - The seed is printed once, and only to a console: `-create` refuses when its output is a pipe or a file, and
+     mainnet refuses `-write-seed`. Write the words down.
+   - The password and the RPC login go through the environment, never the command line. `-rpc-login` (here
+     `VEIL_RPC_LOGIN`) is required on mainnet.
+   - A new account registers before it can receive anything: the wallet searches a proof of work on every core and
+     sends it by itself. Fund a wallet only once its registration is mined (`DERO.GetEncryptedBalance` returns a
+     `registration` height instead of "Account Unregistered"): a transfer to an unregistered account is refused.
+   - Closing a wallet's console kills it, and a wallet killed while it saves leaves only its `.bak` (copy it back to
+     `.db`). Once the seed is written down, a wallet can be restarted without `-create` and without a window.
+   - `SECURITY_KEY_MANAGEMENT.md` §3 has the rest. Fund the deployer and the treasury from the funding table (§7).
 
 4. **Contracts:**
    ```
    cd tools
-   go run ./simdeploy -network mainnet -yes -daemon 127.0.0.1:10102 -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
-     -pass-name "<name>" -pass-descr "<at most 240 bytes>" -pass-image <url> -pass-price <p> -pass-max <n> ^
-     -pass-reserve <r> -pass-share <bps> -pass-mfee <bps> -swap-wmin 1600 ^
-     -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 <G2>
+   go run ./simdeploy -network mainnet -yes -daemon 127.0.0.1:10102 ^
+     -w0 <user>:<password>@127.0.0.1:10103 -w2 <user>:<password>@127.0.0.1:10104 ^
+     -app <an empty scratch directory> -regfee 10000 ^
+     -pass-name "DMZ Founders Pass" -pass-descr "<the approved description, at most 240 bytes>" -pass-image "<url, or empty>" ^
+     -pass-price 100000 -pass-max 20 -pass-reserve 4 -pass-share 5000 -pass-mfee 250 ^
+     -swap-wmin 1600 -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 <G2>
    ```
    This installs factory, social, founders, chat, htlc, swap and board, and records them in the `mainnet` block. It
    refuses before paying for anything if a Founders Pass parameter, `wmin` or an `htlc.bas` width would be refused by
    its contract, and if any of the three `htlc.bas` widths is missing: G2 has no default because the operator has not
    chosen it (MT-J13).
+   - **The wallets' RPC login goes into `-w0` and `-w2`.** simdeploy (and treasurybot, step 11) reach the wallets
+     through `tools/simrpc`, which sends no credentials of its own. Go's HTTP client sends a URL's `user:password@`
+     as basic auth, so the login rides in the address. Without it the run stops at its first wallet call
+     (`GetAddress: decode: invalid character 'A'`, the wallet's 401 page), before anything is paid (rehearsal,
+     `research/testnet/rehearsal-2026-09-12.log`). The login is then on simdeploy's command line while it runs:
+     run it on the deployment machine only, with no other user logged in.
+   - **Prices are atomic units** (1 DERO = 100,000). MT-J16's "1 DERO" is `-pass-price 100000`; `-pass-price 1`
+     would sell the pass for 0.00001 DERO, for ever. `-pass-reserve` is at most `-pass-max / 5`: 4 of 20 (MT-J16's 5
+     is being re-confirmed, since 5 of 20 does not install). `-pass-image` has no operator answer yet; empty is valid.
+   - **`-regfee` is final** (below), so it is written out rather than left to the default.
+   - **`-app <scratch>`** keeps simdeploy from rewriting `app/config.js` and `app/templates/` in the release checkout;
+     the bundle of step 6 renders its own `config.js` from the record.
+   - **A run that stops half-way** (a wallet or node error, or a transaction slower than `-timeout`, 180 s by default)
+     exits before it writes the record, with the contracts it has installed already paid for. Do not rerun the same
+     command: it would install them again. Read their SCIDs from its output and rerun with `-factory <scid>`,
+     `-social`, `-founders`, `-chat`, `-htlc`, `-swap` or `-board` for each one already installed.
 
    **The treasury (`-w2`) and the registration fee (`-regfee`) are final at this step.** `factory.bas` v2 has no owner
    and no setter (MT-J15(b)), so a wrong value can only be answered by a new factory, installed with
@@ -143,16 +176,36 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
    ```
    go run ./verifydeploy -network mainnet -daemon 127.0.0.1:10102
    ```
-   Every contract's code must match its source. At this point the only acceptable FAIL is the missing INDEX. The
-   factory has no owner, so the report shows no owner role for it; its treasury and fee are printed under roles.
+   Every contract's code must match its source, and the run must exit 0: with no INDEX recorded yet, the TELA part
+   reads INFO ("the record names no TELA INDEX"), not FAIL. The factory has no owner, so the report shows no owner
+   role for it; its treasury and fee are printed under roles, and must be the `-w2` address and the `-regfee` of step 4.
 
 6. **The app:**
    ```
    go run ./genconfig -dist -network mainnet
-   cd .. && vendor\bin\telainstall.exe -network mainnet -yes -wallet .mainnet\owner.db -password <pw> ^
+   cd .. && set VEIL_WALLET_PASSWORD=<the deployer wallet's password>
+   vendor\bin\telainstall.exe -network mainnet -yes -wallet .mainnet\deployer.db ^
      -daemon 127.0.0.1:10102 -app dist\mainnet -durl dmz.tela -ringsize 16 -out deploy\tela-mainnet.json
    ```
-   Record the INDEX SCID under `mainnet.tela.index`.
+   - The wallet is the deployer's of step 3. telainstall opens the wallet file itself, so **stop the deployer's
+     netwallet first**: two processes on one wallet file corrupt it. The password comes from `VEIL_WALLET_PASSWORD`,
+     not the command line.
+   - Every DOC goes in at ring 2 (a DOC is immutable at any ring), then the INDEX at ring 16. Each transaction is
+     waited for, so the step takes about two blocks per file.
+   - **If it stops at `index estimate: … Bucket cannot start with ':'`** (X-21): derod's gas estimator draws the SCID
+     it simulates an install under from a generator it reseeds with the current second (`dvm/simulator.go`), and about
+     one draw in 256 is a SCID graviton refuses. telainstall retries five times, all inside one second, so all five
+     draw the same SCID and fail together; the DOCs are installed and paid for, the INDEX is not. Wait a minute and run
+     the same command again with `-reuse <file>`, the file listing `<path> <scid>` for every DOC already installed
+     (the `DOC … scid <scid>` lines of the first run's output). telainstall points at a listed DOC only after reading
+     back that its on-chain content is this bundle's, so nothing is installed twice. A DOC whose own estimate hits the
+     same panic is sent with a size-based fee and needs nothing from you.
+   - **An install stopped for any other reason** (the process killed, the machine restarted) is resumed the same way:
+     the same command with `-reuse` listing the DOCs its output printed. **Do not run `genconfig -dist` again first**:
+     it stamps `config.js` with the time, so a rebuilt bundle's `config.js` no longer equals the DOC already on chain,
+     and `-reuse` refuses it. The rehearsal was killed after 16 of 38 DOCs and resumed this way (X-09).
+   - **Record the INDEX SCID under `mainnet.tela.index`** in `deploy/networks.json`, by hand: no tool writes it, and
+     steps 7 and 8 read it from there.
 
 7. **Read the app back:**
    ```
@@ -160,6 +213,8 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
      -tela-record ../deploy/tela-mainnet.json
    ```
    The INDEX must read owner `"anon"`, commit 0, and hash equal to its SCID, and every DOC must equal its file.
+   verifydeploy checks the INDEX the record names: with `mainnet.tela.index` still empty it reports INFO and checks no
+   DOC at all, and exits 0. So record the INDEX first (step 6), and see the `tela index` PASS lines in the report.
 
    There is no Renounce step. Until 2026-09-11 the factory had an owner who ended its powers here; `factory.bas` v2
    has no owner at all (MT-J15(b)), so the deployer key holds no role in any contract from step 4 on, and the owner
@@ -180,6 +235,19 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
     Move those, and destroy it or put it offline. Keep the treasury key backed up offline: it receives fees for ever.
 
 11. **Start `treasurybot`** from the treasury wallet: a dry run first, then `-yes`.
+    ```
+    cd tools
+    go run ./treasurybot -daemon 127.0.0.1:10102 -wallet <user>:<password>@127.0.0.1:10104 ^
+      -config ../dist/mainnet/config.js -journal ../.mainnet/treasurybot-journal.json -once
+    ```
+    - Without `-yes` a mainnet config is a dry run: it prints what it would claim, deposit and pay, and sends nothing.
+      Then drop `-once` and add `-yes` to keep sweeping every `-interval` (60 s).
+    - `-config` is the published bundle's `config.js` (its default, `../app/config.js`, is the development copy); the
+      bot reads the factory and the pass from it and refuses a daemon on another network.
+    - The wallet's RPC login rides in the address, as in step 4. `-journal` keeps the claim journal out of the tree
+      (its default is a file in the working directory).
+    - Its calls cost the gas estimate plus 200 atomic units each. On the testnet: `ClaimFees` about 300 per market,
+      `Deposit` about 290 and `PayBatch` of 15 holders about 305. Hold 0.1 DERO in the treasury for them (§7).
 
 12. **Run the mainnet stage of `docs/MAINNET_TEST_PLAN.md`** at the smallest amounts, reconciled four ways.
 
@@ -200,3 +268,40 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
 Anyone can run all of it with their own DERO node, a clone of this repository at the published commit, and Go. No
 key, account or cooperation from the deployer is needed. `verifydeploy` proves what is on chain equals this
 source. It does not prove the source is safe: that is the audits' job (`MAINNET_SECURITY_GATE.md`).
+
+---
+
+## 7. Funding
+
+What each step of §5 spends, measured by the X-09 rehearsal of §5 on the private DERO testnet on 2026-09-12
+(`research/testnet/rehearsal-2026-09-12.log`), from the wallets' balances before and after each step. A contract
+transaction pays its storage gas as its fee (simdeploy and treasurybot add 200 atomic units), and storage gas is a
+function of the code and the arguments alone, so these are mainnet's numbers too for this commit's contracts and
+bundle. Re-measure if either changes. 1 DERO = 100,000 atomic units.
+
+| Step | Wallet | Measured | What it covers |
+|---|---|---|---|
+| 3. Wallets | — | nothing | registering an account is a proof of work, not a fee (7 min 33 s and 38 min 40 s on 16 cores: it varies widely) |
+| 4. Contracts | deployer | **27,995 (0.280 DERO)** | factory v2, social, founders, chat, htlc v3, swap, board. The Founders Pass reserve (4 editions) is minted to the deployer inside the founders install: no separate cost |
+| 6. The app | deployer | **330,215 (3.302 DERO)** | 38 DOCs at ring 2 and the ring-16 INDEX (7,417). telainstall pays each DOC its estimate and nothing more (the 16 DOCs before the rehearsal's interruption cost exactly the sum of their printed gas, 142,264). The W-01 install of the same bundle cost 330,199: `config.js` differs by the SCIDs it names |
+| 11. treasurybot | treasury | about 300 per call (the dry run: nothing) | per sweep: one `ClaimFees` per market holding fees, one `Deposit`, one `PayBatch` per 15 registered holders. The first sweeps of a new deployment are a handful of calls |
+| **Total** | | **deployer 358,210 (3.582 DERO); treasury under 0.01 DERO** | |
+
+The steps took, on the private testnet's blocks of about a minute: step 4 about 15 minutes (seven installs, two
+blocks each); step 5 seconds; step 6 about 71 minutes of installing (39 transactions); steps 7, 8 and 11 seconds.
+Mainnet's 18-second blocks make steps 4 and 6 about a third as long.
+
+**Margin, kept separate:** fund the deployer with **8 DERO** (the measured 3.58 plus more than 100%: a run of step 4
+that stops half-way is resumed without paying twice only if the reuse flags are used; a changed bundle changes every
+DOC's size), and the treasury with **0.1 DERO**. Leftover DERO goes back when the deployer key is retired (step 10).
+
+**The smallest test amounts** of `MAINNET_TEST_PLAN.md` §5 (stage 3, mainnet), per test:
+
+| Coin | Amount | Tests | What the wallets hold on top (from the plan) |
+|---|---|---|---|
+| DERO | 0.1 DERO per Monero swap | T1–T3c, T8b, T9, T10 | Bob's DERO wallet 0.5 DERO: the amount, the stipend (14,016) and a fee reserve (13,000). Alice's DERO wallet needs none |
+| XMR | 0.01 XMR per Monero swap (`-amount-xmr 10000000000`) | same | each Monero wallet: the amount plus its transfer fee |
+| DERO | 0.1 DERO per Zcash swap | T4, T5, T8a | the maker: the amount plus Post, Lock and a Refund or Cancel at `-fee` (5,000 each); the taker: her Accept and Claim fees |
+| ZEC | 0.01 ZEC (1,000,000 zatoshi) per Zcash swap | same | her Zcash address: the amount plus the funding fee (above zecswap's 100,000 minimum and the ZIP 317 fee floor of 10,000) |
+| DERO | an NFA priced 0.01 DERO (1,000 atomic) | T6 | the creator: the NFA's install and its registration (the factory's `regfee`, 10,000) |
+| DERO | a 0.01 DERO buy, the sale of what was bought, and one 0.01 DERO private buy | T7 | the trader: the three amounts and their fees |
