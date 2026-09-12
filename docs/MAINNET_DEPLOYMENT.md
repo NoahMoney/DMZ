@@ -30,7 +30,7 @@ steps come from, with the reasons behind each.*
 
 | Item | Pinned to | Checked by |
 |---|---|---|
-| Go toolchain | **go1.26.2 on 2026-09-11. It must move to ≥ go1.26.6 before a release**, because govulncheck lists 10 reachable standard-library vulnerabilities fixed in 1.26.3–1.26.6 (GAP-015) | `go env GOVERSION`; the release manifest's `go` |
+| Go toolchain | **go1.26.8** since 2026-09-12: both go.mod files name `toolchain go1.26.8`, and `binaries.lock` records it for every binary. It replaced go1.26.2, whose standard library had 10 reachable vulnerabilities fixed in 1.26.3–1.26.6 (GAP-015). govulncheck now finds none reachable (`research/release/govulncheck-2026-09-12.log`). Build with `GOTOOLCHAIN=local` and go1.26.8 on PATH, so the go command does not fetch a toolchain on its own | `go env GOVERSION`; the release manifest's `go` |
 | `tools/go.mod` | `filippo.io/edwards25519` v1.1.1, `golang.org/x/crypto` v0.33.0, `github.com/decred/dcrd/dcrec/secp256k1/v4` v4.3.0 | `tools/go.sum` |
 | `vendor/derohe` | `e9df1205b6603c62f0651d0e18e5e77a2584b15e` plus one patch (`deploy/patches/derod-private-genesis.patch`, guarded off mainnet) | `tools/verifyvendor` |
 | `vendor/derohe-civilware` (XSWD wallet) | `433c45590f6792117ff81a2eb3e45513bb856ff5` | `tools/verifyvendor` |

@@ -35,6 +35,10 @@ missing file is documentation only.)
 mkdir .sim
 vendor\bin\simulator.exe --data-dir=%CD%\.sim\data --rpc-bind=127.0.0.1:20000 --http-address=127.0.0.1:8089
 ```
+- **Every start is a new chain.** The simulator deletes its `--data-dir` when it starts
+  (`vendor/derohe/cmd/simulator/simulator.go:187`, `os.RemoveAll`), so a restart, a crash or a rebuild of
+  `simulator.exe` removes every contract on it. Run step 3 again afterwards, then the NFA, vault and market seeding,
+  before any UI pass or `verifydeploy`.
 - Daemon JSON-RPC: `http://127.0.0.1:20000/json_rpc` and WebSocket `ws://127.0.0.1:20000/ws`.
 - Block explorer: `http://127.0.0.1:8089`.
 - 22 wallets, RPC on `127.0.0.1:30000` … `30021`, **8 DERO each**, empty password. Wallet 0 is

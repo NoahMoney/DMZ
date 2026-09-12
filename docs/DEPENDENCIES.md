@@ -13,7 +13,7 @@ from DMZ's use of the node, the wallets and the tools. Vulnerability data comes 
 
 | # | Finding | Where | Action |
 |---|---|---|---|
-| D-1 | **go1.26.2's standard-library vulnerabilities are reachable in every binary.** Symbol-level counts: derod 10, simulator 13, the wallets 7, telainstall and tela-cli 7, the tools 9–10 (§7). All are fixed in go1.26.3–1.26.6. | all | The coordinator's rebuild of `vendor/bin` with go1.26.8, and a rebuild of the tools, close them (GAP-015). Re-run §8's binary scan afterwards. |
+| D-1 | **go1.26.2's standard-library vulnerabilities are reachable in every binary.** Symbol-level counts: derod 10, simulator 13, the wallets 7, telainstall and tela-cli 7, the tools 9–10 (§7). All are fixed in go1.26.3–1.26.6. | all | **Closed 2026-09-12.** `vendor/bin` and the tools are rebuilt with go1.26.8, and govulncheck finds 0 reachable in derod, the simulator, netwallet and the tools (`research/release/govulncheck-2026-09-12.log`). |
 | D-2 | **gorilla/websocket GO-2026-6278 is reachable in every node, wallet and installer binary.** The mask key for client-to-server frames comes from a weak PRNG. derohe and civilware vendor v1.4.2 (called in derod, the simulator, both wallet CLIs, dero-miner, netwallet and xswdwallet); tela uses v1.5.0 (called in telainstall and tela-cli). The fix is v1.5.3. | §2, §3 | **Accepted 2026-09-11 (coordinator), for the reason in §2.3.**<br>• WebSocket masking protects intermediaries' caches and gives no secrecy.<br>• Every affected connection here is on loopback.<br>• No binary DMZ ships to its users links gorilla. `tools/go.mod` does not require it, the companions speak HTTP JSON-RPC, and the app uses the browser's own WebSocket.<br>Revisit if a DMZ-shipped binary ever links it, or when derohe or tela next bumps it. A patch would be a `require`/`replace` bump in `vendor/tela/go.mod`, and a re-vendored copy in derohe pinned as a `modified` path set. |
 | D-3 | **derohe's vendored x/net is from 2017-12-12 and its x/crypto from 2021-11-17.** 28 and 26 advisories apply to those versions. Nothing reaches them today, because none of the affected packages is compiled in. Any new derohe import of x/net/http2, html, idna, or x/crypto/ssh or openpgp would bring them in. | §2 | Keep this inventory, and re-run §8 on every derohe or civilware commit bump. |
 | D-4 | **miekg/dns v1.0.5 (GO-2020-0008 predictable DNS transaction ids, GO-2020-0028 zone-file panic) is in derod.** It is imported, not called: its only user, the update check, is never started (`vendor/derohe/cmd/derod/main.go:183`, `//go check_update_loop ()`). | §2 | Watch item. If an upstream bump or a DMZ patch re-enables the update check, the spoofable DNS query becomes reachable. |
@@ -40,7 +40,9 @@ or are imported but not called (§3, §4).
 | the app (`app/`, installed as TELA DOCs) | `app/` | none: plain JS/CSS with no third-party code, no CDN, no package manager | the bundle's `manifest.json` sha256 per file |
 | test only: `tests/js`, `tools/uitest` | — | Node built-ins; Playwright from `$PW_DIR` (§6) | Playwright pinned in `tools/uitest/ui.mjs` (MT-H03) |
 
-Every Go binary here was built with **go1.26.2** (`deploy/binaries.lock`). The standard library's findings are in §7.
+The binaries were scanned as built with **go1.26.2**, and §7 records that scan. On 2026-09-12 every one was rebuilt
+with **go1.26.8** (`deploy/binaries.lock`). govulncheck then found no reachable standard-library vulnerability
+(`research/release/govulncheck-2026-09-12.log`).
 
 ---
 

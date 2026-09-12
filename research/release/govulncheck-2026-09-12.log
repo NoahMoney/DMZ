@@ -1,0 +1,42 @@
+govulncheck after the go1.26.8 rebuild, 2026-09-12 (W-06, MT-G07, MT-G10, GAP-015). Toolchain: go version go1.26.8 windows/amd64.
+Produced by the rebuild script's step 3; paths written as <repo>.
+
+== 3. govulncheck with go1.26.8
+
+Your code is affected by 0 vulnerabilities.
+This scan also found 0 vulnerabilities in packages you import and 1
+vulnerability in modules you require, but your code doesn't appear to call these
+vulnerabilities.
+Use '-show verbose' for more details.
+Vulnerability #1: GO-2026-5932
+-- binary derod.exe
+No vulnerabilities found.
+-- binary simulator.exe
+No vulnerabilities found.
+-- binary telainstall.exe
+Vulnerability #1: GO-2026-6278
+Your code is affected by 1 vulnerability from 1 module.
+-- binary netwallet.exe
+No vulnerabilities found.
+
+== 4. validation under go1.26.8 (summary)
+DVM exit 0
+ok  	github.com/deroproject/derohe/veil/tests	71.376s
+runs 169 fail 0
+vet-ok
+ok  	veil/tools/xmrswap	74.603s
+ok  	veil/tools/xmrswap/cmd/xmrswap	0.544s
+ok  	veil/tools/zecswap	24.165s
+ok  	veil/tools/zecswap/cmd/zecswap	0.561s
+ok  	veil/tools/simdeploy	0.549s
+ok  	veil/tools/netcfg	0.414s
+ok  	veil/tools/verifydeploy	0.972s
+ok  	veil/tools/verifydeploy/srchash	0.407s
+ok  	veil/tools/release	0.441s
+ok  	veil/tools/treasurybot	2.033s
+ok  	veil/tools/vaultsigner	2.599s
+ok  	veil/tools/hygiene	1.868s
+ok  	veil/tools/xmrswap	159.800s
+ok  	veil/tools/zecswap	59.895s
+# pass 44
+# fail 0

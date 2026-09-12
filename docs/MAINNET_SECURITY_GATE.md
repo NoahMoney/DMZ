@@ -19,14 +19,16 @@ met from this machine:
    in regtest, but not on Monero stagenet or Zcash testnet (MT-F03, MT-F04).
 3. **The current contracts are not deployed on the DERO testnet** (MT-F05).
 4. **No external review of the contracts** (MT-A17).
-5. **The Go toolchain carries 10 reachable standard-library vulnerabilities** fixed in go1.26.3–1.26.6. Every
-   release binary must be rebuilt with go1.26.6 or later (GAP-015).
-6. **Operator decisions are open** (`MAINNET_TODO.md` §J). Among them are the liveness ruling for the swap windows
+5. **Operator decisions are open** (`MAINNET_TODO.md` §J). Among them are the liveness ruling for the swap windows
    (MT-J11), remote nodes (MT-J12), the first gas (MT-J02), the Founders fee design (MT-J14) and who signs
    releases (MT-J10).
-7. **No reorganisation has been run on a real foreign chain** (MT-B11). Neither Monero nor Zcash bounds one in
+6. **No reorganisation has been run on a real foreign chain** (MT-B11). Neither Monero nor Zcash bounds one in
    consensus, so the confirmation policy is the only protection. It has been reasoned about and tested against fakes,
    not shown on a real node.
+
+*Closed since this verdict was first written:* the go1.26.2 standard library's reachable vulnerabilities (GAP-015).
+Every build now uses go1.26.8, and govulncheck finds nothing reachable in the tools, derod, the simulator or
+netwallet (`research/release/govulncheck-2026-09-12.log`).
 
 ---
 
@@ -46,7 +48,7 @@ met from this machine:
 | **Upgrade authority** | **PASS** | no DMZ contract calls `UPDATE_SC_CODE`. The factory's `Renounce` is proven live (`research/release/simdeploy-renounce-sim.log`). A ring-16 TELA INDEX is immutable, proven live (`research/release/tela-anon-index.log`). `verifydeploy` fails any surviving deployer power. `vault.bas` is not deployed |
 | **Privacy** | **PASS** | the app makes no request beyond the user's node, the local wallet and its own files (the mainnet-shaped UI pass). What cannot be avoided is disclosed before use: ring-2 signers, the Zcash leg's public linkage, and the maker's view of the XMR amount (`SECURITY_THREAT_MODEL.md` §8). Open, low: a test that no companion writes a secret to its output (MT-L02) |
 | **DoS resistance** | **PASS** | every contract call is bounded by paid gas and by the 20,000 storage-gas cap, and no contract loops over anything a stranger can grow. zecswap caps every response (32 MiB, 30 s) and every list. xmrswap reads every reply through a size cap and refuses malformed ones (MT-B07). The app reads only the user's own node |
-| **Dependency security** | **FAIL** | the vendored trees are pinned by commit and verified. The prover's patched crate is pinned and verified (GAP-013). *Open:* go1.26.2's reachable vulnerabilities (GAP-015); derohe's vendored third-party code, which govulncheck cannot see (GAP-018); telainstall's gorilla/websocket (GAP-017) |
+| **Dependency security** | **PASS** | Every build uses go1.26.8 (GAP-015). govulncheck finds 0 reachable in the tools, derod, the simulator and netwallet (`research/release/govulncheck-2026-09-12.log`). derohe's vendored code, invisible to govulncheck, is inventoried module by module against vuln.go.dev and osv.dev, and none is reachable (GAP-018, `docs/DEPENDENCIES.md`). The vendored trees, telainstall's fork (GAP-017) and the prover's patched crate (GAP-013) are pinned and verified. *Accepted, with the reason recorded:* gorilla/websocket GO-2026-6278 in telainstall and the DERO binaries (D-2: loopback only, shipped to no user). *Unreachable, with no upstream fix:* x/crypto GO-2026-5932 |
 | **Build reproducibility** | **PASS** | two build paths give byte-identical manifests, and `-verify` matches 68 of 68 (`research/release/reproducible-build.log`). The contract hashes the manifest records are the ones `verifydeploy` checks on chain |
 | **End-to-end tests** | **PASS** | every exit of both swaps ran end to end on real Monero and Zcash node software (regtest) against the DERO contracts on the simulator. That is three Monero exits twice, plus a v5 claim, a v6 claim and a third-party refund on Zcash (`research/regtest/`). The UI passes are green on the final contracts, including with wallet flows. *Covered by other lines, not this one:* the public test networks (Monero and Zcash integration) |
 | **Adversarial tests** | **PASS** | every attack found in the 2026-09-10 audit or this pass that the code could close has a named regression test that fails on the old code (`TESTING_AND_VERIFICATION.md` §2) |

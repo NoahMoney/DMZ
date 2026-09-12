@@ -1,16 +1,15 @@
 {
   "binaries": {
-    "dero-miner.exe": "11aeb9091ec12ef19069f905923d709aca90aa121ee269473d2b6eb5dd9146d5",
-    "dero-wallet-cli-xswd.exe": "4930735eca679c252106f6de2eb76f86a1823b1dbeafcd9ca02a40f814383920",
-    "dero-wallet-cli.exe": "6f5b0314bef16f8048a578e3c17dd0aa9220463a99984ac9a999ed15fe06df74",
-    "derod.exe": "d1988ec27af42dcdf44a6a1462d23d444a8385dade8bd78728e7dd6848a812a1",
-    "genesistx.exe": "1d6781713d200c242df14fe4c727cafc3fcf6606ba96e5f00778d0fc5245953d",
-    "netwallet-next.exe": "30ccbcb8483b148db922c2a81fc0e25c41da940aab86cbac6053a8a12085d7dc",
-    "netwallet.exe": "c00d9610483aed22d6e0c715e2924587d024feef088e5a20bb1033721c26415f",
-    "simulator.exe": "3d0469693d972734def034201968088439a42f510e58f1b36459db6dbd5f3894",
-    "tela-cli.exe": "0c0de9a87df43074d199e766a65b4d13394902646d1937e838c6ac02a20612db",
-    "telainstall.exe": "8706cd9552e8440d0470aaaff13a5e1bf6e49831ec16151f2d2be89ab4664020",
-    "xswdwallet.exe": "3f51ae0139d0eeec1a5e2c5634f14ebc899732f53eb7acda53c247819691822a"
+    "dero-miner.exe": "bf57df9af91f7b6cd1c7a600d0bd30e8fd63c734f4574ea792d37a4aec535b84",
+    "dero-wallet-cli-xswd.exe": "0bb60eed1329e43a8083c9ae3465bae8c43a6dfb4db7b4aca8e33720c001d232",
+    "dero-wallet-cli.exe": "e7afba47484a6bb14954aafdb3cefa183f8215f9349311c3be7cb0f3472d511f",
+    "derod.exe": "ef3f8a92f5a9837a78f86c0a16a5ee8be46674442608b4e176c0797211963058",
+    "genesistx.exe": "3e9dc3206675a5a96b8ede58ed8dbfb774d8641fb61346a03d6fe7e4bb16353a",
+    "netwallet.exe": "1a806e772e90cbfdf51d8adfbe6b77cb68f16583578ea85f89dc4e6c3e54d314",
+    "simulator.exe": "d012a0abd33cbe6f90fcc9369c0b28598f644f363c0460ceb04f9e04ea725ebb",
+    "tela-cli.exe": "9c6401a975355ca03dd8dc3a430434a7cdf9140b44146f3c48cc9d26a4eaf13b",
+    "telainstall.exe": "b28a4aea05d3572c929ee4e6df39eec4da377f1fa92e32f53c5dec4d3c088e0a",
+    "xswdwallet.exe": "e5ef593debcedcf136bb65f6ce6d9a6f7c1f67a5aa6a48b5a6a3da86ae120a64"
   },
   "sources": {
     "genesistx": "5fff87de294ffbf9d347167abedd795b9156dcf6a45ceebd707e860e3f4f4cf2",
@@ -19,5 +18,5 @@
     "telainstall": "9a00bda5b6875eb8c558202ad799fb8dd4465c159b4fbee2a2ca44ddc861f162",
     "xswdwallet": "bb6f33418e3f711580755ad2b6e8e81fab72a597fe6593172f6ec052804636e2"
   },
-  "go": "go1.26.2"
+  "go": "go1.26.8"
 }
