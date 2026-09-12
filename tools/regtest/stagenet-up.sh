@@ -35,21 +35,25 @@ is_stagenet() { info | tr -d ' \n' | grep -q '"nettype":"stagenet"'; }
 # progress: height / target, the database's size on disk, and (from two readings in $SDIR/progress.tsv) a rate and
 # an estimated finish. Every call appends one reading.
 progress() {
-	local j h t db now
+	local j h t p db now
 	j="$(info | tr -d ' \n')" || { say "no answer from 127.0.0.1:$STAGENET_RPC_PORT"; return 1; }
 	h="$(echo "$j" | grep -o '"height":[0-9]*' | head -1 | cut -d: -f2)"
 	t="$(echo "$j" | grep -o '"target_height":[0-9]*' | cut -d: -f2)"
+	p="$(echo "$j" | grep -o '"outgoing_connections_count":[0-9]*' | cut -d: -f2)"
 	db="$(du -sb "$SDIR/chain" 2>/dev/null | cut -f1)"
 	now="$(date +%s)"
 	echo -e "$now\t$h\t$t\t${db:-0}" >>"$SDIR/progress.tsv"
+	# the target is the largest of monerod's target_height, the height, and STAGENET_TIP_FLOOR: with no peers
+	# monerod reports a target of 0, which alone would read as a finished sync
 	# the rate is over the last five readings (the sync slows as blocks fill up, so the average since the start
 	# would promise too early a finish)
-	awk -v n="$now" -v h="$h" -v t="$t" -v db="${db:-0}" '{T[NR]=$1; H[NR]=$2}
+	awk -v n="$now" -v h="$h" -v t="$t" -v f="$STAGENET_TIP_FLOOR" -v p="${p:-?}" -v db="${db:-0}" '{T[NR]=$1; H[NR]=$2}
 		END {
 			k = (NR > 5) ? NR - 5 : 1
 			t0 = T[k]; h0 = H[k]
 			tt = (t > h) ? t : h
-			printf "regtest: stagenet height %d of %d (%.1f%%), chain on disk %.2f GB", h, tt, (tt ? 100*h/tt : 0), db/1e9
+			if (f > tt) tt = f
+			printf "regtest: stagenet height %d of %d (%.1f%%), chain on disk %.2f GB, %s peers", h, tt, (tt ? 100*h/tt : 0), db/1e9, p
 			if (n > t0 && h > h0) {
 				r = (h - h0) / (n - t0)
 				printf ", %.1f blocks/s over the last %.0f min", r, (n - t0) / 60
