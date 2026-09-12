@@ -1,0 +1,156 @@
+proof-xmr test suite, release, 2026-09-11T09:59:13Z, x86_64, 16 cpus, rustc 1.98.1 (48a229cea 2026-09-01), cargo 1.98.1 (797e8a9bc 2026-08-05)
+HEAD df077b8; proof-xmr files changed or new against HEAD: ?? research/crosschain/poc/proof-xmr/bench.sh ?? research/crosschain/poc/proof-xmr/build-reproducible.sh ?? research/crosschain/poc/proof-xmr/repro.log ?? research/crosschain/poc/proof-xmr/repro.sh ?? research/crosschain/poc/proof-xmr/test-all.sh ?? research/crosschain/poc/proof-xmr/test.log ?? research/crosschain/poc/proof-xmr/tests/audit.rs ?? research/crosschain/poc/proof-xmr/tests/gadget.rs 
+ok: <repo>/research/crosschain/poc/proof-xmr/../vendor/bulletproofs is bulletproofs 5.0.0 (sha256 012e2e5f88332083bd4235d445ae78081c00b2558443821a9ca5adfe1070073d) plus the committed patch, and nothing else
+before: <home>/target/proof-xmr/release/proof-xmr sha256 4d3bde0afda735e851e31a3d24cc4d040aa4611a39f96ef4a7baa9c8c20ac444
+warning: variable does not need to be mutable
+   --> <repo>/research/crosschain/poc/vendor/bulletproofs/src/range_proof/party.rs:108:17
+    |
+108 |             let mut point = -H_i;
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `to_bytes` is never used
+   --> <repo>/research/crosschain/poc/vendor/bulletproofs/src/inner_product_proof.rs:341:12
+    |
+ 26 | impl InnerProductProof {
+    | ---------------------- method in this implementation
+...
+341 |     pub fn to_bytes(&self) -> Vec<u8> {
+    |            ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `bulletproofs` (lib) generated 2 warnings (run `cargo fix --lib -p bulletproofs` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 0.29s
+     Running unittests src/lib.rs (<home>/target/proof-xmr/release/deps/proof_xmr-f6bdc959b1049964)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (<home>/target/proof-xmr/release/deps/proof_xmr-56e1a68711d11872)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/audit.rs (<home>/target/proof-xmr/release/deps/audit-f265f9cf9c329fbe)
+
+running 8 tests
+test known_gap_an_unreduced_preimage_verifies ... KNOWN GAP L1: a proof for H = SHA256(s + l) and S = s*G verifies (bytes 454ab618a5b9e05222ad5956b04ba1931d034b2d734781dd6f04c08ae51fe619); the honest prove() refuses the same bytes
+ok
+test rejects_a_valid_proof_against_the_other_partys_statement ... other party's statement, and splices of valid proofs:
+  alice's proof, bob's (H, S)                                Err("r1cs: R1CSProof did not verify correctly.")
+  alice's proof, (bob's H, alice's S)                        Err("r1cs: R1CSProof did not verify correctly.")
+  alice's proof, (alice's H, bob's S)                        Err("r1cs: R1CSProof did not verify correctly.")
+  bob's proof, alice's (H, S)                                Err("r1cs: R1CSProof did not verify correctly.")
+  bob's proof, (alice's H, bob's S)                          Err("r1cs: R1CSProof did not verify correctly.")
+  bob's proof, (bob's H, alice's S)                          Err("r1cs: R1CSProof did not verify correctly.")
+  alice's R1CS + bob's C and sigma, alice's (H, S)           Err("r1cs: R1CSProof did not verify correctly.")
+  alice's R1CS + bob's C and sigma, bob's (H, S)             Err("r1cs: R1CSProof did not verify correctly.")
+  alice's R1CS and C + bob's sigma, alice's (H, S)           Err("sigma: commitment equation fails")
+  alice's R1CS and C + bob's sigma, bob's (H, S)             Err("r1cs: R1CSProof did not verify correctly.")
+  bob's R1CS + alice's C and sigma, alice's (H, S)           Err("r1cs: R1CSProof did not verify correctly.")
+  bob's R1CS + alice's C and sigma, bob's (H, S)             Err("r1cs: R1CSProof did not verify correctly.")
+  alice's two proofs: R1CS of one, C and sigma of the other  Err("r1cs: R1CSProof did not verify correctly.")
+  alice's two proofs: R1CS and C of one, sigma of the other  Err("sigma: commitment equation fails")
+ok
+test rejects_every_other_h ... wrong H: 261 statements (256 one-bit changes + 5 others) against a valid proof: {"r1cs: R1CSProof did not verify correctly.": 261}
+ok
+test rejects_every_other_s ... wrong S: 269 statements (256 one-bit changes + 13 others) against a valid proof: {"S does not decompress": 127, "S has torsion or is the identity": 118, "r1cs: R1CSProof did not verify correctly.": 24}
+ok
+test rejects_every_single_byte_tamper ... tamper sweep: 1601 byte positions x 2 masks (bit i mod 8, then a random non-zero byte; seed 0x570420260911) = 3202 tampered proofs
+      0 version            2 tampered: {"r1cs: Proof data could not be parsed.": 2}
+      1 A_I1              64 tampered: {"r1cs: R1CSProof did not verify correctly.": 64}
+     33 A_O1              64 tampered: {"r1cs: R1CSProof did not verify correctly.": 64}
+     65 S1                64 tampered: {"r1cs: R1CSProof did not verify correctly.": 64}
+     97 T_1               64 tampered: {"r1cs: R1CSProof did not verify correctly.": 64}
+    129 T_3               64 tampered: {"r1cs: R1CSProof did not verify correctly.": 64}
+    161 T_4               64 tampered: {"r1cs: R1CSProof did not verify correctly.": 64}
+    193 T_5               64 tampered: {"r1cs: R1CSProof did not verify correctly.": 64}
+    225 T_6               64 tampered: {"r1cs: R1CSProof did not verify correctly.": 64}
+    257 t_x               64 tampered: {"r1cs: Proof data could not be parsed.": 1, "r1cs: R1CSProof did not verify correctly.": 63}
+    289 t_x_blinding      64 tampered: {"r1cs: Proof data could not be parsed.": 1, "r1cs: R1CSProof did not verify correctly.": 63}
+    321 e_blinding        64 tampered: {"r1cs: Proof data could not be parsed.": 1, "r1cs: R1CSProof did not verify correctly.": 63}
+    353 L_0 .. R_15     2048 tampered: {"r1cs: R1CSProof did not verify correctly.": 2048}
+   1377 a                 64 tampered: {"r1cs: Proof data could not be parsed.": 1, "r1cs: R1CSProof did not verify correctly.": 63}
+   1409 b                 64 tampered: {"r1cs: Proof data could not be parsed.": 1, "r1cs: R1CSProof did not verify correctly.": 63}
+   1441 C                 64 tampered: {"r1cs: R1CSProof did not verify correctly.": 64}
+   1473 A1                64 tampered: {"A1 does not decompress": 47, "sigma: commitment equation fails": 17}
+   1505 A2                64 tampered: {"A2 does not decompress": 29, "sigma: commitment equation fails": 35}
+   1537 z1                64 tampered: {"sigma: commitment equation fails": 63, "sigma: z1 is not a canonical scalar": 1}
+   1569 z2                64 tampered: {"sigma: commitment equation fails": 63, "sigma: z2 is not a canonical scalar": 1}
+  accepted: 0
+ok
+test rejects_every_truncation_and_extension ... truncation and extension: 3395 proofs of lengths 0..=1600 and 1602..=3202, each refused on its length before parsing
+ok
+test replay_a_proof_is_bound_to_its_statement_and_nothing_else ... replay: a proof re-verifies for its own (H, S) under fresh generators, 3 times; a re-proof of the same statement differs in 19 of 20 fields and verifies; nothing swap-specific is an input
+ok
+test the_fixture_proofs_verify ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 244.18s
+
+     Running tests/cli.rs (<home>/target/proof-xmr/release/deps/cli-1685a5786712116b)
+
+running 2 tests
+test keygen_prove_verify ... ok
+test refusals_exit_2 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.75s
+
+     Running tests/gadget.rs (<home>/target/proof-xmr/release/deps/gadget-17199ae43cd019dc)
+
+running 5 tests
+test a_wrong_claim_leaves_exactly_the_wrong_bits_unsatisfied ... wrong claims: 64 digests (32 one bit off, 32 random) leave exactly the differing bits' constraints unsatisfied; 16 wrong committed values leave exactly the decomposition constraint unsatisfied
+ok
+test constraint_counts ... constraint counts (multipliers, linear constraints), measured:
+  after decompose           256    513
+  after sha256_32bytes    37460  75233
+  after constrain_digest  37460  75489  (phase 2: 0 constraints)
+  analytic: decomposition 256, schedule 6556, compression 30384, finalisation 264 = 37460 multipliers; 75489 constraints; 10728 allocated bits, 26732 multiply gates; padded to 65536
+ok
+test gadget_matches_sha2 ... gadget vs sha2 0.10: 2573 inputs (525 edge, 2048 random, seed 0x570420260911); digests equal and every constraint satisfied on 2573; failures 0
+ok
+test no_single_wire_is_free ... single-wire faults: all 10728 allocated bits flipped one at a time leave 1..=6 constraints unsatisfied, 0 left everything satisfied; 512 non-boolean assignments (seeded sample) leave 2..=7 unsatisfied, 0 left everything satisfied
+ok
+test the_bit_decomposition_is_not_unique ... committed value 70346382ab80c8387ad443bb5c709dd63c2239643251fd939f82eb26b4830706: 16 bit strings s + k*l (k = 0..15) satisfy every constraint, with 16 distinct digests
+committed value e8884d87cadec7d94ed7725a0c52a8786d88ad028e2b2e07bfc7aeab17101709: 16 bit strings s + k*l (k = 0..15) satisfy every constraint, with 16 distinct digests
+committed value 87ca851b998c016421693c4525582eba4bbecf1862735d77e4b9c17aa3440f06: 16 bit strings s + k*l (k = 0..15) satisfy every constraint, with 16 distinct digests
+committed value e9ea5f133b5b9b0b456add94b7878f386419947845a116d369b4d8d5f0b3a100: 16 bit strings s + k*l (k = 0..15) satisfy every constraint, with 16 distinct digests
+committed value ecd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010: 15 bit strings s + k*l (k = 0..14) satisfy every constraint, with 15 distinct digests
+committed value 0000000000000000000000000000000000000000000000000000000000000000: 16 bit strings s + k*l (k = 0..15) satisfy every constraint, with 16 distinct digests
+ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 267.41s
+
+     Running tests/proof.rs (<home>/target/proof-xmr/release/deps/proof-542a1e6c810c1e57)
+
+running 7 tests
+test round_trip ... ok
+test tampered_r1cs ... ok
+test tampered_sigma ... ok
+test truncated_proof ... ok
+test unreduced_secret_refused ... ok
+test wrong_h ... ok
+test wrong_s ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.40s
+
+     Running tests/vector.rs (<home>/target/proof-xmr/release/deps/vector-29d5bd9a51d2f380)
+
+running 1 test
+test recorded_vector_verifies_and_matches_readme ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.26s
+
+   Doc-tests proof_xmr
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+wall clock: 570 s
+after:  <home>/target/proof-xmr/release/proof-xmr sha256 4d3bde0afda735e851e31a3d24cc4d040aa4611a39f96ef4a7baa9c8c20ac444

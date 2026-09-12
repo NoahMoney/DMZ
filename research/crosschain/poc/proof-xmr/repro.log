@@ -1,0 +1,116 @@
+proof-xmr reproducible-build check, 2026-09-11T10:16:30Z
+
+== toolchain
+  rustc 1.98.1 (48a229cea 2026-09-01)
+  binary: rustc
+  commit-hash: 48a229ceaefd4985c50990b14116b6d856af0985
+  commit-date: 2026-09-01
+  host: x86_64-unknown-linux-gnu
+  release: 1.98.1
+  LLVM version: 22.1.8
+  cargo 1.98.1 (797e8a9bc 2026-08-05)
+  release: 1.98.1
+  commit-hash: 797e8a9bca276c1c9f9f738d2a20f484fa4eea9d
+  linker: cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0; GNU ld (GNU Binutils for Ubuntu) 2.42; ldd (Ubuntu GLIBC 2.39-0ubuntu8.8) 2.39
+  os: Ubuntu 24.04.4 LTS, Linux 6.18.33.2-microsoft-standard-WSL2 x86_64
+  RUSTFLAGS='' CARGO_ENCODED_RUSTFLAGS='' ~/.cargo/config*: 0 file(s)
+
+== sources
+  HEAD fccd52a8af359fc01b9ff3bab75315f835454f4d; proof-xmr last changed in 7c087ff (2026-09-11)
+  working tree of proof-xmr against HEAD:    M research/crosschain/poc/proof-xmr/README.md   ?? research/crosschain/poc/proof-xmr/bench.log   ?? research/crosschain/poc/proof-xmr/bench.sh   ?? research/crosschain/poc/proof-xmr/build-reproducible.sh   ?? research/crosschain/poc/proof-xmr/repro.log   ?? research/crosschain/poc/proof-xmr/repro.sh   ?? research/crosschain/poc/proof-xmr/test-all.sh   ?? research/crosschain/poc/proof-xmr/test.log   ?? research/crosschain/poc/proof-xmr/tests/audit.rs   ?? research/crosschain/poc/proof-xmr/tests/gadget.rs 
+  Cargo.lock: sha256 0ca4c4cb463d7c53df78285cdb999edff31e3940f85dd3f9b2b103530acf1467, 49 packages, lockfile version 4, committed copy unchanged
+  every build below passes --locked, so it fails rather than resolve anything Cargo.lock does not already say;
+  bulletproofs is a path dependency (no checksum in Cargo.lock): it is fetch-bulletproofs.sh's crate + patch
+
+== the pinned build
+  xmrswap.ProverSHA256   4d3bde0afda735e851e31a3d24cc4d040aa4611a39f96ef4a7baa9c8c20ac444
+  <home>/target/proof-xmr/release/proof-xmr: sha256 4d3bde0afda735e851e31a3d24cc4d040aa4611a39f96ef4a7baa9c8c20ac444, 1340392 bytes (is the pinned build)
+  build-machine paths embedded in it:
+    <home>/.cargo/registry/src/...
+    <repo>/research/crosschain/poc/vendor/bulletproofs/src/...
+
+== recipe 1: build.sh's own (cargo build --release), from the committed tree in three places
+wrote <work>/a/research/crosschain/poc/proof-xmr/../vendor/bulletproofs: bulletproofs 5.0.0 (sha256 012e2e5f88332083bd4235d445ae78081c00b2558443821a9ca5adfe1070073d) plus bulletproofs-5.0.0-r1cs-ctoption.patch
+wrote <work>/b/somewhere/else/entirely/research/crosschain/poc/proof-xmr/../vendor/bulletproofs: bulletproofs 5.0.0 (sha256 012e2e5f88332083bd4235d445ae78081c00b2558443821a9ca5adfe1070073d) plus bulletproofs-5.0.0-r1cs-ctoption.patch
+warning: variable does not need to be mutable
+warning: method `to_bytes` is never used
+warning: `bulletproofs` (lib) generated 2 warnings (run `cargo fix --lib -p bulletproofs` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 10.33s
+  in-place                 sha256 4d3bde0afda735e851e31a3d24cc4d040aa4611a39f96ef4a7baa9c8c20ac444  1340392 bytes
+warning: variable does not need to be mutable
+warning: method `to_bytes` is never used
+warning: `bulletproofs` (lib) generated 2 warnings (run `cargo fix --lib -p bulletproofs` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 10.33s
+  tree-a                   sha256 0646548a739121016f9d94252cb5dc4b5cbac273d157bac207a898ec50a8113d  1340680 bytes
+warning: variable does not need to be mutable
+warning: method `to_bytes` is never used
+warning: `bulletproofs` (lib) generated 2 warnings (run `cargo fix --lib -p bulletproofs` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 9.13s
+  tree-b                   sha256 fd1b27df8a647ede76e75d2296d82993e334f1255a129edc41df82246faea739  1340512 bytes
+  in-place == pinned: byte-identical
+  tree-a != tree-b: 1166051 differing byte positions, sizes 1340680 and 1340512
+  tree-a != in-place: 1159826 differing byte positions, sizes 1340680 and 1340392
+  paths embedded in tree-a:
+    <home>/.cargo/registry/src/...
+    <work>/a/research/crosschain/poc/vendor/bulletproofs/src/...
+  paths embedded in tree-b:
+    <home>/.cargo/registry/src/...
+    <work>/b/somewhere/else/entirely/research/crosschain/poc/vendor/bulletproofs/src/...
+
+== recipe 2a: the same with --config 'profile.release.trim-paths="all"' (cargo's trim-paths)
+  error: config profile `release` is not valid (defined in `--config cli option`)
+  
+  Caused by:
+    feature `trim-paths` is required
+  
+    The package requires the Cargo feature called `trim-paths`, but that feature is not stabilized in this version of Cargo (1.98.1 (797e8a9bc 2026-08-05)).
+    Consider trying a newer version of Cargo (this may require the nightly release).
+    See https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#profile-trim-paths-option for more information about the status of this feature.
+  refused by cargo 1.98.1: trim-paths is not a stable profile setting in this toolchain
+
+== recipe 2b: the same with RUSTFLAGS=--remap-path-prefix for the tree and the registry
+warning: variable does not need to be mutable
+warning: method `to_bytes` is never used
+warning: `bulletproofs` (lib) generated 2 warnings (run `cargo fix --lib -p bulletproofs` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 8.87s
+  remap-a                  sha256 e82aa44dfe25bbff16611bda3322326a44db250185e8c3e022baa89e90f3b32e  1340080 bytes
+    build-machine paths embedded: 0; crate disambiguators: bulletproofs=4yd5Ks6TNpr proof_xmr=5ymTFesh8Q1 curve25519_dalek=87aNClkL7ig proof_xmr=iPQ0wVYHjUt 
+warning: variable does not need to be mutable
+warning: method `to_bytes` is never used
+warning: `bulletproofs` (lib) generated 2 warnings (run `cargo fix --lib -p bulletproofs` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 10.23s
+  remap-b                  sha256 6c883c637109c605eff35ae837011c962b9dfacfe3c28172440df5c5d86a9ebf  1339784 bytes
+    build-machine paths embedded: 0; crate disambiguators: proof_xmr=3e9a1mZXd4M proof_xmr=4ANamayqlED curve25519_dalek=87aNClkL7ig bulletproofs=XeUWZjfJXj 
+  remap-a != remap-b: 405679 differing byte positions, sizes 1340080 and 1339784
+  (no path string is left, but cargo hashes the location of the path dependency into the disambiguators of
+  bulletproofs and proof_xmr, which are mangled into every symbol name; curve25519_dalek's, a registry crate's, is
+  the same in both, so it is the location and not the RUSTFLAGS that differs: each checkout gives its own binary)
+
+== recipe 3: build-reproducible.sh (the committed tree at a fixed path, CARGO_HOME fixed), from tree a and tree b
+  repro-a                  sha256 7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d 1340640 bytes
+  repro-b                  sha256 7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d 1340640 bytes
+  repro-a == repro-b: byte-identical
+  repro-a != pinned: 1159226 differing byte positions, sizes 1340640 and 1340392
+  paths embedded in repro-a (fixed by the recipe, the same on every machine):
+    /tmp/proof-xmr-build/research/crosschain/poc/vendor/bulletproofs/src/...
+    /tmp/proof-xmr-cargo/registry/src/...
+
+== the reproducible binary does what the pinned one does
+  repro-a verifies vector.txt: exit 0
+  a proof made by repro-a verifies under the pinned binary: exit 0
+  a proof made by the pinned binary verifies under repro-a: exit 0
+  distinct strings that differ between the pinned binary (<) and repro-a (>): 1010; the paths among them:
+    > /tmp/proof-xmr-build/research/crosschain/poc/vendor/bulletproofs/src/...
+    > /tmp/proof-xmr-cargo/registry/src/...
+    < <home>/.cargo/registry/src/...
+    < <repo>/research/crosschain/poc/vendor/bulletproofs/src/...
+  the other 1006 are symbol and codegen-unit names that carry the crate disambiguators:
+    pinned:  bulletproofs=6fZSGnlgR1 proof_xmr=6qkhlaGJXwF curve25519_dalek=87aNClkL7ig proof_xmr=l6KpemMSRUv 
+    repro-a: bulletproofs=6VALDMKimQR proof_xmr=839DC5FSIbH curve25519_dalek=87aNClkL7ig proof_xmr=lzm99vECxDO 
+
+== summary
+  pin in tools/xmrswap/pin.go:              4d3bde0afda735e851e31a3d24cc4d040aa4611a39f96ef4a7baa9c8c20ac444
+  recipe 1 in place (this checkout's path):  4d3bde0afda735e851e31a3d24cc4d040aa4611a39f96ef4a7baa9c8c20ac444
+  recipe 1 tree a / tree b:                  0646548a739121016f9d94252cb5dc4b5cbac273d157bac207a898ec50a8113d / fd1b27df8a647ede76e75d2296d82993e334f1255a129edc41df82246faea739
+  recipe 2b tree a / tree b:                 e82aa44dfe25bbff16611bda3322326a44db250185e8c3e022baa89e90f3b32e / 6c883c637109c605eff35ae837011c962b9dfacfe3c28172440df5c5d86a9ebf
+  recipe 3 tree a / tree b:                  7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d / 7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d

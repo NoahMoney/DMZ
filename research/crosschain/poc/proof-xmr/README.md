@@ -193,6 +193,23 @@ the refusal returns before any proving); `tests/cli.rs` — the JSON shapes byte
 line on stderr and an empty stdout on every refusal, the secret never echoed, `prove -`; `tests/vector.rs` — the
 recorded vector above.
 
+The external audit's tests (W-04, `docs/audit/PROOF_XMR_AUDIT_PACKAGE.md`): `tests/gadget.rs` — the SHA-256 gadget
+without proving: the sha2 crate's digest on 2,573 inputs with every constraint satisfied, a wrong digest or committed
+value failing exactly the constraints it should, every single-wire fault caught, the constraint counts, and the
+bit decomposition's non-uniqueness; `tests/audit.rs` — sweeps on real proofs: every one-bit change of `H` and `S`,
+every byte of the proof tampered twice, every truncation and extension, the other party's statement and spliced
+proofs, replay, and the known gap L1 (a preimage that is not a reduced scalar verifies; the test asserts today's
+behaviour and must be inverted when the circuit range-checks the bits). `test-all.sh` runs the whole suite and
+records `test.log`.
+
+## Reproducible build
+
+The build `tools/xmrswap` pins (`xmrswap.ProverSHA256`) comes out of `build.sh`'s `cargo build --release`, whose
+binary embeds the absolute paths of the checkout and of `$CARGO_HOME`: it reproduces byte for byte only from the same
+paths (`repro.log`). `build-reproducible.sh` builds the committed sources at a fixed path with a fixed `CARGO_HOME`,
+so the same toolchain gives the same binary from any checkout, for any user; `repro.sh` checks that from two
+directories and records `repro.log`.
+
 ## Files
 
 | file | what |
@@ -202,3 +219,6 @@ recorded vector above.
 | `src/main.rs` | the command line |
 | `tests/{proof,cli,vector}.rs` | above |
 | `record.sh`, `run.log`, `vector.txt` | the measurement run and the worked vector |
+| `tests/{gadget,audit}.rs`, `test-all.sh`, `test.log` | the audit tests (W-04) and the recorded run of the whole suite |
+| `build-reproducible.sh`, `repro.sh`, `repro.log` | the path-independent build, and the check of both builds from two directories |
+| `bench.sh`, `bench.log` | prove, verify and generator timings over many runs, median and p95 (MT-M03) |
