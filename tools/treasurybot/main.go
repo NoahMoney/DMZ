@@ -7,6 +7,10 @@
 //
 // The share is read from the pass contract (`share` bps, immutable), never from a flag. Amounts are integer
 // atomic units everywhere (C5): -min-units 5000 is 0.05 DERO.
+//
+// The wallet's RPC login, when it asks for one, comes from VEIL_RPC_LOGIN (user:password), the variable netwallet
+// starts it with. On a mainnet config the bot refuses, dry run included, before its first call when the variable is
+// unset or when -wallet carries a login in its address (X-27).
 package main
 
 import (
@@ -25,7 +29,7 @@ import (
 
 var (
 	daemon   = flag.String("daemon", "127.0.0.1:20000", "daemon rpc")
-	wallet   = flag.String("wallet", "127.0.0.1:30002", "treasury wallet rpc (must be the treasury the markets pay)")
+	wallet   = flag.String("wallet", "127.0.0.1:30002", "treasury wallet rpc, host:port (must be the treasury the markets pay); its login comes from VEIL_RPC_LOGIN (required on mainnet)")
 	cfgPath  = flag.String("config", "../app/config.js", "app config (factory + founders scids + network)")
 	minUnits = flag.Uint64("min-units", 5000, "claim a market's fees once they reach this many atomic units (5000 = 0.05 DERO)")
 	interval = flag.Duration("interval", 60*time.Second, "how often to sweep")
@@ -68,6 +72,16 @@ func cfgValue(src, key string) string {
 	return m[1]
 }
 
+// checkWalletLogin refuses a mainnet config, before the first call, that could not authenticate to the wallet or
+// that would carry its password on the command line. A mainnet netwallet always asks for a login, and a dry run
+// reads the wallet too.
+func checkWalletLogin(network string) error {
+	if network != "mainnet" {
+		return nil
+	}
+	return rpc.RequireWalletLogin(*wallet)
+}
+
 func main() {
 	flag.Parse()
 	src, err := os.ReadFile(*cfgPath)
@@ -82,6 +96,9 @@ func main() {
 	case "simulator", "testnet", "mainnet":
 	default:
 		log.Fatalf("config.js has no readable network (%q): refusing to guess which chain this is", network)
+	}
+	if err := checkWalletLogin(network); err != nil {
+		log.Fatalf("mainnet: %v", err)
 	}
 	c := &rpc.Client{Daemon: *daemon, Timeout: *timeout}
 	if testnet, name := c.Info(); (network == "mainnet") == testnet {

@@ -8,6 +8,10 @@
 //	-legacy launch:<sha256>,pool:<sha256>   # older template hashes the app should still accept (simulator history)
 //	-revoke launch:<sha256>                 # a hash the app must STOP accepting: the code it names has a defect
 //
+// The wallets' RPC login, when they ask for one, comes from VEIL_RPC_LOGIN (user:password), the variable netwallet
+// starts them with; simrpc sends it to the wallets only. On -network mainnet simdeploy refuses before its first call
+// when the variable is unset, or when -w0 or -w2 carries a login in its address (X-27).
+//
 // factory.bas v2 has no owner (MT-J15(b)): its treasury and registration fee are the -w2 address and -regfee at
 // install, for the life of the factory. htlc.bas v3 takes three install arguments with no default (-htlc-w1min,
 // -htlc-w2min, -htlc-g2), checked against the contract's bounds before anything is installed.
@@ -31,8 +35,8 @@ import (
 
 var (
 	daemon    = flag.String("daemon", "127.0.0.1:20000", "daemon rpc")
-	w0        = flag.String("w0", "127.0.0.1:30000", "owner wallet rpc")
-	w2        = flag.String("w2", "127.0.0.1:30002", "treasury wallet rpc")
+	w0        = flag.String("w0", "127.0.0.1:30000", "deployer wallet rpc, host:port; its login comes from VEIL_RPC_LOGIN (required on mainnet)")
+	w2        = flag.String("w2", "127.0.0.1:30002", "treasury wallet rpc, host:port; its login comes from VEIL_RPC_LOGIN (required on mainnet)")
 	contracts = flag.String("contracts", "../contracts", "contracts directory")
 	app       = flag.String("app", "../app", "app directory")
 	regfee    = flag.Uint64("regfee", 10000, "registration fee in atomic units, fixed for the life of the factory: factory.bas v2 has no setter")
@@ -110,6 +114,16 @@ func checkHtlcWindows() error {
 	return nil
 }
 
+// checkWalletLogin refuses a mainnet run, before its first call, that could not authenticate to the wallets or that
+// would carry their password on its command line. netwallet will not start a mainnet wallet without a login, so a run
+// without VEIL_RPC_LOGIN would only stop at its first wallet call (the X-09 rehearsal, X-27).
+func checkWalletLogin() error {
+	if *network != "mainnet" {
+		return nil
+	}
+	return rpc.RequireWalletLogin(*w0, *w2)
+}
+
 // checkRenounce answers the -renounce of older runbooks. factory.bas v2 (MT-J15(b)) has no owner: its treasury and
 // registration fee are fixed at Initialize and no function can change them, so there is no ceremony to run, and this
 // tool sends Renounce to nothing. An older factory that still has an owner is left, not renounced: install a v2
@@ -161,6 +175,10 @@ func main() {
 	}
 	if *network == "mainnet" && !*yes {
 		fmt.Println("mainnet: this installs contracts and mints the founders reserve with real DERO; pass -yes to run it")
+		os.Exit(2)
+	}
+	if err := checkWalletLogin(); err != nil {
+		fmt.Println("mainnet:", err)
 		os.Exit(2)
 	}
 	// Both hash flags are checked against the record before a single contract is installed. A mistyped kind or

@@ -214,11 +214,11 @@ wallet.
 | testnet deployment live and exercised for at least one week | `deploy/README.md (Testnet)` record |
 | external review of `contracts/*.bas` and of `research/wrapper/README.md (security review)` items 1–3 closed | review report in `docs/` |
 | **no vault in the mainnet bundle**: `mainnet.vault` stays empty and `mainnet.vaults` null in `networks.json`. The atomic-swap study (§3, operator decision 12) recommends the federation is not deployed; XMR and ZEC settle by `htlc.bas` + `xmrswap` and `board.bas` + `swap.bas` + `zecswap` instead. A vault would first need every condition this row used to list — signers other than the operator named in `deploy/federation.md`, bonds with `cap / capratio ≤ Σ bonds`, a published viewing key, a real foreign backend — and none of them exists | `deploy/networks.json`; the Wrap tab reads "not offered on this network" |
-| treasury wallet and owner wallet are separate, offline-backed-up, seeds stored off machine | operator checklist |
+| treasury wallet and deployer wallet are separate, offline-backed-up, seeds stored off machine | operator checklist |
 | the app's mainnet bundle shows "Mainnet" in the status pill against a mainnet node, with no network banner under the header; and the mainnet-shaped UI pass is green: no screen mentions a wrapped asset without saying it is not offered, the Wrap tab draws no control, and a mainnet-labelled build reading a non-mainnet node says so on every screen and refuses to sign | manual, and `tools/withlock.sh ui env PW_DIR=<playwright> node tools/uitest/ui.mjs <url> .sim/ui-mainnet --mainnet` (read the PNGs) |
 | every step of `docs/MAINNET_TEST_PLAN.md` ran on the simulator and on the test networks, and its mainnet stage ran at the smallest amounts, each reconciled chain against wallets against companion state against the app | the plan's reconciliation records |
 | `tools/verifyvendor` green: every vendored checkout at its pinned commit with only the locked changes, binaries matching `deploy/binaries.lock` | `go run ./verifyvendor -root ..` — see the note below |
-| the Founders Pass `name`, `descr`, `maxsupply`, `reserve`, `share` and `mfee` were passed explicitly on the command line and read back from chain with `DERO.GetSC` after install: none can be changed afterwards, and the app renders `descr` under the mint button. The command below still carries the simulator's `-pass-max 500 -pass-reserve 50`, which is not the stated 20-edition supply, and `founders.bas` refuses `reserve > maxsupply / 5`, so a reserve of 50 cannot install at 20 editions (MX-02, MISS-03): the numbers are the operator's to set | operator checklist + block explorer |
+| the Founders Pass `name`, `descr`, `maxsupply`, `reserve`, `share` and `mfee` were passed explicitly on the command line and read back from chain with `DERO.GetSC` after install: none can be changed afterwards, and the app renders `descr` under the mint button. The command below carries the operator's recorded answers (MT-J16): 1 DERO, 20 editions, reserve 4, share 5000 bps, market fee 250 bps. MT-J16 said 5 reserved, but `founders.bas` refuses `reserve > maxsupply / 5`, so 5 cannot install at 20 editions and the operator is re-confirming (MX-02, MISS-03). The image URL has no answer yet | operator checklist + block explorer |
 | the wallet that installs never mines and never receives block rewards; the treasury never transacts during the install | operator checklist (see Wallets) |
 | every fund-moving tool was started with `-yes` on purpose (`simdeploy`, `telainstall` and `vaultsigner` exit on mainnet without it; `treasurybot` runs as a dry run) | operator checklist |
 
@@ -233,18 +233,24 @@ re-pinning hides that instead of fixing it.
 
 ```
 vendor\bin\derod.exe --data-dir=%CD%\.mainnet\derod --rpc-bind=127.0.0.1:10102
-vendor\bin\netwallet.exe -network mainnet -daemon 127.0.0.1:10102 -wallet .mainnet\owner.db -password <pw> -rpc-login <user:pw> -rpc-bind 127.0.0.1:10103 -create
-vendor\bin\netwallet.exe -network mainnet -daemon 127.0.0.1:10102 -wallet .mainnet\treasury.db -password <pw> -rpc-login <user:pw> -rpc-bind 127.0.0.1:10104 -create
 ```
-The owner wallet pays for both the contracts and every TELA DOC. The three contracts are ≈ 0.18 DERO measured on
-the simulator; the app is the larger half and is unmeasured for the current bundle (see "Costs and sizes"), so
-fund the owner wallet with at least 4 DERO and re-measure before committing to a number. The treasury needs 0.1
-DERO for its first claims. Keep the seeds off this machine: `netwallet -create` prints the recovery words once and
-refuses `-write-seed` on mainnet; pass the password through `VEIL_WALLET_PASSWORD` rather than argv, and
-`-rpc-login user:password` (or `VEIL_RPC_LOGIN`) is not optional — `netwallet` exits on mainnet without it,
+Then each wallet in a console of its own, its password and the RPC login in that console's environment
+(`docs/MAINNET_DEPLOYMENT.md` §5 step 3):
+```
+set VEIL_WALLET_PASSWORD=<the wallet's password>
+set VEIL_RPC_LOGIN=<user>:<password>
+vendor\bin\netwallet.exe -network mainnet -daemon 127.0.0.1:10102 -wallet .mainnet\deployer.db -rpc-bind 127.0.0.1:10103 -create
+```
+and the same with `.mainnet\treasury.db` on `127.0.0.1:10104`, with the same `VEIL_RPC_LOGIN`: `simdeploy` and
+`treasurybot` read it once and send it to every wallet they call.
+The deployer wallet pays for the contracts and every TELA DOC: 3.582 DERO measured by the X-09 rehearsal
+(`docs/MAINNET_DEPLOYMENT.md` §7), so fund it with 8 DERO. The treasury needs 0.1 DERO for its calls. Keep the seeds
+off this machine: `netwallet -create` prints the recovery words once and refuses `-write-seed` on mainnet. The
+password goes through `VEIL_WALLET_PASSWORD` and the RPC login through `VEIL_RPC_LOGIN`, never through argv, and the
+login is not optional — `netwallet` exits on mainnet without it,
 because every local process could otherwise drive an unauthenticated wallet RPC. Three wallets, three roles
 (learned on the private testnet, 2026-09-06): a wallet whose balance changes every block (a miner or integrator
-address) decodes its balance for minutes on every change and must never sit in a transaction path; the owner
+address) decodes its balance for minutes on every change and must never sit in a transaction path; the deployer
 installs and registers; the treasury receives fees and rarely sends. Never point `xswdwallet` at any of them: it
 auto-approves, and it refuses any daemon that is not a loopback test network.
 
@@ -252,16 +258,27 @@ auto-approves, and it refuses any daemon that is not a loopback test network.
 
 ```
 cd tools
+set VEIL_RPC_LOGIN=<the wallets' login, as above>
 go run ./simdeploy -network mainnet -yes -daemon 127.0.0.1:10102 -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
-  -pass-name "DMZ Founders Pass" ^
-  -pass-descr "Register a pass for a fixed share of the DERO trading fees the treasury claims from DMZ markets. The treasury's bot makes each deposit; no contract forces it. Fees in any asset other than DERO do not reach holders." ^
-  -pass-image https://<your host>/pass.png -pass-price 500000 -pass-max 500 -pass-reserve 50 -pass-share 5000 -pass-mfee 250 ^
-  -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 <G2, operator decision MT-J13>
+  -app <an empty scratch directory> -regfee 10000 ^
+  -pass-name "DMZ Founders Pass" -pass-descr "<the approved description, at most 240 bytes>" -pass-image "<url, or empty>" ^
+  -pass-price 100000 -pass-max 20 -pass-reserve 4 -pass-share 5000 -pass-mfee 250 ^
+  -swap-wmin 1600 -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 <G2, operator decision MT-J13>
 ```
-This installs `factory.bas`, `social.bas`, `founders.bas`, `chat.bas` and the three swap contracts, writes
-`app/config.js` and records the mainnet block in `deploy/networks.json`. Verify each SCID on a block explorer before
-continuing: code hash, treasury, registration fee. Measured on the simulator: factory ≈ 3.0k (v1; v2 is smaller),
-social ≈ 2.2k, founders ≈ 12.8k atomic units of storage gas.
+This is `docs/MAINNET_DEPLOYMENT.md` §5 step 4, which has the rest. It installs `factory.bas`, `social.bas`,
+`founders.bas`, `chat.bas` and the three swap contracts, and records the mainnet block in `deploy/networks.json`;
+`-app <scratch>` keeps it from rewriting `app/config.js` and `app/templates/` in the release checkout (the TELA bundle
+renders its own `config.js` from the record). Verify each SCID on a block explorer before continuing: code hash,
+treasury, registration fee. The rehearsal measured the seven installs at 27,995 atomic units (0.280 DERO).
+
+The wallets' login comes from `VEIL_RPC_LOGIN`, never the command line: on mainnet `simdeploy` refuses before its
+first call without it, and refuses a login written into `-w0` or `-w2`.
+
+The Founders Pass numbers are the operator's recorded answers (MT-J16): name "DMZ Founders Pass", price 1 DERO,
+20 editions, reserve 4, share 5000 bps, market fee 250 bps. Prices are atomic units (1 DERO = 100,000), so 1 DERO is
+`-pass-price 100000`; `-pass-price 1` would sell the pass for 0.00001 DERO, for ever. MT-J16 said 5 reserved, but
+`founders.bas` takes at most `-pass-max / 5`, 4 of 20, and the operator is re-confirming. **The image URL has no
+operator answer yet**; empty is valid.
 The factory's treasury and registration fee are the `-w2` address and the `-regfee` of this command, for the life of
 the factory: `factory.bas` v2 has no owner, no setter and no `Renounce` (MT-J15(b), 2026-09-11). Check both before
 the app is published against the factory. A wrong one is answered by installing a new factory and moving the
@@ -275,7 +292,8 @@ description under the mint button. Pass both explicitly, as above. This runbook 
 tool's defaults, and the description default then read "Registered holders receive the promised share of every
 fee the exchange earns, paid in DERO to their wallets" — which the system cannot do: the treasury bot sweeps
 DERO-quoted pool and launch fees only, a wrapped-asset fee can never be paid out in DERO, and no contract obliges
-the treasury to deposit anything. The sentence above is the one `app/notice.js` will support.
+the treasury to deposit anything. The description to pass is the wording the operator approved under MT-J16
+(`docs/MAINNET_TODO.md`, 209 bytes), which is not the tool's default word for word.
 
 Vault: **not on mainnet.** The go/no-go table keeps the mainnet bundle free of any vault (the atomic-swap study
 recommends the federation is not deployed), and the app then says on its Wrap tab that wrapped assets are not
@@ -298,12 +316,15 @@ under `mainnet.vault` in `networks.json`.
 
 ```
 cd tools && go run ./genconfig -dist -network mainnet          # dist/mainnet/, manifest.json, DOC size check
-vendor\bin\telainstall.exe -network mainnet -yes -wallet .mainnet\owner.db -password <pw> -daemon 127.0.0.1:10102 -app dist\mainnet -durl dmz.tela -ringsize 16 -out deploy\tela-mainnet.json
+cd .. && set VEIL_WALLET_PASSWORD=<the deployer wallet's password>
+vendor\bin\telainstall.exe -network mainnet -yes -wallet .mainnet\deployer.db -daemon 127.0.0.1:10102 -app dist\mainnet -durl dmz.tela -ringsize 16 -out deploy\tela-mainnet.json
 ```
-Measured DOC sizes are in `dist/mainnet/manifest.json`. The whole app measured 3.227 DERO to install on the simulator
-on 2026-09-12 (35 DOCs and the ring-16 INDEX; "Costs and sizes" below); the MT-E10 split has since added three DOCs,
-about 0.08 DERO more. Mainnet charges the same storage gas, so hold
-at least that, plus margin, in the owner wallet. Re-measure if the bundle changes much. Record the INDEX SCID under
+`telainstall` opens the wallet file itself, so **stop the deployer's netwallet first**: two processes on one wallet
+file corrupt it. It uses no wallet RPC, so it needs no RPC login; the wallet's password comes from
+`VEIL_WALLET_PASSWORD`, not the command line. An install that stops half-way is resumed with `-reuse`, as
+`docs/MAINNET_DEPLOYMENT.md` §5 step 6 says. Measured DOC sizes are in `dist/mainnet/manifest.json`. The X-09
+rehearsal measured 3.302 DERO for the 38 DOCs and the ring-16 INDEX (`docs/MAINNET_DEPLOYMENT.md` §7); mainnet
+charges the same storage gas. Re-measure if the bundle changes much. Record the INDEX SCID under
 `mainnet.tela.index`.
 
 **There are no updates on mainnet.** An INDEX installed above ring size 2 records its owner as `"anon"`, and
@@ -316,7 +337,9 @@ new SCID, published the same way. Users open an INDEX they have checked with `to
 
 1. Open the INDEX with `tela-cli serve <index scid>` on a clean machine; connect a mainnet node; the pill must read
    "Mainnet · <height>" and the Founders Pass must render from chain data.
-2. Start `tools/treasurybot` from the treasury wallet (`-wallet 127.0.0.1:10104`).
+2. Start `tools/treasurybot` from the treasury wallet: `-wallet 127.0.0.1:10104 -config ../dist/mainnet/config.js`,
+   with `VEIL_RPC_LOGIN` set in its console (it refuses a mainnet config without it, dry run included), a dry run
+   first (`docs/MAINNET_DEPLOYMENT.md` §5 step 11).
 3. **Not on mainnet: there is no vault to sign for** (see the go/no-go table). Were a vault ever installed, the signers
    (`tools/vaultsigner -network mainnet -yes -vault <scid> -backend <chain> …`) would start only after the
    federation gates. The daemon speaks vault v3 and exits against any other `v`; it needs no operator afterwards,

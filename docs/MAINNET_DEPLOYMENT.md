@@ -130,6 +130,8 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
      mainnet refuses `-write-seed`. Write the words down.
    - The password and the RPC login go through the environment, never the command line. `-rpc-login` (here
      `VEIL_RPC_LOGIN`) is required on mainnet.
+   - Give both wallets the same login. simdeploy (step 4) and treasurybot (step 11) read `VEIL_RPC_LOGIN` once and send
+     it, as HTTP basic auth, to every wallet they call, and never to the daemon.
    - A new account registers before it can receive anything: the wallet searches a proof of work on every core and
      sends it by itself. Fund a wallet only once its registration is mined (`DERO.GetEncryptedBalance` returns a
      `registration` height instead of "Account Unregistered"): a transfer to an unregistered account is refused.
@@ -140,8 +142,9 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
 4. **Contracts:**
    ```
    cd tools
+   set VEIL_RPC_LOGIN=<the wallets' login, as in step 3>
    go run ./simdeploy -network mainnet -yes -daemon 127.0.0.1:10102 ^
-     -w0 <user>:<password>@127.0.0.1:10103 -w2 <user>:<password>@127.0.0.1:10104 ^
+     -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
      -app <an empty scratch directory> -regfee 10000 ^
      -pass-name "DMZ Founders Pass" -pass-descr "<the approved description, at most 240 bytes>" -pass-image "<url, or empty>" ^
      -pass-price 100000 -pass-max 20 -pass-reserve 4 -pass-share 5000 -pass-mfee 250 ^
@@ -151,12 +154,14 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
    refuses before paying for anything if a Founders Pass parameter, `wmin` or an `htlc.bas` width would be refused by
    its contract, and if any of the three `htlc.bas` widths is missing: G2 has no default because the operator has not
    chosen it (MT-J13).
-   - **The wallets' RPC login goes into `-w0` and `-w2`.** simdeploy (and treasurybot, step 11) reach the wallets
-     through `tools/simrpc`, which sends no credentials of its own. Go's HTTP client sends a URL's `user:password@`
-     as basic auth, so the login rides in the address. Without it the run stops at its first wallet call
-     (`GetAddress: decode: invalid character 'A'`, the wallet's 401 page), before anything is paid (rehearsal,
-     `research/testnet/rehearsal-2026-09-12.log`). The login is then on simdeploy's command line while it runs:
-     run it on the deployment machine only, with no other user logged in.
+   - **The wallets' RPC login comes from `VEIL_RPC_LOGIN`**, set in this console as in step 3, never from the command
+     line. simdeploy reaches the wallets through `tools/simrpc`, which sends the variable to them as HTTP basic auth
+     and never to the daemon. On mainnet simdeploy refuses before its first call when the variable is unset, and when
+     `-w0` or `-w2` carries a login in its address, which would put the password in the process list and the shell
+     history. A wrong login stops the run at its first wallet call with "the wallet refused the login (401)", before
+     anything is paid. The rehearsal (`research/testnet/rehearsal-2026-09-12.log`) ran before this was fixed: its
+     simdeploy sent no login and stopped there with `GetAddress: decode: invalid character 'A'`, the wallet's 401
+     page read as a reply (X-27).
    - **Prices are atomic units** (1 DERO = 100,000). MT-J16's "1 DERO" is `-pass-price 100000`; `-pass-price 1`
      would sell the pass for 0.00001 DERO, for ever. `-pass-reserve` is at most `-pass-max / 5`: 4 of 20 (MT-J16's 5
      is being re-confirmed, since 5 of 20 does not install). `-pass-image` has no operator answer yet; empty is valid.
@@ -237,15 +242,17 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
 11. **Start `treasurybot`** from the treasury wallet: a dry run first, then `-yes`.
     ```
     cd tools
-    go run ./treasurybot -daemon 127.0.0.1:10102 -wallet <user>:<password>@127.0.0.1:10104 ^
+    set VEIL_RPC_LOGIN=<the treasury wallet's login, as in step 3>
+    go run ./treasurybot -daemon 127.0.0.1:10102 -wallet 127.0.0.1:10104 ^
       -config ../dist/mainnet/config.js -journal ../.mainnet/treasurybot-journal.json -once
     ```
     - Without `-yes` a mainnet config is a dry run: it prints what it would claim, deposit and pay, and sends nothing.
       Then drop `-once` and add `-yes` to keep sweeping every `-interval` (60 s).
     - `-config` is the published bundle's `config.js` (its default, `../app/config.js`, is the development copy); the
       bot reads the factory and the pass from it and refuses a daemon on another network.
-    - The wallet's RPC login rides in the address, as in step 4. `-journal` keeps the claim journal out of the tree
-      (its default is a file in the working directory).
+    - The wallet's RPC login comes from `VEIL_RPC_LOGIN`, as in step 4. On a mainnet config the bot refuses before
+      its first call, dry run included, when the variable is unset or `-wallet` carries a login in its address.
+    - `-journal` keeps the claim journal out of the tree (its default is a file in the working directory).
     - Its calls cost the gas estimate plus 200 atomic units each. On the testnet: `ClaimFees` about 300 per market,
       `Deposit` about 290 and `PayBatch` of 15 holders about 305. Hold 0.1 DERO in the treasury for them (§7).
 

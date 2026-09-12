@@ -46,6 +46,9 @@ user's coins, and after deployment no key holds a privileged role in any contrac
    - Mainnet refuses `-write-seed`.
    - Pass the wallet password through `VEIL_WALLET_PASSWORD`, never on the command line.
    - `-rpc-login user:password` (or `VEIL_RPC_LOGIN`) is mandatory on mainnet: `netwallet` exits without it.
+   - `simdeploy` and `treasurybot` send the same login from `VEIL_RPC_LOGIN`, to the wallets only (`tools/simrpc`,
+     X-27). On mainnet they refuse to start without it, and they refuse a login written into a wallet address, which
+     would put the password on the command line. Start the deployer and treasury wallets with the one login.
 2. **Keep three wallets in three roles** (learned on the private testnet, `deploy/README.md`):
    - the deployer installs;
    - the treasury receives and rarely sends;

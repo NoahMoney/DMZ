@@ -1,18 +1,82 @@
 // Package simrpc is a stdlib-only JSON-RPC client for driving a derohe daemon and its wallets the way the
 // Veil app does: DERO.GetGasEstimate → wallet transfer → DERO.GetTransaction polling → DERO.GetSC reads.
+//
+// A wallet started with --rpc-login (netwallet -rpc-login, or VEIL_RPC_LOGIN; required on mainnet) answers 401 to
+// any call without HTTP basic auth. WalletCall, and every wallet helper here (Address, Balance, WalletHeight, the
+// transfer in Send and SendWithFee), sends the login in VEIL_RPC_LOGIN, the variable netwallet reads, so one
+// user:password serves the wallet and the tool that drives it. It is sent to wallets only, never to the daemon, and
+// never appears in an error or a log line.
 package simrpc
 
 import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// LoginEnv holds the wallet RPC login, user:password: the same variable netwallet passes to the wallet as
+// --rpc-login, so the tools and the wallet they drive read one value from one place.
+const LoginEnv = "VEIL_RPC_LOGIN"
+
+// ErrLoginRefused is a wallet's 401: the call carried no login, or not the one the wallet was started with.
+var ErrLoginRefused = errors.New("the wallet refused the login (401)")
+
+// walletLogin reads LoginEnv. set is false when it is unset or empty; a value without a colon is an error that does
+// not repeat the value.
+func walletLogin() (user, pass string, set bool, err error) {
+	v := os.Getenv(LoginEnv)
+	if v == "" {
+		return "", "", false, nil
+	}
+	user, pass, ok := strings.Cut(v, ":")
+	if !ok {
+		return "", "", true, fmt.Errorf("%s must be user:password (its value is not shown)", LoginEnv)
+	}
+	return user, pass, true, nil
+}
+
+// RequireWalletLogin is for a network whose wallets must ask for a login (mainnet): it fails, before any call is
+// made, when LoginEnv is unset or is not a non-empty user and password, and when one of the wallet addresses carries
+// a login of its own (user:password@host), which would put the password on the command line. The error names the
+// variable and never a value.
+func RequireWalletLogin(wallets ...string) error {
+	for _, w := range wallets {
+		if AddressCarriesLogin(w) {
+			return errors.New("a wallet address carries a login (user:password@host), which puts the password on the command line, readable by every local process: give the wallet as host:port; its login comes from " + LoginEnv)
+		}
+	}
+	user, pass, set, err := walletLogin()
+	switch {
+	case err != nil:
+		return err
+	case !set:
+		return errors.New("the wallets' RPC asks for a login and " + LoginEnv + " is not set: set it in this console's environment to the user:password the wallets were started with (netwallet reads the same variable)")
+	case user == "" || pass == "":
+		return errors.New(LoginEnv + " must be user:password with both parts non-empty (its value is not shown): a wallet started with an empty user checks no login at all")
+	}
+	return nil
+}
+
+// AddressCarriesLogin says whether a wallet address has the user:password@host form. Go's HTTP client sends such a
+// login as basic auth, and a call to one still works, but the login is then on the command line.
+func AddressCarriesLogin(host string) bool { return strings.Contains(host, "@") }
+
+// redact drops the user:password@ of an address, for any message that names the host.
+func redact(host string) string {
+	if i := strings.LastIndex(host, "@"); i >= 0 {
+		return host[i+1:]
+	}
+	return host
+}
 
 type Client struct {
 	Daemon   string
@@ -31,18 +95,63 @@ func Must(err error) {
 	}
 }
 
-// Call posts a JSON-RPC request to host (daemon or wallet) and decodes the result into out.
+// Call posts a JSON-RPC request to host and decodes the result into out. It sends no login of its own: use it for
+// the daemon, and WalletCall for a wallet.
 func Call(host, method string, params interface{}, out interface{}) error {
+	return call(host, method, params, out, false)
+}
+
+// WalletCall is Call for a wallet: it sends the login in VEIL_RPC_LOGIN as HTTP basic auth when the variable is set.
+// A host written user:password@host keeps its own login, which Go's client sends instead.
+func WalletCall(host, method string, params interface{}, out interface{}) error {
+	return call(host, method, params, out, true)
+}
+
+func call(host, method string, params interface{}, out interface{}, wallet bool) error {
 	body := map[string]interface{}{"jsonrpc": "2.0", "id": "1", "method": method}
 	if params != nil {
 		body["params"] = params
 	}
 	b, _ := json.Marshal(body)
-	resp, err := http.Post("http://"+host+"/json_rpc", "application/json", bytes.NewReader(b))
+	// url.Parse's error quotes the whole URL, login included, so it is not passed on
+	req, err := http.NewRequest(http.MethodPost, "http://"+host+"/json_rpc", bytes.NewReader(b))
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %s is not a host:port address", method, redact(host))
+	}
+	req.Header.Set("Content-Type", "application/json")
+	loginFrom := ""
+	if req.URL.User != nil {
+		loginFrom = "the wallet address" // the client sends it itself
+	} else if wallet {
+		user, pass, set, err := walletLogin()
+		if err != nil {
+			return fmt.Errorf("%s: %w", method, err)
+		}
+		if set {
+			req.SetBasicAuth(user, pass)
+			loginFrom = LoginEnv
+		}
+	}
+	resp, err := http.DefaultClient.Do(req) // the default client: verifydeploy sets its timeout
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err // the url.Error repeats the URL; the host is named once, without its login
+		}
+		return fmt.Errorf("%s: %s: %v", method, redact(host), err)
 	}
 	defer resp.Body.Close()
+	// derod and the wallet answer a JSON-RPC error with 200 (jrpc2's jhttp bridge). A 401 is the wallet's
+	// "Authorization Required" (walletapi/rpcserver/rpc_websocket_server.go); any other status is not a reply to
+	// read, and its body is not repeated.
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized && loginFrom == "":
+		return fmt.Errorf("%s at %s: %w: no login was sent, and the wallet asks for one; set %s", method, redact(host), ErrLoginRefused, LoginEnv)
+	case resp.StatusCode == http.StatusUnauthorized:
+		return fmt.Errorf("%s at %s: %w: the login in %s is not the one the wallet was started with", method, redact(host), ErrLoginRefused, loginFrom)
+	case resp.StatusCode != http.StatusOK:
+		return fmt.Errorf("%s at %s: HTTP %d, not a JSON-RPC reply", method, redact(host), resp.StatusCode)
+	}
 	var env struct {
 		Result json.RawMessage `json:"result"`
 		Error  *rpcErr         `json:"error"`
@@ -80,7 +189,7 @@ func Address(wallet string) string {
 	var r struct {
 		Address string `json:"address"`
 	}
-	Must(Call(wallet, "GetAddress", nil, &r))
+	Must(WalletCall(wallet, "GetAddress", nil, &r))
 	return r.Address
 }
 
@@ -93,7 +202,7 @@ func Balance(wallet, scid string) uint64 {
 	if scid != "" {
 		params["scid"] = scid
 	}
-	Must(Call(wallet, "GetBalance", params, &r))
+	Must(WalletCall(wallet, "GetBalance", params, &r))
 	return r.Balance
 }
 
@@ -130,7 +239,7 @@ func WalletHeight(wallet string) int64 {
 	var r struct {
 		Height int64 `json:"height"`
 	}
-	Must(Call(wallet, "GetHeight", nil, &r))
+	Must(WalletCall(wallet, "GetHeight", nil, &r))
 	return r.Height
 }
 
@@ -177,7 +286,7 @@ func (c *Client) WaitTx(txid string, wallets ...string) int64 {
 	for _, w := range wallets {
 		for WalletHeight(w) < height+1 {
 			if time.Now().After(deadline) {
-				log.Fatalf("wallet %s did not sync to %d", w, height+1)
+				log.Fatalf("wallet %s did not sync to %d", redact(w), height+1)
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
@@ -232,7 +341,7 @@ func (c *Client) Send(wallet, signer, code, scid string, xfers []Transfer, scRPC
 	var r struct {
 		TXID string `json:"txid"`
 	}
-	Must(Call(wallet, "transfer", params, &r))
+	Must(WalletCall(wallet, "transfer", params, &r))
 	height := c.WaitTx(r.TXID, append([]string{wallet}, wait...)...)
 	if code != "" {
 		if st := c.GetSC(r.TXID, true); st.Code != code {
@@ -250,7 +359,7 @@ func (c *Client) SendWithFee(wallet, signer, scid string, xfers []Transfer, scRP
 	var r struct {
 		TXID string `json:"txid"`
 	}
-	Must(Call(wallet, "transfer", params, &r))
+	Must(WalletCall(wallet, "transfer", params, &r))
 	height := c.WaitTx(r.TXID, append([]string{wallet}, wait...)...)
 	return r.TXID, height
 }
