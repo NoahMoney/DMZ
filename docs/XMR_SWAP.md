@@ -735,9 +735,10 @@ Primary, read for this page (fetch dates as noted; the derohe files are the vend
   Alice spending the lock's input again; every txid, block hash and balance, and what each companion did.
 - `research/regtest/xmrswap-cli.log` — the `xmrswap` command line as two processes on regtest and the simulator, with
   `-monerod`, logins and the channel key from the environment, the witness check and the recovery card and wake;
-  interrupted after Alice's Claim was mined, by a stall of the companion's own (every state save's `icacls` failed),
-  to be run again. Fixed: the owner-only ACL (GAP-020) is now set through the Windows API, with no program started
-  (`tools/xmrswap/acl_windows.go`; `TestOwnerOnlyACLStartsNoProgram`, which runs with nothing reachable on PATH).
+  run 2 (2026-09-12, on the restored simulator, `-htlc` taken from the record) went through Bob's sweep. Run 1 was
+  interrupted after Alice's Claim by a stall of the companion's own — every state save's `icacls` failed once the
+  console the companions had inherited was gone — fixed by setting the owner-only ACL (GAP-020) through the Windows
+  API, with no program started (`tools/xmrswap/acl_windows.go`; `TestOwnerOnlyACLStartsNoProgram`).
 - `research/regtest/xmrswap-scan.log` — the joint wallet's restore and scan times on the regtest wallet-rpc (MT-B13).
 - `docs/CROSS_CHAIN_TRUST_MODEL.md` §5 — a lying node that colludes with the counterparty costs a whole leg.
 - monero-project/monero `src/cryptonote_config.h` (fetched 2026-09-08) — `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE 10`,

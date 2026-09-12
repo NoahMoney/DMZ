@@ -82,6 +82,20 @@ func TestWakeRegistrationSaysWhyWhereThereIsNone(t *testing.T) {
 	}
 }
 
+// TestRemovingAWakeThatIsNotThereIsNoError (MT-B15): a finished swap removes its wake, and the maker, who registers
+// none, removes one that was never there; that is no error. It only reads the scheduler. (In the command-line run of
+// 2026-09-12 the maker was told to delete a task that never existed: Unregister-ScheduledTask fails on a missing name.)
+func TestRemovingAWakeThatIsNotThereIsNoError(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the Task Scheduler is Windows'")
+	}
+	var id [6]byte
+	_, _ = rand.Read(id[:])
+	if err := UnregisterWake(WakeTaskName("never-registered-" + hex.EncodeToString(id[:]))); err != nil {
+		t.Fatalf("removing a wake that is not there: %v", err)
+	}
+}
+
 // TestRegisterWakeOnThisOS (MT-B15): the real registration on this machine, made, found with its wake setting, and
 // removed. It adds a task to the machine's scheduler for a moment, so it runs only with XMRSWAP_TEST_WAKE=1.
 func TestRegisterWakeOnThisOS(t *testing.T) {
@@ -108,6 +122,9 @@ func TestRegisterWakeOnThisOS(t *testing.T) {
 	}
 	if err := UnregisterWake(name); err != nil {
 		t.Fatal(err)
+	}
+	if err := UnregisterWake(name); err != nil {
+		t.Fatalf("removing the wake a second time, when it is already gone: %v", err)
 	}
 	if runtime.GOOS == "windows" {
 		if out, _ := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",

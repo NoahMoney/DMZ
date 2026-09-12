@@ -104,7 +104,12 @@ func RegisterWake(at time.Time, name, command string) (string, error) {
 func UnregisterWake(name string) error {
 	switch runtime.GOOS {
 	case "windows":
-		script := fmt.Sprintf("Unregister-ScheduledTask -TaskName %s -Confirm:$false -ErrorAction SilentlyContinue", psQuote(name))
+		// Only a task that is there is removed: Unregister-ScheduledTask fails on a name it does not find, whatever
+		// -ErrorAction says, and the maker, who registers no wake, would be told to delete a task that never existed.
+		// The trailing `exit 0` is needed because Get-ScheduledTask's own suppressed "not found" error leaves
+		// powershell.exe with exit 1 even when the removal is skipped; a real removal failure still throws first
+		// (-ErrorAction Stop), so it never reaches the exit and is reported.
+		script := fmt.Sprintf("$t = Get-ScheduledTask -TaskName %s -ErrorAction SilentlyContinue; if ($t) { $t | Unregister-ScheduledTask -Confirm:$false -ErrorAction Stop }; exit 0", psQuote(name))
 		if out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput(); err != nil {
 			return fmt.Errorf("Unregister-ScheduledTask: %v: %s", err, strings.TrimSpace(string(out)))
 		}
