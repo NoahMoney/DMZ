@@ -109,12 +109,12 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
     if (!r) {
       // Nine cells in the order the heads name them: # · market · vol · liquidity · FDV · trend · price · change.
       // .mcol cells exist only on the desktop grid, .msub cells only on the phone, where the row folds to two lines.
-      const parts = { rank: h("span", { class: "rank" }), name: h("b", { class: "ellipsis" }), sub: h("div", { class: "sub tiny ellipsis num msub" }), nm: h("div", { class: "sub tiny ellipsis mcol", style: "text-align:left;flex:1;min-width:0" }), badges: h("div", { class: "badges" }), star: h("span", { class: "starbox" }), spark: h("div", { class: "sp" }), price: h("div", { class: "num price" }), chg: h("div", { class: "msub" }), chgcol: h("div", { class: "mcol", style: "width:70px" }), vol: h("div", { class: "mcol" }), liq: h("div", { class: "mcol" }), mcap: h("div", { class: "mcol" }),
+      const parts = { rank: h("span", { class: "rank" }), name: h("b", { class: "ellipsis" }), sub: h("div", { class: "sub tiny ellipsis num msub" }), nm: h("div", { class: "sub tiny ellipsis mcol", style: "text-align:left;flex:1;min-width:0" }), badges: h("div", { class: "badges" }), star: h("span", { class: "starbox" }), spark: h("div", { class: "sp mtrend" }), price: h("div", { class: "num price" }), chg: h("div", { class: "msub" }), chgcol: h("div", { class: "mcol", style: "width:70px" }), vol: h("div", { class: "mcol" }), liq: h("div", { class: "mcol" }), mcap: h("div", { class: "mcol mfdv" }),
         // the split-pair band: a tenth child that spans every column of the row's grid on both the phone and the
         // desktop layout, so the warning is the width of the row and cannot be mistaken for one more column.
         // display:none while there is nothing to say — a hidden grid child is not a grid item, so it adds no row.
         dup: h("div", { class: "tiny", style: "grid-column:1/-1;display:none;margin:3px 0 0;padding-left:8px;border-left:2px solid var(--warn);color:var(--fg2);white-space:normal;line-height:1.4" }) };
-      const el = h("button", { class: "mrow", type: "button", onclick: () => router.go("token", s.scid) },
+      const el = h("button", { class: "mrow mkt", type: "button", onclick: () => router.go("token", s.scid) },
         parts.rank, avatar(s, "sm"), h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, parts.name, parts.badges, parts.nm, parts.star), parts.sub),
         parts.vol, parts.liq, parts.mcap, parts.spark, h("div", { class: "right" }, parts.price, parts.chg), parts.chgcol, parts.dup);
       r = { el, parts }; rows.set(s.scid, r);

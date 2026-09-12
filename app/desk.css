@@ -62,6 +62,13 @@
   .mrow .msub{display:none}
   .mrow .sp{width:74px;height:22px}
   .mrow .starbox{margin-left:6px}
+  /* 960-1179: FDV and the trend column give way so the market's name has room (MT-D12: at 1024 the name column sat
+     at its minimum and names read "E.."); both come back at 1180 */
+  .mcols-head{grid-template-columns:26px 32px minmax(110px,1fr) repeat(2,minmax(62px,108px)) minmax(80px,120px) 64px}
+  .mcols-head>:nth-child(6),.mcols-head>:nth-child(7){display:none}
+  .mrow.mkt{grid-template-columns:26px 32px minmax(110px,1fr) repeat(2,minmax(62px,108px)) minmax(80px,120px) 64px}
+  .mlist.compact .mrow.mkt{grid-template-columns:26px 26px minmax(110px,1fr) repeat(2,minmax(62px,108px)) minmax(80px,120px) 64px}
+  .mrow.mkt .mfdv,.mrow.mkt .mtrend{display:none}
   .stats3 .stat .v{font-size:17px}
   .pulse-row .big{font-size:44px}
 }
@@ -76,5 +83,10 @@
   .tk-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(330px,420px);gap:0;align-items:start}
   .tk-side{position:sticky;top:74px;max-height:calc(100vh - 88px);overflow:auto;padding-left:28px;margin-left:28px;border-left:1px solid var(--edge);scrollbar-width:thin}
   .nft-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,380px);gap:28px;align-items:start}
+  .mcols-head{grid-template-columns:26px 32px minmax(110px,1fr) repeat(3,minmax(62px,108px)) 74px minmax(80px,120px) 64px}
+  .mcols-head>:nth-child(6),.mcols-head>:nth-child(7){display:block}
+  .mrow.mkt{grid-template-columns:26px 32px minmax(110px,1fr) repeat(3,minmax(62px,108px)) 74px minmax(80px,120px) 64px}
+  .mlist.compact .mrow.mkt{grid-template-columns:26px 26px minmax(110px,1fr) repeat(3,minmax(62px,108px)) 74px minmax(80px,120px) 64px}
+  .mrow.mkt .mfdv,.mrow.mkt .mtrend{display:block}
 }
 @media (min-width:1400px){.carousel{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}}
