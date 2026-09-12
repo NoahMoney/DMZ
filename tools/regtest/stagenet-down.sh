@@ -28,6 +28,9 @@ fi
 stop_winpid stagenet-monerod
 
 if [ "$WIPE" = 1 ]; then
-	rm -rf "$SDIR/chain" "$SDIR/progress.tsv"
+	# the chain is on WSL's ext4 since 2026-09-12 (stagenet-up.sh); an older one may still sit on the 9p mount
+	WHOME="$(wsl_exec printenv HOME | tr -d '\r')"
+	wsl_exec rm -rf "$WHOME/.dmz-regtest/stagenet"
+	rm -rf "$SDIR/chain" "$SDIR/chain.old-9p" "$SDIR/progress.tsv"
 	say "stagenet chain deleted"
 fi
