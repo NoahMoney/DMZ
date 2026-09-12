@@ -230,9 +230,9 @@ test("LIV-04: the burn names the wallet that signs it, and no other address can 
 });
 
 // ---- FEE-05 -------------------------------------------------------------------------------------------------
-// app/notice.js is the page the app declares authoritative and no other surface may contradict it: the share is
-// of the DERO fees the treasury claims, deposited by a bot no contract obliges, and a fee earned in a wrapped
-// asset reaches no holder. Three screens said something stronger and unconditional.
+// app/notice.js is the page the app declares authoritative and no other surface may contradict it: the share is of
+// the fees the treasury claims, each paid in the asset it was taken in (founders.bas v2), deposited by a bot no
+// contract obliges. Three screens once said something stronger and unconditional.
 test("FEE-05: no screen promises a share of every protocol fee", () => {
   // notice.js says the treasury "Receives every protocol fee", which is true of the treasury and is not a claim
   // about the pass; the two screens that sell the pass are the ones under test.
@@ -241,8 +241,8 @@ test("FEE-05: no screen promises a share of every protocol fee", () => {
     for (const bad of [/every protocol fee/i, /protocol fees claimed from every market/i]) assert.doesNotMatch(s, bad, f + " contradicts app/notice.js");
   }
   const n = src("nfts.js");
-  // the sentence that sits above the mint button names the asset the share is paid in, and what is not shared
-  assert.match(n, /DERO trading fees the treasury claims/);
-  assert.match(n, /wrapped asset[^"]*reach no holder/i);
-  assert.match(src("home.js"), /% of claimed DERO fees/);
+  // the sentence that sits above the mint button says what the share is paid in, and the ledger what is not shared
+  assert.match(n, /fees the treasury claims, each paid in the asset it was taken in/);
+  assert.match(n, /Fees from NFA sales reach no holder/);
+  assert.match(src("home.js"), /% of claimed fees, paid in each fee's asset/);
 });

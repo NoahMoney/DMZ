@@ -24,7 +24,7 @@
     "daemon": "127.0.0.1:20000",
     "factory": "8e70572e6277a2ab71ef627ed63da5ed4a66815f31354b6a9aad96f5a2367ecc",
     "social": "dca7c31bf5acfb10315cb295edcc00c915b313c4c940b302372e2e7ac7f73d8a",
-    "founders": "c0664f3e8cad8d3125a565bcc52998ce996348803977b4d3ff9707a85bef7afd",
+    "founders": "c588e98ec905c5861bc5b94c2e9fcc7eee985e350b1b602c40be562646b3e09f",
     "vault": "e136e851f1068f631828d8c25e43b0ee5f273f50df05d878ca15eb1863cc36f7",
     "vaults": [
       {
@@ -56,12 +56,8 @@
     "launchPfeeBps": 5000,
     "templates": {
       "founders": {
-        "sha256": "49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a",
-        "legacy": [
-          "8afd70fb733627964d7ebc8f78427d667a7e94fd501491f4c706f1033d8e36c9",
-          "c096e0c253a7e27ae4fdaaae3bc576a590bd18571383c132f71a7770f789a412",
-          "fd0e1e28d229c9e58b8304b5eb315c6118d5273e94d278a58020fc8adb1c2aeb"
-        ]
+        "sha256": "348f872ed49ec218f361c4a70a5f6cd96ada38c3d3d8a0b960fba473c02746d3",
+        "legacy": null
       },
       "launch": {
         "sha256": "ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4",

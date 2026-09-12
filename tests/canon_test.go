@@ -10,9 +10,9 @@ import (
 )
 
 // contractFiles lists every contract the suite reads for its static checks: contracts/*.bas, and one directory level
-// below it, where a new version waits until it is adopted (contracts/v2/founders.bas; docs/FOUNDERS_V2_NOTES.md). The
-// tools glob contracts/*.bas only (tools/verifydeploy roleTable, srchash, release), so a version kept in a subdirectory
-// is tested here without being taken for a deployed contract there.
+// below it, where a new version may wait until it is adopted (founders.bas v2 waited in contracts/v2/ until 2026-09-13;
+// docs/FOUNDERS_V2_NOTES.md). The tools glob contracts/*.bas only (tools/verifydeploy roleTable, srchash, release), so
+// a version kept in a subdirectory is tested here without being taken for a deployed contract there.
 func contractFiles() ([]string, error) {
 	top, err := filepath.Glob("../contracts/*.bas")
 	if err != nil {
@@ -22,7 +22,7 @@ func contractFiles() ([]string, error) {
 	return append(top, sub...), err
 }
 
-// contractName is a contract's path under contracts/, with forward slashes: "founders.bas", "v2/founders.bas".
+// contractName is a contract's path under contracts/, with forward slashes: "founders.bas", or "v2/x.bas" below it.
 func contractName(path string) string {
 	if rel, err := filepath.Rel("../contracts", path); err == nil {
 		return filepath.ToSlash(rel)

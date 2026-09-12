@@ -127,8 +127,8 @@ try {
     await sleep(900); await shot("02-" + tab);
     const tt = await text();
     // FEE-05: app/notice.js is the app's authoritative page and no screen may say something stronger than it.
-    // The pass earns a share of the DERO fees the treasury claims and deposits; fees earned in a wrapped asset
-    // reach no holder, and no contract obliges the deposit. "Every protocol fee" is the claim that broke that.
+    // The pass earns a share of the trading fees the treasury claims, each in the asset it was taken in, and no
+    // contract obliges the deposit. "Every protocol fee" is the claim that broke that.
     if (tab === "nfts") {
       for (const bad of [/every protocol fee/i, /fees claimed from every market/i]) if (bad.test(tt)) fail("the NFTs screen states " + bad + ", which app/notice.js contradicts: " + tt.slice(0, 240));
       if (!/DERO/.test(tt)) fail("the NFTs screen never names the asset the pass share is paid in: " + tt.slice(0, 240));

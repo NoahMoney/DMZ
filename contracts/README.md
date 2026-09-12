@@ -16,8 +16,7 @@ transaction. It moves a little with the install arguments, so each figure names 
 | `board.bas` v3 | 6,602 | 2,611 | 2,652 | — | `board_test.go`, `board_v3_test.go` |
 | `chat.bas` | 2,401 | 1,146 | 1,315–1,320 (fee and `maxlen` vary) | — | `chat_test.go` |
 | `factory.bas` v2 | 3,452 | 1,443 | 1,680 (`regfee` 10,000) | — | `registry_test.go` |
-| `founders.bas` | 12,637 | 10,398 | 10,795–10,804 | — | `founders_test.go`, `founders_attack_test.go` |
-| `v2/founders.bas`, not yet adopted (2026-09-13) | 15,858 | 9,250 | 10,221 at the mainnet shape; 11,144 with every header at its maximum | 3,765,000 | `founders_v2_test.go` `TestFoundersV2InstallGas` |
+| `founders.bas` v2 (adopted 2026-09-13) | 15,884 | 9,250 | 10,221 at the mainnet shape; 11,144 with every header at its maximum | 3,765,000 | `founders_test.go` `TestFoundersV2InstallGas` |
 | `htlc.bas` v3 | 11,206 | 5,104 | 5,168–5,180: 5,169 at `w1min` 2, `w2min` 1, `g2` 50; 5,177 at 400, 400, 2,400 | — | `htlc_test.go`, `htlc_v3_test.go` |
 | `launch.bas` | 17,074 | 15,257 | 15,842–15,891; **16,915** with every metadata field at its maximum | 1,193,400–1,517,200 | `launch_test.go`; `zzquote_test.go` `TestLaunchMaxMetadataInstallGas` |
 | `nfa.bas` | 24,234 | 14,937 | 15,874–15,877 DERO-quoted; 15,940–15,942 wrapped | 1,045,800 DERO-quoted; 1,066,600 wrapped | `nfa_test.go` |
@@ -31,8 +30,7 @@ The byte counts are `TestEveryContractFitsTheInstallGasCapAsInstalled` (`tests/c
 is under the cap. The closest is `launch.bas` with every metadata field at its maximum, 3,085 units below it, and next
 `vault.bas`, 3,642 below. Per call, in the same run: an `htlc.bas` Claim
 takes 304 storage and 537,800 compute gas, a Reclaim 231 and 434,600, a Punish 90 and 322,200 (`htlc_test.go`,
-`htlc_v3_test.go`, `htlc_v2_test.go`); a founders `PayBatch` of 15 holders 620 and 6,814,600
-(`founders_attack_test.go`). Re-measure with `DERO.GetGasEstimate` before deploying rather than trusting a table.
+`htlc_v3_test.go`, `htlc_v2_test.go`); the founders v2 calls are tabled in its section below. Re-measure with `DERO.GetGasEstimate` before deploying rather than trusting a table.
 
 Worst-case compute gas seen in fuzzing (limit 10 000 000 per call): AddLiquidity 1.72 M, Unstake 1.78 M, Stake 1.69 M,
 launch Buy 1.61 M, pool swaps 1.06 M.
@@ -232,63 +230,21 @@ owner's `Start` / `CloseListing` / `CancelListing`. The treasury receives and co
 repair ran into: a key `DELETE`d earlier in a call makes a later `EXISTS` or `LOAD` of it in the same call panic
 (`dvm_store.go` 81-98), so no function may look a key up after deleting it.
 
-## founders.bas — Founders Pass
+## founders.bas — Founders Pass (v2: per-asset pools)
 
-A fixed-edition NFT (the contract's own asset, 0 decimals) whose *registered* holders receive a share of the
-exchange's fees in DERO. Entrypoints:
-
-| Entry | Who | What |
-|---|---|---|
-| `Mint(n)` | anyone, ringsize 2 | from block `start`, exactly `n × price` DERO; `n` passes to the caller, DERO to the treasury |
-| `Register()` | holder | passes sent with the call start earning (registry `h_<i>`, `hi_`, `hu_`, `hd_`) |
-| `Withdraw(u)` | holder | settles rewards, returns `u` passes; leaving compacts the registry (swap-delete) |
-| `Claim()` | holder | sends pending rewards to the wallet |
-| `Deposit()` | anyone | DERO for the holders (the treasury deposits its promised `share`); O(1) |
-| `Distribute()` | anyone | releases DERO that arrived while nobody was registered |
-| `PayBatch(from, n ≤ 15)` | anyone | pushes pending rewards to registered wallets `from..from+n-1` |
-| `List(price)` / `Unlist(id)` / `Buy(id, n)` | holders / buyers | fixed-price marketplace, `mfee` bps of each sale to the holders |
-
-Maths: `acc` accumulates `floor(pool·2^32 / hst)` per distribution; the pool shrinks by `ceil(inc·hst / 2^32)`; a
-holder's pending reward is `floor(hu·(acc − hd) / 2^32)`, capped at `rpool`. Invariant: contract DERO ==
-`rpool + und`. Nothing is released while fewer than `minhst = 1 + ⌊maxsupply/50⌋` units are registered (about 2 %
-of the editions): DERO that arrives earlier waits in `und`, so the first registrant of one unit cannot sweep what
-accrued before anyone held the pass (2026-09-06). Tested in `tests/founders_test.go` (rules, gas, 3 000-step
-randomised run against a big.Int model).
-
-No function in `founders.bas` is privileged: the installer's only advantage is the `reserve` editions minted to it
-at install, the treasury only receives `Mint` proceeds, and `Deposit`, `Distribute` and `PayBatch` are open to anyone.
-
-**Open, and deliberately not changed on 2026-09-11** (FINDINGS_2026-09-10 FEE-01, FEE-02): at 20 editions `minhst`
-is 1, so the floor is void and the first single registrant takes everything waiting in `und`; and at any size `und`
-carries no time weighting, so whoever registers the stake that crosses the floor shares the whole backlog. Every
-repair needs a distribution-policy choice the finding does not make:
-(a) delete the floor and refuse `Deposit` while `hst` is 0 — but `Buy` fees still reach `und` at `hst` 0 (a rule is
-needed for them), the treasury must then hold fees until the first registration and the first registrant takes that
-backlog when it is deposited, and `tools/treasurybot` and `app/founders.js` read `minhst`;
-(b) a floor that is a fraction of *minted* supply, evaluated at `distribute` — the fraction is the choice, and the
-crossing stake still shares the backlog;
-(c) time weighting — release `und` over N blocks after the floor is crossed, or a registration lock of L blocks
-before a unit earns (which also closes the just-in-time case, P7-11) — N or L is the choice, at the cost of storage
-and `settle` gas (`PayBatch` settles 15 holders at about 0.41 M compute each);
-(d) no contract change: the deployment keeps the treasury from depositing before a meaningful stake is registered —
-which makes the operator the party trusted to be fair.
-
-## founders.bas v2 — per-asset pools (`contracts/v2/founders.bas`, not yet adopted)
-
-Built 2026-09-13 on the operator's rulings of that day:
+A fixed-edition NFT (the contract's own asset, 0 decimals) whose *registered* passes share what is deposited for
+them, each deposit in the asset it was made in. v2 replaced v1 here on 2026-09-13; git keeps v1 (one DERO pool, a
+2^32-scaled accumulator with eras, `Distribute`, `PayBatch` and the `minhst` floor). v2 was built on the operator's
+rulings of that day:
 - every fee is taken in the asset being traded, and the passes are paid in that asset, never converted to DERO;
-- the 0.5 % swap fees are taken in XMR and ZEC off the DERO chain, and the treasury's bot pays holders their share of
-  them directly;
-- the bot deposits with any number of registered passes (MT-J14);
+- the 0.5 % swap fees are to be taken in XMR and ZEC off the DERO chain, and the treasury's bot is to pay holders
+  their share of them directly. That is not built yet, because no XMR or ZEC fee is collected yet;
+- the bot deposits with any number of registered passes (MT-J14). While none is registered, it holds what it owes
+  and deposits it after one registers (`tools/treasurybot`);
 - 20 editions, 4 reserved.
 
-It closes MT-K01/MT-K04 (per-asset pools), and FEE-01 and FEE-02 with them.
-
-**Where it is.** The file sits in a subdirectory until it is adopted. `contracts/founders.bas` (v1) is pinned by
-`app/templates/founders.bas`, `app/config.js`, `tools/verifydeploy/roles.go` and `tools/simdeploy`, and every tool
-that globs `contracts/*.bas` would take a second top-level founders file for a deployed contract. The suite's static
-checks read `contracts/*/*.bas` too (`tests/canon_test.go` `contractFiles`). What adoption changes, in the tools, the
-app and the runbook: `docs/FOUNDERS_V2_NOTES.md`.
+It closes MT-K01/MT-K04 (per-asset pools), and FEE-01 and FEE-02 with them. What the adoption changed in the tools,
+the app and the runbook, and what is still to do: `docs/FOUNDERS_V2_NOTES.md`.
 
 **Canonical sha256:** `348f872ed49ec218f361c4a70a5f6cd96ada38c3d3d8a0b960fba473c02746d3` (`reference.Canon`, 9,250
 installed bytes; pinned by `TestFoundersV2CanonicalHash`).
@@ -404,7 +360,7 @@ Invariants, tested after every fuzz step:
 **Install.** Storage gas is 10,221 at the mainnet shape (the approved 227-byte description, no image) and 11,144 with
 every header at its maximum, against the 20,000 cap. Compute gas is 3,765,000 (`TestFoundersV2InstallGas`).
 
-**Tests:** `tests/founders_v2_test.go`:
+**Tests:** `tests/founders_test.go` (v1's tests went with v1; the v2 names are kept):
 - `TestFoundersV2PerAssetShares`: DERO and two tokens, registrations and withdrawals between deposits, every payout
   worked by hand;
 - `TestFoundersV2ConservationFuzz`: seeded; per asset, accepted = claimed + held after every accepted and refused

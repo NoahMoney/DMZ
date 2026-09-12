@@ -1,24 +1,69 @@
 # Founders Pass v2: what adopting it changes
 
-`contracts/v2/founders.bas` implements the operator's rulings of 2026-09-13 (per-asset pools; fees paid to holders in
-the asset they were taken in; XMR and ZEC shares paid by the treasury's bot to addresses the holders store; the bot
-deposits with any number of registered passes; 20 editions, 4 reserved). Its design, maths and tests are in
-`contracts/README.md`, "founders.bas v2". This page lists what the tools, the app and the runbook must change before
-v2 replaces v1. None of it is done here: `tools/` and `app/` are being edited in other worktrees, and the adoption
-comes after they merge.
+founders.bas v2 implements the operator's rulings of 2026-09-13 (per-asset pools; fees paid to holders in the asset
+they were taken in; XMR and ZEC shares paid by the treasury's bot to addresses the holders store; the bot deposits
+with any number of registered passes; 20 editions, 4 reserved). Its design, maths and tests are in
+`contracts/README.md`, "founders.bas". This page listed what the tools, the app and the runbook had to change for v2
+to replace v1; the status below says what is done.
 
-**Why v2 is in `contracts/v2/`.** `contracts/founders.bas` is v1, and three things pin it as it is:
+## Status: adopted 2026-09-13 (branch `founders-wire`)
+
+v2 is `contracts/founders.bas`, and `contracts/v2/` is gone. Section by section:
+- **§1, done.** The move; the template and the `app/config.js` pin (`348f872e…`); the tests (v1's retired, v2's on
+  `founders.bas`, the parse, canon, send-order and helper-entrypoint pins). The founders template keeps no legacy
+  hash: simdeploy drops the old one and refuses `-legacy founders:…`, and the app shows a pass only when its storage
+  says `v` = 2, so a v1 pass is never read with v2's keys. **Not done:** `docs/audit/CONTRACT_REVIEW_PACKAGE.md`
+  still describes v1 (§1.1, §3.9).
+- **§2, done for DERO and DERO tokens.**
+  - The bot claims both legs of every market, whatever its quote, and keeps a journal per asset (layout `v` 2; a
+    v1 journal with records in it is refused, not converted).
+  - It deposits `share` bps of each asset with `Deposit(asset)` and reconciles against `ad_<i>`.
+  - While no pass is registered it holds everything and deposits it after one registers (§8's first question,
+    answered).
+  - No `Distribute`, no `PayBatch`, no `minhst` wait, and the bot pushes no `Claim`.
+  - Two limits of the counters. A claim is sent only when the quote leg holds something, since only `fc` proves a
+    claim. The asset leg is counted at the `fa` read before the send, since no counter exists for it, so asset-leg
+    fees arriving in the blocks the claim waits for reach the treasury uncounted.
+  - **Not done: the XMR and ZEC payouts** (period snapshots, address validation, payment records). No XMR or ZEC fee
+    is collected yet. The TODO is at `sweep` in `tools/treasurybot/main.go`.
+- **§3, done.**
+  - simdeploy: the operator's numbers as defaults, the approved description, v2's install refusals checked before
+    anything is paid.
+  - verifydeploy: v2's lines; `creator` inert; the treasury a payee of mint proceeds only; the numbers and `v` read
+    from storage; a payout-address row; no `minhst`.
+  - testnetcheck needed no change (it sends Mint and Register only).
+- **§4, done.**
+  - Per-position, per-asset claims, with the hints found by binary search.
+  - Withdraw by position and count.
+  - The payout-address form.
+  - The v1 buttons are gone.
+  - Only DERO and tokens with a DMZ market are shown.
+  - `notice.js`.
+- **§5.**
+  - Done: the runbook's founders flags, the bot's lines, and `deploy/networks.json`, which records the simulator's
+    v2 pass. `docs/MAINNET_TODO.md` MT-K04, MT-K05, MT-E11 and X-29 are updated.
+  - Not done here: MT-K02's swap fee, which is `tools/xmrswap` and `tools/zecswap`'s.
+- **§6.**
+  - Run: the DVM suite, the tool tests, verifydeploy against the simulator record, and both UI passes.
+  - Not yet driven on the simulator: the on-chain flow (the bot depositing a token, claims from the app, the payout
+    addresses).
+- **§8, answered by the operator.**
+  - Fees collected with no pass registered are held by the bot and paid in the first deposit after one registers.
+  - A sale with no pass registered pays its whole price to the seller, as the contract does.
+  - The app shows only tokens with a DMZ market.
+
+**Why v2 waited in `contracts/v2/`** until its adoption. `contracts/founders.bas` was v1, and three things pinned it:
 - `tests/templates_test.go` requires `app/templates/founders.bas` to be `Canon(contracts/founders.bas)`, with the
   sha256 in `app/config.js`;
 - `tools/verifydeploy/roles.go` cites v1's lines;
 - `tools/simdeploy/passheaders_test.go` reads v1's install checks.
 
-A new top-level file would also break `tools/verifydeploy` `TestRoleKinds`, which wants a role-table entry for every
-`contracts/*.bas`. The suite's static checks (`canon_test.go`, `sendorder_test.go`) now read `contracts/*/*.bas` as
-well, so v2 is held to every rule the deployed contracts are held to.
+A second top-level file would also have broken `tools/verifydeploy` `TestRoleKinds`, which wants a role-table entry for every
+`contracts/*.bas`. The suite's static checks (`canon_test.go`, `sendorder_test.go`) read `contracts/*/*.bas` as
+well, so v2 was held to every rule the deployed contracts are held to.
 
 Canonical sha256 of v2, `reference.Canon`: **`348f872ed49ec218f361c4a70a5f6cd96ada38c3d3d8a0b960fba473c02746d3`**
-(9,250 installed bytes; pinned by `tests/founders_v2_test.go` `TestFoundersV2CanonicalHash`). Install storage gas
+(9,250 installed bytes; pinned by `tests/founders_test.go` `TestFoundersV2CanonicalHash`). Install storage gas
 measured: 10,221 at the mainnet shape (the 227-byte description, no image), 11,144 with every header at its maximum,
 against the 20,000 cap.
 
@@ -180,7 +225,7 @@ for `minhst` (MT-K05). For v2:
 
 ## 6. The test plan
 
-- The DVM suite as it stands covers the contract (`tests/founders_v2_test.go`):
+- The DVM suite covers the contract (`tests/founders_test.go`):
   - hand-worked shares in DERO and two tokens across registrations and withdrawals;
   - a seeded fuzz with per-asset conservation after every accepted and refused call;
   - flat gas against assets and holders;

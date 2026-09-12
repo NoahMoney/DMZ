@@ -39,8 +39,11 @@
     ["This platform is completely unregulated. ", ["b", "Its creators hold no key that can spend what you hold on DERO."],
       noWrap() ? " The keys that do survive are named below. " + NOWRAP + " No federation holds a coin for anyone here."
         : " The keys that do survive, and the federation that holds the coins behind " + wrapped() + ", are named below."],
-    (share() ? share() + " of the DERO fees the treasury claims" : "A share of the DERO fees the treasury claims — the number is stored in the pass contract —") +
-      " is deposited for the Founders Pass holders. The treasury's own bot makes that deposit; no contract forces it." + (noWrap() ? "" : " Fees earned in a wrapped asset reach no holder today."),
+    (share() ? share() + " of the trading fees the treasury claims from DMZ markets" : "A share of the trading fees the treasury claims from DMZ markets — the number is stored in the pass contract —") +
+      " goes to the Founders Pass holders, each in the asset the fee was taken in, never converted to DERO. DERO and DERO tokens are deposited into the pass contract, where each registered pass claims its part. " +
+      "XMR and ZEC are paid by the treasury's bot to the payout address a holder stored; no swap fee is taken yet, so none is paid today. " +
+      "The bot makes every deposit and every XMR and ZEC payment, and no contract forces either. A deposit is shared by the passes registered when it is made. " +
+      "While no pass is registered nothing is deposited: the bot holds those fees and pays them in the first deposit after a pass registers.",
     ["Code is law. ", ["b", "The contracts are final."], " None of them has an update path. " +
       (fixedApp() ? "Nor has the app you read them through: its TELA INDEX was installed with no owner, so a new version would be a new INDEX, found separately; "
         : "The app you read them through can be republished under one key until that key is thrown away; ") +
@@ -90,7 +93,7 @@
           U.kv("Custody", noWrap() ? "none — no wrapped asset here, so no federation" : fed() + " federation holds the " + wrapped() + "; the vault contract cannot"),
           U.kv("Support", "none — nobody can act on your behalf"),
           U.kv("Moderation", "none — nothing posted can be removed"),
-          U.kv("Fees", (share() || "the contract's share") + (noWrap() ? " of claimed DERO fees to Pass holders" : " of claimed DERO fees to Pass holders; wrapped-asset fees to none")),
+          U.kv("Fees", (share() || "the contract's share") + " of claimed trading fees to Pass holders, each in its own asset; the treasury's bot pays it, and no contract forces it"),
           U.kv("Your keys", "never leave your wallet; this app cannot see them"),
           U.kv("Contracts", D.cfg.network + " · no update path in any of them"),
           U.kv("This app", fixedApp() ? "fixed: its TELA INDEX has no owner; a new version would be a new INDEX" : "republishable under the TELA INDEX key until it is discarded"),
@@ -99,7 +102,7 @@
         h("div", { class: "stack mt8" },
           factoryKey(),
           key("The treasury", "Receives every protocol fee: the trade fees anyone may claim from a market (they pay only the treasury), registration and chat fees, " +
-            "pass mints" + (noWrap() ? "" : ", slashed signer bonds and vault withdrawal fees") + ". It runs the bot that deposits the pass share, and nothing in a contract makes it."),
+            "pass mints" + (noWrap() ? "" : ", slashed signer bonds and vault withdrawal fees") + ". It runs the bot that deposits the pass share and is to pay the XMR and ZEC share, and nothing in a contract makes it."),
           fixedApp()
             ? key("The app publisher", "None. On mainnet the TELA INDEX that serves these files is installed at ring size 16, so its owner is recorded as \"anon\" " +
               "and no key can update it; tools/verifydeploy checks that on chain. A new version would be a new INDEX with its own id. Settings shows the commit you are running.")

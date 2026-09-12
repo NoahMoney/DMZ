@@ -92,6 +92,9 @@ type roleSpec struct {
 	// (TestRoleWriters holds Writers empty), so it is reported only for a contract whose state carries one of them:
 	// an older deployment is still recognised and judged, and a current one shows no such row.
 	Legacy bool
+	// Note names the writers of Keys when the key scanner cannot (a key built from a parameter, founders.bas setp's
+	// k + a): Writers is then empty, TestRoleWriters sees no writer either, and -roles prints this instead.
+	Note string
 }
 
 type kindSpec struct {
@@ -209,23 +212,49 @@ var roleTable = []kindSpec{
 		},
 	},
 	{
+		// founders.bas v2 (per-asset pools, 2026-09-13). No owner: nothing reads the creator, the treasury only
+		// receives Mint proceeds, and every number is written by InitializePrivate alone. Each row reads its value
+		// from the contract's storage. v1's minhst floor is gone, and no row looks for it.
 		Kind:  "founders",
-		About: "no owner: the treasury receives mint proceeds; everything else belongs to pass holders",
+		About: "no owner (v2): the treasury receives mint proceeds; each registered position claims its share of every deposit in the asset deposited; holders' XMR and ZEC payout addresses are data for the treasury's bot, which no contract obliges to pay",
 		Roles: []roleSpec{
 			{
 				Role: "creator", Keys: []string{"creator"}, Policy: pInert, Writers: []string{"InitializePrivate"},
-				Cites: []cite{c("founders.bas", 29, `STORE("creator", s)`)},
+				Cites: []cite{c("founders.bas", 73, `STORE("creator", s)`)},
 				Eval: func(v vars) (string, bool, string) {
 					return v.keyVal("creator"), false, "the installer, recorded at install; no function reads it (TestRoleReaders)"
 				},
 			},
 			payeeRole("treasury", "treasury", []string{"InitializePrivate"},
-				[]cite{c("founders.bas", 30, `STORE("treasury", t)`), c("founders.bas", 71, `SEND_DERO_TO_ADDRESS(LOAD("treasury"), cost)`)},
-				"receives mint proceeds (Mint, line 33); cannot act; fixed for ever"),
-			fixedRole("terms", []string{"share", "mfee", "price", "maxsupply", "start", "reserve"}, []string{"InitializePrivate"},
-				[]cite{c("founders.bas", 35, `STORE("share", share)`), c("founders.bas", 36, `STORE("mfee", mfee)`), c("founders.bas", 31, `STORE("price", price)`), c("founders.bas", 32, `STORE("maxsupply", maxsupply)`)},
-				"written only at install"),
-			initGuard("founders.bas", 13, guardText, 50, `STORE("initd", 1)`, "InitializePrivate"),
+				[]cite{c("founders.bas", 74, `STORE("treasury", t)`), c("founders.bas", 116, `SEND_DERO_TO_ADDRESS(LOAD("treasury"), cost)`)},
+				"receives mint proceeds (Mint, line 33) and nothing else; cannot act; fixed for ever"),
+			fixedRole("terms", []string{"v", "share", "mfee", "price", "maxsupply", "start", "reserve"}, []string{"InitializePrivate"},
+				[]cite{c("founders.bas", 72, `STORE("v", 2)`), c("founders.bas", 79, `STORE("share", share)`), c("founders.bas", 80, `STORE("mfee", mfee)`),
+					c("founders.bas", 75, `STORE("price", price)`), c("founders.bas", 76, `STORE("maxsupply", maxsupply)`), c("founders.bas", 77, `STORE("start", start)`),
+					c("founders.bas", 78, `STORE("reserve", reserve)`), c("founders.bas", 62, `reserve > maxsupply / 5`)},
+				"written only at install, inside InitializePrivate's bounds"),
+			{
+				// setp writes k + a with k a parameter, which the key scanner cannot name, so Writers is empty and the
+				// cites carry the writers: SetXmr and SetZec, each for its caller's own address, a registered holder's.
+				Role: "payout addresses", Keys: []string{"xm_*", "zc_*"}, Policy: pInert,
+				Note: "setp, called by SetXmr and SetZec for the caller's own address only",
+				Cites: []cite{c("founders.bas", 291, `setp("xm_", addr`), c("founders.bas", 295, `setp("zc_", addr`), c("founders.bas", 305, `LET a = ADDRESS_STRING(s)`),
+					c("founders.bas", 308, `EXISTS("hu_" + a) == 0`), c("founders.bas", 313, `STORE(k + a, x)`), c("founders.bas", 316, `DELETE(k + a)`)},
+				Eval: func(v vars) (string, bool, string) {
+					xm, zc := 0, 0
+					for k := range v {
+						switch {
+						case strings.HasPrefix(k, "xm_"):
+							xm++
+						case strings.HasPrefix(k, "zc_"):
+							zc++
+						}
+					}
+					return fmt.Sprintf("%d Monero, %d Zcash", xm, zc), false,
+						"data only: each written by its own holder (SetXmr, SetZec) and read by no function. The treasury's bot pays XMR and ZEC shares to them; no contract forces it"
+				},
+			},
+			initGuard("founders.bas", 56, guardText, 95, `STORE("initd", 1)`, "InitializePrivate"),
 		},
 	},
 	{
@@ -539,7 +568,11 @@ func printRoleTable(w io.Writer) {
 				fmt.Fprintf(w, "  %-15s cites %s\n", "", strings.Join(compactCites(r.Cites), "; "))
 				continue
 			}
-			fmt.Fprintf(w, "  %-15s %-10s keys %s; written by %s\n", r.Role, r.Policy, strings.Join(r.Keys, ", "), strings.Join(r.Writers, ", "))
+			by := strings.Join(r.Writers, ", ")
+			if r.Note != "" {
+				by = r.Note
+			}
+			fmt.Fprintf(w, "  %-15s %-10s keys %s; written by %s\n", r.Role, r.Policy, strings.Join(r.Keys, ", "), by)
 			fmt.Fprintf(w, "  %-15s cites %s\n", "", strings.Join(compactCites(r.Cites), "; "))
 		}
 	}

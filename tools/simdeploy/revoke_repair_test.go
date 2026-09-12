@@ -126,18 +126,16 @@ func TestCheckHashFlagsRefusesARevocationThatMatchesNothing(t *testing.T) {
 	}
 }
 
-// UX-02: the compiled-in Founders Pass description goes on chain permanently and no contract can deliver what the
-// old one promised. tests/templates_test.go checks the same two substrings from outside the package; this one
-// holds the sentence itself against app/notice.js.
+// UX-02: the compiled-in Founders Pass description goes on chain permanently. tests/templates_test.go checks the
+// same two substrings from outside the package; this one holds the sentence itself against what v2 and the bot do.
 func TestFoundersPassDescriptionPromisesOnlyWhatTheContractsDo(t *testing.T) {
-	for _, s := range []string{"every fee", "paid in DERO"} {
+	for _, s := range []string{"every fee", "paid in DERO", "do not reach holders"} {
 		if strings.Contains(passDescrDefault, s) {
 			t.Errorf("the default description still says %q: %s", s, passDescrDefault)
 		}
 	}
-	// "other than DERO": founders.bas pays DERO only, so a fee in any other quote — a wrapped asset where a vault
-	// exists, or any asset a pool is quoted in (BL-90) — reaches no holder, and the sentence says so for all of them.
-	for _, s := range []string{"no contract forces it", "other than DERO do not reach holders"} {
+	// v2 pays each asset in itself (per-asset pools), and the XMR/ZEC payments are the bot's, forced by nothing
+	for _, s := range []string{"paid in the asset each fee was taken in", "XMR and ZEC by the treasury's bot", "no contract forces it"} {
 		if !strings.Contains(passDescrDefault, s) {
 			t.Errorf("the default description does not say %q: %s", s, passDescrDefault)
 		}

@@ -1,12 +1,19 @@
-// treasurybot is the one wallet-side step the Founders Pass needs: a DERO contract cannot pay another contract, so
-// the protocol treasury claims its fees from every listed market, deposits the promised share into the Founders
-// Pass contract and pushes the resulting rewards to the registered holders' wallets. Everything it does is public
-// on chain (fc claimed per market, dep/paid on the pass), so anyone can check the promise is kept.
+// treasurybot is the wallet-side step the Founders Pass v2 needs: a DERO contract cannot pay another contract, so the
+// protocol treasury claims its fees from every listed market (pool.bas and launch.bas ClaimFees: fd in the market's
+// quote, fa in its asset) and deposits the promised share of each asset into the Founders Pass with v2's
+// Deposit(asset), in the asset the fee was taken in, never converted to DERO. Each registered position then claims
+// its part with Claim(p, i, ka, kb), which anyone may send and which pays the position's owner; this bot pushes no
+// payouts. Everything it does is public on chain (fc per market, ad_<i> per asset on the pass), so anyone can check
+// the share is deposited. The bot makes every deposit; no contract forces it.
 //
 //	go run ./treasurybot -wallet 127.0.0.1:30002 [-config ../app/config.js] [-min-units 5000] [-interval 60s] [-once]
 //
-// The share is read from the pass contract (`share` bps, immutable), never from a flag. Amounts are integer
-// atomic units everywhere (C5): -min-units 5000 is 0.05 DERO.
+// The share is read from the pass contract (`share` bps, immutable), never from a flag. Amounts are integer atomic
+// units of their own asset everywhere (C5): -min-units 5000 is 0.05 DERO on a DERO leg.
+//
+// While no pass is registered, founders.bas v2 refuses every Deposit. The bot then holds what it owes the passes in
+// its journal and deposits it once a pass registers, in the first deposit of each asset (the operator's ruling of
+// 2026-09-13; journal.go).
 //
 // The wallet's RPC login, when it asks for one, comes from VEIL_RPC_LOGIN (user:password), the variable netwallet
 // starts it with. On a mainnet config the bot refuses, dry run included, before its first call when the variable is
@@ -23,7 +30,6 @@ import (
 	"strconv"
 	"time"
 
-	ref "veil/reference"
 	rpc "veil/tools/simrpc"
 )
 
@@ -31,7 +37,7 @@ var (
 	daemon   = flag.String("daemon", "127.0.0.1:20000", "daemon rpc")
 	wallet   = flag.String("wallet", "127.0.0.1:30002", "treasury wallet rpc, host:port (must be the treasury the markets pay); its login comes from VEIL_RPC_LOGIN (required on mainnet)")
 	cfgPath  = flag.String("config", "../app/config.js", "app config (factory + founders scids + network)")
-	minUnits = flag.Uint64("min-units", 5000, "claim a market's fees once they reach this many atomic units (5000 = 0.05 DERO)")
+	minUnits = flag.Uint64("min-units", 5000, "claim a market's fees once either leg reaches this many atomic units of its own asset (5000 = 0.05 DERO on a DERO leg); the quote leg must hold at least one, since only it moves the fc counter that proves a claim")
 	interval = flag.Duration("interval", 60*time.Second, "how often to sweep")
 	once     = flag.Bool("once", false, "one sweep, then exit")
 	timeout  = flag.Duration("timeout", 180*time.Second, "per-tx timeout")
@@ -52,7 +58,8 @@ var (
 // The registry lists this bot claims market fees from: a market's fees are claimable through ClaimFees and counted
 // by fc. nft_ is not walked (nft.bas keeps its mint fee in fd behind its own ClaimFees, which this bot does not
 // call). nfa_ is walked separately: nfa.bas owes its protocol fee to the treasury (ow_<treasury>) and pays it out
-// only through PayOwed (payowed.go). Neither reaches the Founders Pass, which counts pool and launch DERO fees only.
+// only through PayOwed (payowed.go). Neither reaches the Founders Pass, which is given the trading fees of pools and
+// launches, per asset.
 var registryPrefixes = []struct{ prefix, count string }{{"pool_", "pc"}, {"launch_", "lc"}}
 
 // cfgString reads a quoted word from config.js (network: "simulator").
@@ -114,8 +121,13 @@ func main() {
 	}
 	me := rpc.Address(*wallet)
 	pass := c.GetSC(founders, false)
+	// fail closed on the pass: this bot speaks v2's Deposit(asset) and reads v2's per-asset counters, and a v1 pass
+	// would take a DERO-only Deposit() and credit nothing a v2 reader can check
+	if v := pass.U0("v"); v != 2 {
+		log.Fatalf("the founders contract %s… is not a Founders Pass v2 (v = %d): this bot deposits per asset with v2's Deposit(asset)", founders[:12], v)
+	}
 	share := pass.U("share")
-	fmt.Printf("treasury %s\nfactory  %s\nfounders %s (share %d bps, %d registered units)\n", me, factory, founders, share, pass.U("hst"))
+	fmt.Printf("treasury %s\nfactory  %s\nfounders %s (v2, share %d bps, %d registered passes)\n", me, factory, founders, share, pass.U0("hst"))
 	if *jnPath == "" {
 		*jnPath = "treasurybot-" + me[len(me)-12:] + ".json" // one journal per treasury identity, not per port
 	}
@@ -141,14 +153,14 @@ func main() {
 	if len(nfaTpl) == 0 {
 		fmt.Println("config.js names no nfa template: no NFA can be verified, so no PayOwed will be sent")
 	}
-	if len(jn.Claims) > 0 || jn.Deposit != nil {
-		fmt.Printf("journal %s: %d open claims, deposit in flight %v: reconciling\n", *jnPath, len(jn.Claims), jn.Deposit != nil)
+	if len(jn.Claims) > 0 || len(jn.Deposits) > 0 {
+		fmt.Printf("journal %s: %d open claims, %d deposits in flight: reconciling\n", *jnPath, len(jn.Claims), len(jn.Deposits))
 	}
 	if err := jn.reconcile(ch); err != nil && !errors.Is(err, errDry) { // finish what a previous run started before claiming anything new
 		log.Fatal(err)
 	}
 	for {
-		sweep(c, factory, founders, me, share, *minUnits, jn, ch)
+		sweep(c, factory, me, share, *minUnits, jn, ch)
 		if *once {
 			return
 		}
@@ -156,185 +168,83 @@ func main() {
 	}
 }
 
-func sweep(c *rpc.Client, factory, founders, me string, share, minUnits uint64, jn *journal, ch chain) {
+// market is one listed market and its two legs' asset ids.
+type market struct{ scid, quote, asset string }
+
+// TODO(founders v2: XMR and ZEC payouts). The passes are also owed `share` bps of the 0.5 % swap fees taken in XMR
+// and ZEC (MT-K02(b), X-29). The treasury's bot is to pay them off the DERO chain, to the addresses holders store on
+// the pass with SetXmr and SetZec (xm_<addr>, zc_<addr>), split by hu_<addr> over hst. Not built, because no XMR or
+// ZEC fee is collected yet: tools/xmrswap and tools/zecswap take none. docs/FOUNDERS_V2_NOTES.md §2 has the design:
+//   - a snapshot per payout period, taken at the period's end, with the fee total, hst, every hu_ and stored address,
+//     and the height they were read at;
+//   - full address validation, which the contract cannot do: checksum, the network byte, and for Monero the length;
+//   - floored shares with the remainder carried to the next period;
+//   - a record of every payment.
+//
+// Until it is built, this bot pays no XMR or ZEC to anyone, and no contract forces it to.
+func sweep(c *rpc.Client, factory, me string, share, minUnits uint64, jn *journal, ch chain) {
 	reg := c.GetSC(factory, false)
-	var markets []string
-	const deroQuote = "0000000000000000000000000000000000000000000000000000000000000000"
-	var foreign []string
+	var markets []market
 	for _, p := range registryPrefixes {
 		for i := uint64(0); i < reg.U(p.count); i++ {
 			s := reg.Str(p.prefix + strconv.FormatUint(i, 10))
 			if len(s) != 64 {
 				continue
 			}
-			// A market quoted in a wrapped asset accrues its fees in that asset. founders.bas counts one asset
-			// and Deposit() reads DEROVALUE(), so depositing here would credit holders with DERO this market
-			// never earned. Leave those fees where they are and say so.
-			if q := ch.Quote(s); q != "" && q != deroQuote {
-				foreign = append(foreign, s)
+			// every quote is swept: v2 has a pool per asset, so a wrapped-asset fee is deposited as that asset
+			q, a := ch.Legs(s, p.prefix == "launch_")
+			if !isID(q) || !isID(a) {
+				fmt.Printf("skipping %s…: its quote or asset id cannot be read, so its fees could not be deposited as what they are\n", s[:8])
 				continue
 			}
-			markets = append(markets, s)
-		}
-	}
-	if len(foreign) > 0 {
-		fmt.Printf("skipping %d market(s) whose fees are not DERO: founders.bas accounts for one asset, so these are owed but not sweepable\n", len(foreign))
-		for _, s := range foreign {
-			fmt.Printf("  %s fd %d in its own quote\n", s[:8], ch.FD(s))
+			markets = append(markets, market{s, q, a})
 		}
 	}
 	// NFA protocol fees: owed by each nfa.bas to the treasury until someone calls PayOwed (payowed.go). A dry run
 	// prints what it would pay and sends nothing.
 	nfaPass(reg, me)
+	claimable := func(fd, fa uint64) bool { return fd > 0 && (fd >= minUnits || fa >= minUnits) }
 	if dry {
-		for _, scid := range markets {
-			if fd := ch.FD(scid); fd >= minUnits {
-				fmt.Printf("dry run: would claim %d units from %s…\n", fd, scid[:8])
+		for _, m := range markets {
+			if fd, fa := ch.Fees(m.scid); claimable(fd, fa) {
+				fmt.Printf("dry run: would claim %d of %s… and %d of %s… from %s…\n", fd, m.quote[:8], fa, m.asset[:8], m.scid[:8])
 			}
 		}
-		fmt.Printf("dry run: %d units already claimed and owed to the pass\n", jn.owed())
+		printOwed(jn, share, ch.Registered())
 		return
 	}
-	for _, scid := range markets {
-		fd := ch.FD(scid)
-		if fd < minUnits {
+	for _, m := range markets {
+		if fd, fa := ch.Fees(m.scid); !claimable(fd, fa) {
 			continue
 		}
-		if err := jn.claimMarket(ch, scid, fd); err != nil { // journaled before the send; reconciled on the next start
-			log.Fatalf("claim %s…: %v", scid[:8], err)
+		qd, ad, err := jn.claimMarket(ch, m.scid, m.quote, m.asset) // journaled before the send; reconciled on the next start
+		if err != nil {
+			log.Fatalf("claim %s…: %v", m.scid[:8], err)
 		}
-		fmt.Printf("%s claimed %d units from %s…\n", time.Now().Format("15:04:05"), jn.Claims[len(jn.Claims)-1].FD, scid[:8])
-	}
-	if owed := jn.owed(); owed > 0 {
-		if err := jn.depositShare(ch, share); err != nil {
-			log.Fatalf("deposit: %v", err)
+		if qd > 0 || ad > 0 {
+			fmt.Printf("%s claimed %d of %s… and %d of %s… from %s…\n", time.Now().Format("15:04:05"), qd, m.quote[:8], ad, m.asset[:8], m.scid[:8])
 		}
-		fmt.Printf("%s deposited %d bps of %d claimed units to the founders pass\n", time.Now().Format("15:04:05"), share, owed)
 	}
-	// Push pending rewards to the registered wallets, 15 holders per call, for the slices that have something to
-	// pay. `rpool != 0` is not that test: rpool never returns to zero, so it bought ceil(hn/15) transactions that
-	// moved nothing every -interval, for ever. See payoutBatches.
-	pass := c.GetSC(founders, false)
-	batches := payoutBatches(pass)
-	sent := 0
-	for _, from := range batches {
-		txid, _ := c.SendWithFee(*wallet, me, founders, nil, []rpc.Arg{rpc.S("entrypoint", "PayBatch"), rpc.U("from", from), rpc.U("n", 15)}, 3000)
-		if len(txid) < 8 {
-			log.Printf("PayBatch(%d, 15): the wallet returned no txid", from)
-			continue
-		}
-		sent++
-		fmt.Printf("%s PayBatch(%d, 15) tx %s…\n", time.Now().Format("15:04:05"), from, txid[:8])
+	hst := ch.Registered()
+	if err := jn.depositShare(ch, share); err != nil {
+		log.Fatalf("deposit: %v", err)
 	}
-	if sent == 0 {
-		return
-	}
-	after := c.GetSC(founders, false)
-	fmt.Printf("%s pass: deposited %d, paid %d, owed %d, waiting %d, holders %d\n", time.Now().Format("15:04:05"), after.U("dep"), after.U("paid"), after.U("rpool"), after.U("und"), after.U("hn"))
+	printOwed(jn, share, hst)
 }
 
-// payoutBatches lists the slice starts PayBatch must be called with for this pass state: the ones that pay a
-// holder something. An empty result means the sweep sends no transaction at all.
-func payoutBatches(pass rpc.SCState) []uint64 {
-	var out []uint64
-	for from, hn := uint64(0), pass.U0("hn"); from < hn; from += 15 {
-		if payoutSlice(pass, from, 15) > 0 {
-			out = append(out, from)
+// printOwed says what the journal still owes the passes, per asset, and why it waits.
+func printOwed(jn *journal, share, hst uint64) {
+	for _, a := range jn.assets() {
+		o := jn.Owed[a]
+		switch {
+		case jn.Deposits[a] != nil:
+			fmt.Printf("  %s…: a deposit of %d is in flight\n", a[:8], jn.Deposits[a].Units)
+		case hst == 0:
+			fmt.Printf("  %s…: %d claimed, %d owed to the passes, held: no pass is registered, and founders.bas v2 refuses a deposit until one is\n", a[:8], o, shareOf(o, share))
+		default:
+			fmt.Printf("  %s…: %d claimed and not yet deposited (its share, %d, rounds below one unit or waits for the next sweep)\n", a[:8], o, shareOf(o, share))
 		}
 	}
-	return out
-}
-
-// payoutSlice reports what PayBatch(from, n) would pay, in atomic DERO units, so the bot can tell a call that
-// moves money from one that only costs a fee. It mirrors founders.bas: distribute(0) first (PayBatch line 30),
-// then settle() for each holder of the slice (lines 41-42), capped by rpool the way settle() caps it.
-//
-// Why the bot needs it: distribute() credits rpool a ceiling (line 40) while settle() pays each holder a floor
-// (line 40), so every distribution leaves a residual behind, and no entrypoint can release it — Claim, PayBatch,
-// Withdraw and Register all pay through settle(), which can only take the same floor. rpool is therefore
-// non-zero from the first distribution onward and stays that way, and gating the payout loop on it bought
-// ceil(hn/15) empty transactions every sweep for the life of the pass.
-func payoutSlice(pass rpc.SCState, from, n uint64) uint64 {
-	hn := pass.U0("hn")
-	if n == 0 || from >= hn {
-		return 0
-	}
-	end := from + n
-	if end > hn {
-		end = hn
-	}
-	acc, rpool, rolled := afterDistribute(pass)
-	if rolled {
-		// The accumulator wraps 2^64 in the distribute() that PayBatch runs first, which takes a deposit of more
-		// than 2^32 units of acc per registered pass: every holder is owed. Say so rather than model the era
-		// file distribute() has not written yet.
-		return rpool
-	}
-	era, sum := pass.U0("era"), uint64(0)
-	for i := from; i < end; i++ {
-		k := "h_" + strconv.FormatUint(i, 10)
-		if !pass.Has(k) {
-			continue
-		}
-		d, ok := holderPending(pass, pass.Str(k), acc, era)
-		if !ok {
-			return rpool // an arithmetic state the contract cannot reach: make the call and let it fail in the open
-		}
-		sum += d
-		if sum >= rpool {
-			return rpool
-		}
-	}
-	return sum
-}
-
-// holderPending is settle()'s arithmetic for one holder (founders.bas:263-288) without the payment: one term for
-// each era the holder has not been settled through, then the term for the current era. ok is false only where the
-// contract's muldiv would panic.
-func holderPending(pass rpc.SCState, a string, acc, era uint64) (uint64, bool) {
-	if a == "" || !pass.Has("hu_"+a) {
-		return 0, true
-	}
-	hu, hd, e := pass.U0("hu_"+a), pass.U0("hd_"+a), pass.U0("he_"+a)
-	var pend uint64
-	for ; e < era; e++ {
-		t, ok := ref.MulDiv(hu, pass.U0("ea_"+strconv.FormatUint(e, 10))-hd, 1<<32)
-		if !ok {
-			return 0, false
-		}
-		pend += t
-		hd = 0
-	}
-	t, ok := ref.MulDiv(hu, acc-hd, 1<<32)
-	if !ok {
-		return 0, false
-	}
-	return pend + t, true
-}
-
-// afterDistribute is distribute(0) (founders.bas:241-261) without the writes: what waits in und moves into acc
-// and rpool once minhst units are registered. PayBatch runs it before it settles anybody, so the gate must too.
-func afterDistribute(pass rpc.SCState) (acc, rpool uint64, eraRolled bool) {
-	acc, rpool = pass.U0("acc"), pass.U0("rpool")
-	pool, hst := pass.U0("und"), pass.U0("hst")
-	if pool == 0 || hst == 0 || hst < pass.U0("minhst") {
-		return acc, rpool, false
-	}
-	if ref.Mulhi(pool, 1<<32) >= hst { // lines 24-25: the clamp that keeps inc inside 64 bits
-		pool = hst * (1<<32 - 1)
-	}
-	inc, ok := ref.MulDiv(pool, 1<<32, hst)
-	if !ok {
-		return acc, rpool, false
-	}
-	covered, ok := ref.MulDivUp(inc, hst, 1<<32)
-	if !ok {
-		return acc, rpool, false
-	}
-	if acc+inc < acc { // lines 32-35: the accumulator wraps, the era is filed and acc restarts at 0
-		return inc, rpool + covered, true
-	}
-	return acc + inc, rpool + covered, false
 }
 
 // nfaPass is the sweep's NFA step: call PayOwed for the treasury on every listed NFA that runs the shipped template

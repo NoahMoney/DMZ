@@ -20,10 +20,9 @@ func TestContractsParse(t *testing.T) {
 		"social.bas":   {"Initialize", "Profile", "Follow", "Unfollow"},
 		"nft.bas":      {"InitializePrivate", "Lock", "Mint", "Unlock", "ClaimCreator", "ClaimFees"},
 		"nfa.bas":      {"InitializePrivate", "ClaimOwnership", "Update", "Start", "BuyItNow", "Bid", "CloseListing", "CancelListing", "PayOwed"},
-		"founders.bas": {"InitializePrivate", "Mint", "Register", "Withdraw", "Claim", "Deposit", "Distribute", "PayBatch", "List", "Unlist", "Buy"},
-		// contracts/v2/founders.bas, not yet adopted (docs/FOUNDERS_V2_NOTES.md): Distribute and PayBatch are gone
-		// (no waiting pool, no loop over holders), SetXmr and SetZec are new.
-		"v2/founders.bas": {"InitializePrivate", "Mint", "Register", "Withdraw", "Claim", "Deposit", "List", "Unlist", "Buy", "SetXmr", "SetZec"},
+		// founders.bas v2 (docs/FOUNDERS_V2_NOTES.md): v1's Distribute and PayBatch are gone (no waiting pool, no loop
+		// over holders); SetXmr and SetZec are new.
+		"founders.bas": {"InitializePrivate", "Mint", "Register", "Withdraw", "Claim", "Deposit", "List", "Unlist", "Buy", "SetXmr", "SetZec"},
 		"swap.bas":        {"Initialize", "Lock", "Claim", "Refund"},
 		"htlc.bas":        {"Initialize", "Lock", "Claim", "Refund", "Punish", "Reclaim"},
 		"board.bas":       {"Initialize", "Post", "Accept", "Cancel"},

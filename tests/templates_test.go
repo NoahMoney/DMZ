@@ -123,7 +123,7 @@ func toolDefault(t *testing.T, path, name string) string {
 // paid in DERO to their wallets", and deploy/README.md's mainnet command line did not pass -pass-descr, so
 // mainnet would have inherited it. Three claims in it are false and none of them is correctable afterwards: the
 // treasury bot sweeps DERO-quoted pool and launch fees only (tools/treasurybot/main.go:130-145), a wrapped-asset
-// fee can never be paid out in DERO (founders.bas Deposit reads DEROVALUE only), and no contract obliges the
+// fee could never be paid out in DERO (v1's Deposit read DEROVALUE only; v2 pays each asset in itself), and no contract obliges the
 // treasury to deposit anything — which is what app/notice.js, the page the app declares authoritative, says.
 //
 // Two things are asserted, because either alone leaves the defect reachable: the default may not carry the two

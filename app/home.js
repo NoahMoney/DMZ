@@ -173,7 +173,7 @@
       const pass = f ? h("button", { class: "mrow", style: PROW, type: "button", onclick: () => router.go("nfts") },
         avatar({ icon: f.icon, ticker: "VFP", scid: f.scid }, "sm"),
         h("div", { class: "grow ellipsis" }, h("span", { class: "eyebrow" }, "Founders pass"),
-          h("div", { class: "sub tiny ellipsis" }, f.name + " · " + Number(f.share) / 100 + "% of claimed DERO fees · " + A.fmtDero(f.paid, 1) + " DERO paid · " + (f.maxsupply - f.minted) + " of " + f.maxsupply + " left")),
+          h("div", { class: "sub tiny ellipsis" }, f.name + " · " + Number(f.share) / 100 + "% of claimed fees, paid in each fee's asset · " + (f.maxsupply - f.minted) + " of " + f.maxsupply + " left")),
         icon("arrow", "svgi dim2")) : null;
       render(el, h("div", { class: "home-grid" }, h("div", { class: "home-main" },
         hero, posn,

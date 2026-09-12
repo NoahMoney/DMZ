@@ -65,27 +65,25 @@ var (
 	passName    = flag.String("pass-name", "DMZ Founders Pass", "founders pass name")
 	passDescr   = flag.String("pass-descr", passDescrDefault, "founders pass description — IMMUTABLE once installed; pass it explicitly on any real deployment")
 	passImage   = flag.String("pass-image", "", "founders pass image URL (https)")
-	passPrice   = flag.Uint64("pass-price", 500000, "mint price in atomic units (5 DERO)")
-	passMax     = flag.Uint64("pass-max", 500, "editions")
+	passPrice   = flag.Uint64("pass-price", 100000, "mint price in atomic units (100000 = 1 DERO, the operator's number, MT-J16)")
+	passMax     = flag.Uint64("pass-max", 20, "editions (20, MT-J16)")
 	passStart   = flag.Uint64("pass-start", 0, "mint opens at this block height")
-	passReserve = flag.Uint64("pass-reserve", 50, "editions minted to the owner at install (≤ 20%)")
-	passShare   = flag.Uint64("pass-share", 5000, "promised share of protocol fees in bps (5000 = 50%)")
-	passMfee    = flag.Uint64("pass-mfee", 250, "marketplace fee in bps, paid to holders")
+	passReserve = flag.Uint64("pass-reserve", 4, "editions minted to the installer at install: at most -pass-max / 5 (4 of 20, MT-J16)")
+	passShare   = flag.Uint64("pass-share", 5000, "the share of the fees the treasury claims that goes to the passes, in bps (5000 = 50%)")
+	passMfee    = flag.Uint64("pass-mfee", 250, "marketplace fee in bps, deposited for the registered passes")
 )
 
-// passDescrDefault is the Founders Pass description. It used to read "Registered holders receive the promised
-// share of every fee the exchange earns, paid in DERO to their wallets", and deploy/README.md's mainnet command
-// line did not pass -pass-descr, so mainnet would have inherited it. Three parts of that sentence were false and
-// none of them could be corrected afterwards: the treasury bot sweeps DERO-quoted pool and launch fees only, not
-// every fee; a wrapped-asset fee can never be paid out in DERO; and no contract obliges the treasury to deposit
-// anything at all. founders.bas stores its headers once and defines no setter, so whatever goes in here is on
-// chain for the life of the contract and app/nfts.js renders it under the mint button. The wording tracks
-// app/notice.js, the page the app declares authoritative and which no other surface may contradict. It must also
-// fit founders.bas's 240-byte limit (checkPassHeaders): the previous wording ran to 258 bytes, and every founders
-// install made from it was refused at the gas estimate, after the factory and social contracts had been paid for.
-const passDescrDefault = "Register a pass for a fixed share of the DERO trading fees the treasury claims from DMZ markets. " +
-	"The treasury's bot makes each deposit; no contract forces it. " +
-	"Fees in any asset other than DERO do not reach holders."
+// passDescrDefault is the Founders Pass description the operator approved for founders.bas v2 (2026-09-13, MT-J16,
+// X-29), 227 of the contract's 240 bytes. founders.bas stores its headers once and defines no setter, so whatever
+// goes in here is on chain for the life of the contract, and app/nfts.js renders it under the mint button. It says
+// what v2 and the treasury's bot do: each fee is paid in the asset it was taken in, DERO and DERO tokens through the
+// contract (Deposit, then each position's Claim), XMR and ZEC by the bot to the addresses holders store (SetXmr,
+// SetZec), and no contract forces the bot to make any of those payments. app/notice.js, the page the app declares
+// authoritative, says the same in more words. The v1 wording, "Fees in any asset other than DERO do not reach
+// holders", is false of v2 and must not be installed with it.
+const passDescrDefault = "Register a pass for a fixed share of the fees DMZ takes, paid in the asset each fee was taken in: " +
+	"DERO and DERO tokens through this contract, XMR and ZEC by the treasury's bot. The bot makes each payment; no " +
+	"contract forces it."
 
 // checkSwapWmin refuses, before anything is installed, a minimum width swap.bas Initialize would refuse
 // (swap.bas line 6, `wmin == 0 || wmin > 1000000`; TestSwapWminBoundsAreTheContracts holds the two in step).
@@ -143,8 +141,10 @@ func checkRenounce() error {
 }
 
 // checkPassHeaders refuses, before anything is installed, a Founders Pass that founders.bas InitializePrivate would
-// refuse (founders.bas:22-24; TestPassLimitsAreTheContracts holds the two in step). The contract's refusal surfaces
-// only at the gas estimate, by which time the factory and social contracts are already installed and paid for.
+// refuse (founders.bas v2, DVM lines 22-24; TestPassLimitsAreTheContracts holds the two in step). The contract's
+// refusal surfaces only at the gas estimate, by which time the factory and social contracts are already installed and
+// paid for. v2 also refuses DERO attached to its install (line 21), and simdeploy attaches none (the install's
+// transfers are nil); a treasury that is not a valid address is refused at line 26, and -w2 is a wallet's own address.
 func checkPassHeaders() error {
 	switch {
 	case len(*passName) == 0 || len(*passName) > 64:
@@ -315,6 +315,9 @@ func checkHashFlags(old, rev map[string]map[string]bool) error {
 	for _, k := range templateKinds {
 		kinds[k] = true
 	}
+	if len(old["founders"]) > 0 {
+		return bad("-legacy founders:...: the founders template keeps no legacy hash; the app reads one pass, with the current contract's keys (docs/FOUNDERS_V2_NOTES.md §1)")
+	}
 	for _, m := range []map[string]map[string]bool{old, rev} {
 		for k, hs := range m {
 			if !kinds[k] {
@@ -401,6 +404,17 @@ func record(hashes map[string]string, old, rev map[string]map[string]bool, treas
 	}
 	for k, h := range hashes {
 		prev := n.Templates[k]
+		// The founders template keeps no legacy hash (docs/FOUNDERS_V2_NOTES.md §1). The app reads exactly one pass,
+		// the one config.js names, with the key layout of the current contracts/founders.bas: an earlier hash left in
+		// the record would let a v1 pass verify as "founders" and be read with v2's keys. So a changed founders
+		// template replaces the old hash instead of demoting it, and -legacy founders:... is refused (checkHashFlags).
+		if k == "founders" {
+			if prev.Sha256 != "" && prev.Sha256 != h {
+				fmt.Printf("template founders changed: %s… is dropped, not kept as legacy: the app reads one pass, with this version's keys\n", short(prev.Sha256))
+			}
+			n.Templates[k] = netcfg.Template{Sha256: h}
+			continue
+		}
 		// Carry the previous hashes forward, and demote the outgoing current hash to legacy whenever the template
 		// has actually changed. Without this, running this tool for an unrelated reason silently invalidated every
 		// market already deployed from the old template: the app verifies a listing by hashing its on-chain code

@@ -251,3 +251,32 @@ func TestCompactCites(t *testing.T) {
 		t.Fatalf("got %v want %v", got, want)
 	}
 }
+
+// founders.bas v2: no owner, so nothing fails on a well-formed pass; every row reads its value from storage; the
+// payout addresses are counted, never judged; and there is no minhst row (v1's floor is gone).
+func TestFoundersV2Roles(t *testing.T) {
+	v := vars{"creator": sv(key(1)), "treasury": sv(key(2)), "initd": nv(1), "v": nv(2), "share": nv(5000), "mfee": nv(250), "price": nv(100000),
+		"maxsupply": nv(20), "start": nv(0), "reserve": nv(4), "hst": nv(3),
+		"xm_dero1a": ss(strings.Repeat("8", 95)), "xm_dero1b": ss(strings.Repeat("4", 106)), "zc_dero1a": ss("t1" + strings.Repeat("A", 33))}
+	rows := evalRoles("founders", "founders", "f", v, nil)
+	for _, r := range rows {
+		if r.Status == sFail || r.Status == sAllowed {
+			t.Fatalf("a v2 pass needs no -allow, yet: %+v", r)
+		}
+		if strings.Contains(r.Role, "minhst") || strings.Contains(strings.Join(r.Keys, ","), "minhst") {
+			t.Fatalf("a row looks for v1's minhst: %+v", r)
+		}
+	}
+	if r := find(rows, "terms"); !strings.Contains(r.Value, "v=2") || !strings.Contains(r.Value, "share=5000") || !strings.Contains(r.Value, "reserve=4") {
+		t.Fatalf("terms: %+v", r)
+	}
+	if r := find(rows, "payout addresses"); r.Value != "2 Monero, 1 Zcash" || r.Live || !strings.Contains(r.State, "no contract forces it") {
+		t.Fatalf("payout addresses: %+v", r)
+	}
+	if r := find(rows, "treasury"); r.Policy != pPayee || !strings.Contains(r.State, "mint proceeds") {
+		t.Fatalf("treasury: %+v", r)
+	}
+	if r := find(rows, "creator"); r.Policy != pInert || r.Live {
+		t.Fatalf("creator: %+v", r)
+	}
+}

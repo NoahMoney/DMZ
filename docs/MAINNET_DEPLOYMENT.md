@@ -14,7 +14,7 @@ steps come from, with the reasons behind each.*
 |---|---|---|---|
 | `factory.bas` | one contract (v2) | treasury address, registration fee, both fixed by `Initialize` for the factory's life | **no owner exists**: v2 stores none and has no setter, so nothing can change the treasury or the fee, and there is nothing to renounce (MT-J15(b), 2026-09-11) |
 | `social.bas` | one contract | none | no role exists |
-| `founders.bas` | one contract | name, description, image, price, supply, reserve, share, market fee, treasury (operator decision MT-J16) | no function changes any of them after install |
+| `founders.bas` | one contract (v2: a reward pool per asset) | name, description, image, price, supply, reserve, share, market fee, treasury (MT-J16: "DMZ Founders Pass", the description approved for v2, the operator's image, 1 DERO, 20 editions, 4 reserved, share 5,000 bps, market fee 250 bps) | no owner; no function changes any of them after install |
 | `chat.bas` | one contract | treasury, fee per message, maximum length | fixed at install |
 | `htlc.bas` | one contract (v3), the Monero swap's DERO leg | `w1min` and `w2min`, the least t1 − lock height and t2 − t1 (400 each, from the Monero profile), and `g2`, the Punish window: 4,800 blocks (24 h), the operator's answer to MT-J13 on 2026-09-12 | fixed at install; no owner, admin, fee or update path |
 | `swap.bas` | one contract, the Zcash swap's DERO leg | `wmin` = 1,600 blocks | fixed at install |
@@ -146,7 +146,8 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
    go run ./simdeploy -network mainnet -yes -daemon 127.0.0.1:10102 ^
      -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
      -app <an empty scratch directory> -regfee 10000 ^
-     -pass-name "DMZ Founders Pass" -pass-descr "<the approved description, at most 240 bytes>" -pass-image "<url, or empty>" ^
+     -pass-name "DMZ Founders Pass" -pass-image "<the operator's image URL (https), supplied before launch>" ^
+     -pass-descr "Register a pass for a fixed share of the fees DMZ takes, paid in the asset each fee was taken in: DERO and DERO tokens through this contract, XMR and ZEC by the treasury's bot. The bot makes each payment; no contract forces it." ^
      -pass-price 100000 -pass-max 20 -pass-reserve 4 -pass-share 5000 -pass-mfee 250 ^
      -swap-wmin 1600 -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 4800
    ```
@@ -168,8 +169,11 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
      simdeploy sent no login and stopped there with `GetAddress: decode: invalid character 'A'`, the wallet's 401
      page read as a reply (X-27).
    - **Prices are atomic units** (1 DERO = 100,000). MT-J16's "1 DERO" is `-pass-price 100000`; `-pass-price 1`
-     would sell the pass for 0.00001 DERO, for ever. `-pass-reserve` is at most `-pass-max / 5`: 4 of 20 (MT-J16's 5
-     is being re-confirmed, since 5 of 20 does not install). `-pass-image` has no operator answer yet; empty is valid.
+     would sell the pass for 0.00001 DERO, for ever. `-pass-reserve` is at most `-pass-max / 5`: 4 of 20, the
+     operator's answer of 2026-09-13. The description is the one approved for founders.bas v2 (227 of 240 bytes).
+   - **`-pass-image` is the URL the operator supplies before launch.** It is written once, at install, and no
+     function can add or change it: an empty value installs a pass with no image for good. The install attaches no
+     DERO (founders.bas v2 refuses any), and the 4 reserved editions are minted to the `-w0` wallet.
    - **`-regfee` is final** (below), so it is written out rather than left to the default.
    - **`-app <scratch>`** keeps simdeploy from rewriting `app/config.js` and `app/templates/` in the release checkout;
      the bundle of step 6 renders its own `config.js` from the record.
@@ -251,17 +255,23 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
     go run ./treasurybot -daemon 127.0.0.1:10102 -wallet 127.0.0.1:10104 ^
       -config ../dist/mainnet/config.js -journal ../.mainnet/treasurybot-journal.json -once
     ```
-    - Without `-yes` a mainnet config is a dry run: it prints what it would claim, deposit and pay, and sends nothing.
+    - Without `-yes` a mainnet config is a dry run: it prints what it would claim and deposit, and sends nothing.
       Then drop `-once` and add `-yes` to keep sweeping every `-interval` (60 s).
     - `-config` is the published bundle's `config.js` (its default, `../app/config.js`, is the development copy); the
       bot reads the factory and the pass from it and refuses a daemon on another network.
     - The wallet's RPC login comes from `VEIL_RPC_LOGIN`, as in step 4. On a mainnet config the bot refuses before
       its first call, dry run included, when the variable is unset or `-wallet` carries a login in its address.
     - `-journal` keeps the claim journal out of the tree (its default is a file in the working directory).
+    - It claims both legs of every market and deposits `share` bps of each asset, in that asset, with
+      `Deposit(asset)`: one call per asset with something owed. While no pass is registered it deposits nothing and
+      holds what it owes in the journal; the first sweep after a registration deposits it. It refuses a pass whose
+      `v` is not 2. It sends no `PayBatch` (v1's): each position's `Claim` is sent from the app, by its holder or
+      by anyone.
+    - It pays no XMR or ZEC. No swap fee is collected yet, and the payouts to the addresses holders store are not
+      built (`tools/treasurybot/main.go`, the TODO at `sweep`).
     - Its calls' fees, computed from the code (the rehearsal ran it only as a dry run, so none is measured):
       - `ClaimFees` and `Deposit` go through `simrpc.Send`, which pays the node's gas estimate plus 200 atomic units
         (`tools/treasurybot/chain.go:34`, `:41`; `tools/simrpc/simrpc.go:334`).
-      - `PayBatch` is sent at a fixed 3,000, whatever its estimate (`tools/treasurybot/main.go:217`, `SendWithFee`).
       - Hold 1 DERO in the treasury for them; the reasoning is in §7.
 
 12. **Run the mainnet stage of `docs/MAINNET_TEST_PLAN.md`** at the smallest amounts, reconciled four ways.
@@ -292,7 +302,7 @@ What each step of §5 spends, measured by the X-09 rehearsal of §5 on the priva
 (`research/testnet/rehearsal-2026-09-12.log`), from the wallets' balances before and after each step. The treasury's
 row is the exception: the rehearsal ran treasurybot only as a dry run, which sends nothing, so its figures are
 computed from the code (below), not measured. A contract transaction pays its storage gas as its fee (simdeploy adds
-200 atomic units, and so does treasurybot, except for `PayBatch`, which it sends at a fixed 3,000), and storage gas is
+200 atomic units, and so does treasurybot), and storage gas is
 a function of the code and the arguments alone, so these are mainnet's numbers too for this commit's contracts and
 bundle. Re-measure if either changes. 1 DERO = 100,000 atomic units.
 
@@ -301,7 +311,7 @@ bundle. Re-measure if either changes. 1 DERO = 100,000 atomic units.
 | 3. Wallets | — | nothing | registering an account is a proof of work, not a fee (7 min 33 s and 38 min 40 s on 16 cores: it varies widely) |
 | 4. Contracts | deployer | **27,995 (0.280 DERO)** | factory v2, social, founders, chat, htlc v3, swap, board. The Founders Pass reserve (4 editions) is minted to the deployer inside the founders install: no separate cost |
 | 6. The app | deployer | **330,215 (3.302 DERO)** | 38 DOCs at ring 2 and the ring-16 INDEX (7,417). telainstall pays each DOC its estimate and nothing more (the 16 DOCs before the rehearsal's interruption cost exactly the sum of their printed gas, 142,264). The W-01 install of the same bundle cost 330,199: `config.js` differs by the SCIDs it names |
-| 11. treasurybot | treasury | **computed, not measured** (the dry run sends nothing): at most 10,920 for a sweep that claims 5 markets and pays 20 holders | per sweep that finds fees to claim: one `ClaimFees` per market holding at least `-min-units`, one `Deposit`, and one `PayBatch` at 3,000 per 15 registered holders who are owed something. A sweep with nothing to claim sends nothing. Per call and per day: below |
+| 11. treasurybot | treasury | **computed, not measured** (the dry run sends nothing): at most 9,020 for a sweep that claims 5 markets and deposits 6 assets | per sweep that finds fees to claim: one `ClaimFees` per market whose fees reached `-min-units`, and one `Deposit` per asset owed, none while no pass is registered. It sends no `PayBatch` (v1's): holders claim from the app. A sweep with nothing to claim sends nothing. Per call and per day: below |
 | **Total** | | **deployer 358,210 (3.582 DERO)**; the treasury's spend depends on how often there are fees to sweep (below) | |
 
 The steps took, on the private testnet's blocks of about a minute: step 4 about 15 minutes (seven installs, two
@@ -312,25 +322,24 @@ Mainnet's 18-second blocks make steps 4 and 6 about a third as long.
 
 | Call | Fee, atomic units | How often |
 |---|---|---|
-| `ClaimFees` | the node's gas estimate + 200 (`chain.go:34`, `simrpc.go:334`). Its storage gas is not measured in this repository. It writes three keys (`fd`, `fa`, `fc`: `pool.bas:255-257`, `launch.bas:256-258`), fewer than `PayBatch(0, 15)`, whose 620 is the only storage gas of these calls on record (`tests/founders_attack_test.go`, `contracts/README.md`). Budget **820** (620 + 200) | once per sweep for each market whose fees reached `-min-units` (5,000 by default) |
-| `Deposit` | the node's gas estimate + 200 (`chain.go:41`). It writes four keys (`dep`, `acc`, `rpool`, `und`: `founders.bas:142`, `:256-258`). Budget **820** | once per sweep that claimed something |
-| `PayBatch` | **3,000**, fixed, whatever the estimate (`main.go:217`) | once per slice of 15 registered holders who are owed something (`payoutBatches`): after a deposit, every slice. The pass has at most 20 editions (`-pass-max 20`), so at most 20 holders and **two calls, 6,000** |
+| `ClaimFees` | the node's gas estimate + 200 (`chain.go`, `simrpc.go:334`). Its storage gas is not measured in this repository. It writes three keys (`fd`, `fa`, `fc`: `pool.bas:255-257`, `launch.bas:256-258`). The largest storage gas measured for a pass call the bot sends is 197, a v2 `Deposit` of a new asset (`contracts/README.md`). Budget **820**, as before, which leaves room | once per sweep for each market whose fees reached `-min-units` (5,000 by default) on either leg, with something on its quote leg |
+| `Deposit(asset)` | the node's gas estimate + 200 (`chain.go`). It writes the asset's `ac_`, `ap_`, `au_` and `ad_`; a record (`rt_`, `ra_`, `ar_`) in the first deposit of a tick; and the index keys in an asset's first deposit: storage gas 144 to 197 (`contracts/README.md`, `TestFoundersV2CostDoesNotGrowWithAssetsOrHolders`). Budget **820** | once per sweep for each asset owed whose share is at least one unit, while a pass is registered |
 | `PayOwed` | the node's gas estimate + 200 (`payowed.go:112`) | once per sweep for each NFA that owes the treasury at least `-min-owed` |
 
-No run in `research/` records the earlier "about 300, 290 and 305", and `PayBatch` is never sent at its estimate. A sweep
-that claims from M markets and pays 20 holders costs at most 820 × M + 820 + 6,000. At 5 markets that is **10,920**,
-so 0.1 DERO (10,000 units) does not cover a single such sweep. The treasury's own income does not arrive in a fixed
+No run in `research/` records the earlier "about 300, 290 and 305". A sweep that claims from M markets and deposits A
+assets costs at most 820 × (M + A). Five DERO-quoted markets of five tokens make at most six assets (DERO and the
+five), so **9,020**, and 0.1 DERO (10,000 units) covers one such sweep. The treasury's own income does not arrive in a fixed
 order: the claims send it the markets' fees, and it keeps what it does not deposit (the pass's `share` is 5,000 bps,
-so half). It also receives the Founders Pass mint proceeds (`founders.bas:71`), every market's registration fee and
+so half). It also receives the Founders Pass mint proceeds (`founders.bas:116`), every market's registration fee and
 the chat fees. The figure below counts none of that, because the operator may move the treasury's income out.
 
-- **Fund the treasury with 1 DERO** (100,000 units) and keep at least that in it. At 5 markets and 20 holders, with
-  one claiming sweep a day, it covers about **9 days** (100,000 / 10,920) with nothing counted from the claims.
-- **A sweep can cost more than it brings in.** One market claimed at the default threshold returns 2,500 to the
-  treasury (half of 5,000) and costs up to 820 + 820 + 6,000 = 7,640: it loses 5,140. Sweeps run every 60 s, so a
-  market that keeps crossing the threshold can do this many times a day, and 1 DERO covers about 19 such sweeps.
-  `-min-units 16000` (0.16 DERO) makes any single-market sweep pay for itself (half of 16,000 is 8,000). That choice
-  is the operator's.
+- **Fund the treasury with 1 DERO** (100,000 units) and keep at least that in it. At 5 markets, with one claiming
+  sweep a day, it covers about **11 days** (100,000 / 9,020) with nothing counted from the claims.
+- **A sweep can cost more than it brings in.** One DERO-quoted market claimed at the default threshold on its DERO
+  leg returns 2,500 to the treasury (half of 5,000) and costs up to 820 + 2 × 820 = 2,460: the claim, and a deposit
+  of DERO and one of the market's token. A claim its token leg alone triggered returns no DERO and costs the same.
+  Sweeps run every 60 s, so a market that keeps crossing the threshold can do this many times a day, and 1 DERO
+  covers about 40 such sweeps. A larger `-min-units` makes fewer, larger sweeps; that choice is the operator's.
 
 **Margin, kept separate:** fund the deployer with **8 DERO** (the measured 3.58 plus more than 100%: a run of step 4
 that stops half-way is resumed without paying twice only if the reuse flags are used; a changed bundle changes every

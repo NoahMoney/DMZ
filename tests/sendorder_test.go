@@ -135,9 +135,9 @@ func TestNoExternalSendBeforeAFailureExit(t *testing.T) {
 // is. Anything else — ADDRESS_RAW of an argument, a LOAD of a computed key, a treasury given at install — is not.
 // Deliberate exceptions go in allowed, with the reason they are safe.
 func TestNoUnverifiedPayeeBeforeTheLastTransfer(t *testing.T) {
-	allowed := map[string]string{
-		"founders.bas:PayBatch:ADDRESS_RAW(a)": "a is h_<i>, written only by Register (35) as ADDRESS_STRING(SIGNER()) and moved only by remove (24) from another h_<j>: every holder the loop pays has signed Register",
-	}
+	// founders.bas v1's PayBatch entry went with v1: v2 has no loop that pays anyone (Claim pays one position's owner,
+	// as the call's only transfer).
+	allowed := map[string]string{}
 	files, err := contractFiles()
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no contracts: %v", err)

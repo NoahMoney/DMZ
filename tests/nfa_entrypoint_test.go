@@ -73,11 +73,14 @@ func TestNFAHelpersAreCallableEntrypoints(t *testing.T) {
 	e.oneUnit(t, "after helper calls")
 }
 
+// founders.bas v2's helpers: setp (stores a payout address), credit (credits a deposit), at (reads a record), newa (a
+// new asset index), open (a new position) and bps. A stranger calls each directly with arguments that would forge
+// value if it ran; the DVM refuses every lower-case entrypoint before it runs, so nothing may change.
 func TestFoundersHelpersAreCallableEntrypoints(t *testing.T) {
 	c := harness.New()
 	creator, treasury := c.NewAccount(), c.NewAccount()
 	alice, bob := c.NewAccount(), c.NewAccount()
-	scid := installFounders(t, c, creator, treasury, 1000, 100, 0, 10, 5000, 250)
+	scid := installV2(t, c, creator, treasury, 1000, 100, 0, 10)
 	for _, a := range []*rpc.Address{alice, bob} {
 		if r := c.Call(scid, "Mint", rpc.Arguments{harness.U("n", 5)}, map[crypto.Hash]uint64{zero: 5000}, a); !r.OK() {
 			t.Fatal(r.Err)
@@ -86,33 +89,36 @@ func TestFoundersHelpersAreCallableEntrypoints(t *testing.T) {
 			t.Fatal(r.Err)
 		}
 	}
-	if r := c.Call(scid, "Deposit", nil, map[crypto.Hash]uint64{zero: 1_000_000}, treasury); !r.OK() {
+	if r := c.Call(scid, "Deposit", v2Deposit(zero), map[crypto.Hash]uint64{zero: 1_000_000}, treasury); !r.OK() {
 		t.Fatal(r.Err)
 	}
-	rpoolBefore, deroBefore := c.U(scid, "rpool"), c.SCBalance(scid, zero)
-
-	// settle(s String, a String): pay holder `a`'s pending to address `s`.
-	r := c.Call(scid, "settle", rpc.Arguments{harness.S("s", string(bob.Compressed())), harness.S("a", alice.String())}, nil, bob)
-	t.Logf("settle(bob, alice's key) by bob: ok=%v err=%v bob got %d", r.OK(), r.Err, r.Sent(zero, bob))
-	if r.OK() && r.Sent(zero, bob) > 0 {
-		t.Errorf("REWARD REDIRECTED: bob called settle() directly and was paid %d of alice's pending rewards", r.Sent(zero, bob))
+	keys := []string{"hst", "ev", "pn", "an", "ac_0", "au_0", "ap_0", "ad_0", "aw_0", "ar_0"}
+	before := map[string]uint64{}
+	for _, k := range keys {
+		before[k] = c.U(scid, k)
 	}
-
-	// distribute(x Uint64): credit x to the accumulator without depositing it.
-	r2 := c.Call(scid, "distribute", rpc.Arguments{harness.U("x", 1<<40)}, nil, bob)
-	t.Logf("distribute(2^40) by a stranger: ok=%v err=%v rpool %d -> %d, contract DERO %d",
-		r2.OK(), r2.Err, rpoolBefore, c.U(scid, "rpool"), c.SCBalance(scid, zero))
-	if r2.OK() && c.U(scid, "rpool")+c.U(scid, "und") > c.SCBalance(scid, zero) {
-		t.Errorf("PHANTOM REWARDS: rpool+und = %d but the contract holds only %d DERO — the invariant in founders.bas 9 is broken",
-			c.U(scid, "rpool")+c.U(scid, "und"), c.SCBalance(scid, zero))
+	dero := c.SCBalance(scid, zero)
+	for _, x := range []struct {
+		fn   string
+		args rpc.Arguments
+	}{
+		{"setp", rpc.Arguments{harness.S("k", "xm_"), harness.S("x", "not an address"), harness.U("ok", 1)}},
+		{"credit", rpc.Arguments{harness.U("i", 0), harness.U("d", 1<<40), harness.U("h", 1)}},
+		{"at", rpc.Arguments{harness.U("i", 0), harness.U("t", 1), harness.U("k", 0)}},
+		{"newa", rpc.Arguments{harness.S("a", string(make([]byte, 32)))}},
+		{"open", rpc.Arguments{harness.S("s", string(bob.Compressed())), harness.U("u", 1000), harness.U("e", 1)}},
+		{"bps", rpc.Arguments{harness.U("x", 1), harness.U("f", 1)}},
+	} {
+		if r := c.Call(scid, x.fn, x.args, nil, bob); r.OK() {
+			t.Errorf("%s: a stranger's direct call to a lower-case helper was accepted", x.fn)
+		}
 	}
-
-	// remove(a String): drop a holder from the registry without returning their units.
-	r3 := c.Call(scid, "remove", rpc.Arguments{harness.S("a", alice.String())}, nil, bob)
-	t.Logf("remove(alice) by bob: ok=%v err=%v hn %d hst %d hu_alice? %v",
-		r3.OK(), r3.Err, c.U(scid, "hn"), c.U(scid, "hst"), c.Exists(scid, "hu_"+alice.String()))
-	if r3.OK() && !c.Exists(scid, "hu_"+alice.String()) {
-		t.Errorf("HOLDER ERASED: bob called remove() directly and deleted alice's registration; hst still %d, so her 5 units are unrecoverable", c.U(scid, "hst"))
+	for _, k := range keys {
+		if got := c.U(scid, k); got != before[k] {
+			t.Errorf("%s moved from %d to %d after the helper calls", k, before[k], got)
+		}
 	}
-	_ = deroBefore
+	if c.SCBalance(scid, zero) != dero || c.Exists(scid, "xm_"+bob.String()) {
+		t.Errorf("a helper call moved DERO (%d -> %d) or stored an address", dero, c.SCBalance(scid, zero))
+	}
 }
