@@ -564,10 +564,54 @@ page, as read on 2026-09-12. Nothing has been claimed and nothing sent.
 | Asking on the Zcash Discord, as the Testnet Guide suggests | a person's choice | — | yes; takes hours to days |
 
 The live faucets pay shielded addresses only. So one shielded wallet must sit between a faucet and the taker's key: it
-receives the drip and sends transparent TAZ to the `tm…` address. That wallet is an operator's tool, not a zecswap
-dependency. [Zallet](https://github.com/zcash/wallet), the zcashd wallet's replacement, is in beta ("Breaking changes
-may occur at any time"). A light wallet would put a lightwalletd in the trust path, but only for that one transfer of
-test coins. A faucet takes minutes, then one shielded-to-transparent send (about one block).
+receives the drip and sends transparent TAZ to the `tm…` address. A faucet takes minutes; the wallet can spend the drip
+10 blocks after it is mined (about 13 min); then one shielded-to-transparent send (about one block).
+
+**The shielded wallet: Zallet, on our own zebrad.** It is an operator's tool for test coins, never a zecswap or DMZ
+dependency: nothing in the repository runs it, links it or reads its files, its config names testnet and nothing else,
+and it is never pointed at mainnet. The rule for a new dependency asks what it gives that a smaller primitive cannot.
+zfund signs transparent spends only. To take a faucet's drip it would need a Sapling or Orchard key, a scan that
+trial-decrypts every block's shielded outputs from the wallet's birthday, the note commitment trees with a witness for
+each note, and a shielded spend with its proof. That is a wallet, and writing one to move test coins once would be the
+bigger dependency. The candidates, each from its own pages, read on 2026-09-12:
+
+| Candidate | Reads the chain from | Verdict |
+|---|---|---|
+| [Zallet](https://github.com/zcash/zallet) 0.1.0-beta.3, `zaino` backend (`zallet-zaino`) | our zebrad's JSON-RPC | **chosen** |
+| Zallet, default `zebra` backend | zebrad's state database, read directly | needs a zebrad "built with the non-default `indexer` feature" and an `indexer_listen_addr`; ours is the stock release, and it is not rebuilt or restarted for this |
+| zingo-cli ([zingolib](https://github.com/zingolabs/zingolib)) | a lightwalletd | the harness runs none, so a public testnet lightwalletd would serve the wallet its blocks and see its queries; v6.0.0 ships no binaries |
+| [zcash-devtool](https://github.com/zcash/zcash-devtool) | a lightwalletd | the same third party; "No binary artifacts are provided"; "DO NOT USE THIS IN PRODUCTION" |
+| zcashd | its own node | past its end-of-support halt (2026-07-18), and does not follow NU6.3 (`tools/regtest/PINS.md`), which testnet activated at 4,134,000; a second full sync besides |
+
+Why Zallet's `zaino` backend fits:
+- Its book says it "fetches chain data over JSON-RPC" and "does not require the `zebrad` `indexer` feature". It runs
+  the Zaino indexer ephemerally: "no persistent finalised-state database is actually opened … finalised reads are
+  served from the backing validator" (`backends/zaino/src/chain.rs` at the tag). So no second index of the chain is
+  built, and the wallet scans only from its account's birthday, near the tip.
+- It reads blocks, tree states and the mempool, which rpcgate does not serve. So it uses zebrad's internal port 18242
+  with zebrad's own cookie, from inside WSL. rpcgate is unchanged, and zecswap still goes through it.
+- It is the Zcash developers' replacement for the zcashd wallet, with the zcashd RPCs this needs: `z_getnewaccount`,
+  `z_getaddressforaccount`, `z_sendmany`.
+
+What it trusts:
+- our zebrad, which zecswap already trusts, for blocks and for broadcasting. No party is added to the chain path;
+- the release, through two checks that do not depend on each other:
+  - the ZODL release key signs the tarball: `0338 34DD 49DE CF9D BB99 34BC 6C93 CA8E 58E2 6AB1`, from
+    `apt.z.cash/zcash.asc`, the key Zallet's book names. keys.openpgp.org serves a key under that fingerprint, but
+    with no verified user ID, so it is a weak second source;
+  - the SLSA provenance names the tarball's sha256 and the tag's commit. It is signed through sigstore by the
+    release workflow's GitHub identity, and holds without the PGP key;
+- the faucet, which sees the address it pays.
+
+Its costs:
+- It is beta: "Breaking changes may occur at any time, requiring you to delete and recreate your Zallet wallet". That
+  is acceptable for a wallet holding at most 1 TAZ for a day.
+- The send to a `tm…` address is public on chain by design. Zallet refuses it unless the call names a privacy policy
+  that allows it.
+
+The pin is in `tools/regtest/pins.env` and `PINS.md`, and the procedure in `tools/regtest/README.md`. The binaries run
+from WSL's own filesystem, and the wallet's data and keys live in `$HOME/.dmz-regtest/zcash-testnet-wallet`, outside
+the repository.
 
 **Mining it ourselves is not a practical funding path.**
 - zebrad 6.3.0 mines only through `getblocktemplate`/`submitblock` with an external Equihash miner, or with the

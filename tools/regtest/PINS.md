@@ -89,3 +89,53 @@ zcashd was not used. It reached its end-of-support halt on 2026-07-18 and does n
 
 The built binary is copied to `vendor/regtest/bin/zfund`. It is a test tool with no release to pin against, so its
 hash is not pinned: the build is locked, but not reproducible byte for byte.
+
+## Zallet 0.1.0-beta.3 — the Zcash testnet faucet wallet (an operator's tool)
+
+A shielded wallet that receives faucet TAZ and sends it on, transparent, to the taker's `tm…` key. It is never in a
+DMZ runtime path and never on mainnet; why it and not a smaller tool is in `docs/ZEC_SWAP.md` §11.1. No harness script
+runs it. Its launcher, `run-zallet.sh`, lives in the wallet's datadir (README.md) and refuses a `zallet-zaino` whose
+sha256 is not the one below. Verified 2026-09-12 in WSL Ubuntu 24.04.
+
+| | |
+|---|---|
+| Version | `zallet 0.1.0-beta.3` (`zallet-zaino --version`, `zallet --version`); released 2026-08-26, marked beta |
+| Source | https://github.com/zcash/zallet (formerly `zcash/wallet`), tag `v0.1.0-beta.3` = commit `987382f67e622915228686e9f956c6a9c9a7514c` |
+| Artifact used | https://github.com/zcash/zallet/releases/download/v0.1.0-beta.3/zallet-v0.1.0-beta.3-linux-amd64.tar.gz — sha256 `1df2398df016ae6e9a1cba3f8ef0cc86ca0d7b48a0934b34df6f68114ebe9306` (equals the digest GitHub's release API lists) |
+| Extracted `zallet-zaino` | sha256 `e602e4a3d4e919c155b8f05dae29f0b9311631f167eaf25455166edf268208a7` — the one that runs (static-pie, x86-64) |
+| Extracted `zallet` (launcher) | sha256 `523bf86a14cba2dfb1ea048c3a3d6ccc68bde0dbb92da60d44ce12568dea1c5a` — not used |
+| Extracted `zallet-zebra` | sha256 `82cca947c0616a18ec884a73e986f30f87c160be5102de976182509b4cdb964a` — not used: that backend needs a zebrad built with the `indexer` feature |
+| Signature | `….tar.gz.asc` — sha256 `b8c8c71c0fe7db0bf6dba825a19a929864994b2c257d4719bb50e6aec9373755` |
+| Signer key | https://apt.z.cash/zcash.asc (sha256 `7ff4e13eadd162eaaf165407704a9bfd2cdf32ffc7e51a667d8017802cd84da5` when fetched; it also holds the ECC master key) |
+| Signer fingerprint | `0338 34DD 49DE CF9D BB99  34BC 6C93 CA8E 58E2 6AB1` (Zcash Open Development Lab (ZODL) <sysadmin@zodl.com>, rsa4096), signing subkey `1FE9 9324 758F 2967 18B4  5706 7F4B BBBA 23F0 617F` |
+| Provenance | `….tar.gz.intoto.jsonl` — sha256 `e39503675b98e79c48ba22973fb25b1ea1af1c7faa22d0f301c14db0cb1843c2`; a sigstore bundle v0.3 holding an in-toto SLSA v1 statement, Rekor log index 2596324254 |
+
+Signature transcript (throwaway GNUPGHOME, key imported from the file above):
+
+```
+gpg: Signature made Wed Aug 26 15:37:46 2026 AEST
+gpg:                using RSA key 1FE99324758F296718B457067F4BBBBA23F0617F
+gpg:                issuer "sysadmin@zodl.com"
+gpg: Good signature from "Zcash Open Development Lab (ZODL) (Dallas, Texas) <sysadmin@zodl.com>" [unknown]
+[GNUPG:] VALIDSIG 1FE99324758F296718B457067F4BBBBA23F0617F 2026-08-26 1787722666 0 4 0 1 8 00 033834DD49DECF9DBB9934BC6C93CA8E58E26AB1
+Primary key fingerprint: 0338 34DD 49DE CF9D BB99  34BC 6C93 CA8E 58E2 6AB1
+```
+
+The trust anchor is the key file on apt.z.cash, fetched over HTTPS; Zallet's book (*Supply Chain Security*) names it
+as the key to verify against. keys.openpgp.org serves a key under the same fingerprint, but with no verified user ID,
+so that is a weak second source. The provenance does not depend on the PGP key. It was verified with the same
+sigstore-python as zebrad's:
+
+```
+$ python3 -m sigstore verify identity --bundle zallet-v0.1.0-beta.3-linux-amd64.tar.gz.intoto.jsonl \
+    --cert-identity https://github.com/zcash/zallet/.github/workflows/binaries-and-deb-release.yml@refs/tags/v0.1.0-beta.3 \
+    --cert-oidc-issuer https://token.actions.githubusercontent.com zallet-v0.1.0-beta.3-linux-amd64.tar.gz
+OK: zallet-v0.1.0-beta.3-linux-amd64.tar.gz      (sigstore 4.5.0)
+```
+
+The statement's subject is the tarball's sha256 above. Its builder is the `binaries-and-deb-release.yml` workflow at
+the tag, and its one resolved dependency is `git+https://github.com/zcash/zallet@refs/tags/v0.1.0-beta.3` at commit
+`987382f6…514c`. The tag is lightweight (it points at the commit, with no tag signature), so the commit is known from
+the provenance and GitHub's ref, not from a signed tag. Zallet was not built from source, because a signed,
+attested release exists. The book states that the amd64 release is a reproducible StageX build; that was not
+re-checked here.

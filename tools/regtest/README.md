@@ -256,6 +256,20 @@ tools/regtest/stagenet-down.sh [--wipe]
     near-empty again.
   - Run `stagenet-up.sh` again for a fresh reading. It computes the rate over the last five readings, so the estimate
     follows the current speed, and appends to `.sim/stagenet/progress.tsv`.
+- **Watchdog** (X-25). The node does not recover by itself from an internet outage: twice on 2026-09-12 it sat at 0
+  peers with `target_height` 0 until it was restarted by hand, and each restart found peers within a minute.
+  - `stagenet-up.sh` starts `stagenet-watchdog.sh` detached inside WSL beside monerod, and also when monerod is already
+    running; `DMZ_STAGENET_WATCHDOG=0` starts none. `stagenet-down.sh` stops it before monerod.
+  - Once a minute it asks `get_info`. After 10 minutes at 0 peers, or of no answer while the log's last `Synced a/b`
+    line stands still, it restarts monerod: the stop `stagenet-down.sh` makes, then `run-monerod.sh` unchanged. The
+    chain is reused and never wiped.
+  - No answer alone is not a fault: monerod's RPC stops answering while it verifies heavy blocks, and its log moves
+    meanwhile.
+  - Every restart is a line in `.sim/stagenet/watchdog.log`. A restarted monerod runs in the watchdog's WSL session, and
+    its pid is in `monerod.pid` as before.
+  - `stagenet-watchdog.sh --self-test` drives the rule against a fake node: a `file://` get_info and a fake log, with a
+    clock the test moves. It talks to no monerod. A simulated outage recovers with one restart; heavy blocks, and a stall
+    broken by progress, restart nothing; and test mode refuses the real node's port.
 
 ### The stagenet swap run (MT-B19) — prepared, waiting for the sync
 
@@ -403,6 +417,84 @@ tools/regtest/zcash-testnet-down.sh [--wipe]
 - **Estimate.** With about 1/30 of mainnet's data to download and verify, a few hours to a day on this machine is
   plausible, 72 h is the ceiling Zebra allows itself, and unstable testnet peers are the main risk. This is an
   estimate, not a measurement.
+
+### Zcash testnet faucet wallet (Zallet 0.1.0-beta.3) — an operator's tool
+
+The live faucets pay shielded addresses only, and zecswap funds from a transparent key. So faucet TAZ passes through
+one shielded wallet: Zallet with its `zaino` backend, reading our testnet zebrad. `docs/ZEC_SWAP.md` §11.1 says why
+this wallet, what it trusts and what it costs, and [PINS.md](PINS.md) has its pin. It is never in a DMZ runtime path
+and never on mainnet. No harness script starts it: everything below runs by hand.
+
+- **Where.** The verified release is extracted in WSL at `$HOME/.dmz-regtest/zallet-v0.1.0-beta.3/`: the downloads in
+  `dl/`, the binaries in `bin/`. The wallet's datadir is `$HOME/.dmz-regtest/zcash-testnet-wallet/`, mode 0700. It
+  holds:
+  - `zallet.toml`, `wallet.db`, `encryption-identity.txt`;
+  - the launcher `run-zallet.sh`;
+  - `zallet.log`, `zallet.pid`, and the RPC `.cookie`.
+- **The one secret.** The mnemonic was generated inside the wallet and never displayed. It is kept in `wallet.db`,
+  encrypted to the age identity in `encryption-identity.txt`. That file is the secret: never copy it into the
+  repository. `zallet-zaino export-mnemonic` recovers the phrase if it is ever needed.
+- **Config.**
+  - `backend = "zaino"` and `[consensus] network = "test"`.
+  - `[indexer] validator_address = "127.0.0.1:18242"`, with `validator_cookie_path` set to zebrad's own cookie
+    (`$HOME/.dmz-regtest/zcash-testnet/.cookie`). Zaino reads blocks, tree states and the mempool, which rpcgate does
+    not serve, so the wallet goes to zebrad's internal port. rpcgate is unchanged.
+  - `[keystore] require_backup = false`: `confirm-backup` would put the phrase on screen.
+  - `[rpc] bind = ["127.0.0.1:18252"]` (`ZCASH_TESTNET_WALLET_RPC_PORT`).
+- **Testnet only.** `run-zallet.sh` starts nothing unless all of these hold:
+  - `zallet-zaino` hashes to `ZALLET_ZAINO_SHA256`;
+  - the config says `network = "test"` and names 127.0.0.1:18242;
+  - that node answers `getblockhash 0` with testnet's genesis block.
+
+  It writes each refusal to `zallet.log`. The wallet's addresses are `utest1…` (unified) and `ztestsapling1…`.
+- **Sync.** A new account's birthday is the tip. Before its notes can be spent, the wallet scans back to the start of
+  the current note-commitment subtree, about 240,000 testnet blocks on 2026-09-12. Over zebrad's local RPC that ran at
+  340–450 blocks/s: the first sync took 13:10Z to 13:26Z, a restart included. `getwalletstatus` says `"locked": true`
+  until `wallet_tip` reaches `node_tip`. Until then, balance and spend calls answer -10 "Wallet is still catching up".
+- **The send, dry-run** on the synced, empty wallet on 2026-09-12. The exact `z_sendmany` below was refused while it
+  was proposing the transaction, with nothing built or sent: -4 "Insufficient balance (have 0, need 1010000
+  including fee)". So the addresses and the privacy policy parse, and the fee is 10,000 zatoshi. The wallet needs
+  0.0101 TAZ spendable.
+- **Stop and restart**, measured 2026-09-12:
+  - SIGTERM ended Zallet within a second, and its `wsl.exe` host exited with it. That host is a parent and a child
+    `wsl.exe`, both carrying `run-zallet.sh` on their command lines.
+  - beta.3 logs two panics while it shuts down: "A Tokio 1.x context was found, but it is being shutdown". The book
+    lists full graceful shutdown as open work (#184).
+  - The wallet reopened with its account, and its scan went on from where it had stopped.
+
+Commands. Start it from Git Bash, detached through WMI like the harness's daemons, so no window holds it. The launcher
+runs Zallet under `nice -n 10`.
+
+```sh
+MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -Command '$si = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow=[uint16]0}; (Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine="wsl.exe -d Ubuntu-24.04 --cd ~ --exec bash .dmz-regtest/zcash-testnet-wallet/run-zallet.sh"; ProcessStartupInformation=$si}).ProcessId'
+```
+
+Everything else runs inside WSL (`wsl -d Ubuntu-24.04`, or a `wsl.exe -d Ubuntu-24.04 --exec bash -s <<'EOF'` heredoc
+from Git Bash), with this helper:
+
+```sh
+z() { "$HOME/.dmz-regtest/zallet-v0.1.0-beta.3/bin/zallet-v0.1.0-beta.3-linux-amd64/zallet-zaino" -d "$HOME/.dmz-regtest/zcash-testnet-wallet" "$@"; }
+z rpc getwalletstatus                                                    # synced once "locked" is false
+z rpc z_listaccounts                                                     # the account "dmz-testnet-faucet" and its uuid
+z rpc z_getaddressforaccount '"<account uuid>"' '["orchard","sapling"]'  # a shielded-only utest1… address, for the faucet
+z rpc z_getbalanceforaccount '"<account uuid>"'                          # spendable 10 blocks after the drip is mined
+# send 0.01 TAZ (1,000,000 zatoshi) to the taker's transparent key; a tm… recipient needs AllowRevealedRecipients
+z rpc z_sendmany '"<that utest1… address>"' '[{"address":"<taker tm… address>","amount":0.01}]' null null '"AllowRevealedRecipients"'
+z rpc z_getoperationstatus '["opid-…"]'   # until it is no longer "executing"
+z rpc z_getoperationresult '["opid-…"]'   # the txid
+kill -TERM "$(cat "$HOME/.dmz-regtest/zcash-testnet-wallet/zallet.pid")"   # stop: Zallet's own shutdown; its wsl.exe host exits
+```
+
+Each `z_getaddressforaccount` call may derive a new diversified address; every one of them pays the same account.
+
+Setup, done once on 2026-09-12, to repeat only if the wallet is recreated:
+1. Download the tarball, `.asc` and `.intoto.jsonl` into `dl/` and check all three, as in PINS.md: the sha256, the PGP
+   signature against `ZALLET_SIGNER_FPR`, and the sigstore bundle.
+2. Extract the tarball into `bin/`, and check `zallet-zaino` against `ZALLET_ZAINO_SHA256`.
+3. Write `zallet.toml` as above, mode 0600, and `run-zallet.sh`.
+4. Run, in order: `zallet-zaino -d <wallet dir> generate-encryption-identity`, then `init-wallet-encryption`, then
+   `generate-mnemonic`. The last prints only the seed fingerprint.
+5. Start the wallet, then create the account with `z rpc z_getnewaccount '"dmz-testnet-faucet"'`.
 
 ### DERO testnet — seed not reachable
 
