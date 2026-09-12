@@ -1,10 +1,15 @@
 # The Monero cross-curve proof (`proof-xmr`): audit package
 
-W-04 (`docs/MAINNET_TODO.md:35`), the preparation for the external audit MT-G03 (`docs/MAINNET_TODO.md:202`), with
-MT-G04 (`:203`), MT-M03 (`:293`) and what remained of GAP-013 (`docs/MAINNET_GAP_ANALYSIS.md:56`). Written
-2026-09-11 against HEAD `df077b8`. The sources under review last changed in these commits: `src/sha256_gadget.rs`
-and `Cargo.lock` 60ab2e6, `src/lib.rs`, `src/main.rs` and `Cargo.toml` 4e54072, the patch and
-`fetch-bulletproofs.sh` 7c087ff.
+W-04 of `docs/MAINNET_TODO.md`, the preparation for the external audit MT-G03 (§G of the same file), with MT-G04,
+MT-M03 and what remained of GAP-013 (`docs/MAINNET_GAP_ANALYSIS.md:56`). Written 2026-09-11 against HEAD `df077b8`,
+and committed with its tests and logs in `6095872`. **Checked against `e06c28a` on 2026-09-12 (X-13).** The sources
+under review have not changed since they were reviewed: `src/sha256_gadget.rs` and `Cargo.lock` last changed in
+60ab2e6, `src/lib.rs`, `src/main.rs` and `Cargo.toml` in 4e54072, and the patch and `fetch-bulletproofs.sh` in 7c087ff.
+`6095872` added `tests/audit.rs`, `tests/gadget.rs`, `build-reproducible.sh` and the logs. Three things outside the
+crate changed between `df077b8` and `e06c28a`, and this page now describes each:
+- the companion reduces a revealed value mod ℓ (MT-B25), which removes L1's stall (§4.3);
+- `ProverSHA256` is now the reproducible build `7293e9c9…` (MT-B26, §12);
+- `contracts/htlc.bas` is v3, with a Reclaim exit and new line numbers (§1.3, §4.3, §11).
 
 The proof is the largest trust item on the Monero path (`docs/SECURITY_THREAT_MODEL.md:85`). Without it a party
 could reveal, on DERO, a value that hashes correctly but is not their Monero key share, and the other side's XMR
@@ -14,13 +19,13 @@ would be unspendable (`docs/XMR_SWAP.md:43-47`). Nobody outside the project has 
 
 | item | result | where |
 |---|---|---|
-| Statement | the circuit proves `SHA256(LE32(x)) = H` for **some 256-bit `x` congruent to the key mod ℓ**, not for the reduced key itself. A preimage that is not a reduced scalar verifies (**L1**, §4.3). The honest prover refuses such bytes, but a dishonest one does not have to | `tests/audit.rs` `known_gap_an_unreduced_preimage_verifies`; `tests/gadget.rs` `the_bit_decomposition_is_not_unique` |
+| Statement | the circuit proves `SHA256(LE32(x)) = H` for **some 256-bit `x` congruent to the key mod ℓ**, not for the reduced key itself. A preimage that is not a reduced scalar verifies (**L1**, §4.3). The honest prover refuses such bytes, but a dishonest one does not have to. The gap is still in the circuit (GAP-040). Since MT-B25 the companion reduces a revealed value itself, so it no longer stalls on one | `tests/audit.rs` `known_gap_an_unreduced_preimage_verifies`; `tests/gadget.rs` `the_bit_decomposition_is_not_unique`; `tools/xmrswap/reveal_test.go` |
 | Circuit | 37,460 multipliers, 75,489 linear constraints, padded to 2^16. Derived by hand and measured, and the two agree | §3.4; `tests/gadget.rs` `constraint_counts` |
 | SHA-256 gadget | equals the `sha2` crate on 2,573 inputs (525 edge, 2,048 random), every constraint satisfied. All 10,728 allocated bits, flipped one at a time, break a constraint | §5; `test.log` |
 | Rejections | 0 of 3,202 tampered proofs (every byte, two masks), 0 of 261 wrong `H`, 0 of 269 wrong `S`, 0 of 3,395 wrong lengths, 0 of 14 other-party and spliced proofs verified | §10; `test.log` |
 | Replay | a proof carries nothing swap-specific. With fresh per-swap keys that is harmless (§11) | `tests/audit.rs` `replay_…` |
-| Reproducible build | `ProverSHA256` (`4d3bde0a…`) reproduces byte for byte, but only from the same absolute checkout path and `$CARGO_HOME`. `build-reproducible.sh` gives **`7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d`** from any checkout | §12; `repro.log` |
-| Timings | 25 runs each on the pinned release build, per process with generators included: prove median 9.01 s (p95 9.85 s), verify median 1.92 s (p95 2.31 s). In process: generators 1.25 s (p95 1.59 s), prove 7.70 s (p95 8.60 s), verify 0.68 s (p95 0.80 s). Measured beside a monerod sync | §13; `bench.log` |
+| Reproducible build | `build-reproducible.sh` gives **`7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d`** from any checkout. Since MT-B26 that is `ProverSHA256` (`tools/xmrswap/pin.go:31`). The former pin, `4d3bde0a…`, reproduced byte for byte only from the same absolute checkout path and `$CARGO_HOME` | §12; `repro.log` |
+| Timings | 25 runs each on the then-pinned release build (`4d3bde0a…`, the same code as today's pin), per process with generators included: prove median 9.01 s (p95 9.85 s), verify median 1.92 s (p95 2.31 s). In process: generators 1.25 s (p95 1.59 s), prove 7.70 s (p95 8.60 s), verify 0.68 s (p95 0.80 s). Measured beside a monerod sync | §13; `bench.log` |
 | Second verifier | no independent implementation exists. A port written here would share the design it is supposed to check, so it is not built; costed plan in §14 | §14 |
 
 ## 0. Start here
@@ -29,7 +34,8 @@ would be unspendable (`docs/XMR_SWAP.md:43-47`). Nobody outside the project has 
 `research/crosschain/poc/proof-xmr/patches/bulletproofs-5.0.0-r1cs-ctoption.patch`, and the parts of `bulletproofs`
 5.0.0 (the R1CS module behind the `yoloproofs` feature), `curve25519-dalek` 4.1.3 and `merlin` 3.0.0 that the proof
 runs through. Out of scope, but cited where the proof's guarantees are used: the DERO contract
-(`contracts/htlc.bas`) and the companion (`tools/xmrswap`).
+(`contracts/htlc.bas`) and the companion (`tools/xmrswap`). The contracts' own external review has its own package,
+`docs/audit/CONTRACT_REVIEW_PACKAGE.md` (MT-A17).
 
 **Build and run** (WSL, Ubuntu 24.04, rustc 1.98.1):
 
@@ -45,8 +51,46 @@ bash <repo>/research/crosschain/poc/proof-xmr/build-reproducible.sh   # the pinn
 `dalek/…:N` is curve25519-dalek 4.1.3 (Cargo.lock checksum `97fb8b7c…`) and `merlin/…:N` is merlin 3.0.0 (checksum
 `58c38e27…`), both as published on crates.io. `XMR_SWAP.md` is `docs/XMR_SWAP.md`. The recorded evidence sits next
 to the crate: `test.log` (the whole suite), `repro.log`, `bench.log`, `run.log` and `vector.txt` (the worked vector).
-`tools/xmrswap/swap.go` has uncommitted edits by its owner. Its line numbers here are those of the working tree on
-2026-09-11 and may drift, so each citation also names the function.
+Every other `file:N` is a line at commit `e06c28a`. `tools/xmrswap` carries uncommitted edits by its owner in the
+working tree, so each citation of it also names the function. `docs/MAINNET_TODO.md` is being edited too, and is cited
+by item ID.
+
+**What the auditor receives.** Everything below, taken from one commit (`e06c28a`, except for this page, whose X-13
+corrections are not yet committed):
+- this page;
+- the crate, `research/crosschain/poc/proof-xmr/`:
+  - `src/lib.rs`, `src/sha256_gadget.rs`, `src/main.rs`, `Cargo.toml`, `Cargo.lock`;
+  - `patches/bulletproofs-5.0.0-r1cs-ctoption.patch` and `fetch-bulletproofs.sh`;
+  - `tests/{proof,cli,vector,gadget,audit}.rs`: 23 tests;
+  - `README.md`;
+  - the scripts `test-all.sh`, `repro.sh`, `build-reproducible.sh`, `bench.sh` and `record.sh`;
+- the recorded evidence: `test.log`, `repro.log`, `bench.log`, `run.log` and `vector.txt`;
+- the pins:
+  - `deploy/vendor.lock:60-68`: bulletproofs 5.0.0 with its crates.io sha256 `012e2e5f…`, the patch, and the tree
+    hash `689ed837…`;
+  - `tools/xmrswap/pin.go:20-31`: `ProverSHA256` = `7293e9c9…`;
+- for context, where the verdict is used:
+  - `tools/xmrswap/proof.go`: the pinned-binary wrapper;
+  - `tools/xmrswap/keys.go`: `ParsePoint`, `RecoverShare`;
+  - `tools/xmrswap/swap.go`: `keygen`, `verifyPeer`, `checkRevealed`, `spendKey`;
+  - `contracts/htlc.bas`;
+- the build helper `research/crosschain/poc/wsl/build.sh`.
+
+`git -C <repo> archive -o <tmp>/proof-xmr.tar e06c28a <the paths above>` collects them. The patched `bulletproofs`
+tree itself is not in git: `fetch-bulletproofs.sh` rebuilds it from crates.io plus the patch, and checks it.
+
+**Reproducing the build**, on the toolchain of §12:
+- rustc and cargo 1.98.1, `x86_64-unknown-linux-gnu`;
+- Ubuntu 24.04's cc (gcc 13.3.0-6ubuntu2~24.04.1, binutils 2.42, glibc 2.39-0ubuntu8.8);
+- no `RUSTFLAGS`;
+- network access to crates.io.
+
+Run `bash <repo>/research/crosschain/poc/proof-xmr/build-reproducible.sh` in WSL or Linux. It builds under
+`/tmp/proof-xmr-build` with `CARGO_HOME=/tmp/proof-xmr-cargo` and `--locked`, and prints
+`sha256 <hash> <bytes> bytes <binary>`. A correct build prints
+`7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d` and 1,340,640 bytes, which is `ProverSHA256`.
+§12 explains why the plain `cargo build --release` does not reproduce across checkouts, and §17 lists every recording
+script.
 
 ## 1. The statement
 
@@ -75,7 +119,7 @@ to the auditor (Q1–Q4).
 
 | input | size | encoding | checked by the verifier |
 |---|---|---|---|
-| `H` | 32 bytes | the SHA-256 digest, as DERO stores it (`contracts/htlc.bas:85,117` compare `HEX(SHA256(raw))`) | only through the circuit's 256 digest constraints (`gadget.rs:255-273`) and the transcripts (§7) |
+| `H` | 32 bytes | the SHA-256 digest, as DERO stores it (`contracts/htlc.bas:110,113,142,202` compare `HEX(SHA256(raw))`) | only through the circuit's 256 digest constraints (`gadget.rs:255-273`) and the transcripts (§7) |
 | `S` | 32 bytes | compressed Edwards y with the x sign bit (`CompressedEdwardsY`) | decodes, torsion-free, not the identity (`lib.rs:186-189`). A non-canonical y is **accepted** (§6.5) |
 | proof | 1,601 bytes | the R1CS proof ‖ `C` ‖ `A1` ‖ `A2` ‖ `z1` ‖ `z2` (`lib.rs:32-39,76-85`; layout table in the crate's `README.md:60-91`) | §8 |
 
@@ -86,10 +130,12 @@ Fixed parameters, not inputs: the circuit, `GENS = 2^16` (`lib.rs:29-30`), the P
 ### 1.4 Who relies on it
 
 Each party proves its own share before anything is locked and verifies the other's (`XMR_SWAP.md:34-50`). The
-companion calls the pinned binary (`tools/xmrswap/proof.go:43-56`). It makes its own share and proof
-(`tools/xmrswap/swap.go:608-629` `keygen`), and accepts the peer's `(H, S, proof)` only on exit 0 (`swap.go:631-654` `verifyPeer`). When the
-peer's share appears on DERO it re-checks it before forming the joint key (`swap.go:690-706` `checkRevealed`). The contract accepts a
-32-byte preimage of the stored hash (`contracts/htlc.bas:82-85` Claim, `:114-117` Refund).
+companion calls the pinned binary (`tools/xmrswap/proof.go:43-56` `NewPinnedProver`). It makes its own share and
+proof (`tools/xmrswap/swap.go:687-709` `keygen`), and accepts the peer's `(H, S, proof)` only on exit 0
+(`swap.go:711-732` `verifyPeer`). When the peer's share appears on DERO, it checks the revealed bytes against `H` and
+`S`, reduced mod ℓ, before forming the joint key (`swap.go:773-780` `checkRevealed` → `keys.go:239-266` `RecoverShare`,
+MT-B25; §4.3). The contract accepts a 32-byte preimage of the stored hash (`contracts/htlc.bas:107-113` Claim,
+`:139-142` Refund, `:199-202` Reclaim).
 
 ## 2. Objects
 
@@ -201,23 +247,36 @@ without the refusal at `lib.rs:156-158`, and the verifier accepts. `tests/audit.
 `known_gap_an_unreduced_preimage_verifies` does exactly that with a full 1,601-byte proof, and the honest `prove`
 refuses the same bytes.
 
-**What it does in the swap.** The counterparty publishes `H' = SHA256(s + kℓ)`. The contract later accepts
-`s + kℓ` as the 32-byte preimage (`contracts/htlc.bas:83-85` or `:115-117`: only the length and the hash are
-checked). The honest companion reads it from the chain and refuses it. `checkRevealed` calls `ParseScalar`
-(`tools/xmrswap/swap.go:693-697` in `checkRevealed`), which rejects any value that is not reduced (`tools/xmrswap/keys.go:72-87`).
-`spendKey` would refuse it too (`swap.go:678-687` `spendKey`). So the automatic claim of the Monero output stops. The funds are
-not lost: `(s + kℓ) mod ℓ = s` and `s·G = S`, so reducing the revealed bytes by hand yields the key share. Only the
-party holding the other share can sweep, so there is no race. The cost is liveness, plus an operator facing a
-"scalar is not reduced mod l" error at the worst moment. Either party can trigger it: Alice through her Claim
-(Bob's companion stalls), Bob through his Refund (Alice's). The documented statement (§1.1) is stronger than what
-the code proves.
+**What it does in the swap.** The counterparty publishes `H' = SHA256(s + kℓ)`. The contract later accepts `s + kℓ`
+as the 32-byte preimage: it checks only the length and the hash (`contracts/htlc.bas:107-110` Claim, `:139-142`
+Refund, `:199-202` Reclaim). The funds are not at risk. `(s + kℓ) mod ℓ = s` and `s·G = S`, so the revealed bytes
+reduced mod ℓ are the key share, and only the party holding the other share can sweep, so there is no race. Either
+party can publish such a value: Alice through her Claim, Bob through his Refund or Reclaim.
 
-**Ways to close it** (for after the audit; each changes either the circuit or the companion, not decided here):
+*When this section was written* (`df077b8`), the honest companion refused the revealed value. `checkRevealed` called
+`ParseScalar`, which rejects any value that is not reduced (`tools/xmrswap/keys.go:72-87`), so the automatic claim of
+the Monero output stopped on a "scalar is not reduced mod l" error, and the share had to be reduced by hand.
+
+*Since MT-B25* (in `e06c28a`), the companion does remedy (c) below:
+- `checkRevealed` (`tools/xmrswap/swap.go:773-780`) calls `RecoverShare` (`tools/xmrswap/keys.go:239-266`).
+- `RecoverShare` requires the 32 revealed bytes to hash to the committed `H`, reduces them mod ℓ, requires the result
+  times `G` to be the committed `S`, and returns the reduced scalar.
+- `checkRevealed` stores that scalar, and `spendKey` (`swap.go:756-766`) forms the joint key from it.
+- `tools/xmrswap/reveal_test.go` `TestARevealedShareNotReducedModLStillOpensTheKey` shows that `s + ℓ` and `s + 15ℓ`
+  both open the joint key, and that a value reducing to another share is refused.
+
+So L1 no longer stops the honest companion. It remains in the circuit: the documented statement (§1.1) is still
+stronger than what the code proves, and any other client that relies on the proof must reduce a revealed value the
+same way (GAP-040).
+
+**Ways to close it.** (a) and (b) change the circuit and are for after the audit, not decided here; (c) changes the
+companion and is built (MT-B25):
 (a) four linear constraints `b_252 = b_253 = b_254 = b_255 = 0`, so `x < 2^252 < ℓ` at zero multipliers. `keygen`
 must then draw below 2^252, which excludes ≈2^-127.6 of the key space; the transcript labels move to `.v2`.
 (b) a full `x < ℓ` comparator, about 500 multipliers, still under 2^16, so the proof stays 1,601 bytes; also `.v2`.
 (c) the companion reduces a revealed value itself, after checking `SHA256(raw) = H` and `(raw mod ℓ)·G = S`. That
-needs no proof change, but leaves the statement weaker than documented. Q5 asks the auditor to rank these.
+needs no proof change, but leaves the statement weaker than documented. **Built in `tools/xmrswap`** (above). Q5
+asks the auditor whether (c) is enough on its own, and to rank (a) and (b).
 
 ## 5. The SHA-256 gadget against FIPS 180-4
 
@@ -305,7 +364,8 @@ pair is Q3.
   "will happily decode 2^255 − 18 to 1").
 - The transcripts hash the bytes as given (`lib.rs:145,148,193`). So a non-canonical `A2` is just another
   commitment encoding a prover may choose (§15 L5).
-- The companion refuses a non-canonical `S` before calling the tool (`tools/xmrswap/keys.go:156-199`), as Monero's
+- The companion refuses a non-canonical `S` before calling the tool (`tools/xmrswap/keys.go:156-218`, `ParsePoint`
+  → `decodeKeyShare`; `verifyPeer` calls it first, `swap.go:711-732`), as Monero's
   `ge_frombytes_vartime` does.
 - Ristretto encodings (`C`, `A1`, every R1CS point) are canonical by construction.
 
@@ -416,7 +476,7 @@ API "UNSTABLE AND UNSUITABLE FOR DEPLOYMENT" (`bp/README.md:165-166`) and leaves
 - `fetch-bulletproofs.sh` downloads the crate, checks sha256 `012e2e5f…` (crates.io's own index checksum), applies
   the patch, and with `-check` compares a local copy against crate plus patch, byte for byte
   (`research/crosschain/poc/proof-xmr/fetch-bulletproofs.sh:11-14,23-30,32-44`).
-- `deploy/vendor.lock:45-52` pins the crate, the patch and the tree hash.
+- `deploy/vendor.lock:60-68` pins the crate, the patch and the tree hash.
 - `Cargo.toml:25-26` points the build at that copy.
 - `test.log` begins with the `-check` result: "ok: … bulletproofs 5.0.0 … plus the committed patch, and nothing else".
 
@@ -471,19 +531,20 @@ same, so a replay can be recognised by its statement but never by its bytes (`te
 1. What a verifier relies on is a property of `(H, S)` alone: whoever reveals a 32-byte preimage of `H` reveals a
    value congruent mod ℓ to the discrete log of `S`. That holds whoever made the proof and whenever.
 2. Someone who presents another person's statement does not know its preimage, so cannot take the exit that
-   reveals it. Alice cannot Claim and Bob cannot Refund (`contracts/htlc.bas:74-129`). They can only hurt
-   themselves: Punish pays the taker after `t2` (`XMR_SWAP.md:98-137`).
+   reveals it. Alice cannot Claim, and Bob can neither Refund nor Reclaim (`contracts/htlc.bas:99-154,191-214`).
+   They can only hurt themselves: in v3, Punish pays the taker in [`t2`, `t2 + g2`) (`contracts/htlc.bas:165-185`;
+   `XMR_SWAP.md` §2).
 3. Rogue keys. Bob cannot choose `S_b = X − S_a` for an `X` he controls, because the sigma protocol is a proof of
    knowledge of `log_G S_b`. A replay only offers statements proved earlier, and none of those depends on this
    swap's fresh `S_a`.
 4. Reflection: a peer sends back the other party's own statement.
    - Bob reflecting Alice's gives a joint key of 2·s_a, which only Alice can compute, and Bob cannot Refund.
    - Alice reflecting Bob's locks her XMR under 2·s_b, which Bob alone controls.
-   Either way only the reflector loses. The companion does not refuse `H_peer = H_own` (`swap.go:631-654` `verifyPeer`); doing so
+   Either way only the reflector loses. The companion does not refuse `H_peer = H_own` (`swap.go:711-732` `verifyPeer`); doing so
    would be hygiene, not safety (Q9, for the xmrswap owner).
 5. Reusing one's own share across swaps is the real danger: a share revealed in swap 1 is public in swap 2. Fresh
-   keys prevent it. Each swap runs `keygen` (`swap.go:608-629` `keygen`), and a register refuses a secret already used by
-   another swap (`tools/xmrswap/state.go:313-331`, `swap.go:599-606` `refuseIfReused`).
+   keys prevent it. Each swap runs `keygen` (`swap.go:687-709` `keygen`), and a register refuses a secret already used by
+   another swap (`tools/xmrswap/state.go:333-357` `UsedSecrets.Record`, `swap.go:679-684` `refuseIfReused`).
 
 Binding the transcripts to a swap identifier would be defence in depth only. It would matter if a protocol version
 ever reused `(H, S)` deliberately (long-lived maker keys), or treated a proof as authentication of a party.
@@ -499,12 +560,12 @@ gcc 13.3.0-6ubuntu2~24.04.1, binutils 2.42 and glibc 2.39-0ubuntu8.8, with no `R
 
 | build | sha256 | result |
 |---|---|---|
-| the pinned binary, `xmrswap.ProverSHA256` (`tools/xmrswap/pin.go:24`) | `4d3bde0a…c20ac444`, 1,340,392 bytes | |
-| recipe 1: `build.sh`'s `cargo build --release`, in this checkout, fresh target directory | `4d3bde0a…c20ac444` | **byte-identical to the pin** |
+| the pin when this was measured, `xmrswap.ProverSHA256` at `df077b8` | `4d3bde0a…c20ac444`, 1,340,392 bytes | replaced since by recipe 3 (MT-B26) |
+| recipe 1: `build.sh`'s `cargo build --release`, in this checkout, fresh target directory | `4d3bde0a…c20ac444` | **byte-identical to that pin** |
 | recipe 1 from two other directories | two different hashes (`repro.log`) | differ from each other and from the pin |
 | recipe 2a: cargo `trim-paths` | | refused: not stable in cargo 1.98.1 |
 | recipe 2b: `RUSTFLAGS=--remap-path-prefix` | no build path left, but two different hashes | differ |
-| **recipe 3: `build-reproducible.sh`**, from both directories | **`7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d`**, 1,340,640 bytes | **byte-identical** |
+| **recipe 3: `build-reproducible.sh`**, from both directories | **`7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d`**, 1,340,640 bytes | **byte-identical**; `ProverSHA256` since MT-B26 (`tools/xmrswap/pin.go:31`) |
 
 **Why recipe 1 differs across directories.**
 - The patched `bulletproofs` is a path dependency outside the crate's directory (`Cargo.toml:25-26`). Cargo hands rustc
@@ -520,21 +581,24 @@ gcc 13.3.0-6ubuntu2~24.04.1, binutils 2.42 and glibc 2.39-0ubuntu8.8, with no `R
   `/tmp/proof-xmr-build`, fetches and patches `bulletproofs` there, and builds with `CARGO_HOME=/tmp/proof-xmr-cargo`
   and `--locked`.
 
-**The pin, for the coordinator.** tools/xmrswap is not edited here.
-- The current pin `4d3bde0a…` is correct: it is the release build of the committed sources. But only a machine with
-  the same checkout path and home directory can reproduce it, since both are embedded.
-- The reproducible pin is `7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d` (1,340,640 bytes). Its
-  recipe is `research/crosschain/poc/proof-xmr/build-reproducible.sh` on the toolchain above, and the binary lands at
-  `$CARGO_TARGET_DIR/release/proof-xmr` (default `~/target/proof-xmr-reproducible`).
+**The pin.** Moved, in MT-B26. `ProverSHA256` is `7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d`
+(`tools/xmrswap/pin.go:31`), and the comment above it names this recipe and the toolchain (`pin.go:20-30`).
+- The former pin, `4d3bde0a…`, was the release build of the same committed sources. Only a machine with the same
+  checkout path and home directory could reproduce it, since both are embedded in the binary.
+- The reproducible binary is 1,340,640 bytes. Its recipe is `research/crosschain/poc/proof-xmr/build-reproducible.sh`
+  on the toolchain above, and the binary lands at `$CARGO_TARGET_DIR/release/proof-xmr` (default
+  `~/target/proof-xmr-reproducible`). The companion's `-prover` must name that file by absolute path, and the file is
+  hashed before every run (`tools/xmrswap/proof.go:43-56`).
 - The two binaries run the same code. The reproducible one verifies `vector.txt`, and a proof made by each verifies
-  under the other (`repro.log`).
+  under the other (`repro.log`). MT-B26 records the new binary rebuilt and confirmed by the Monero engineer, and the
+  real-prover test passing on it.
 - Remaining dependencies of the hash: the toolchain, the system linker, and glibc, whose C runtime objects are linked
   into the binary.
-- `pin.go:21-22`'s "The build is not reproducible yet" would then name the recipe. `-prover` would point at its output.
 
 ## 13. Timings (MT-M03)
 
-`bench.sh` recorded this in `bench.log` on 2026-09-11. It ran the pinned release binary (`4d3bde0a…`, rustc 1.98.1)
+`bench.sh` recorded this in `bench.log` on 2026-09-11. It ran the then-pinned release binary (`4d3bde0a…`, rustc
+1.98.1; replaced since by `7293e9c9…`, which runs the same code, §12)
 25 times each way, as the companion runs it:
 - `keygen`, then `prove -` with the secret on stdin, then `verify` of that proof;
 - each call a fresh process that rebuilds the 2^16 generators (`main.rs:68-70,101-103`);
@@ -558,8 +622,9 @@ p95 is the nearest-rank 24th of 25. The maxima come from runs 22 and 23, during 
 (`bench.log`).
 
 **MT-M03.** The medians are below the figures the docs carry, ≈10.1 s to prove and ≈2.3 s to verify end to end
-(`docs/MAINNET_TODO.md:293`; `XMR_SWAP.md:47-49`), and the p95s are at them. The 2026-09-08 `run.log` single run
-(generators 1.61 s, prove 8.51 s, verify 0.74 s) is within these ranges. Generator setup is about two thirds of a
+(`docs/MAINNET_TODO.md` MT-M03; `XMR_SWAP.md:47-49`), and the p95s are at them. The 2026-09-08 `run.log` single run
+(generators 1.61 s, prove 8.51 s, verify 0.74 s) is within these ranges, and so is the single run MT-B26 records on
+the reproducible binary (prove 9.4 s, verify 1.9 s). Generator setup is about two thirds of a
 verify (L8): the tool keeps no state between calls, by design (the crate's `README.md:54-55`). The companion allows
 5 minutes per call (`tools/xmrswap/proof.go:128`), about 30 times the p95.
 
@@ -583,7 +648,7 @@ known implementations and a web search:
 - flattening, the inner-product verification scalars (`bp/src/inner_product_proof.rs:198-252`) and the batched check
   (`bp/src/r1cs/verifier.rs:412-515`);
 - the sigma protocol and the parser.
-In Go on `filippo.io/edwards25519`, which tools/xmrswap already uses (`tools/xmrswap/keys.go:18-48`), that is about
+In Go on `filippo.io/edwards25519`, which tools/xmrswap already uses (`tools/xmrswap/keys.go:12-15`), that is about
 1,300 to 1,500 lines, or one to two engineer-weeks with the vector debugging. The multiscalar product over 131,118
 points (`bp/src/r1cs/verifier.rs:477-507`: 6 + 1 + 5 + 2 + 2·65,536 + 2·16) would take seconds; that is an
 estimate, not a measurement.
@@ -613,7 +678,7 @@ redone if the audit changes the circuit, and closing L1 does change it.
 
 | # | limitation | severity for the swap | code |
 |---|---|---|---|
-| L1 | a preimage that is not a reduced scalar (s + kℓ, up to 15 per key) verifies | liveness: the honest companion refuses the revealed value, and a manual reduction recovers the key. The statement is weaker than documented | §4.3 |
+| L1 | a preimage that is not a reduced scalar (s + kℓ, up to 15 per key) verifies | none for the honest companion since MT-B25: it reduces a revealed value after checking its hash and its point (`RecoverShare`). Before that, liveness. The statement is weaker than documented, and any other client must reduce too | §4.3; GAP-040 |
 | L2 | no swap binding in either transcript | none while keys are fresh per swap | §11 |
 | L3 | the R1CS back end is upstream's unaudited `yoloproofs` API; constraints are never validated as added | the circuit's soundness rests on this package and the audit | `bp/README.md:165-166`; `bp/src/r1cs/prover.rs:180-184` |
 | L4 | the sigma nonces `k1, k2` and the blinding `r` come from `OsRng` alone, not hedged with the witness as the R1CS prover's RNG is. Two proofs of one `s` with a repeated `k1` give `s = (z1 − z1')/(c − c')` | a broken RNG leaks the share before the swap ends, and the counterparty takes both sides | `lib.rs:161,174-175`; compare `bp/src/r1cs/prover.rs:432-442` |
@@ -621,9 +686,9 @@ redone if the audit changes the circuit, and closing L1 does change it.
 | L6 | proofs are randomised, so a statement has many valid proofs | replay detection must key on `(H, S)` | §11 |
 | L7 | witness generation branches on secret bits (`gadget.rs:42-67,106-127`); only the proving multiscalar products are constant-time (`bp/src/r1cs/prover.rs:462-488`). The secret's copies in `lib.rs` and `main.rs` are not zeroised (the prover's own are: `bp/src/r1cs/prover.rs:74-96`) | a local process, and the share becomes public at reveal anyway | as cited |
 | L8 | every call rebuilds 2^16 generators | about 1.6 s per call | `main.rs:69,102`; §13 |
-| L9 | the pinned build reproduces only at its original paths | closed by `build-reproducible.sh` once the pin is replaced | §12 |
+| L9 | the former pinned build reproduced only at its original paths | closed: the pin is the reproducible build (MT-B26) | §12 |
 | L10 | verification is probabilistic (the batching weight) | error ≤ about 1/ℓ | `bp/src/r1cs/verifier.rs:458-515` |
-| L11 | the circuit hashes exactly 32 bytes | consistent with the contract's `STRLEN(raw) == 32` | `gadget.rs:174-178`; `contracts/htlc.bas:83-85,115-117` |
+| L11 | the circuit hashes exactly 32 bytes | consistent with the contract's `STRLEN(raw) == 32` | `gadget.rs:174-178`; `contracts/htlc.bas:107-113,139-142,199-202` |
 
 ## 16. Questions for the auditor
 
@@ -635,8 +700,9 @@ redone if the audit changes the circuit, and closing L1 does change it.
    (§6.3–§6.4), given that each transcript omits the other proof?
 4. Is the cross-group argument of §6.1–§6.3 correct as the code does it: the same scalar in ristretto255 and in
    E[ℓ], `S` torsion-checked, `A2` not?
-5. L1: confirm the gap and its swap impact (§4.3), and rank the three remedies, including whether a `.v2` circuit
-   with `b_252..b_255 = 0` is acceptable.
+5. L1: confirm the gap and its swap impact (§4.3). Is the companion's reduction (remedy (c), built as MT-B25) enough
+   on its own, or should the circuit change too? Rank (a) and (b), including whether a `.v2` circuit with
+   `b_252..b_255 = 0` is acceptable.
 6. Is the Fiat–Shamir binding complete? `H` and `S` come first in T1, `C` enters as `V`, and the circuit is fixed by
    code rather than hashed.
 7. Does each gadget of §3.3 constrain what it claims? Especially `add_words`' carry bounds, `decompose`, and the
@@ -666,4 +732,7 @@ bash <repo>/research/crosschain/poc/proof-xmr/bench.sh               # bench.log
 
 Each runs inside WSL with `REPO` set to the repository's WSL path. From Git Bash, prefix
 `MSYS_NO_PATHCONV=1 wsl.exe -e bash -lc 'export REPO=<repo>; …'`, as `record.sh` shows. `PROOF_XMR_SEED` changes the
-seed of the random inputs and masks; the fixed default makes a failure replayable.
+seed of the random inputs and masks; the fixed default makes a failure replayable. `build-reproducible.sh` prints
+`sha256 <hash> <bytes> bytes <binary>`; the build is right when it prints
+`7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d` and 1,340,640 bytes, which equals `ProverSHA256`
+(`tools/xmrswap/pin.go:31`).
