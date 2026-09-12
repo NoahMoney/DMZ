@@ -1,0 +1,423 @@
+# W-01 / MT-F05 day 0 on the private DERO testnet, 2026-09-12 (main e06c28a). Commands: research/testnet/README.md.
+# Times are UTC unless a line says otherwise. No wallet recovery words, no key and no htlc refund secret is in this file.
+
+== 1. tools/simdeploy -network testnet (deployer 127.0.0.1:40405 as -w0, treasury 127.0.0.1:40404 as -w2)
+owner deto1qypk4g4qkpl2nkv6kjcdsykytw54edsgnwyzk8mlgnjdg02hcx5a5qq2ffmj4
+treasury deto1qy067pxeld72w0s7kqe99kwal28j54mchpnsj3wlm083wgju6e3uzqge0j9x8
+installing factory.bas
+installing social.bas
+installing founders.bas
+installing chat.bas
+installing htlc.bas
+installing swap.bas
+installing board.bas
+factory  a902d8f37dfe529bfd669d4225be0b64cf7847e15234d08ba4c5db8872f1c6b8
+social   8768f9c5be9a802b0783ca80f7c7eddf44877b2cbe03def09dbe19ef951428eb
+founders bfdb00b17f9420764c8a23204fd382e4b5d423b9c8f1ad8fe499603761b0b28c
+chat     9fb375bda416f90a7c83b7af3c05fc31f14b085180749acd35f7621c42470fdf
+htlc     a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798
+swap     8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa
+board    955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9
+template launch: bc05b8e38949… revoked, dropped from the record — markets deployed from it stop verifying
+template nft: 389deff90eac… revoked, dropped from the record — markets deployed from it stop verifying
+template founders: 8afd70fb7336… revoked, dropped from the record — markets deployed from it stop verifying
+template pool: d4e42ece020c… revoked, dropped from the record — markets deployed from it stop verifying
+recorded testnet in ../deploy/networks.json
+wrote <tmp>\simdeploy-app-testnet\config.js
+exit 0
+
+== 2. tools/genconfig -dist -network testnet, then tools/testnetcheck/exercise -mode market | htlc | swap | board | social
+== genconfig -dist -network testnet
+testnet → ..\dist\testnet
+  amm.js                   9232 B  doc   4708 B
+  app.js                  33752 B  doc  16024 B
+  chart.js                15632 B  doc   7632 B
+  chat.js                  9832 B  doc   4868 B
+  desk.css                 7735 B  doc   3444 B
+  feed.js                 30167 B  doc  13516 B
+  forms.js                29914 B  doc  12968 B
+  founders.js              4052 B  doc   2404 B
+  home.js                 26487 B  doc  12200 B
+  index.html               4810 B  doc   1844 B
+  live.js                  3989 B  doc   2264 B
+  markets.js              20627 B  doc  10496 B
+  names.js                11610 B  doc   5792 B
+  nfas.js                 32402 B  doc  14172 B
+  nft.js                   6854 B  doc   3340 B
+  nfts.js                 15723 B  doc   7240 B
+  notice.js               10909 B  doc   5656 B
+  parts.css               15411 B  doc   5740 B
+  rpc.js                  10350 B  doc   5400 B
+  screens.js              28560 B  doc  13636 B
+  sheets.js               15391 B  doc   6612 B
+  stats.js                11985 B  doc   6664 B
+  styles.css               9390 B  doc   4856 B
+  templates/founders.bas  10398 B  doc   3844 B
+  templates/launch.bas    15257 B  doc   5368 B
+  templates/nfa.bas       14937 B  doc   4480 B
+  templates/nft.bas        3873 B  doc   1508 B
+  templates/pool.bas      10604 B  doc   3668 B
+  token.js                32853 B  doc  15192 B
+  ui.css                  11773 B  doc   4832 B
+  ui.js                   20709 B  doc  11344 B
+  vault.js                 5527 B  doc   3028 B
+  wrap.js                 29081 B  doc  12960 B
+  wrapui.js                7029 B  doc   4176 B
+  xswd.js                  8023 B  doc   3960 B
+  zswap.js                24550 B  doc  11884 B
+  config.js                1915 B  doc   1488 B
+  37 files, manifest.json written
+== exercise -mode market 2026-09-12T06:00:01Z
+daemon 127.0.0.1:40402 height 6943  factory a902d8f37dfe529bfd669d4225be0b64cf7847e15234d08ba4c5db8872f1c6b8  htlc a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798  swap 8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa  board 955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9
+lp deto1qypk4g4qkpl2nkv6kjcdsykytw54edsgnwyzk8mlgnjdg02hcx5a5qq2ffmj4
+trader deto1qyh86urd4aynvzrulpxnuy6g6pl9rpekuqp5ekkqjmpfl8078zn66qggullhx
+treasury dero1qy067pxeld72w0s7kqe99kwal28j54mchpnsj3wlm083wgju6e3uzqgrkwar0
+regfee 10000
+1. launch.bas: DMZ Testnet Coin (DTC), supply 1e9 units, graduation 10 DERO, creator 3%, tax 5% to stakers
+TX launch install               e0b741e9aade2b4775bff227f9a8772ab68d2e0981db54533c824e2b21af60d9 height 6944  2026-09-12T06:00:31Z
+  launch scid e0b741e9aade2b4775bff227f9a8772ab68d2e0981db54533c824e2b21af60d9 gas 1290400/15816
+  creator allocation 30000000 units (matches model)
+  launch install      phase=0 rd=333333 ra=1034666408 sold=0 real=0 fd=0 tc=0  matches model
+2. RegisterLaunch on the factory
+TX RegisterLaunch               4021f74ac3f53163e2d30fc6f0ae8fe160591198ae4f928bcbae104a9883ca79 height 6946  2026-09-12T06:01:43Z
+  registered as launch_0 (lc = 1)
+3. launch buy: trader buys with 1 DERO (published)
+TX launch buy 1 DERO            7af9e04835860d6fb56b2191bafe6e68da7bbd65a4e1592ee628c81cbbcb3968 height 6948  2026-09-12T06:03:11Z
+  launch buy          phase=0 rd=427833 ra=806128695 sold=228537713 real=94500 fd=500 tc=1  matches model
+  quoted 228537713, trader holds 228537713 DTC units
+4. pool.bas: DTC/DERO, fee 50 bps, protocol share 50%
+TX pool install                 ff28a85ef1c1bc8db49796be427177434cc8ba55b92cdbed6c544167c4691adc height 6950  2026-09-12T06:05:03Z
+  pool scid ff28a85ef1c1bc8db49796be427177434cc8ba55b92cdbed6c544167c4691adc gas 488000/10940
+  pool install            rd/ra/lp/fd/fa=[0 0 0 0 0] tc=0  matches model
+5. RegisterPool on the factory
+TX RegisterPool                 4cd00c6e724d91f4d9f177e485fc9347bdf058739809cf919ca165b867c66bfd height 6952  2026-09-12T06:06:31Z
+  registered as pool_0 (pc = 1)
+6. lp adds 2 DERO + 1,000,000 DTC units
+TX AddLiquidity                 12f70ba2b2beb4ba926be963c3bdd8cf6d9432af53f4a5c1904afd00cd3b3c85 height 6954  2026-09-12T06:08:16Z
+  pool AddLiquidity       rd/ra/lp/fd/fa=[200000 1000000 200000 0 0] tc=0  matches model
+7. trades: trader buys 0.5 DERO (published), sells 20,000 units, buys 0.2 DERO
+TX pool buy 0.5 DERO            c0b9fa3b410b193d343c45ccad7227cf1a8e5f864d0f68f108e09f89f47e6c18 height 6956  2026-09-12T06:09:58Z
+  pool buy                rd/ra/lp/fd/fa=[249875 800801 200000 125 0] tc=1  matches model
+TX pool sell 20000 DTC          0d121bc3c4d5d163aa4cbd168a6432f52690232b88a5c8018fe99d14100ea7fe height 6958  2026-09-12T06:11:59Z
+  pool sell               rd/ra/lp/fd/fa=[243817 820751 200000 125 50] tc=1  matches model
+TX pool buy 0.2 DERO            90b19acd2797763562722f36fc99decc0fb92732e1ec9e0e0349d1310d4dae70 height 6960  2026-09-12T06:13:42Z
+  pool buy                rd/ra/lp/fd/fa=[263767 758818 200000 175 50] tc=1  matches model
+RECORD {"kind":"launch","minTrades":1,"scid":"e0b741e9aade2b4775bff227f9a8772ab68d2e0981db54533c824e2b21af60d9"}
+RECORD {"kind":"pool","minTrades":1,"scid":"ff28a85ef1c1bc8db49796be427177434cc8ba55b92cdbed6c544167c4691adc"}
+MARKET DONE launch e0b741e9aade2b4775bff227f9a8772ab68d2e0981db54533c824e2b21af60d9 pool ff28a85ef1c1bc8db49796be427177434cc8ba55b92cdbed6c544167c4691adc
+== exercise -mode htlc 2026-09-12T06:13:43Z
+daemon 127.0.0.1:40402 height 6961  factory a902d8f37dfe529bfd669d4225be0b64cf7847e15234d08ba4c5db8872f1c6b8  htlc a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798  swap 8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa  board 955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9
+maker deto1qyh86urd4aynvzrulpxnuy6g6pl9rpekuqp5ekkqjmpfl8078zn66qggullhx
+taker deto1qypk4g4qkpl2nkv6kjcdsykytw54edsgnwyzk8mlgnjdg02hcx5a5qq2ffmj4
+w1min 400 w2min 400 g2 4800
+1. lock A, claimed by the taker at once with s_a and k_b
+TX htlc Lock A                  76897cfefad58cf3697326429ae031a2506a33f85c728c93e07ab0ed870f9e1b height 6962  2026-09-12T06:15:52Z
+  lock 0: 1000 units, t1 7373, t2 7775, Punish until 12575 (open)
+TX htlc Claim A (taker)         3dedaf3b06a1752855656d6e76d3768a2269db06df4e8a2a7c8050170a1fade4 height 6964  2026-09-12T06:17:26Z
+  lock 0 state 1 (claimed), s_a on chain for the maker
+RECORD {"contract":"htlc","id":0,"scid":"a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798","want":1,"what":"claimed by the taker"}
+2. lock B, left for the maker's Refund in [t1, t2)
+TX htlc Lock B                  0e8590baedf8f0a36a169b2b750f34aba3a8e0b1f4337e43c13d062878351096 height 6966  2026-09-12T06:19:55Z
+  lock 1: 1000 units, t1 7377, t2 7779, Punish until 12579 (open)
+  scheduled htlc-refund of a80f38f2587b… lock 1 from height 7377 (window end 7779) in ../.testnet/exercise-state.json
+RECORD {"closes":7779,"contract":"htlc","id":1,"opens":7377,"scid":"a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798","want":2,"what":"refunded by the maker"}
+3. lock C, left for Punish in [t2, t2 + g2), which pays the taker
+TX htlc Lock C                  1160c816a8cd8ed5c874a8b69c2db02c96cb798f3ab8dbfe10c188085ca2cfee height 6968  2026-09-12T06:20:48Z
+  lock 2: 1000 units, t1 7379, t2 7781, Punish until 12581 (open)
+  scheduled htlc-punish of a80f38f2587b… lock 2 from height 7781 (window end 12581) in ../.testnet/exercise-state.json
+RECORD {"closes":12581,"contract":"htlc","id":2,"opens":7781,"scid":"a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798","want":3,"what":"punished (taker paid)"}
+HTLC DONE contract DERO balance 2000
+== exercise -mode swap 2026-09-12T06:20:48Z
+daemon 127.0.0.1:40402 height 6969  factory a902d8f37dfe529bfd669d4225be0b64cf7847e15234d08ba4c5db8872f1c6b8  htlc a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798  swap 8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa  board 955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9
+maker deto1qyh86urd4aynvzrulpxnuy6g6pl9rpekuqp5ekkqjmpfl8078zn66qggullhx
+taker deto1qypk4g4qkpl2nkv6kjcdsykytw54edsgnwyzk8mlgnjdg02hcx5a5qq2ffmj4
+wmin 1600
+1. lock 1, claimed by the taker with the secret
+TX swap Lock 1                  6d05e1d293b543a95254a53fc50065f3214006421e94671f4934af976b3d3d5e height 6970  2026-09-12T06:22:30Z
+  lock 0: 1000 units, expiry 8589 (open)
+TX swap Claim 1 (taker)         b713324ed5248c9ac5af73fe41a896933ed172d21c3c7f161e07b4858f9cee5c height 6972  2026-09-12T06:24:02Z
+  lock 0 state 1 (claimed), secret on chain
+RECORD {"contract":"swap","id":0,"scid":"8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa","want":1,"what":"claimed by the taker"}
+2. lock 2, left to expire; its secret is discarded, so only Refund can close it
+TX swap Lock 2                  30e3cff8a298ed3d6090eac60e24945f04368e1de139fd945651de1c727f5be2 height 6974  2026-09-12T06:25:19Z
+  lock 1: 1000 units, expiry 8593 (open)
+  scheduled swap-refund of 8ccee4e2b81d… lock 1 from height 8593 (window end 0) in ../.testnet/exercise-state.json
+RECORD {"contract":"swap","id":1,"opens":8593,"scid":"8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa","want":2,"what":"refunded after expiry"}
+SWAP DONE
+== exercise -mode board 2026-09-12T06:25:19Z
+daemon 127.0.0.1:40402 height 6975  factory a902d8f37dfe529bfd669d4225be0b64cf7847e15234d08ba4c5db8872f1c6b8  htlc a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798  swap 8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa  board 955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9
+1. offer 0 posted, then cancelled by its maker
+TX board Post 0                 d6a82b7a437ca39b93fbe5defe2640364f5e57762ffc4f566c7c5706c390e993 height 6976  2026-09-12T06:27:37Z
+  offer 0 posted, expiry 8975
+TX board Cancel 0               c836b5eccf6d0d873850f7912816d4abc6f692d90e8fb96c2ac36a8ce3bab02a height 6978  2026-09-12T06:28:58Z
+RECORD {"contract":"board","id":0,"scid":"955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9","want":2,"what":"cancelled by its maker"}
+2. offer 1 posted, accepted by the taker
+TX board Post 1                 b96062b1164d3607c83a3e624bebaa9c16f24f575618b834081e311699891d91 height 6980  2026-09-12T06:30:25Z
+  offer 1 posted, expiry 8979
+TX board Accept 1 (taker)       e0b693373640d526e07899f7393013c4e47fdf5bd63f5bc4ea1e312de80b83b6 height 6982  2026-09-12T06:31:22Z
+RECORD {"contract":"board","id":1,"scid":"955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9","want":1,"what":"accepted by the taker"}
+BOARD DONE
+EXERCISE CHAIN DONE 2026-09-12T06:31:22Z
+== exercise -mode social 2026-09-12T06:32:09Z
+daemon 127.0.0.1:40402 height 6983  factory a902d8f37dfe529bfd669d4225be0b64cf7847e15234d08ba4c5db8872f1c6b8  htlc a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798  swap 8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa  board 955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9
+TX social Profile               d9b6bfcb5f53b37a38fd4ea9a53fd5c48f39204ef838bd367190bb450ae75040 height 6984  2026-09-12T06:33:44Z
+== exercise -mode social again: the first run was interrupted after its Profile and chat Post  
+daemon 127.0.0.1:40402 height 7049  factory a902d8f37dfe529bfd669d4225be0b64cf7847e15234d08ba4c5db8872f1c6b8  htlc a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798  swap 8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa  board 955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9
+== exercise -mode social, third start: the second was cut off by the 17:23 crash before it sent anything; the trader wallet file was restored from its own backup  
+daemon 127.0.0.1:40402 height 7079  factory a902d8f37dfe529bfd669d4225be0b64cf7847e15234d08ba4c5db8872f1c6b8  htlc a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798  swap 8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa  board 955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9
+TX social Profile               00f74b58870538a979459e415c82ecd7c327aa3170e7a68bfe6d248f8fb1a1c7 height 7080  2026-09-12T08:05:43Z
+TX chat Post                    e0878f7df84e1b21af931c4a879dacbd9616654ac26fd641b0252b82b99976ba height 7082  2026-09-12T08:08:03Z
+  chat messages 2
+TX founders Mint 1              a770355cfb2f0caaa6124f9b3a02402433027aaa3d679d3ba4fc896a76267111 height 7084  2026-09-12T08:09:36Z
+  trader holds 1 pass(es); minted 51
+TX founders Register 1          34387c34eec29f2db0b51c82848e0906225c33570ca9450377dab21016af7073 height 7086  2026-09-12T08:12:41Z
+  registered holders 1, registered units 1
+SOCIAL DONE
+social exit 0  
+
+== 3. telainstall -network testnet -wallet .testnet/deployer.db -app dist/testnet -durl dmz.tela -ringsize 16 -out deploy/tela-testnet.json
+stopped the deployer netwallet (pid 23448)
+== telainstall 2026-09-12T06:32:09Z
+INDEX ring 16: its owner will be "anon" and UpdateCode will refuse every caller; a later release is a new INDEX
+network testnet
+wallet deto1qypk4g4qkpl2nkv6kjcdsykytw54edsgnwyzk8mlgnjdg02hcx5a5qq2ffmj4 height 6983
+DOC index.html               4810 bytes →   3092 on-chain (gzip)  gas  3442  ring 2  scid a7a314ab0826ccbdc5c42c625dcb59e5d8c1862757956d225d47b0589c51eba3
+DOC amm.js                   9232 bytes →   5945 on-chain (gzip)  gas  6284  ring 2  scid defa864f5556b391b60fec3beca10ddfd30b0883f89752da36d20fad7d4baac3
+exit 1
+== telainstall resumed after the interruption, reusing the 2 DOCs above  
+INDEX ring 16: its owner will be "anon" and UpdateCode will refuse every caller; a later release is a new INDEX
+network testnet
+wallet deto1qypk4g4qkpl2nkv6kjcdsykytw54edsgnwyzk8mlgnjdg02hcx5a5qq2ffmj4 height 7049
+reuse index.html: dial tcp 127.0.0.1:40402: connectex: No connection could be made because the target machine actively refused it.
+exit nonzero 
+== telainstall resumed again after the 17:23 crash of the testnet processes, reusing the 2 DOCs of the first run  
+INDEX ring 16: its owner will be "anon" and UpdateCode will refuse every caller; a later release is a new INDEX
+network testnet
+wallet deto1qypk4g4qkpl2nkv6kjcdsykytw54edsgnwyzk8mlgnjdg02hcx5a5qq2ffmj4 height 7050
+DOC index.html             already on chain (-reuse, content hash verified), pointing at a7a314ab0826ccbd
+DOC amm.js                 already on chain (-reuse, content hash verified), pointing at defa864f5556b391
+DOC app.js                  33752 bytes →  17262 on-chain (gzip)  gas 17602  ring 2  scid 906a17834729cf49ab78f34202e9e521e4d3aef8c6f86e35efcc4888e74da5eb
+DOC chart.js                15632 bytes →   8874 on-chain (gzip)  gas  9218  ring 2  scid b597a9273fb8a2334746e3f6c491b36015049dffadea08009267f0d9547fb5a9
+DOC chat.js                  9832 bytes →   6109 on-chain (gzip)  gas  6452  ring 2  scid 948e76fb4440da8c12f4a73ae3bd75e7d2fa743919761343aa365d7a87c503f6
+DOC config.js                1915 bytes →   2732 on-chain (gzip)  gas  3078  ring 2  scid e725df44ba3aeb774df3aa101f5d67bb1d01b6bf305cc1ebde5307ddde7aeab9
+DOC desk.css                 7735 bytes →   4688 on-chain (gzip)  gas  5034  ring 2  scid e42f2357a60cabd6df5127b979b322db1aede4608fec418250882e66e9ac2dde
+DOC feed.js                 30167 bytes →  14756 on-chain (gzip)  gas 15098  ring 2  scid faf5916d88c5c84efd0c3a8ae081eda622c3d0dad8b16c7a99a47849d01906e4
+DOC forms.js                29914 bytes →  14210 on-chain (gzip)  gas 14554  ring 2  scid bee1c48380d9742a7eddbf57ab46789e4c711f74d69759718058bbb0ac175fe1
+DOC founders.js              4052 bytes →   3651 on-chain (gzip)  gas  4000  ring 2  scid c427f41bafbe96f56abb1f98769a62d9cd413e2579b413df74733875793459f8
+DOC home.js                 26487 bytes →  13441 on-chain (gzip)  gas 13784  ring 2  scid cea2501ba1acbae62ac7e0a9a63edcbef8d5d1dc49167ce06ff58b4f29b945eb
+DOC live.js                  3989 bytes →   3505 on-chain (gzip)  gas  3848  ring 2  scid b3cd0fa3508e41c7c5214eeaa355823a4617a5116c145df0d2f51f7612a2e7d5
+DOC manifest.json            6312 bytes →   4277 on-chain (gzip)  gas  4632  ring 2  scid 9925d16067e22516a373e7ece9793c5543daa262128767589ffa99db6fb96983
+DOC markets.js              20627 bytes →  11743 on-chain (gzip)  gas 12092  ring 2  scid 8b7ab3c61b3fdd803b19a94b293fff772332caa0d3cb13c39f9cd4b5ceb2cccd
+DOC names.js                11610 bytes →   7035 on-chain (gzip)  gas  7380  ring 2  scid a0487648a1fe8e9fc1b707491f1ed7f86851346c1cfb945b37debc3a271d8ea1
+DOC nfas.js                 32402 bytes →  15413 on-chain (gzip)  gas 15756  ring 2  scid fd09cc5cacf90cb6bea2510731ac48e15f8057520b158516133e27f3896c1fe9
+DOC nft.js                   6854 bytes →   4577 on-chain (gzip)  gas  4916  ring 2  scid d59ff407a0a2a37dc22b27af62ad5e1ff894265ce9f1aad727d61ceb046d59c8
+DOC nfts.js                 15723 bytes →   8479 on-chain (gzip)  gas  8820  ring 2  scid d5eb14883d770fcd08877d8c6543773c039f87ddbb48902b05bfc19c337cb88c
+DOC notice.js               10909 bytes →   6901 on-chain (gzip)  gas  7248  ring 2  scid 9e2acabdc936eb2700b319830754d85d0c8ce280b2ba61df26b42160173b4884
+DOC parts.css               15411 bytes →   6984 on-chain (gzip)  gas  7330  ring 2  scid a842a801b72e871519de1581babe01b588635997755a15c69ed49eca86fa31c3
+DOC rpc.js                  10350 bytes →   6639 on-chain (gzip)  gas  6980  ring 2  scid ae3e700a2f142badebab0e326fbcbfce44abb72e3b3d5850dd076540869cb7c3
+DOC screens.js              28560 bytes →  14883 on-chain (gzip)  gas 15232  ring 2  scid b4fc81fbc81f26365c079b902e17e11d09e5863e7ba11b136e7e3d17823bc2a5
+DOC sheets.js               15391 bytes →   7857 on-chain (gzip)  gas  8204  ring 2  scid 9be37a46952ad07962cce1934e0af80d1f5ba026f2207c526f93f352011db5d7
+DOC stats.js                11985 bytes →   7906 on-chain (gzip)  gas  8250  ring 2  scid 909c98d0a84c22b298b1f93443ecfb6d57723e47305f95b5986105836cbf5dcf
+DOC styles.css               9390 bytes →   6104 on-chain (gzip)  gas  6454  ring 2  scid 86b244ba443c3c269ff6fdcd64b9d0f8579778fe62fa9a86aefe21afcde2a892
+DOC templates/founders.bas  10398 bytes →   5118 on-chain (gzip)  gas  5494  ring 2  scid b3ff868b8b75f9a9718261a351f8bfb937ec03e5d29a2cc963b5033843ab2fb8
+DOC templates/launch.bas    15257 bytes →   6637 on-chain (gzip)  gas  7008  ring 2  scid 8055e38eb4ec80121d7da5471fd4662d74f02481b875f46b17d6982dd1c1c8e3
+DOC templates/nfa.bas       14937 bytes →   5743 on-chain (gzip)  gas  6108  ring 2  scid a5e65f3463324dce750bcad3afa44c8b7c3a92f3a1fa97bf1dc6cc511c6261b0
+DOC templates/nft.bas        3873 bytes →   2771 on-chain (gzip)  gas  3136  ring 2  scid c5efcc719430d2dbf342272213db155a6ad15f651e85820a6f6b1f874d1420bb
+DOC templates/pool.bas      10604 bytes →   4933 on-chain (gzip)  gas  5300  ring 2  scid ca30572842b9d2090a18aa3cc49b8262eb849998be3241d53e34553c3929c08c
+DOC token.js                32853 bytes →  16433 on-chain (gzip)  gas 16776  ring 2  scid b815d0f4b72d2c30b2ad7978c897c24d57ad6bff3474f1efbf1a3195747bcba1
+DOC ui.css                  11773 bytes →   6072 on-chain (gzip)  gas  6414  ring 2  scid b487f2704d7e81d8e3543cfa38d2ba76bde7571bba5882afe9d9e1da2a8470f3
+DOC ui.js                   20709 bytes →  12580 on-chain (gzip)  gas 12918  ring 2  scid 86b02299b17f25467e329dad55e7d98e3e45b1ce172e8b4e88ab73e15db342f3
+DOC vault.js                 5527 bytes →   4270 on-chain (gzip)  gas  4614  ring 2  scid fdf7c4b142a551b1ad7d4d840e863349d67badca58293e3b786c1a60e8d691f9
+DOC wrap.js                 29081 bytes →  14201 on-chain (gzip)  gas 14544  ring 2  scid 865cc96effefdcdbfdbab1f34d8dfaec211611f8365fcf3beb3c8b45d17d3f83
+DOC wrapui.js                7029 bytes →   5420 on-chain (gzip)  gas  5766  ring 2  scid bdcdca2475b931899a3494325ea987dfe1c2211ea5ee9dcb99e34bdbb60cecf4
+DOC xswd.js                  8023 bytes →   5201 on-chain (gzip)  gas  5544  ring 2  scid b5ec266f6f4ed98eddea9254744c1432a2c77885f0b000d6e36b77a4c5e28bf3
+DOC zswap.js                24550 bytes →  13127 on-chain (gzip)  gas 13472  ring 2  scid b0816c1087fb5dbf8b7e1b66b8e3d6f0bf90d8c1dd9b9f01a3b5e7922bc8068a
+estimate hit the graviton ':' bucket panic, retrying
+estimate hit the graviton ':' bucket panic, retrying
+estimate hit the graviton ':' bucket panic, retrying
+estimate hit the graviton ':' bucket panic, retrying
+estimate hit the graviton ':' bucket panic, retrying
+index estimate: could not estimate fees: [-32098] panic occured. stack trace r Bucket cannot start with ':' goroutine 37776 [running]:
+runtime/debug.Stack()
+	runtime/debug/stack.go:26 +0x5e
+github.com/deroproject/derohe/cmd/derod/rpc.GetGasEstimate.func1()
+	github.com/deroproject/derohe/cmd/derod/rpc/rpc_dero_estimategas.go:42 +0x3d
+panic({0x7ff7050fcee0?, 0x2c90a0b057e0?})
+	runtime/panic.go:860 +0x13a
+github.com/deroproject/derohe/dvm.Wrapped_tree(0xcf59b79b2ff60a18?, 0x2c90a0e4dba0, {0x3a, 0x3e, 0x13, 0x76, 0xa8, 0x3, 0xa9, 0x40, ...})
+	github.com/deroproject/derohe/dvm/sc.go:113 +0x145
+github.com/deroproject/derohe/dvm.(*Simulator).SCInstall(0x2c90a2bb95f0, {0x2c90a255cc00, 0x1269}, 0x2c90a264f600, {0x2c90a370db60, 0x2, 0x2}, 0x0, 0x0)
+	github.com/deroproject/derohe/dvm/simulator.go:107 +0x18f
+github.com/deroproject/derohe/cmd/derod/rpc.GetGasEstimate({0x7ff70512a340?, 0x7ff70514f440?}, {{0x2c90a370da40, 0x1, 0x1}, {0x2c90a255cc00, 0x1269}, 0x0, {0x0, 0x0}, ...})
+	github.com/deroproject/derohe/cmd/derod/rpc/rpc_dero_estimategas.go:75 +0x405
+reflect.Value.call({0x7ff705104da0?, 0x7ff7052568c8?, 0x2c90a0b93601?}, {0x7ff7051c2bf5, 0x4}, {0x2c90a2bb95c0, 0x2, 0x2c90a0b93600?})
+	reflect/value.go:586 +0xf0c
+reflect.Value.Call({0x7ff705104da0?, 0x7ff7052568c8?, 0x2c90a2bb9440?}, {0x2c90a2bb95c0?, 0x7ff7051795c0?, 0x2c90a0999008?})
+	reflect/value.go:369 +0xb9
+github.com/creachadair/jrpc2/handler.(*FuncInfo).Wrap.func10({0x7ff7052653b8?, 0x2c90a2bb9440?}, 0x7ff7057afbc0?)
+	github.com/creachadair/jrpc2/handler/handler.go:244 +0x9f
+github.com/creachadair/jrpc2/handler.Func.Handle(0x2c90a370f860?, {0x7ff7052653b8?, 0x2c90a2bb9440?}, 0x1?)
+	github.com/creachadair/jrpc2/handler/handler.go:25 +0x29
+github.com/creachadair/jrpc2.(*Server).invoke(0x2c90a0d83dc0, {0x7ff7052653f0?, 0x2c90a370f8b0?}, {0x7ff70525f860, 0x2c90a0a1d440}, 0x2c90a206be40)
+	github.com/creachadair/jrpc2/server.go:379 +0x14f
+github.com/creachadair/jrpc2.(*Server).dispatch.func1()
+	github.com/creachadair/jrpc2/server.go:230 +0x192
+github.com/creachadair/jrpc2.(*Server).serve.func1()
+	github.com/creachadair/jrpc2/server.go:152 +0x4c
+created by github.com/creachadair/jrpc2.(*Server).serve in goroutine 37775
+	github.com/creachadair/jrpc2/server.go:150 +0x26
+
+exit nonzero 
+== telainstall, fourth start: every DOC reused; the INDEX estimate of the third start hit the graviton bucket panic five times in one second  
+INDEX ring 16: its owner will be "anon" and UpdateCode will refuse every caller; a later release is a new INDEX
+network testnet
+wallet deto1qypk4g4qkpl2nkv6kjcdsykytw54edsgnwyzk8mlgnjdg02hcx5a5qq2ffmj4 height 7123
+DOC index.html             already on chain (-reuse, content hash verified), pointing at a7a314ab0826ccbd
+DOC amm.js                 already on chain (-reuse, content hash verified), pointing at defa864f5556b391
+DOC app.js                 already on chain (-reuse, content hash verified), pointing at 906a17834729cf49
+DOC chart.js               already on chain (-reuse, content hash verified), pointing at b597a9273fb8a233
+DOC chat.js                already on chain (-reuse, content hash verified), pointing at 948e76fb4440da8c
+DOC config.js              already on chain (-reuse, content hash verified), pointing at e725df44ba3aeb77
+DOC desk.css               already on chain (-reuse, content hash verified), pointing at e42f2357a60cabd6
+DOC feed.js                already on chain (-reuse, content hash verified), pointing at faf5916d88c5c84e
+DOC forms.js               already on chain (-reuse, content hash verified), pointing at bee1c48380d9742a
+DOC founders.js            already on chain (-reuse, content hash verified), pointing at c427f41bafbe96f5
+DOC home.js                already on chain (-reuse, content hash verified), pointing at cea2501ba1acbae6
+DOC live.js                already on chain (-reuse, content hash verified), pointing at b3cd0fa3508e41c7
+DOC manifest.json          already on chain (-reuse, content hash verified), pointing at 9925d16067e22516
+DOC markets.js             already on chain (-reuse, content hash verified), pointing at 8b7ab3c61b3fdd80
+DOC names.js               already on chain (-reuse, content hash verified), pointing at a0487648a1fe8e9f
+DOC nfas.js                already on chain (-reuse, content hash verified), pointing at fd09cc5cacf90cb6
+DOC nft.js                 already on chain (-reuse, content hash verified), pointing at d59ff407a0a2a37d
+DOC nfts.js                already on chain (-reuse, content hash verified), pointing at d5eb14883d770fcd
+DOC notice.js              already on chain (-reuse, content hash verified), pointing at 9e2acabdc936eb27
+DOC parts.css              already on chain (-reuse, content hash verified), pointing at a842a801b72e8715
+DOC rpc.js                 already on chain (-reuse, content hash verified), pointing at ae3e700a2f142bad
+DOC screens.js             already on chain (-reuse, content hash verified), pointing at b4fc81fbc81f2636
+DOC sheets.js              already on chain (-reuse, content hash verified), pointing at 9be37a46952ad079
+DOC stats.js               already on chain (-reuse, content hash verified), pointing at 909c98d0a84c22b2
+DOC styles.css             already on chain (-reuse, content hash verified), pointing at 86b244ba443c3c26
+DOC templates/founders.bas already on chain (-reuse, content hash verified), pointing at b3ff868b8b75f9a9
+DOC templates/launch.bas   already on chain (-reuse, content hash verified), pointing at 8055e38eb4ec8012
+DOC templates/nfa.bas      already on chain (-reuse, content hash verified), pointing at a5e65f3463324dce
+DOC templates/nft.bas      already on chain (-reuse, content hash verified), pointing at c5efcc719430d2db
+DOC templates/pool.bas     already on chain (-reuse, content hash verified), pointing at ca30572842b9d209
+DOC token.js               already on chain (-reuse, content hash verified), pointing at b815d0f4b72d2c30
+DOC ui.css                 already on chain (-reuse, content hash verified), pointing at b487f2704d7e81d8
+DOC ui.js                  already on chain (-reuse, content hash verified), pointing at 86b02299b17f2546
+DOC vault.js               already on chain (-reuse, content hash verified), pointing at fdf7c4b142a551b1
+DOC wrap.js                already on chain (-reuse, content hash verified), pointing at 865cc96effefdcdb
+DOC wrapui.js              already on chain (-reuse, content hash verified), pointing at bdcdca2475b93189
+DOC xswd.js                already on chain (-reuse, content hash verified), pointing at b5ec266f6f4ed98e
+DOC zswap.js               already on chain (-reuse, content hash verified), pointing at b0816c1087fb5dbf
+INDEX 836969a905a7ea1c40d1a6bc3b5c804d541fcc962fffea5dbb9dbb4b01b8eaff ring 16 gas 7417 (38 DOCs, 4.69 KB)
+INDEX 836969a905a7ea1c40d1a6bc3b5c804d541fcc962fffea5dbb9dbb4b01b8eaff dURL dmz.tela owner anon docs 38 commit 0
+exit 0  
+
+== 4. tools/verifydeploy -network testnet -dist ../dist/testnet -tela-record ../deploy/tela-testnet.json -extra tela=<INDEX> (no -allow)
+DMZ deployment verification (tools/verifydeploy)
+network testnet · daemon 127.0.0.1:40402 (, height 7125, stable 7117)
+source  ../contracts · git e2c99c9b4835…, contracts/ has uncommitted changes
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+PASS    templates.nfa: sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114 = sha256(reference.Canon(contracts/nfa.bas))
+PASS    templates.nft: sha256 345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2 = sha256(reference.Canon(contracts/nft.bas))
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory a902d8f37dfe…: installed code sha256 73f281df0258863d46930452624d95fdc566b8cb8c6c11b618ece324c9174ac1 = sha256(reference.Canon(contracts/factory.bas)), 53 lines
+PASS    social 8768f9c5be9a…: installed code sha256 da7ef3f09fccf468c9c03605e0de14a4b129b8cfbb29ced6efad8bf9b5b617ad = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders bfdb00b17f94…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat 9fb375bda416…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+PASS    htlc a80f38f2587b…: installed code sha256 b785028da4a2554521d47f989f1011ec1f0a26be491e6a7eb2786c1f50834c36 = sha256(reference.Canon(contracts/htlc.bas)), 150 lines
+PASS    swap 8ccee4e2b81d…: installed code sha256 b9830de831dbaf34f61ea15b484c8f25105e41dc790aa06412db421a990fd6e3 = sha256(reference.Canon(contracts/swap.bas)), 88 lines
+PASS    board 955bcb40b991…: installed code sha256 162f8d46ad400b1fef981d029ba99f61c9646d6453c3bf9f0cc4bd9e63bc5ab1 = sha256(reference.Canon(contracts/board.bas)), 71 lines
+
+== Market templates: every contract in the factory registry
+INFO    registry a902d8f37dfe…: pc=1 lc=1 nc=0: 2 registered contracts, checked against 5 accepted template hashes (current and legacy)
+PASS    pool_0 ff28a85ef1c1…: code sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = the record's current pool template
+PASS    launch_0 e0b741e9aade…: code sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = the record's current launch template
+
+== Roles
+factory a902d8f37dfe… (factory)
+  INFO    treasury       -      payee     dero1qy067pxeld72w0s7kqe99kwal28j54mchpnsj3wlm083wgju6e3uzqgrkwar0
+          receives every registration fee (reg, line 35); cannot act; fixed for ever: only Initialize writes it, and Initialize refuses a second run
+          reads: factory.bas:23,75
+  INFO    regfee         -      parameter regfee=10000
+          fixed for ever: only Initialize writes it
+          reads: factory.bas:25,73
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,29
+social 8768f9c5be9a… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders bfdb00b17f94… (founders)
+  INFO    creator        -      inert     dero1qypk4g4qkpl2nkv6kjcdsykytw54edsgnwyzk8mlgnjdg02hcx5a5qqss4rha
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qy067pxeld72w0s7kqe99kwal28j54mchpnsj3wlm083wgju6e3uzqgrkwar0
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=500000 maxsupply=500 start=0 reserve=50
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat 9fb375bda416… (chat)
+  INFO    treasury       -      payee     dero1qy067pxeld72w0s7kqe99kwal28j54mchpnsj3wlm083wgju6e3uzqgrkwar0
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+htlc a80f38f2587b… (htlc)
+  INFO    windows        -      parameter w1min=400 w2min=400 g2=4800
+          the least t1 - lock height, the least t2 - t1 and the Punish window, written only at install: the same code with other values has the same code hash, so a companion must read them
+          reads: htlc.bas:37,41-43,66,173,197
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: htlc.bas:35,44
+swap 8ccee4e2b81d… (swap)
+  INFO    wmin           -      parameter wmin=1600
+          the minimum lock width, written only at install: the same code with another wmin has the same code hash, so a companion must read it
+          reads: swap.bas:18,22,45
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: swap.bas:17,23
+board 955bcb40b991… (board)
+  INFO    aw             -      parameter aw=200
+          written only at install
+          reads: board.bas:27,88
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: board.bas:23,28
+tela index 836969a905a7… (tela)
+  PASS    owner          ended  must end  anon
+          installed at ring size > 2: SIGNER() was 33 zero bytes, address() stored "anon", and UpdateCode refuses every caller at line 10. The INDEX can never change
+          reads: tela_index_1.bas:21,33-35,53,55,57; transaction_execute.go:430; dvm_functions.go:309
+
+== TELA: the app's INDEX and DOCs
+PASS    index 836969a905a7…: code is the standard TELA-INDEX-1 v1.1.0, token for token (tools/verifydeploy/tela_index_1.bas); 38 DOCs; commit 0 (UpdateCode has replaced the code 0 times)
+PASS    index state 836969a905a7…: owner "anon" (DERO.GetSC hex 616e6f6e), commit 0, hash and commit-0 hash both equal to its own SCID: the code is the code installed, and UpdateCode can never replace it
+PASS    docs: all 38 DOCs are the standard TELA-DOC-1, which has no UpdateCode and no UPDATE_SC_CODE: no key can change what they serve
+PASS    DOC1 a7a314ab0826…: the entrypoint serves index.html
+PASS    DOC6 config.js e725df44ba3a…: equals netcfg.ConfigJS(testnet record) after its first line: the app trusts exactly the record's contracts and template hashes
+PASS    DOC13 manifest.json 9925d16067e2…: lists exactly the 37 other served files with their sha256, and the record's contracts
+PASS    DOC26 templates/founders.bas b3ff868b8b75…: serves the record's current founders template (sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a)
+PASS    DOC27 templates/launch.bas 8055e38eb4ec…: serves the record's current launch template (sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4)
+PASS    DOC28 templates/nfa.bas a5e65f346332…: serves the record's current nfa template (sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114)
+PASS    DOC29 templates/nft.bas c5efcc719430…: serves the record's current nft template (sha256 345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2)
+PASS    DOC30 templates/pool.bas ca30572842b9…: serves the record's current pool template (sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580)
+PASS    bundle: the INDEX serves exactly the 38 files of the dist bundle ../dist/testnet, each byte for byte
+PASS    tela-record 836969a905a7…: the INDEX's 38 DOCs are exactly the ones ../deploy/tela-testnet.json publishes
+
+summary: 11 INFO, 35 PASS — no failure
+exit 0

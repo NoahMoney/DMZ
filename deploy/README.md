@@ -130,10 +130,15 @@ Testnet coins come from mining (there is no faucet). Block rewards are spendable
 
 ```
 cd tools
-go run ./simdeploy -network testnet -daemon 127.0.0.1:40402 -w0 127.0.0.1:40403 -w2 127.0.0.1:40404
+go run ./simdeploy -network testnet -daemon 127.0.0.1:40402 -w0 127.0.0.1:40405 -w2 127.0.0.1:40404 -app <tmp>/simdeploy-app-testnet -timeout 45m -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 4800
 go run ./genconfig -dist -network testnet
-cd .. && vendor\bin\telainstall.exe -network testnet -wallet .testnet\owner.db -password "" -daemon 127.0.0.1:40402 -app dist\testnet -durl dmz.tela -out deploy\tela-testnet.json
+cd .. && vendor\bin\telainstall.exe -network testnet -wallet .testnet\deployer.db -password "" -daemon 127.0.0.1:40402 -app dist\testnet -durl dmz.tela -ringsize 16 -out deploy\tela-testnet.json
 ```
+This is what ran on 2026-09-12 (`research/testnet/README.md`). `-w0` is the deployer wallet (40405): the owner wallet
+on 40403 mines and never transacts (see "Three wallets, three roles"). `-app <tmp>/…` keeps simdeploy's `config.js`
+out of `app/`, which stays on the simulator; the testnet `config.js` is the one `genconfig -dist` renders. htlc.bas v3
+takes `-htlc-w1min`, `-htlc-w2min` and `-htlc-g2` with no default; 4800 is the simulator record's G2, still the
+operator's to decide (MT-J13). Stop the deployer's netwallet before `telainstall`, which opens the wallet file itself.
 `simdeploy` records the testnet block in `deploy/networks.json`; `genconfig` refuses to bundle if the template
 hashes and the record disagree.
 

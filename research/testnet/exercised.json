@@ -1,0 +1,26 @@
+{
+  "_doc": "What W-01 / MT-F05 exercised on the private DERO testnet on day 0 (2026-09-12), and the state each item must be in on every daily run of tools/testnetcheck. A lock with opens/closes was left open on purpose: open is expected below opens, its exit is due in [opens, closes) (closes 0 = no end), and .testnet/logs/exercise-wait.log records the call that makes it. Transactions: research/testnet/deploy.log.",
+  "genesis": "44292f0c65e41c141995df75df8e6826ea1d3e04cedd0702b090e14649a5b267",
+  "day0": "2026-09-12",
+  "days": 7,
+  "factory": {
+    "scid": "a902d8f37dfe529bfd669d4225be0b64cf7847e15234d08ba4c5db8872f1c6b8",
+    "treasury": "dero1qy067pxeld72w0s7kqe99kwal28j54mchpnsj3wlm083wgju6e3uzqgrkwar0",
+    "regfee": 10000,
+    "minPools": 1,
+    "minLaunches": 1
+  },
+  "markets": [
+    {"kind": "launch", "scid": "e0b741e9aade2b4775bff227f9a8772ab68d2e0981db54533c824e2b21af60d9", "minTrades": 1},
+    {"kind": "pool", "scid": "ff28a85ef1c1bc8db49796be427177434cc8ba55b92cdbed6c544167c4691adc", "minTrades": 1}
+  ],
+  "locks": [
+    {"contract": "htlc", "scid": "a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798", "id": 0, "want": 1, "what": "claimed by the taker"},
+    {"contract": "htlc", "scid": "a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798", "id": 1, "want": 2, "what": "refunded by the maker", "opens": 7377, "closes": 7779},
+    {"contract": "htlc", "scid": "a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798", "id": 2, "want": 3, "what": "punished (taker paid)", "opens": 7781, "closes": 12581},
+    {"contract": "swap", "scid": "8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa", "id": 0, "want": 1, "what": "claimed by the taker"},
+    {"contract": "swap", "scid": "8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa", "id": 1, "want": 2, "what": "refunded after expiry", "opens": 8593},
+    {"contract": "board", "scid": "955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9", "id": 0, "want": 2, "what": "cancelled by its maker"},
+    {"contract": "board", "scid": "955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9", "id": 1, "want": 1, "what": "accepted by the taker"}
+  ]
+}

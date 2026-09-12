@@ -1,0 +1,105 @@
+DMZ deployment verification (tools/verifydeploy)
+network testnet · daemon 127.0.0.1:40402 (, height 7133, stable 7125)
+source  ../contracts · git e2c99c9b4835…, contracts/ has uncommitted changes
+
+== Deployment record against this repository
+PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
+PASS    templates.launch: sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = sha256(reference.Canon(contracts/launch.bas))
+PASS    templates.nfa: sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114 = sha256(reference.Canon(contracts/nfa.bas))
+PASS    templates.nft: sha256 345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2 = sha256(reference.Canon(contracts/nft.bas))
+PASS    templates.pool: sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = sha256(reference.Canon(contracts/pool.bas))
+
+== Code identity: installed code against reference.Canon(contracts/<kind>.bas)
+PASS    factory a902d8f37dfe…: installed code sha256 73f281df0258863d46930452624d95fdc566b8cb8c6c11b618ece324c9174ac1 = sha256(reference.Canon(contracts/factory.bas)), 53 lines
+PASS    social 8768f9c5be9a…: installed code sha256 da7ef3f09fccf468c9c03605e0de14a4b129b8cfbb29ced6efad8bf9b5b617ad = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders bfdb00b17f94…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat 9fb375bda416…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+PASS    htlc a80f38f2587b…: installed code sha256 b785028da4a2554521d47f989f1011ec1f0a26be491e6a7eb2786c1f50834c36 = sha256(reference.Canon(contracts/htlc.bas)), 150 lines
+PASS    swap 8ccee4e2b81d…: installed code sha256 b9830de831dbaf34f61ea15b484c8f25105e41dc790aa06412db421a990fd6e3 = sha256(reference.Canon(contracts/swap.bas)), 88 lines
+PASS    board 955bcb40b991…: installed code sha256 162f8d46ad400b1fef981d029ba99f61c9646d6453c3bf9f0cc4bd9e63bc5ab1 = sha256(reference.Canon(contracts/board.bas)), 71 lines
+
+== Market templates: every contract in the factory registry
+INFO    registry a902d8f37dfe…: pc=1 lc=1 nc=0: 2 registered contracts, checked against 5 accepted template hashes (current and legacy)
+PASS    pool_0 ff28a85ef1c1…: code sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = the record's current pool template
+PASS    launch_0 e0b741e9aade…: code sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = the record's current launch template
+
+== Roles
+factory a902d8f37dfe… (factory)
+  INFO    treasury       -      payee     dero1qy067pxeld72w0s7kqe99kwal28j54mchpnsj3wlm083wgju6e3uzqgrkwar0
+          receives every registration fee (reg, line 35); cannot act; fixed for ever: only Initialize writes it, and Initialize refuses a second run
+          reads: factory.bas:23,75
+  INFO    regfee         -      parameter regfee=10000
+          fixed for ever: only Initialize writes it
+          reads: factory.bas:25,73
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: factory.bas:17,29
+social 8768f9c5be9a… (social)
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: social.bas:9,12
+founders bfdb00b17f94… (founders)
+  INFO    creator        -      inert     dero1qypk4g4qkpl2nkv6kjcdsykytw54edsgnwyzk8mlgnjdg02hcx5a5qqss4rha
+          the installer, recorded at install; no function reads it (TestRoleReaders)
+          reads: founders.bas:29
+  INFO    treasury       -      payee     dero1qy067pxeld72w0s7kqe99kwal28j54mchpnsj3wlm083wgju6e3uzqgrkwar0
+          receives mint proceeds (Mint, line 33); cannot act; fixed for ever
+          reads: founders.bas:30,71
+  INFO    terms          -      parameter share=5000 mfee=250 price=500000 maxsupply=500 start=0 reserve=50
+          written only at install
+          reads: founders.bas:31-32,35-36
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: founders.bas:13,50
+chat 9fb375bda416… (chat)
+  INFO    treasury       -      payee     dero1qy067pxeld72w0s7kqe99kwal28j54mchpnsj3wlm083wgju6e3uzqgrkwar0
+          receives each post's fee (Post, line 51); cannot act; fixed for ever
+          reads: chat.bas:22,49
+  INFO    fee            -      parameter fee=10000 maxlen=280
+          written only at install
+          reads: chat.bas:23-24,39
+  PASS    initd          closed guard     initd = 1
+          InitializePrivate refuses a second run (initd exists)
+          reads: chat.bas:15,26
+htlc a80f38f2587b… (htlc)
+  INFO    windows        -      parameter w1min=400 w2min=400 g2=4800
+          the least t1 - lock height, the least t2 - t1 and the Punish window, written only at install: the same code with other values has the same code hash, so a companion must read them
+          reads: htlc.bas:37,41-43,66,173,197
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: htlc.bas:35,44
+swap 8ccee4e2b81d… (swap)
+  INFO    wmin           -      parameter wmin=1600
+          the minimum lock width, written only at install: the same code with another wmin has the same code hash, so a companion must read it
+          reads: swap.bas:18,22,45
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: swap.bas:17,23
+board 955bcb40b991… (board)
+  INFO    aw             -      parameter aw=200
+          written only at install
+          reads: board.bas:27,88
+  PASS    initd          closed guard     initd = 1
+          Initialize refuses a second run (initd exists)
+          reads: board.bas:23,28
+tela index 836969a905a7… (tela)
+  PASS    owner          ended  must end  anon
+          installed at ring size > 2: SIGNER() was 33 zero bytes, address() stored "anon", and UpdateCode refuses every caller at line 10. The INDEX can never change
+          reads: tela_index_1.bas:21,33-35,53,55,57; transaction_execute.go:430; dvm_functions.go:309
+
+== TELA: the app's INDEX and DOCs
+PASS    index 836969a905a7…: code is the standard TELA-INDEX-1 v1.1.0, token for token (tools/verifydeploy/tela_index_1.bas); 38 DOCs; commit 0 (UpdateCode has replaced the code 0 times)
+PASS    index state 836969a905a7…: owner "anon" (DERO.GetSC hex 616e6f6e), commit 0, hash and commit-0 hash both equal to its own SCID: the code is the code installed, and UpdateCode can never replace it
+PASS    docs: all 38 DOCs are the standard TELA-DOC-1, which has no UpdateCode and no UPDATE_SC_CODE: no key can change what they serve
+PASS    DOC1 a7a314ab0826…: the entrypoint serves index.html
+PASS    DOC6 config.js e725df44ba3a…: equals netcfg.ConfigJS(testnet record) after its first line: the app trusts exactly the record's contracts and template hashes
+PASS    DOC13 manifest.json 9925d16067e2…: lists exactly the 37 other served files with their sha256, and the record's contracts
+PASS    DOC26 templates/founders.bas b3ff868b8b75…: serves the record's current founders template (sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a)
+PASS    DOC27 templates/launch.bas 8055e38eb4ec…: serves the record's current launch template (sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4)
+PASS    DOC28 templates/nfa.bas a5e65f346332…: serves the record's current nfa template (sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114)
+PASS    DOC29 templates/nft.bas c5efcc719430…: serves the record's current nft template (sha256 345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2)
+PASS    DOC30 templates/pool.bas ca30572842b9…: serves the record's current pool template (sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580)
+PASS    bundle: the INDEX serves exactly the 38 files of the dist bundle ../dist/testnet, each byte for byte
+PASS    tela-record 836969a905a7…: the INDEX's 38 DOCs are exactly the ones ../deploy/tela-testnet.json publishes
+
+summary: 11 INFO, 35 PASS — no failure

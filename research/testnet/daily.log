@@ -1,0 +1,15 @@
+== 2026-09-12T08:47:13Z  day 0 of 7  (tools/testnetcheck, read-only)
+PASS  node        testnet, genesis 44292f0c65e41c14…, height 7125, stable 7117, top block 1m5s old, average of the last 50 blocks 58 s, 1 miner(s), 0 peer(s), pool 1
+PASS  verify      verifydeploy -network testnet -dist -tela-record -extra tela=836969a905a7ea1c…, no -allow: exit 0; summary: 11 INFO, 35 PASS — no failure
+PASS  factory     a902d8f37dfe529b… factory.bas v2, no owner key; treasury dero1qy067pxeld7… and regfee 10000 as installed; lists 1 pool(s), 1 launch(es), 0 NFT/NFA(s)
+PASS  launch      e0b741e9aade2b47… 1 published trade(s), reserves 427833 DERO units / 806128695 asset units, phase 0, sold 228537713
+PASS  pool        ff28a85ef1c1bc8d… 1 published trade(s), reserves 263767 DERO units / 758818 asset units, lp 200000
+PASS  htlc 0      a80f38f2587b144e… lock 0 is claimed by the taker (st 1)
+INFO  htlc 1      a80f38f2587b144e… lock 1 open as intended until 7377 (252 blocks from 7125); then it must be refunded by the maker
+INFO  htlc 2      a80f38f2587b144e… lock 2 open as intended until 7781 (656 blocks from 7125); then it must be punished (taker paid)
+PASS  swap 0      8ccee4e2b81df678… lock 0 is claimed by the taker (st 1)
+INFO  swap 1      8ccee4e2b81df678… lock 1 open as intended until 8593 (1468 blocks from 7125); then it must be refunded after expiry
+PASS  board 0     955bcb40b99101c1… offer 0 is cancelled by its maker (st 2)
+PASS  board 1     955bcb40b99101c1… offer 1 is accepted by the taker (st 1)
+result: PASS (0 FAIL, 0 WARN)
+

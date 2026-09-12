@@ -10,7 +10,9 @@ for i in $(seq 1 120); do
 done
 cd tools
 # the private testnet mines slowly; allow long confirmations
-go run ./simdeploy -network testnet -daemon 127.0.0.1:40402 -w0 127.0.0.1:40405 -w2 127.0.0.1:40404 -networks ../deploy/networks.json -timeout 45m
+# htlc.bas v3's install widths are required; g2 4800 is the simulator record's value, pending operator decision MT-J13 (G2)
+go run ./simdeploy -network testnet -daemon 127.0.0.1:40402 -w0 127.0.0.1:40405 -w2 127.0.0.1:40404 -networks ../deploy/networks.json -timeout 45m \
+  -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 4800
 go run ./genconfig -dist -network testnet
 go run ./genconfig -network simulator   # keep app/config.js on the simulator for development
 echo "TESTNET_DEPLOY_DONE"

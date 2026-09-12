@@ -111,39 +111,46 @@
   },
   "testnet": {
     "daemon": "127.0.0.1:40402",
-    "factory": "b0bbd7cc8c9ebd907dbb373372b1e92ecf0eebfb914f0b4c6e6c33fdd19abbf3",
-    "social": "a5f3d33d74a581a9873312940a28ada27d5c64d6aef106ca30f1ca1adc27dbce",
-    "founders": "f8271d089c8601710af11b53d32fd9a9132bbf60b3eebd0963a93227199254ca",
+    "factory": "a902d8f37dfe529bfd669d4225be0b64cf7847e15234d08ba4c5db8872f1c6b8",
+    "social": "8768f9c5be9a802b0783ca80f7c7eddf44877b2cbe03def09dbe19ef951428eb",
+    "founders": "bfdb00b17f9420764c8a23204fd382e4b5d423b9c8f1ad8fe499603761b0b28c",
     "vault": "",
     "vaults": null,
-    "chat": "",
-    "htlc": "",
-    "swap": "",
-    "board": "",
+    "chat": "9fb375bda416f90a7c83b7af3c05fc31f14b085180749acd35f7621c42470fdf",
+    "htlc": "a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798",
+    "swap": "8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa",
+    "board": "955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9",
+    "treasuries": [
+      "dero1qy067pxeld72w0s7kqe99kwal28j54mchpnsj3wlm083wgju6e3uzqgrkwar0"
+    ],
     "feeBps": 50,
     "pfeeBps": 5000,
     "launchPfeeBps": 5000,
     "templates": {
       "founders": {
-        "sha256": "8afd70fb733627964d7ebc8f78427d667a7e94fd501491f4c706f1033d8e36c9",
+        "sha256": "49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a",
         "legacy": []
       },
       "launch": {
-        "sha256": "bc05b8e38949c77dd406e74668ff8e37edef5c88d64bea82034bcb745dff0fd4",
+        "sha256": "ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4",
+        "legacy": []
+      },
+      "nfa": {
+        "sha256": "f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114",
         "legacy": []
       },
       "nft": {
-        "sha256": "389deff90eac7195831dc21f4c91412879d6651c3cc3827b925528ae397eeaa4",
+        "sha256": "345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2",
         "legacy": []
       },
       "pool": {
-        "sha256": "d4e42ece020cff3c7cfa172d31f648ec53c8a7d6c84364f5fbe6b18bce295591",
+        "sha256": "304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580",
         "legacy": []
       }
     },
     "tela": {
-      "index": "",
-      "durl": "veil.tela"
+      "index": "836969a905a7ea1c40d1a6bc3b5c804d541fcc962fffea5dbb9dbb4b01b8eaff",
+      "durl": "dmz.tela"
     }
   }
 }
