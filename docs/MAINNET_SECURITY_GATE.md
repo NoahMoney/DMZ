@@ -15,8 +15,9 @@ met from this machine:
 
 1. **The one new piece of cryptography has not been audited.** The Monero swap's cross-curve proof (SHA256(s) = H and
    s·G = S) is built on dalek's R1CS "yoloproofs" API, which upstream marks unaudited (MT-G03).
-2. **No swap has run on a public test network.** Both companions now run against real Monero and Zcash node software
-   in regtest, but not on Monero stagenet or Zcash testnet (MT-F03, MT-F04).
+2. **The Monero swap has not run on a public test network** (MT-F03). Both companions run against real node software
+   in regtest. The Zcash one also ran a swap and a refund on the public Zcash testnet on 2026-09-13 (MT-C15), with
+   the DERO leg on the simulator.
 3. **The current contracts are not deployed on the DERO testnet** (MT-F05).
 4. **No external review of the contracts** (MT-A17).
 5. **Operator decisions are open** (`MAINNET_TODO.md` §J). The operator answered every question on the decision sheet
