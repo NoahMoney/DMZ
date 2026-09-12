@@ -62,8 +62,9 @@ s_dvm()          { tools/withlock.sh dvm bash tests/run.sh -v; }
 s_gofmt()        { local out; out="$(gofmt -l tools)"; [ -z "$out" ] || { echo "not gofmt-clean:"; echo "$out"; return 1; }; echo "gofmt: clean"; }
 s_vet()          { cd tools && go vet $(pkgs); }
 s_test()         { cd tools && go test -count=1 $(pkgs); }
-s_fuzz_xmrswap() { cd tools && go test -count=3 -run '^TestCrashFuzz$' ./xmrswap; }
-s_fuzz_zecswap() { cd tools && go test -count=3 -run '^TestCrashFuzz$' ./zecswap; }
+# the three rounds share one -timeout: on a loaded machine they took 14 min (2026-09-12), past go test's default 10
+s_fuzz_xmrswap() { cd tools && go test -count=3 -timeout 30m -run '^TestCrashFuzz$' ./xmrswap; }
+s_fuzz_zecswap() { cd tools && go test -count=3 -timeout 30m -run '^TestCrashFuzz$' ./zecswap; }
 s_js()           { node --test tests/js; }
 s_genconfig()    { cd tools && go run ./genconfig -dist -network simulator; }
 s_hygiene()      { cd tools && go test -count=1 -v ./hygiene; }
