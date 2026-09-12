@@ -1,9 +1,12 @@
 package zecswap
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -260,42 +263,88 @@ func (s *State) Save() error {
 	return writeAtomic(s.path, b)
 }
 
-// HardenFile, when set, is applied to every file writeAtomic writes — the state, the taker's pre-signed refund and
-// the two registers — once its temporary exists and before a byte of it is written. The command line sets it on
-// Windows to OwnerOnlyACL, because there the 0600 a file is created with means nothing and it would inherit its
-// directory's ACL (tools/xmrswap's GAP-020, the same guard).
-var HardenFile func(path string) error
+// HardenFile, when set, is how writeAtomic creates the temporary every file here passes through — the state, the
+// taker's pre-signed refund and the two registers: it creates the path it is given, which must not exist, already
+// restricted to this account, and returns it open for writing; a name that exists is an error errors.Is reads as
+// os.ErrExist. The command line sets it on Windows to CreateOwnerOnly, because there the 0600 a file is created with
+// means nothing and the file would inherit its directory's ACL (tools/xmrswap's GAP-020, the same guard). The
+// restriction must be the creation itself: Windows checks access only when a file is opened, so a file created with
+// the directory's ACL and restricted afterwards could be opened in between, and that handle reads what is written next.
+var HardenFile func(path string) (*os.File, error)
 
-// writeAtomic is the durable write every file here uses: a temporary file created 0600 (and HardenFile when set),
-// fsync, rename.
+// tempSuffix names a temporary: random, so that nobody can know the name before the file exists and create it first.
+// A test replaces it.
+var tempSuffix = func() (string, error) {
+	var r [12]byte
+	if _, err := rand.Read(r[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(r[:]), nil
+}
+
+// tempTries is how many fresh names writeAtomic draws before it gives up: with 96 random bits, a second draw is needed
+// only when someone is creating names beside the file on purpose.
+const tempTries = 8
+
+// writeAtomic is the durable write every file here uses: a temporary beside the file, <file>.<random>.tmp, created new
+// (O_EXCL and 0600, or HardenFile when set) and never an existing file whoever made it; then write, fsync, close and
+// rename. It fails closed: a failure at any step removes the temporary and returns the error, so the file is the old
+// one or the new one, and nothing half-written is left beside it.
 func writeAtomic(path string, b []byte) error {
 	if path == "" {
 		return errors.New("zecswap: no path to write")
 	}
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	f, tmp, err := createTemp(path)
 	if err != nil {
 		return err
 	}
+	if err := writeClose(f, b); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("zecswap: writing %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// createTemp creates a fresh temporary for path. A name that already exists — by chance, or because another account
+// that can create files in the directory made it to be written into — is left alone, never opened, and another name
+// is drawn.
+func createTemp(path string) (*os.File, string, error) {
+	create := func(p string) (*os.File, error) { return os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) }
 	if HardenFile != nil {
-		if err := HardenFile(tmp); err != nil {
-			f.Close()
-			os.Remove(tmp)
-			return fmt.Errorf("restricting %s to its owner: %w", tmp, err)
+		create = HardenFile
+	}
+	for i := 0; i < tempTries; i++ {
+		s, err := tempSuffix()
+		if err != nil {
+			return nil, "", fmt.Errorf("zecswap: naming a temporary for %s: %w", path, err)
 		}
+		tmp := path + "." + s + ".tmp"
+		f, err := create(tmp)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return nil, "", fmt.Errorf("zecswap: creating %s: %w", tmp, err)
+		}
+		return f, tmp, nil
 	}
-	if _, err := f.Write(b); err != nil {
-		f.Close()
-		return err
+	return nil, "", fmt.Errorf("zecswap: %d fresh temporary names beside %s were all taken already: refusing to write into one", tempTries, path)
+}
+
+// writeClose writes b, flushes it to the disk and closes f, returning the first error.
+func writeClose(f *os.File, b []byte) error {
+	_, err := f.Write(b)
+	if err == nil {
+		err = f.Sync()
 	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
+	if cerr := f.Close(); err == nil {
+		err = cerr
 	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return err
 }
 
 // StateFileWarning is what the operator must be told about the file's protection on this platform, or "" when the
@@ -482,13 +531,14 @@ func InsideGitRepo(path string) bool {
 
 // WrittenFiles is every file the companion writes for a state file (GAP-028): the state itself, which holds a
 // maker's secret; its lock; the taker's refund file, unless -refund-file names another; the two registers beside
-// it; and the temporary each atomic write passes through.
+// it; and the temporary each atomic write passes through, <file>.<random>.tmp, written here as the pattern
+// <file>.*.tmp. One is left behind only by a process that died between its creation and its rename.
 func WrittenFiles(statePath string) []string {
 	var out []string
 	for _, p := range []string{statePath, statePath + ".lock", statePath + ".refund.txt", UsedPath(statePath), ConsumedPath(statePath)} {
 		out = append(out, p)
 		if !(len(p) > 5 && p[len(p)-5:] == ".lock") {
-			out = append(out, p+".tmp")
+			out = append(out, p+".*.tmp")
 		}
 	}
 	return out

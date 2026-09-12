@@ -460,7 +460,7 @@ func TestMakerSendsTheTakersClaim(t *testing.T) {
 func TestWrittenFilesAndTheDefaultDirectory(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "maker.json")
 	files := strings.Join(WrittenFiles(p), "\n")
-	for _, want := range []string{p, p + ".tmp", p + ".lock", p + ".refund.txt", UsedPath(p), ConsumedPath(p), UsedPath(p) + ".tmp"} {
+	for _, want := range []string{p, p + ".*.tmp", p + ".lock", p + ".refund.txt", UsedPath(p), ConsumedPath(p), UsedPath(p) + ".*.tmp"} {
 		if !strings.Contains(files, want) {
 			t.Errorf("WrittenFiles does not name %s:\n%s", want, files)
 		}

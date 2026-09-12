@@ -199,9 +199,9 @@ func run(role string, args []string) {
 		log.Fatal(err)
 	}
 	if runtime.GOOS == "windows" {
-		// the state, the pre-signed refund and the two registers, restricted to this account from before their first
-		// byte: Windows ignores the 0600 they are created with (zecswap.HardenFile)
-		zecswap.HardenFile = zecswap.OwnerOnlyACL
+		// the state, the pre-signed refund and the two registers, restricted to this account from the moment each
+		// exists: Windows ignores the 0600 they would be created with (zecswap.HardenFile)
+		zecswap.HardenFile = zecswap.CreateOwnerOnly
 	}
 	statePath := *stateName
 	if !filepath.IsAbs(statePath) {

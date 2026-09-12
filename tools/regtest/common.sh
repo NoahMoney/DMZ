@@ -69,7 +69,8 @@ port_listening() {
 
 # start_detached <name> <launcher-in-wsl>: starts wsl.exe running the launcher script, as a process of its own
 # (created through WMI, so it is not a child of this shell and survives it), with no window. The wsl.exe process
-# is what keeps the WSL instance, and so the daemon, alive. Its Windows pid is written to $DATA/<name>.winpid.
+# is what keeps the WSL instance, and so the daemon, alive. $DATA/<name>.winpid gets two lines: its Windows pid, and
+# the launcher, whose path in the process's command line is what stop_winpid checks before it stops anything.
 start_detached() {
 	local name="$1" launcher="$2" pid
 	pid="$(powershell.exe -NoProfile -NonInteractive -Command "
@@ -81,20 +82,40 @@ start_detached() {
 		if (\$r.ReturnValue -ne 0) { exit 1 }
 		\$r.ProcessId" | tr -d '\r')"
 	[ -n "$pid" ] || die "could not start $name through WMI"
-	echo "$pid" >"$DATA/$name.winpid"
+	printf '%s\n%s\n' "$pid" "$launcher" >"$DATA/$name.winpid"
 }
 
-# stop_winpid <name>: ends the wsl.exe host of a daemon, if it is still there. Only a wsl.exe is stopped. Once its daemon
-# has gone, the pid in the file may since have been given to any other process: the stagenet watchdog restarts monerod
-# in its own WSL session, and the first host then exits.
+# stop_winpid <name>: ends the wsl.exe host of a daemon, if it is still there and is still that host. A pid alone
+# proves nothing: once a daemon has gone its host exits (the stagenet watchdog restarts monerod in its own WSL session,
+# and the first host exits then), and Windows may give the pid to any process, another agent's node's wsl.exe included.
+# So the process is stopped only if it is a wsl.exe whose command line runs `bash "<launcher>"` for the launcher
+# start_detached wrote on the file's second line; anything else is left alone, and said. A file without that line was
+# written before this check existed: nothing proves what its pid is now, so it is left alone too (a host exits with the
+# daemon it runs, which the caller stops inside WSL).
 stop_winpid() {
-	local name="$1" f="$DATA/$1.winpid" pid
+	local name="$1" f="$DATA/$1.winpid" pid launcher lq r
 	[ -f "$f" ] || return 0
-	pid="$(tr -dc 0-9 <"$f")"
-	if [ -n "$pid" ]; then
-		powershell.exe -NoProfile -NonInteractive -Command "\$p = Get-Process -Id $pid -ErrorAction SilentlyContinue; if (\$p -and \$p.ProcessName -eq 'wsl') { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }" >/dev/null 2>&1 || true
-	fi
+	pid="$(head -n 1 "$f" | tr -dc 0-9)" || true
+	launcher="$(sed -n 2p "$f" | tr -d '\r')" || true
 	rm -f "$f"
+	[ -n "$pid" ] || return 0
+	if [ -z "$launcher" ]; then
+		say "$name: $f names pid $pid but no launcher (it predates the check), so nothing proves what that pid is now: not stopping it"
+		return 0
+	fi
+	lq="$(printf '%s' "$launcher" | sed "s/'/''/g")" # a single-quoted PowerShell string
+	r="$(powershell.exe -NoProfile -NonInteractive -Command "
+		\$want = '--exec bash ' + [char]34 + '$lq' + [char]34
+		\$p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId = $pid' -ErrorAction SilentlyContinue
+		if (-not \$p) { 'gone' }
+		elseif (\$p.Name -eq 'wsl.exe' -and \$p.CommandLine -and \$p.CommandLine.Contains(\$want)) {
+			Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue; 'stopped'
+		} else { 'other' }" 2>/dev/null | tr -d '\r')" || true
+	case "$r" in
+	stopped | gone) ;;
+	other) say "$name: pid $pid is no longer the wsl.exe that runs $launcher (Windows has given the pid to another process): left alone" ;;
+	*) say "$name: could not read what pid $pid is now: left alone" ;;
+	esac
 }
 
 # stagenet_watchdog_pid <stagenet dir>: the pid, inside WSL, of the running stagenet watchdog

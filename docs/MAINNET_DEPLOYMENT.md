@@ -16,7 +16,7 @@ steps come from, with the reasons behind each.*
 | `social.bas` | one contract | none | no role exists |
 | `founders.bas` | one contract | name, description, image, price, supply, reserve, share, market fee, treasury (operator decision MT-J16) | no function changes any of them after install |
 | `chat.bas` | one contract | treasury, fee per message, maximum length | fixed at install |
-| `htlc.bas` | one contract (v3), the Monero swap's DERO leg | `w1min` and `w2min`, the least t1 − lock height and t2 − t1 (400 each, from the Monero profile), and `g2`, the Punish window (**not chosen yet**: MT-J13) | fixed at install; no owner, admin, fee or update path |
+| `htlc.bas` | one contract (v3), the Monero swap's DERO leg | `w1min` and `w2min`, the least t1 − lock height and t2 − t1 (400 each, from the Monero profile), and `g2`, the Punish window: 4,800 blocks (24 h), the operator's answer to MT-J13 on 2026-09-12 | fixed at install; no owner, admin, fee or update path |
 | `swap.bas` | one contract, the Zcash swap's DERO leg | `wmin` = 1,600 blocks | fixed at install |
 | `board.bas` | one contract, the Zcash market's offers | `aw` = 200 (in code) | fixed |
 | Market templates `pool`, `launch`, `nft`, `nfa` | installed later by users, from `app/templates/` | per market | each market is checked by the app against the template hashes in the record |
@@ -96,7 +96,7 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
 | Chat | a fee of 10,000 per message; 280 characters at most | `chat.bas` install |
 | Founders Pass | the operator's numbers (MT-J16); the description must be at most 240 bytes, checked before anything is installed | `founders.bas` install |
 | Zcash escrow width | `wmin` = 1,600 blocks (`-swap-wmin`) | `swap.bas` install |
-| Monero escrow widths | `w1min` = 400 and `w2min` = 400 blocks (`-htlc-w1min`, `-htlc-w2min`); `g2`, the Punish window, the operator's G2 (`-htlc-g2`). None has a default | `htlc.bas` install |
+| Monero escrow widths | `w1min` = 400 and `w2min` = 400 blocks (`-htlc-w1min`, `-htlc-w2min`); `g2` = 4,800 blocks, the Punish window (`-htlc-g2 4800`; MT-J13, answered 2026-09-12). None has a default in simdeploy | `htlc.bas` install |
 | Board acceptance window | 200 blocks | `board.bas` code |
 | Confirmation policy | DERO 8 (`STABLE_LIMIT`, consensus); Monero 20 by default, never below 10; Zcash 10. The companions enforce them, not the contracts | `CROSS_CHAIN_TRUST_MODEL.md` §4 |
 | Verifier configuration | **none**: no verifier, relayer, oracle or signer set exists | — |
@@ -148,12 +148,17 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
      -app <an empty scratch directory> -regfee 10000 ^
      -pass-name "DMZ Founders Pass" -pass-descr "<the approved description, at most 240 bytes>" -pass-image "<url, or empty>" ^
      -pass-price 100000 -pass-max 20 -pass-reserve 4 -pass-share 5000 -pass-mfee 250 ^
-     -swap-wmin 1600 -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 <G2>
+     -swap-wmin 1600 -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 4800
    ```
    This installs factory, social, founders, chat, htlc, swap and board, and records them in the `mainnet` block. It
    refuses before paying for anything if a Founders Pass parameter, `wmin` or an `htlc.bas` width would be refused by
-   its contract, and if any of the three `htlc.bas` widths is missing: G2 has no default because the operator has not
-   chosen it (MT-J13).
+   its contract, and if any of the three `htlc.bas` widths is missing: none has a default, so each install names it.
+   - **`-htlc-g2 4800`** is the operator's G2, answered on 2026-09-12 (MT-J13): 4,800 blocks, 24 h at 18 s, the Punish
+     window `[t2, t2 + g2)`. `tools/xmrswap/mainnet_profile.json` records it, and xmrswap's `DefaultG2Min`, the least
+     `g2` a taker's companion accepts, is generated from it. A taker's `-g2-min` cannot be lowered below 4,800 off the
+     simulator. So an htlc installed with a smaller `g2` would be refused by every taker's companion, and would have to
+     be installed again. A larger one is accepted, but keeps a maker who missed his refund waiting longer for his
+     Reclaim, from `t2 + g2`. Install exactly 4,800.
    - **The wallets' RPC login comes from `VEIL_RPC_LOGIN`**, set in this console as in step 3, never from the command
      line. simdeploy reaches the wallets through `tools/simrpc`, which sends the variable to them as HTTP basic auth
      and never to the daemon. On mainnet simdeploy refuses before its first call when the variable is unset, and when
@@ -253,8 +258,11 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
     - The wallet's RPC login comes from `VEIL_RPC_LOGIN`, as in step 4. On a mainnet config the bot refuses before
       its first call, dry run included, when the variable is unset or `-wallet` carries a login in its address.
     - `-journal` keeps the claim journal out of the tree (its default is a file in the working directory).
-    - Its calls cost the gas estimate plus 200 atomic units each. On the testnet: `ClaimFees` about 300 per market,
-      `Deposit` about 290 and `PayBatch` of 15 holders about 305. Hold 0.1 DERO in the treasury for them (§7).
+    - Its calls' fees, computed from the code (the rehearsal ran it only as a dry run, so none is measured):
+      - `ClaimFees` and `Deposit` go through `simrpc.Send`, which pays the node's gas estimate plus 200 atomic units
+        (`tools/treasurybot/chain.go:34`, `:41`; `tools/simrpc/simrpc.go:334`).
+      - `PayBatch` is sent at a fixed 3,000, whatever its estimate (`tools/treasurybot/main.go:217`, `SendWithFee`).
+      - Hold 1 DERO in the treasury for them; the reasoning is in §7.
 
 12. **Run the mainnet stage of `docs/MAINNET_TEST_PLAN.md`** at the smallest amounts, reconciled four ways.
 
@@ -281,9 +289,11 @@ source. It does not prove the source is safe: that is the audits' job (`MAINNET_
 ## 7. Funding
 
 What each step of §5 spends, measured by the X-09 rehearsal of §5 on the private DERO testnet on 2026-09-12
-(`research/testnet/rehearsal-2026-09-12.log`), from the wallets' balances before and after each step. A contract
-transaction pays its storage gas as its fee (simdeploy and treasurybot add 200 atomic units), and storage gas is a
-function of the code and the arguments alone, so these are mainnet's numbers too for this commit's contracts and
+(`research/testnet/rehearsal-2026-09-12.log`), from the wallets' balances before and after each step. The treasury's
+row is the exception: the rehearsal ran treasurybot only as a dry run, which sends nothing, so its figures are
+computed from the code (below), not measured. A contract transaction pays its storage gas as its fee (simdeploy adds
+200 atomic units, and so does treasurybot, except for `PayBatch`, which it sends at a fixed 3,000), and storage gas is
+a function of the code and the arguments alone, so these are mainnet's numbers too for this commit's contracts and
 bundle. Re-measure if either changes. 1 DERO = 100,000 atomic units.
 
 | Step | Wallet | Measured | What it covers |
@@ -291,16 +301,41 @@ bundle. Re-measure if either changes. 1 DERO = 100,000 atomic units.
 | 3. Wallets | — | nothing | registering an account is a proof of work, not a fee (7 min 33 s and 38 min 40 s on 16 cores: it varies widely) |
 | 4. Contracts | deployer | **27,995 (0.280 DERO)** | factory v2, social, founders, chat, htlc v3, swap, board. The Founders Pass reserve (4 editions) is minted to the deployer inside the founders install: no separate cost |
 | 6. The app | deployer | **330,215 (3.302 DERO)** | 38 DOCs at ring 2 and the ring-16 INDEX (7,417). telainstall pays each DOC its estimate and nothing more (the 16 DOCs before the rehearsal's interruption cost exactly the sum of their printed gas, 142,264). The W-01 install of the same bundle cost 330,199: `config.js` differs by the SCIDs it names |
-| 11. treasurybot | treasury | about 300 per call (the dry run: nothing) | per sweep: one `ClaimFees` per market holding fees, one `Deposit`, one `PayBatch` per 15 registered holders. The first sweeps of a new deployment are a handful of calls |
-| **Total** | | **deployer 358,210 (3.582 DERO); treasury under 0.01 DERO** | |
+| 11. treasurybot | treasury | **computed, not measured** (the dry run sends nothing): at most 10,920 for a sweep that claims 5 markets and pays 20 holders | per sweep that finds fees to claim: one `ClaimFees` per market holding at least `-min-units`, one `Deposit`, and one `PayBatch` at 3,000 per 15 registered holders who are owed something. A sweep with nothing to claim sends nothing. Per call and per day: below |
+| **Total** | | **deployer 358,210 (3.582 DERO)**; the treasury's spend depends on how often there are fees to sweep (below) | |
 
 The steps took, on the private testnet's blocks of about a minute: step 4 about 15 minutes (seven installs, two
 blocks each); step 5 seconds; step 6 about 71 minutes of installing (39 transactions); steps 7, 8 and 11 seconds.
 Mainnet's 18-second blocks make steps 4 and 6 about a third as long.
 
+**The treasury's calls, computed from the code** (`tools/treasurybot`, this commit; nothing here was measured):
+
+| Call | Fee, atomic units | How often |
+|---|---|---|
+| `ClaimFees` | the node's gas estimate + 200 (`chain.go:34`, `simrpc.go:334`). Its storage gas is not measured in this repository. It writes three keys (`fd`, `fa`, `fc`: `pool.bas:255-257`, `launch.bas:256-258`), fewer than `PayBatch(0, 15)`, whose 620 is the only storage gas of these calls on record (`tests/founders_attack_test.go`, `contracts/README.md`). Budget **820** (620 + 200) | once per sweep for each market whose fees reached `-min-units` (5,000 by default) |
+| `Deposit` | the node's gas estimate + 200 (`chain.go:41`). It writes four keys (`dep`, `acc`, `rpool`, `und`: `founders.bas:142`, `:256-258`). Budget **820** | once per sweep that claimed something |
+| `PayBatch` | **3,000**, fixed, whatever the estimate (`main.go:217`) | once per slice of 15 registered holders who are owed something (`payoutBatches`): after a deposit, every slice. The pass has at most 20 editions (`-pass-max 20`), so at most 20 holders and **two calls, 6,000** |
+| `PayOwed` | the node's gas estimate + 200 (`payowed.go:112`) | once per sweep for each NFA that owes the treasury at least `-min-owed` |
+
+No run in `research/` records the earlier "about 300, 290 and 305", and `PayBatch` is never sent at its estimate. A sweep
+that claims from M markets and pays 20 holders costs at most 820 × M + 820 + 6,000. At 5 markets that is **10,920**,
+so 0.1 DERO (10,000 units) does not cover a single such sweep. The treasury's own income does not arrive in a fixed
+order: the claims send it the markets' fees, and it keeps what it does not deposit (the pass's `share` is 5,000 bps,
+so half). It also receives the Founders Pass mint proceeds (`founders.bas:71`), every market's registration fee and
+the chat fees. The figure below counts none of that, because the operator may move the treasury's income out.
+
+- **Fund the treasury with 1 DERO** (100,000 units) and keep at least that in it. At 5 markets and 20 holders, with
+  one claiming sweep a day, it covers about **9 days** (100,000 / 10,920) with nothing counted from the claims.
+- **A sweep can cost more than it brings in.** One market claimed at the default threshold returns 2,500 to the
+  treasury (half of 5,000) and costs up to 820 + 820 + 6,000 = 7,640: it loses 5,140. Sweeps run every 60 s, so a
+  market that keeps crossing the threshold can do this many times a day, and 1 DERO covers about 19 such sweeps.
+  `-min-units 16000` (0.16 DERO) makes any single-market sweep pay for itself (half of 16,000 is 8,000). That choice
+  is the operator's.
+
 **Margin, kept separate:** fund the deployer with **8 DERO** (the measured 3.58 plus more than 100%: a run of step 4
 that stops half-way is resumed without paying twice only if the reuse flags are used; a changed bundle changes every
-DOC's size), and the treasury with **0.1 DERO**. Leftover DERO goes back when the deployer key is retired (step 10).
+DOC's size), and the treasury with **1 DERO** (above). Leftover DERO goes back when the deployer key is retired
+(step 10).
 
 **The smallest test amounts** of `MAINNET_TEST_PLAN.md` §5 (stage 3, mainnet), per test:
 

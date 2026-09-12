@@ -267,9 +267,20 @@ tools/regtest/stagenet-down.sh [--wipe]
     meanwhile.
   - Every restart is a line in `.sim/stagenet/watchdog.log`. A restarted monerod runs in the watchdog's WSL session, and
     its pid is in `monerod.pid` as before.
+  - monerod can exit by itself at any moment of a restart. No signal or check in the restart fails because it has
+    gone (under `set -e` one failing `kill` used to end the watchdog mid-restart, with monerod stopped). A restart
+    either starts monerod again or logs why not; a monerod still there 10 s after SIGKILL is not joined by a second.
+  - The wsl.exe that hosted the monerod it stopped exits with it, so the watchdog rewrites
+    `.sim/regtest/stagenet-monerod.winpid` to name its own host (a copy of `stagenet-watchdog.winpid`), or removes it.
+    Each `.winpid` holds the pid and the launcher `start_detached` ran. `stop_winpid` (`common.sh`) stops a pid only if
+    it is a wsl.exe whose command line runs that launcher; a pid Windows has given to another process, such as another
+    node's wsl.exe, is left alone and named. A `.winpid` written before the launcher line existed is left alone too.
   - `stagenet-watchdog.sh --self-test` drives the rule against a fake node: a `file://` get_info and a fake log, with a
     clock the test moves. It talks to no monerod. A simulated outage recovers with one restart; heavy blocks, and a stall
-    broken by progress, restart nothing; and test mode refuses the real node's port.
+    broken by progress, restart nothing; and test mode refuses the real node's port and directories. It also runs the
+    restart itself under `set -e` in a child shell whose `kill`, `sleep`, `curl`, `setsid` and `/proc` check are fakes:
+    monerod exiting between a check and its SIGINT, or its SIGKILL, still ends in one start and a log line, and the
+    `.winpid` ends naming the watchdog's host.
 
 ### The stagenet swap run (MT-B19) — prepared, waiting for the sync
 

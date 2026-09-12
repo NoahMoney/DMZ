@@ -52,7 +52,7 @@ Before each stage, rebuild at the commit under test and check every command agai
 | The current contracts on the private testnet | **being deployed now** (W-01, X-05). The working tree's `deploy/networks.json` `testnet`, uncommitted, names factory v2 `a902d8f3…`, htlc v3 `a80f38f2…` (400 / 400 / 4,800), swap `8ccee4e2…` (`wmin` 1,600) and board `955bcb40…`. Not yet in the tree: `research/testnet/deploy.log` and `daily.log`, and a new `deploy/tela-testnet.json` (the file is still the 2026-09-06 install). `xmrswap`'s compiled-in record (`record_gen.go`) names no testnet htlc, so stage 2 passes `-htlc` | stage 2, until `verifydeploy` passes and the record is committed |
 | Stage-2 DERO test wallets | none yet: `netwallet -network testnet … -create`, each with its registration proof of work (about 16 minutes), funded from the deployer (`40405`) | stage 2 |
 | DERO mainnet: the contracts, then the app | nothing deployed: the `mainnet` block names no contract | stage 3 |
-| The study's pre-mainnet items | built: `htlc.bas` v3 (`e06c28a`), the maker's stipend (Path 0), `swap.bas` v2, `board.bas` v3, the pre-signed Zcash refund (MT-C06). Open: G2 (MT-J13) and the other §J decisions, the external reviews (MT-A17, MT-G03), the gate's verdict | stage 3 |
+| The study's pre-mainnet items | built: `htlc.bas` v3 (`e06c28a`), the maker's stipend (Path 0), `swap.bas` v2, `board.bas` v3, the pre-signed Zcash refund (MT-C06). G2 is answered: 4,800 blocks (MT-J13, 2026-09-12). Open: the other §J decisions, the external reviews (MT-A17, MT-G03), the gate's verdict | stage 3 |
 | MT-B27, MT-B28 and `simhtlc -paths reclaim` | in the working tree, uncommitted (X-08). Their live regtest run, RUN 4 of `xmrswap-e2e.log`, is not recorded | T2 step 4, T3b and T3c, until committed |
 
 What that means today:
@@ -68,8 +68,8 @@ What that means today:
 |---|---|---|---|---|
 | 1a | simulator | the fake wallet in `simhtlc`, or regtest | regtest zebrad | lowered. `simhtlc` defaults: `-t1 48 -t2 16 -t1-min 10 -t2-min 6 -stable 2 -confs 10 -gate-deadline 4 -claim-margin 2 -fee 2000`, and an htlc of its own at `-htlc-w1min 10 -htlc-w2min 6 -htlc-g2 30`. zecswap's regtest policy: C_zec 2, cltv 50 ± 20, T_dero 110 |
 | 1b | simulator | stagenet | testnet | the mainnet profile. `simhtlc -stagenet` sets `-t1 420 -t2 400 -confs 20 -gate-deadline 100 -stable 8 -claim-margin 8` on the recorded htlc (400 / 400 / 4,800). zecswap's testnet policy: C_zec 10, cltv 96 ± 32 Zcash blocks, T_dero the Lock's build height + max(1,600, wmin + 11) (1,600 with the testnet escrow's wmin of 1,200, and 1,611 with the runbook's 1,600; X-16), and the taker funds only with 1,200 DERO blocks left |
-| 2 | private testnet | stagenet | testnet | the floors: `t1 − now ≥ 400` and `t2 − t1 ≥ 400` DERO blocks, Bob's t1 width at least max(400, `w1min` + 11) = 411 (420 by default); `g2` 4,800, **pending operator decision MT-J13 G2**; 20 Monero confirmations; zecswap's testnet policy |
-| 3 | mainnet | mainnet | mainnet | the same floors, with `g2` as the operator sets it |
+| 2 | private testnet | stagenet | testnet | the floors: `t1 − now ≥ 400` and `t2 − t1 ≥ 400` DERO blocks, Bob's t1 width at least max(400, `w1min` + 11) = 411 (420 by default); `g2` 4,800 (MT-J13, answered 2026-09-12: the htlc is installed with `-htlc-g2 4800`, and every taker's `-g2-min` defaults to it); 20 Monero confirmations; zecswap's testnet policy |
+| 3 | mainnet | mainnet | mainnet | the same floors, with `g2` 4,800 (`-htlc-g2 4800`, `MAINNET_DEPLOYMENT.md` §5 step 4) |
 
 - **Lowered windows are for the simulator only.** `xmrswap` refuses `-t1-min`/`-t2-min` below 400/400,
   `-gate-deadline` below 100, `-stipend`/`-stipend-min` below 14,016 and `-g2-min` below 4,800 unless the DERO daemon
