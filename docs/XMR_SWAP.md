@@ -346,7 +346,9 @@ cannot put s_a in a log (MT-L02, `tools/xmrswap/redact.go`). It prints Alice a r
 the state file named as a secret, the command that resumes her, every window as a clock time — and asks the operating
 system to wake the machine ten minutes before the first window closes: a Task Scheduler task set to WakeToRun on
 Windows, a systemd timer with WakeSystem on Linux, and on macOS nothing, since only root can schedule a wake there
-(U9, MT-B15, `tools/xmrswap/recovery.go`). And a companion killed during its sweep resumes it: the joint spend
+(U9, MT-B15, `tools/xmrswap/recovery.go`); it prints Bob his own before his DERO is locked — t1, the last height it
+sends his Refund at (t2 − 12), t2 and t2 + g2 — and registers a wake before t1 and another before t2 + g2, when, nobody
+having punished, only his Reclaim returns his DERO and her XMR (MT-B28). And a companion killed during its sweep resumes it: the joint spend
 wallet's own record says whether the sweep went out, and if it did not, it is made, which can pay no one but the
 party itself (MT-B12).
 
@@ -683,9 +685,14 @@ facing a maker who then never reclaims (R11) — her missed window, compounded b
   after they have committed and before you have; you owe them nothing for it and they cannot take it back."* It is
   the maker's cost on every swap, a walker's included, and he cannot tell a newcomer from a sybil. Her address must
   be registered first, which costs no DERO.
-- **Each party's own machine, at its window.** If Bob's companion is not running between t1 and t2 he cannot
-  Refund, and from t2 Alice may Punish and take the DERO he locked. No construction on DERO removes that need: a
-  Refund held by anyone else is held by someone who could use `s_b` to steal (`docs/ATOMIC_SWAP_STUDY.md` §6).
+- **Each party's own machine, at its window.** If Bob's companion is not running between t1 and his refund cutoff,
+  t2 − 11, he cannot Refund, and from t2 anyone may Punish and pay Alice the DERO he locked. The cutoff is there
+  because DERO mines a transaction at most 10 blocks after the height it was built at (the companion counts 11) and a
+  Refund executing at t2 is refused: his companion sends none from t2 − 11, counts one only once it is stable, and
+  sends it again if a replaced block undoes it before the cutoff. One undone after the cutoff leaves the lock to
+  anyone's Punish until t2 + g2, and then to his Reclaim (MT-B27). His recovery card prints these heights, and his
+  companion registers a wake before t1 and another before t2 + g2 (MT-B28). No construction on DERO removes that need:
+  a Refund held by anyone else is held by someone who could use `s_b` to steal (`docs/ATOMIC_SWAP_STUDY.md` §6).
 - **The taker's Punish has a deadline: t2 + g2** (`htlc.bas` v3, MT-J13). Her companion, or anyone she asks — it
   carries no secret and pays only her — must get a Punish in before t2 + g2 (4,800 blocks, about 24 hours, proposed
   and pending the operator); her companion sends none from t2 + g2 − (11 + 8 + margin), and her recovery card prints
@@ -824,8 +831,11 @@ Primary, read for this page (fetch dates as noted; the derohe files are the vend
   wallet's scanned height, a non-zero `unlock_time` is refused (-50).
 - `research/regtest/xmrswap-e2e.log` — all three exits run twice with real `monerod` and `monero-wallet-rpc` 0.18.5.1
   on regtest and `htlc.bas` v2 on the DERO simulator, every txid looked up on its chain; the second run with the
-  companions naming the `monerod` after every open (55 `set_daemon` calls accepted, none refused). Neither run is
-  testnet or mainnet.
+  companions naming the `monerod` after every open (55 `set_daemon` calls accepted, none refused). Run 3 is the same
+  three exits on `htlc.bas` v3. Run 4 (2026-09-12) is all four on v3, the maker's Reclaim included: nobody punished,
+  Bob, back at his refund cutoff, sent no Refund, reclaimed from t2 + g2 and counted it once stable, and Alice,
+  restarted after t2 + g2, read `s_b` from `xb_<id>` (st 4) and swept her XMR back. The contract held 0 after every
+  exit. No run is testnet or mainnet.
 - `research/regtest/xmrswap-reorg.log` — a real reorganisation of the regtest chain under a live swap (MT-B11):
   `pop_blocks`, `flush_txpool` and a longer branch, once below Bob's depth before the gate and once after it with
   Alice spending the lock's input again; every txid, block hash and balance, and what each companion did.

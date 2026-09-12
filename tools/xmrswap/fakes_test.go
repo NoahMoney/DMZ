@@ -50,7 +50,10 @@ type fakeChain struct {
 	// stuckBelowFee, when set, makes the HTTP daemon hold any transfer with a lower fee in its pool for ever
 	// (DERO.GetTransaction reports in_pool): the fee re-send's trigger
 	stuckBelowFee uint64
-	pool          map[string]bool
+	// advanceOnStuck, when set, moves the chain on by that many blocks as the HTTP daemon holds a transfer in its pool:
+	// the chain reaching a cutoff while the first send sits there, with no timing in the test
+	advanceOnStuck uint64
+	pool           map[string]bool
 	// codeHash is what memDero answers for the contract's code hash: the pinned htlc.bas unless a test says not.
 	// codeText is the code the HTTP daemon returns for DERO.GetSC with code:true.
 	codeHash string
@@ -245,6 +248,14 @@ func (c *fakeChain) unpunish(id uint64) {
 	c.locks[id].State = LockOpen
 }
 
+// unrefund is a replaced block: the Refund it held is not in the chain now, and the lock is open again.
+func (c *fakeChain) unrefund(id uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	l := &c.locks[id]
+	l.State, l.XB = LockOpen, ""
+}
+
 // unreclaim is a replaced block: the Reclaim it held is not in the chain now, and the lock is open again.
 func (c *fakeChain) unreclaim(id uint64) {
 	c.mu.Lock()
@@ -398,7 +409,12 @@ func (d *memDero) Claim(ctx context.Context, id uint64, sa, kb string, cutoff ui
 	}
 	return d.exit("Claim", func(h uint64) error { return d.chain.claim(h, d.meRaw, id, sa, kb) })
 }
-func (d *memDero) Refund(ctx context.Context, id uint64, sb string) (string, error) {
+
+// Refund holds DeroRPC's rule: nothing is sent at a height at or past the cutoff (MT-B27).
+func (d *memDero) Refund(ctx context.Context, id uint64, sb string, cutoff uint64) (string, error) {
+	if h := d.chain.Height(); h >= cutoff {
+		return "", fmt.Errorf("Refund not sent: at height %d (refund cutoff %d)", h, cutoff)
+	}
 	return d.exit("Refund", func(h uint64) error { return d.chain.refund(h, d.meRaw, id, sb) })
 }
 

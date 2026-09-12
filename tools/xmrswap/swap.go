@@ -300,6 +300,11 @@ func newSwap(role string, cfg Config, st *State, dero Dero, xmr Wallet, prover P
 	if role == "bob" && cfg.T1Delta <= cfg.GateMargin {
 		return nil, fmt.Errorf("a t1 width of %d leaves no block in which the gate may go out (gate margin %d, from the gate deadline %d)", cfg.T1Delta, cfg.GateMargin, cfg.GateDeadline)
 	}
+	// MT-B27: his Refund goes out only below refundCutoff(t2) = t2 − DeroTxValidity, so a t2 − t1 of DeroTxValidity or
+	// less leaves no height in [t1, t2) at which one can be sent and still execute before t2
+	if role == "bob" && cfg.T2Delta <= DeroTxValidity {
+		return nil, fmt.Errorf("a t2 − t1 of %d leaves no height at which a Refund can go out and execute before t2: one built at h executes by h + %d, so t2 − t1 must be more than %d", cfg.T2Delta, DeroTxValidity, DeroTxValidity)
+	}
 	if role == "alice" && punishCutoff(0, cfg.G2Min, cfg.ClaimMargin) == 0 {
 		return nil, fmt.Errorf("a g2 floor of %d leaves no block in which a Punish can go out and be stable before t2 + g2 (it needs more than %d + %d + the claim margin %d)", cfg.G2Min, DeroTxValidity, DefaultStableBlocks, cfg.ClaimMargin)
 	}
@@ -1185,6 +1190,10 @@ func (s *Swap) stepBob(ctx context.Context) error {
 			return err
 		}
 		st.Lock = LockRecord{IntentHeight: h, T1: h + st.Terms.T1Delta, T2: h + st.Terms.T1Delta + st.Terms.T2Delta, Amount: st.Terms.AmountDero}
+		// U9 for the maker (MT-B28): what to keep secret, what to run, and every window of his as a clock time, said before
+		// the one payment that needs them — and the OS asked to wake this machine before t1, when his Refund window opens,
+		// and before t2 + g2, when nobody having punished, only his Reclaim returns his DERO and the taker's XMR
+		s.printMakerCard(st.Lock.T1, st.Lock.T2, h, time.Now())
 		return s.save("dero_locking")
 
 	case "dero_locking":
@@ -1400,7 +1409,9 @@ func (s *Swap) stepBob(ctx context.Context) error {
 			// her claim landed on the boundary: the swap happened after all
 			return s.claimSeen(ctx, l)
 		case LockRefunded:
-			return s.finish("refunded", "refunded: the DERO is back; s_b is on the chain so alice can recover any XMR she locked")
+			// only this party can Refund: his own, from a pass that did not live to record it, or whose call returned an
+			// error after the transaction went out — watched to stable depth like the one recorded (MT-B27)
+			return s.refundSeen(ctx)
 		case LockPunished:
 			return s.finish("punished", "punished: alice took the DERO after t2; the refund window was missed")
 		case LockReclaimed:
@@ -1411,26 +1422,26 @@ func (s *Swap) stepBob(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if h >= st.Lock.T2 {
-			s.cfg.Log("bob: past t2 (%d) with the lock still open: until t2 + g2 only Punish, which pays alice, can move it; from then it is this party's to Reclaim", st.Lock.T2)
-			return s.save("punish_window")
-		}
 		if h < st.Lock.T1 {
 			return nil
 		}
+		// MT-B27: a Refund built at h executes by h + DeroTxValidity, and one executing at or after t2 is refused, which
+		// leaves the lock open to Punish; from the cutoff none is sent, first time or again
+		cutoff := refundCutoff(st.Lock.T2)
+		if h >= cutoff {
+			return s.pastRefundCutoff(ctx, h, cutoff)
+		}
+		// Invariant 5: the intent is durable before every send, a second one after a replaced block included
 		if st.Phase != "refunding" {
 			if err := s.save("refunding"); err != nil {
 				return err
 			}
 		}
-		txid, err := s.dero.Refund(ctx, st.Lock.ID, st.Own.Secret)
+		txid, err := s.dero.Refund(ctx, st.Lock.ID, st.Own.Secret, cutoff)
 		if err != nil {
 			return err
 		}
-		st.RefundTx = txid
-		s.cfg.Log("bob: refunded: tx %s", txid)
-		_ = s.queue(KindDone, doneBody{Outcome: "refunded"})
-		return s.finish("refunded", "refunded: tx "+txid+"; s_b is on the chain so alice can recover any XMR she locked")
+		return s.refundSent(ctx, txid, cutoff)
 
 	case "punish_window", "reclaiming":
 		l, err := s.dero.ReadLock(ctx, st.Lock.ID)
@@ -1441,7 +1452,9 @@ func (s *Swap) stepBob(ctx context.Context) error {
 		case LockPunished:
 			return s.finish("punished", "punished: the DERO went to alice in [t2, t2 + g2); the refund window was missed")
 		case LockRefunded:
-			return s.finish("refunded", "refunded")
+			// a Refund of his sent before the cutoff, landing (or mined again after a replaced block) before t2: watched
+			// to stable depth like any other (MT-B27)
+			return s.refundSeen(ctx)
 		case LockReclaimed:
 			// his own Reclaim, from a pass that did not live to record it (or whose call returned an error after the
 			// transaction went out): watched to stable depth like any other
@@ -1490,6 +1503,9 @@ func (s *Swap) stepBob(ctx context.Context) error {
 
 	case "reclaim_confirming":
 		return s.confirmReclaim(ctx)
+
+	case "refund_confirming":
+		return s.confirmRefund(ctx)
 	}
 	if _, old := v2Phases[st.Phase]; old {
 		return v2PhaseError("bob", st.Phase)
@@ -1682,14 +1698,15 @@ func deadlineOf(t1, g uint64) uint64 {
 // locked amount with Punish at t2 whether or not she ever locked any XMR. So a read that fails does not stop the
 // refund: it goes out without one, and the contract refuses it harmlessly if the lock has already moved. One
 // attempt per eighth of the window, so a read that keeps failing spends a handful of fees rather than one every
-// pass.
+// pass. None goes out from the refund cutoff (MT-B27), where it could execute only at or after t2.
 func (s *Swap) refundBlind(ctx context.Context, readErr error) error {
 	st := s.st
 	h, herr := s.dero.Height(ctx)
 	if herr != nil {
 		return readErr
 	}
-	if h < st.Lock.T1 || h >= st.Lock.T2 {
+	cutoff := refundCutoff(st.Lock.T2)
+	if h < st.Lock.T1 || h >= cutoff {
 		return readErr // outside the window the contract refuses it, and the fee would buy nothing
 	}
 	every := (st.Lock.T2 - st.Lock.T1) / 8
@@ -1711,14 +1728,101 @@ func (s *Swap) refundBlind(ctx context.Context, readErr error) error {
 	} else if err := st.Save(); err != nil {
 		return err
 	}
-	txid, err := s.dero.Refund(ctx, st.Lock.ID, st.Own.Secret)
+	txid, err := s.dero.Refund(ctx, st.Lock.ID, st.Own.Secret, cutoff)
 	if err != nil {
 		return err
 	}
+	return s.refundSent(ctx, txid, cutoff)
+}
+
+// refundSent records a Refund the client saw execute and moves to watching it (MT-B27): it is his once DERO can no
+// longer replace its block. The height it is read at bounds that block from above.
+func (s *Swap) refundSent(ctx context.Context, txid string, cutoff uint64) error {
+	st := s.st
 	st.RefundTx = txid
-	s.cfg.Log("bob: refunded: tx %s", txid)
-	_ = s.queue(KindDone, doneBody{Outcome: "refunded"})
-	return s.finish("refunded", "refunded: tx "+txid+"; s_b is on the chain so alice can recover any XMR she locked")
+	if hr, herr := s.dero.Height(ctx); herr == nil {
+		st.Lock.RefundSeenHeight = hr
+	}
+	s.cfg.Log("bob: refunded: tx %s, read at height %d (refund cutoff %d, t2 %d); watching it until it is stable", txid, st.Lock.RefundSeenHeight, cutoff, st.Lock.T2)
+	return s.save("refund_confirming")
+}
+
+// pastRefundCutoff is the maker at or past his refund cutoff with the lock still open (MT-B27). No Refund of his can
+// execute before t2 any more, so none is sent, and the operator is told plainly what that leaves him: from t2 until
+// t2 + g2 anyone may Punish the lock, which pays the taker his DERO and returns him nothing; if nobody does, his Reclaim
+// from t2 + g2 returns it, and puts s_b on the chain for her. punish_window waits for whichever the chain shows, and
+// sends that Reclaim.
+func (s *Swap) pastRefundCutoff(ctx context.Context, h, cutoff uint64) error {
+	st := s.st
+	c, err := s.contract(ctx)
+	if err != nil {
+		return err
+	}
+	s.cfg.Log("bob: height %d is at or past the refund cutoff %d (t2 %d − %d) with the lock open: no Refund is sent, since one could execute only at or after t2, where htlc.bas refuses it and keeps the fee. From t2 until t2 + g2 = %d anyone may Punish the lock, which pays alice the DERO and returns this party nothing; if nobody does, this party Reclaims it from t2 + g2, which returns the DERO and puts s_b on the chain for alice", h, cutoff, st.Lock.T2, DeroTxValidity, st.Lock.T2+c.G2)
+	return s.save("punish_window")
+}
+
+// refundSeen is Bob's move on reading st == 2 from a phase that did not record the Refund as sent: only the maker may
+// Refund, so it is his own — from a pass that died after it went out, a call that returned an error after the
+// transaction was sent, or one a replaced block undid and the chain then mined again before t2. It is watched to stable
+// depth from the height it was first read at (confirmRefund).
+func (s *Swap) refundSeen(ctx context.Context) error {
+	if s.st.Lock.RefundSeenHeight == 0 {
+		h, err := s.dero.Height(ctx)
+		if err != nil {
+			return err
+		}
+		s.st.Lock.RefundSeenHeight = h // the Refund's block is at or below the height it is first known at
+	}
+	if s.st.RefundTx == "" {
+		s.st.RefundTx = "(refunded; txid not recorded)"
+	}
+	return s.save("refund_confirming")
+}
+
+// confirmRefund is U3's rule for the maker's Refund (MT-B27), as confirmReclaim is for his Reclaim: he counts it as done
+// only once DERO can no longer replace the block it is in. A Refund undone by a replaced block and mined again at or
+// after t2 is refused, and the lock is then open to Punish, which pays the taker. Unlike the other confirmers it reads
+// the lock on every pass, not only once the height it was read at is stable: the Refund's own window closes at its
+// cutoff, t2 − DeroTxValidity, so one undone is sent again at once while the cutoff allows, rather than found up to 8
+// blocks later, when it may no longer be.
+func (s *Swap) confirmRefund(ctx context.Context) error {
+	st := s.st
+	h, err := s.dero.Height(ctx)
+	if err != nil {
+		return err
+	}
+	if st.Lock.RefundSeenHeight == 0 {
+		st.Lock.RefundSeenHeight = h
+		return st.Save()
+	}
+	l, err := s.dero.ReadLock(ctx, st.Lock.ID)
+	if err != nil {
+		return err
+	}
+	switch l.State {
+	case LockRefunded:
+		stable, err := s.dero.StableHeight(ctx)
+		if err != nil {
+			return err
+		}
+		if stable < st.Lock.RefundSeenHeight {
+			return nil
+		}
+		_ = s.queue(KindDone, doneBody{Outcome: "refunded"})
+		return s.finish("refunded", fmt.Sprintf("refunded: tx %s, stable (stable height %d); s_b is on the chain so alice can recover any XMR she locked", st.RefundTx, stable))
+	case LockOpen:
+		if cutoff := refundCutoff(st.Lock.T2); h < cutoff {
+			s.cfg.Log("bob: the refund read at height %d is not on the chain any more: its block was replaced and the lock is open again; at height %d, before the refund cutoff %d, the Refund goes out again", st.Lock.RefundSeenHeight, h, cutoff)
+		} else {
+			s.cfg.Log("bob: the refund read at height %d is not on the chain any more: its block was replaced and the lock is open again, and at height %d, at or past the refund cutoff %d, no Refund can execute before t2", st.Lock.RefundSeenHeight, h, cutoff)
+		}
+	}
+	// open again, or — a replaced block having let another exit in first — moved some other way: refund_window sends the
+	// Refund again while the cutoff allows, routes the state the chain now shows, or, past the cutoff with the lock open,
+	// says what that leaves this party and waits for Punish or t2 + g2
+	st.Lock.RefundSeenHeight, st.RefundTx = 0, ""
+	return s.save("refund_window")
 }
 
 // claimSeen is Bob's move on reading st == 1 from whichever phase noticed: s_a is checked against the proof

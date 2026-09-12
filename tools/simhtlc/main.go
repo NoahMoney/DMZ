@@ -1,7 +1,9 @@
 // simhtlc drives whole DERO <-> Monero swaps on the local DERO simulator (docs/XMR_SWAP_BUILD.md §3.D, §5): it
 // installs contracts/htlc.bas through reference.Canon, runs bob's and alice's companions in-process against the
-// real daemon and wallets, and exercises all three exits — the happy path; bob refunds and alice recovers her XMR
-// with s_b; bob vanishes and alice punishes. It prints every transaction id and reads every contract key back.
+// real daemon and wallets, and exercises all four exits — the happy path; bob refunds and alice recovers her XMR
+// with s_b; bob vanishes and alice punishes; and (-paths reclaim, htlc.bas v3) nobody punishes, bob Reclaims from
+// t2 + g2 and alice, restarted after it, recovers her XMR with the s_b his Reclaim reveals. It prints every
+// transaction id, with the block each DERO one is in, and reads every contract key back.
 //
 // The Monero side is one of two, and the run says which:
 //
@@ -40,7 +42,15 @@
 // -t1 must be at least w1min + 11 (DERO mines a Lock at most 10 blocks after it is built; the companion counts 11) and
 // -t2 at least w2min, and alice's
 // floor on g2 (-g2-min) defaults to the install's. The punish exit ends with alice's Punish, sent at once from t2 and
-// inside [t2, t2 + g2); bob sends none of his own.
+// inside [t2, t2 + g2); bob sends none of his own. -t2 must also be more than 11: bob sends no Refund from his refund
+// cutoff, t2 − 11 (MT-B27), and the default of 20 leaves him the heights t1 to t1 + 8 to send it in: the refund path
+// brings him back just after t1, and a driver round can take several seconds when the machine is busy.
+//
+// The reclaim exit: bob locks, pays the stipend and goes away; alice locks her XMR and is stopped once she is waiting
+// for his refund, before t2. Bob comes back at or past his refund cutoff, sends no Refund, sits out the Punish window
+// [t2, t2 + g2) in which nobody punishes, Reclaims from t2 + g2 and watches it to stable depth. Alice's companion is
+// restarted from its state file at t2 + g2, sends no Punish (past her punish cutoff), reads s_b from xb_<id> (st 4) and
+// sweeps her XMR back from the joint wallet. The contract must end holding 0.
 //
 // The timelock policy is lowered for the run — the simulator mines a block every 18 s, or at once when a
 // transaction is waiting — and the companions accept that only because the daemon reports itself as the
@@ -55,6 +65,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -94,7 +105,7 @@ var (
 	assetDecimals = flag.Uint64("asset-decimals", 0, "the asset's decimals, as both companions agree them")
 	amountXmr     = flag.Uint64("amount-xmr", 1_000_000_000_000, "piconero alice locks per swap (1 XMR)")
 	t1            = flag.Uint64("t1", 48, "blocks from bob's lock to t1 (policy on mainnet: 400; see the package comment)")
-	t2            = flag.Uint64("t2", 8, "blocks from t1 to t2 (policy on mainnet: 400)")
+	t2            = flag.Uint64("t2", 20, "blocks from t1 to t2 (policy on mainnet: 400); more than 11, since bob sends no Refund from t2 − 11 (MT-B27)")
 	t1Min         = flag.Uint64("t1-min", 10, "alice's floor on t1 - now")
 	t2Min         = flag.Uint64("t2-min", 6, "alice's floor on t2 - t1")
 	stable        = flag.Uint64("stable", 2, "DERO blocks alice lets the lock age before locking XMR (policy: 8)")
@@ -107,10 +118,10 @@ var (
 	g2Min         = flag.Uint64("g2-min", 0, "alice's floor on the install's g2 (default: -htlc-g2)")
 	confs         = flag.Uint64("confs", 10, "Monero confirmations bob waits for before the gate (policy: 20; a block is mined per round)")
 	fee           = flag.Uint64("fee", 2000, "fixed fee for Refund and Punish")
-	paths         = flag.String("paths", "happy,refund,punish", "which exits to run, in order: happy, refund, punish; with -regtest also reorg-before and reorg-after (MT-B11)")
+	paths         = flag.String("paths", "happy,refund,punish", "which exits to run, in order: happy, refund, punish, reclaim; with -regtest also reorg-before and reorg-after (MT-B11)")
 	stateDir      = flag.String("state-dir", "", "where state files and the channel go (default: a temp dir)")
 	round         = flag.Duration("round", time.Second, "pause between driver rounds")
-	timeout       = flag.Duration("timeout", 40*time.Minute, "give up on one path after this long")
+	timeout       = flag.Duration("timeout", 60*time.Minute, "give up on one path after this long (reclaim, at the default windows, takes about 35 minutes)")
 	fund          = flag.Uint64("fund", 0, "if bob is short, alice's wallet sends him this many atomic units first (a plain transfer)")
 )
 
@@ -210,14 +221,17 @@ func main() {
 	pathList := strings.Split(*paths, ",")
 	for _, p := range pathList {
 		switch p {
-		case "happy", "refund", "punish":
+		case "happy", "refund", "punish", "reclaim":
 		case "reorg-before", "reorg-after", "unlock":
 			if !*regtest {
 				log.Fatalf("-paths %s needs -regtest: the reorganisation is made on a real monerod", p)
 			}
 		default:
-			log.Fatalf("-paths: unknown exit %q (happy, refund, punish, reorg-before, reorg-after)", p)
+			log.Fatalf("-paths: unknown exit %q (happy, refund, punish, reclaim, reorg-before, reorg-after)", p)
 		}
+	}
+	if *t2 <= xmrswap.DeroTxValidity {
+		log.Fatalf("-t2 %d: bob sends no Refund from t2 − %d (MT-B27), so t2 − t1 must be more than %d or he can never refund", *t2, xmrswap.DeroTxValidity, xmrswap.DeroTxValidity)
 	}
 	// bob, per swap: what his companion checks before it locks (the lock when it is DERO, the stipend, the fee
 	// reserve), plus the lock's own fee; alice: the install (~4,000) and nothing else of her own, since each swap's
@@ -893,6 +907,7 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 	bob, alice := start("bob"), start("alice")
 	deadline := time.Now().Add(*timeout)
 	bobGone, bobBack := false, false
+	aliceGone, aliceBack := false, false // reclaim: alice stopped through the Punish window, then restarted
 	reorged := false
 	var aliceXmrBefore uint64
 	if strings.HasPrefix(path, "reorg") || path == "unlock" {
@@ -931,6 +946,32 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 				bobGone = true
 				say("bob vanishes after his lock and the stipend (t2 = %d); alice will punish", bs.Lock.T2)
 			}
+		case "reclaim":
+			// htlc.bas v3's fourth exit. bob goes offline once his lock is in and the stipend paid, and comes back at or
+			// past his refund cutoff (t2 − 11, MT-B27), too late to refund; alice is stopped once she waits for his refund,
+			// before t2, so that nobody punishes in [t2, t2 + g2); bob Reclaims from t2 + g2, and alice's companion is
+			// restarted from its state file at t2 + g2
+			rcut, reclaimAt := bs.Lock.T2-xmrswap.DeroTxValidity, bs.Lock.T2+bs.Contract.G2
+			if paid && !bobGone && !bobBack {
+				bobGone = true
+				say("reclaim: bob goes offline after his lock and the stipend; he will be back at his refund cutoff %d (t2 %d − %d), too late to refund, and Reclaims from t2 + g2 = %d", rcut, bs.Lock.T2, xmrswap.DeroTxValidity, reclaimAt)
+			}
+			if bobGone && h >= rcut {
+				bobGone, bobBack = false, true
+				say("reclaim: bob is back at height %d, at or past his refund cutoff %d and before t2 %d: his companion sends no Refund", h, rcut, bs.Lock.T2)
+			}
+			if as := alice.State(); !aliceGone && !aliceBack && as.Phase == "await_refund" {
+				if as.Xmr.LockTx == "" || h >= bs.Lock.T2 {
+					log.Fatalf("reclaim: alice reached await_refund at height %d with Monero lock %q (t2 %d): the path needs her XMR locked and her stopped before t2", h, as.Xmr.LockTx, bs.Lock.T2)
+				}
+				aliceGone = true
+				say("reclaim: alice's companion is stopped at height %d in %s, her XMR locked (%s); nobody will punish in [t2 %d, t2 + g2 %d)", h, as.Phase, as.Xmr.LockTx, bs.Lock.T2, reclaimAt)
+			}
+			if aliceGone && h >= reclaimAt {
+				aliceGone, aliceBack = false, true
+				alice = start("alice")
+				say("reclaim: alice's companion restarted from its state file at height %d, at or past t2 + g2 = %d (phase %q)", h, reclaimAt, alice.Phase())
+			}
 		case "reorg-before":
 			// (a): alice's lock goes while bob is still counting it, below his depth
 			if lock := alice.State().Xmr.LockTx; !reorged && bs.Phase == "watching_xmr" && lock != "" {
@@ -953,8 +994,10 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 				log.Printf("bob: %v", err)
 			}
 		}
-		if _, err := alice.Step(ctx); err != nil {
-			log.Printf("alice: %v", err)
+		if !aliceGone {
+			if _, err := alice.Step(ctx); err != nil {
+				log.Printf("alice: %v", err)
+			}
 		}
 		xm.mine(1)
 		if bob.State().Done && alice.State().Done {
@@ -965,8 +1008,16 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 	bs, as := bob.State(), alice.State()
 	say("%s: bob ended %q: %s", path, bs.Phase, bs.Outcome)
 	say("%s: alice ended %q: %s", path, as.Phase, as.Outcome)
-	say("%s: DERO txids: lock %s | stipend %s (alice saw it at height %d) | claim %s | refund %s | punish %s",
-		path, or(bs.Lock.Tx), or(bs.Stipend.Tx), as.Stipend.Height, or(as.ClaimTx), or(bs.RefundTx), or(as.PunishTx+bs.PunishTx))
+	say("%s: DERO txids: lock %s | stipend %s (alice saw it at height %d) | claim %s | refund %s | punish %s | reclaim %s",
+		path, or(bs.Lock.Tx), or(bs.Stipend.Tx), as.Stipend.Height, or(as.ClaimTx), or(bs.RefundTx), or(as.PunishTx+bs.PunishTx), or(bs.ReclaimTx))
+	for _, tx := range []struct{ what, id string }{{"lock", bs.Lock.Tx}, {"stipend", bs.Stipend.Tx}, {"claim", as.ClaimTx}, {"refund", bs.RefundTx}, {"punish", as.PunishTx}, {"reclaim", bs.ReclaimTx}} {
+		if w := deroWhere(tx.id); w != "" {
+			say("%s: DERO %s %s: %s", path, tx.what, tx.id, w)
+		}
+	}
+	if bs.ReclaimTx != "" {
+		say("%s: bob's Reclaim was read executed at height %d (t2 %d + g2 %d = %d); his companion counted it once the stable height reached that", path, bs.Lock.ReclaimSeenHeight, bs.Lock.T2, bs.Contract.G2, bs.Lock.T2+bs.Contract.G2)
+	}
 	if as.Xmr.LockTx != "" {
 		say("%s: Monero (%s) lock %s to the joint address %s: %s", path, xm.kind, as.Xmr.LockTx, as.Joint, xm.where(as.Xmr.LockTx))
 	}
@@ -994,6 +1045,32 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 	}
 	if cb, err := bobD.ContractBalance(ctx); err == nil {
 		say("%s: the contract holds %d DERO atomic units after this exit", path, cb)
+		if cb != 0 && *htlc == "" {
+			log.Fatalf("%s: the contract this run installed still holds %d after the exit", path, cb)
+		}
+	}
+	// fail closed: each of the four exits must have left its own state on the chain, and nothing else
+	if want, ok := map[string]string{"happy": "1", "refund": "2", "punish": "3", "reclaim": "4"}[path]; ok {
+		if got := fmt.Sprint(keys[fmt.Sprintf("st_%d", bs.Lock.ID)]); got != want {
+			log.Fatalf("%s: lock %d ended in st %s, not %s: the exit did not happen (bob %s: %s; alice %s: %s)", path, bs.Lock.ID, got, want, bs.Phase, bs.Outcome, as.Phase, as.Outcome)
+		}
+	}
+	if path == "reclaim" {
+		xb := fmt.Sprint(keys[fmt.Sprintf("xb_%d", bs.Lock.ID)])
+		raw, _ := hex.DecodeString(xb)
+		hb := fmt.Sprint(keys[fmt.Sprintf("hb_%d", bs.Lock.ID)])
+		if len(raw) != 32 || xmrswap.SHA256Hex(raw) != hb {
+			log.Fatalf("reclaim: xb_%d = %q is not the preimage of hb_%d = %s", bs.Lock.ID, xb, bs.Lock.ID, hb)
+		}
+		if bs.Phase != "reclaimed" || bs.RefundTx != "" || as.PunishTx != "" || as.Phase != "swept" || as.Revealed == "" || len(as.Sweep.Txs) == 0 {
+			log.Fatalf("reclaim: bob %s (%s), refund %q; alice %s (%s), punish %q, sweeps %v", bs.Phase, bs.Outcome, bs.RefundTx, as.Phase, as.Outcome, as.PunishTx, as.Sweep.Txs)
+		}
+		for _, tx := range as.Sweep.Txs {
+			if w := xm.where(tx); xm.kind == "regtest" && !strings.HasPrefix(w, "in monerod block") {
+				log.Fatalf("reclaim: alice's recovery sweep %s is %s", tx, w)
+			}
+		}
+		say("reclaim: st_%d = 4 and sha256(xb_%d) = hb_%d: bob's Reclaim put s_b on the chain, and alice, restarted after t2 + g2, read it there and swept her XMR back; nobody sent a Refund or a Punish", bs.Lock.ID, bs.Lock.ID, bs.Lock.ID)
 	}
 	if bs.Revealed != "" {
 		say("bob read s_a from the chain and swept with s_a + s_b; joint address %s", bs.Joint)
@@ -1022,6 +1099,34 @@ func or(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// deroWhere is where the DERO simulator has a transaction: the topoheight of the block it is in (derod's
+// DERO.GetTransaction block_height; on the simulator, one block a height, it is the height), its pool, or nowhere; ""
+// for no txid, or one the companion could not record.
+func deroWhere(txid string) string {
+	if len(txid) != 64 {
+		return ""
+	}
+	var r struct {
+		Txs []struct {
+			BlockHeight int64  `json:"block_height"`
+			InPool      bool   `json:"in_pool"`
+			ValidBlock  string `json:"valid_block"`
+		} `json:"txs"`
+	}
+	if err := jsonRPC("http://"+strings.TrimPrefix(*daemon, "http://"), "DERO.GetTransaction", map[string]interface{}{"txs_hashes": []string{txid}}, &r); err != nil {
+		return "unknown (" + err.Error() + ")"
+	}
+	switch {
+	case len(r.Txs) != 1:
+		return "NOT on the simulator's chain"
+	case r.Txs[0].InPool:
+		return "in the simulator's pool"
+	case r.Txs[0].ValidBlock != "":
+		return fmt.Sprintf("in the DERO block at topoheight %d", r.Txs[0].BlockHeight)
+	}
+	return "NOT in a block of the simulator's chain"
 }
 
 // deroLog is where one party's DERO client reports a Claim's estimate and a fee re-send (§4 policy, review R24).

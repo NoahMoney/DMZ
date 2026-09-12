@@ -37,7 +37,10 @@ type Dero interface {
 	// Claim sends nothing, first time or re-send, at a height h with h + 1 >= cutoff: cutoff is the caller's
 	// claimCutoff(t1, margin), so the client's re-send policy and the state machine's cutoff are one rule (XMR-06).
 	Claim(ctx context.Context, id uint64, sa, kb string, cutoff uint64) (string, error)
-	Refund(ctx context.Context, id uint64, sb string) (string, error)
+	// Refund sends nothing, first time or re-send, at a height h >= cutoff: cutoff is the caller's refundCutoff(t2), so
+	// that nothing it sends can execute at or after t2, where htlc.bas refuses it and the lock stays open to Punish
+	// (MT-B27).
+	Refund(ctx context.Context, id uint64, sb string, cutoff uint64) (string, error)
 	// Punish sends nothing, first time or re-send, at a height h >= cutoff: cutoff is the caller's punishCutoff(t2,
 	// g2, margin), so that nothing it sends can execute at or after t2 + g2, where htlc.bas v3 refuses it.
 	Punish(ctx context.Context, id uint64, cutoff uint64) (string, error)
@@ -132,6 +135,19 @@ func punishCutoff(t2, g2, margin uint64) uint64 {
 	return t2 + g2 - DeroTxValidity - DefaultStableBlocks - margin
 }
 
+// refundCutoff is the first height at which the maker sends no Refund (MT-B27): htlc.bas refuses one executing at or
+// after t2, and a transaction built at h executes by h + DeroTxValidity, counted one block conservative as the Lock and
+// Punish cutoffs count it. Before it, a Refund goes out and executes in [t1, t2); from it the lock, if nobody else moves
+// it, goes to Punish in [t2, t2 + g2), which pays the taker, or to the maker's Reclaim from t2 + g2. Unlike the Punish
+// cutoff it holds no stable depth: stopping earlier would not make a late Refund safer, only rarer, and a Refund not sent
+// leaves the lock to Punish for certain.
+func refundCutoff(t2 uint64) uint64 {
+	if t2 <= DeroTxValidity {
+		return 0
+	}
+	return t2 - DeroTxValidity
+}
+
 // Deployment is what identifies an htlc.bas install (MT-A03(a), MT-J13): the code, hashed as stored, and the three
 // values it was installed with. A value the contract does not store reads as 0, which no v3 install has.
 type Deployment struct {
@@ -166,7 +182,8 @@ type DeroRPC struct {
 	// the fee (review R24: a fee too low sits unmined into the window's end). Each re-send is a new transaction;
 	// if two mine, the contract refuses the second and its fee is the cost. A re-send happens only while the
 	// call can still land usefully — a Claim while height + 1 < the caller's claim cutoff (t1 − 8 − margin), a
-	// Refund while height < t2 — and after that the caller moves to the exit that remains.
+	// Refund while height < its cutoff (t2 − DeroTxValidity, MT-B27), a Punish while height < its cutoff — and after
+	// that the caller moves to the exit that remains.
 	Resends int
 	// Log, when set, reports a re-send; the client is otherwise silent.
 	Log func(format string, a ...interface{})
@@ -1024,14 +1041,14 @@ func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uin
 // exit sends one of the four exits and proves it executed by reading st_<id> back: a call the contract refuses
 // is still mined, so inclusion alone would be a lie. A transaction that does not mine within Timeout is sent
 // again at double the fee, Resends times at most, while its window is open (canResend). A Claim is not sent at
-// all, first time included, once height + 1 >= cutoff, and a Punish once height >= cutoff.
+// all, first time included, once height + 1 >= cutoff, and a Punish or a Refund once height >= cutoff.
 func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg, want uint64, estimated bool, cutoff uint64) (string, error) {
 	all := append([]Arg{argS("entrypoint", entry), argU("id", id)}, args...)
 	fee := c.FixedFee
 	if fee == 0 {
 		fee = 3000
 	}
-	if entry == "Claim" || entry == "Punish" {
+	if entry == "Claim" || entry == "Punish" || entry == "Refund" {
 		h, err := c.Height(ctx)
 		if err != nil {
 			return "", err
@@ -1041,6 +1058,9 @@ func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg,
 		}
 		if entry == "Punish" && h >= cutoff {
 			return "", fmt.Errorf("Punish not sent: at height %d it could execute, or become stable, at or after t2 + g2, where htlc.bas v3 refuses it (punish cutoff %d)", h, cutoff)
+		}
+		if entry == "Refund" && h >= cutoff {
+			return "", fmt.Errorf("Refund not sent: at height %d it could execute at or after t2, where htlc.bas refuses it and the lock stays open to Punish (refund cutoff %d)", h, cutoff)
 		}
 	}
 	if !estimated {
@@ -1110,7 +1130,8 @@ func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg,
 
 // canResend is the policy of §4: a height-gated call is re-sent only while it can still be mined and be stable
 // inside its window — a Claim while h + 1 < cutoff, which is claimCutoff(t1, margin), the very height the state
-// machine stops sending Claims at; a Refund while h < t2; a Punish while h < cutoff, which is punishCutoff(t2, g2,
+// machine stops sending Claims at; a Refund while h < cutoff, which is refundCutoff(t2), since one built later could
+// execute at or after t2 (MT-B27: the rule was once h < t2); a Punish while h < cutoff, which is punishCutoff(t2, g2,
 // margin), since htlc.bas v3 refuses it from t2 + g2; Reclaim has no end. XMR-06: the Claim rule was once
 // h + 8 + 1 < t1, which with the default margin let a re-send out at eight heights inside the band [t1 − 16, t1)
 // that the margin exists to keep empty.
@@ -1118,9 +1139,7 @@ func canResend(entry string, h uint64, l Lock, cutoff uint64) bool {
 	switch entry {
 	case "Claim":
 		return h+1 < cutoff
-	case "Refund":
-		return h < l.T2
-	case "Punish":
+	case "Refund", "Punish":
 		return h < cutoff
 	}
 	return true
@@ -1132,8 +1151,10 @@ func (c *DeroRPC) Claim(ctx context.Context, id uint64, sa, kb string, cutoff ui
 	return c.exit(ctx, id, "Claim", []Arg{argS("sa", sa), argS("kb", kb)}, LockClaimed, true, cutoff)
 }
 
-func (c *DeroRPC) Refund(ctx context.Context, id uint64, sb string) (string, error) {
-	return c.exit(ctx, id, "Refund", []Arg{argS("sb", sb)}, LockRefunded, false, 0)
+// Refund is the maker's exit in [t1, t2), sent at FixedFee (at the estimator's height 0 it is always refused). Nothing
+// is sent, first time or re-send, at or past cutoff (MT-B27).
+func (c *DeroRPC) Refund(ctx context.Context, id uint64, sb string, cutoff uint64) (string, error) {
+	return c.exit(ctx, id, "Refund", []Arg{argS("sb", sb)}, LockRefunded, false, cutoff)
 }
 
 // Punish is the same call from whoever sends it: htlc.bas pays the stored taker whatever the signer (LIV-07), in

@@ -20,7 +20,7 @@ import (
 // Phases at which each side saves durable state, in protocol order: the crash fuzz kills a process right after
 // each one and restarts it from the file, and fails if no run reaches one of them.
 var (
-	bobPhases = []string{"setup", "verified_pi_a", "dero_locking", "dero_locked", "stipend_sending", "watching_xmr", "xmr_confirmed", "gate_sending", "gate_sent", "claimed", "sweep_ready", "sweeping", "sweep_sent", "swept", "refund_window", "refunding", "refunded", "punish_window", "reclaiming", "reclaim_confirming", "reclaimed", "punished"}
+	bobPhases = []string{"setup", "verified_pi_a", "dero_locking", "dero_locked", "stipend_sending", "watching_xmr", "xmr_confirmed", "gate_sending", "gate_sent", "claimed", "sweep_ready", "sweeping", "sweep_sent", "swept", "refund_window", "refunding", "refund_confirming", "refunded", "punish_window", "reclaiming", "reclaim_confirming", "reclaimed", "punished"}
 	// sweep_sent is not a phase: it is the moment after sweep_all returned and before the sweep was recorded, the one
 	// death between two saves that decides where coins are (MT-B12), and the crash hook fires there too
 	alicePhases = []string{"setup", "offer_checked", "verified_pi_b", "lock_announced", "saw_dero_lock", "xmr_locking", "xmr_locked", "gate_received", "claiming", "claim_confirming", "claimed", "await_refund", "refund_seen", "sweep_ready", "sweeping", "sweep_sent", "swept", "punish_window", "punishing", "punish_confirming", "await_reclaim", "punished"}

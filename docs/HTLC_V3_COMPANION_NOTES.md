@@ -141,8 +141,12 @@ lock ─────── t1 ─────────── t2 ────�
   arguments as Refund, a different entrypoint. His companion needs this new path and a wake at `t2 + g2`. Invariant 9
   (never act on an unstable Claim; never Refund after reading `s_a`) applies to Reclaim exactly as to Refund.
   *Built:* the Reclaim from `t2 + g2`, counted only once 8 deep and sent again if a replaced block undoes it (phase
-  `reclaim_confirming`). *Not built:* a wake for the maker; his companion registers none, and must be running at
-  `t2 + g2`.
+  `reclaim_confirming`). *Built since* (MT-B28): the maker's recovery card, printed before his Lock with his refund
+  cutoff and `t2 + g2` as clock times, and wakes before `t1` and before `t2 + g2`, registered and removed as the taker's
+  are. And (MT-B27) his Refund, a gap that predates v3, now has a cutoff: none is sent from `t2 − 11`, since one built
+  later could execute at `t2` and be refused, leaving the lock to Punish; it is counted only once stable
+  (`refund_confirming`). The Reclaim has run live, with the taker's XMR recovered from the `s_b` it revealed
+  (`research/regtest/xmrswap-e2e.log`, RUN 4).
 - **Reclaim cannot be estimated.** At the estimator's height 0 it is always refused (`0 < t2 + g2`), so it goes out at
   `FixedFee` (3,000) as Refund and Punish do. It measured 231 storage gas, and it writes the same two keys Refund does.
   Punish was always sent at `FixedFee`; what v3 changes for it is that from `t2 + g2` the chain refuses it too, so a

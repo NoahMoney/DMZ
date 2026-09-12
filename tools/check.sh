@@ -61,10 +61,12 @@ pkgs() { (cd "$ROOT/tools" && go list ./... 2>/dev/null) | grep -v -E '^veil/too
 s_dvm()          { tools/withlock.sh dvm bash tests/run.sh -v; }
 s_gofmt()        { local out; out="$(gofmt -l tools)"; [ -z "$out" ] || { echo "not gofmt-clean:"; echo "$out"; return 1; }; echo "gofmt: clean"; }
 s_vet()          { cd tools && go vet $(pkgs); }
-s_test()         { cd tools && go test -count=1 $(pkgs); }
-# the three rounds share one -timeout: on a loaded machine they took 14 min (2026-09-12), past go test's default 10
-s_fuzz_xmrswap() { cd tools && go test -count=3 -timeout 30m -run '^TestCrashFuzz$' ./xmrswap; }
-s_fuzz_zecswap() { cd tools && go test -count=3 -timeout 30m -run '^TestCrashFuzz$' ./zecswap; }
+# On a loaded machine (2026-09-12) the xmrswap package took 584 s and one TestCrashFuzz round up to 640 s, so go test's
+# default 10 minutes and the old 30 for three rounds both ran out with no assertion failing. The limits are generous
+# because a timeout here says nothing about the code.
+s_test()         { cd tools && go test -count=1 -timeout 45m $(pkgs); }
+s_fuzz_xmrswap() { cd tools && go test -count=3 -timeout 90m -run '^TestCrashFuzz$' ./xmrswap; }
+s_fuzz_zecswap() { cd tools && go test -count=3 -timeout 90m -run '^TestCrashFuzz$' ./zecswap; }
 s_js()           { node --test tests/js; }
 s_genconfig()    { cd tools && go run ./genconfig -dist -network simulator; }
 s_hygiene()      { cd tools && go test -count=1 -v ./hygiene; }

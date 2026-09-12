@@ -149,9 +149,12 @@ type LockRecord struct {
 	// stable, because a Reclaim undone by a replaced block and not mined again leaves the lock open, and from t2 + g2
 	// only he can move it.
 	ReclaimSeenHeight uint64 `json:"reclaimSeenHeight,omitempty"`
-	T1                uint64 `json:"t1"`
-	T2                uint64 `json:"t2"`
-	Amount            uint64 `json:"amount"`
+	// RefundSeenHeight is the same for the maker's Refund (MT-B27): a Refund undone by a replaced block and mined again
+	// at or after t2 is refused, and the lock is then open to Punish, so he counts it as done only once this is stable.
+	RefundSeenHeight uint64 `json:"refundSeenHeight,omitempty"`
+	T1               uint64 `json:"t1"`
+	T2               uint64 `json:"t2"`
+	Amount           uint64 `json:"amount"`
 }
 
 // ContractRecord is an htlc.bas v3 install's arguments as this party read them (MT-A03(a), MT-J13).

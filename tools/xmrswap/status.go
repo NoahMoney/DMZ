@@ -140,15 +140,24 @@ func lockStatesFor(st *State) (map[uint64]bool, bool) {
 		switch st.Phase {
 		case "dero_locked", "stipend_sending", "watching_xmr", "xmr_confirmed", "gate_sending":
 			return set(LockOpen), true
-		case "gate_sent", "refund_window":
+		case "gate_sent":
 			return set(LockOpen, LockClaimed), true
+		case "refund_window":
+			// refunded too: back here after a replaced block undid his Refund (MT-B27), which the chain may mine again
+			return set(LockOpen, LockClaimed, LockRefunded), true
 		case "claimed", "sweep_ready", "sweeping", "swept", "sweep_unknown":
 			return set(LockClaimed), true
 		case "refunding":
 			return set(LockOpen, LockRefunded), true
+		case "refund_confirming":
+			// open again if a replaced block undid his Refund, which he then sends again while the cutoff allows (MT-B27)
+			return set(LockOpen, LockRefunded), true
 		case "refunded":
 			return set(LockRefunded), true
-		case "punish_window", "reclaiming":
+		case "punish_window":
+			// refunded too: a Refund of his sent before the refund cutoff may execute, or be mined again, until t2 (MT-B27)
+			return set(LockOpen, LockPunished, LockReclaimed, LockRefunded), true
+		case "reclaiming":
 			return set(LockOpen, LockPunished, LockReclaimed), true
 		case "reclaim_confirming":
 			// open again if a replaced block undid his Reclaim, which he then sends again

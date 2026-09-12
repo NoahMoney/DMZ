@@ -6,5 +6,5 @@ package xmrswap
 var recordedHTLC = map[string]string{
 	"mainnet":   "",
 	"simulator": "ef576fce2edaa15c3e09916463ea86a49bfb428ca030d439e69a63a48a612496",
-	"testnet":   "",
+	"testnet":   "a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798",
 }

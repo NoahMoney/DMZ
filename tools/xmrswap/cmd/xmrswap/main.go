@@ -322,11 +322,11 @@ func main() {
 // removeWake removes a swap's wake task; tests replace it.
 var removeWake = xmrswap.UnregisterWake
 
-// endSwap prints how the swap ended and removes both wakes the recovery card registered (MT-B15, MT-J13): a finished
-// swap leaves no task behind to open a console at a window that no longer matters.
+// endSwap prints how the swap ended and removes both wakes the recovery card registered (MT-B15, MT-J13; the maker's,
+// MT-B28): a finished swap leaves no task behind to open a console at a window that no longer matters.
 func endSwap(role string, st *xmrswap.State, logf func(string, ...interface{})) {
 	fmt.Printf("%s: %s\n", role, st.Outcome)
-	for _, name := range xmrswap.WakeTaskNames(st.SwapID) {
+	for _, name := range xmrswap.WakeTaskNames(role, st.SwapID) {
 		if err := removeWake(name); err != nil {
 			logf("the wake task %s was not removed (%v): delete it from the task scheduler", name, err)
 		}

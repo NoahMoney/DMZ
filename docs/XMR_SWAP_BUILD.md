@@ -247,7 +247,7 @@ type Dero interface {
     StableHeight(ctx) (uint64, error)
     Lock(ctx, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount, cutoff uint64) (txid string, id uint64, err error) // asset "" = DERO (U1); no new Lock at h >= cutoff = t1 − w1min − 10 (MT-A03(a))
     Claim(ctx, id uint64, sa, kb string, cutoff uint64) (string, error) // nothing sent at h + 1 >= cutoff (XMR-06)
-    Refund(ctx, id uint64, sb string) (string, error)
+    Refund(ctx, id uint64, sb string, cutoff uint64) (string, error) // nothing sent at h >= cutoff = t2 − 11 (MT-B27)
     Punish(ctx, id uint64, cutoff uint64) (string, error) // nothing sent at h >= cutoff = t2 + g2 − (11 + 8 + margin) (MT-J13)
     Reclaim(ctx, id uint64, sb string) (string, error)    // v3: the maker, from t2 + g2, at FixedFee
     ReadLock(ctx, id uint64) (Lock, error)   // every field, including xa/xb when revealed and st
@@ -262,20 +262,34 @@ type Channel interface { Send(ctx, to string, msg Message) error; Recv(ctx) (Mes
 type Message struct { Kind string; Body json.RawMessage }   // kinds: offer, alice_setup, bob_setup, dero_locked, xmr_locked, gate, done
 // state.go — durable, fsync+rename, loaded strictly (mirror tools/vaultsigner's memory/intents)
 // swap.go — two state machines
-//   Bob:   setup → verified_pi_a(code pin + install policy, taker registered, funds) → dero_locking(no Lock past its cutoff) → dero_locked → stipend_sending → watching_xmr → xmr_confirmed(≥20)
-//          → gate_sending → gate_sent → claimed(read s_a, stable) → sweep_ready → swept | refund_window → refunding → refunded
-//          | punish_window(sends no Punish of his own) → reclaiming(from t2 + g2) → reclaim_confirming(until stable) → reclaimed | punished
+//   Bob:   setup → verified_pi_a(code pin + install policy, taker registered, funds; recovery card, wakes before t1 and t2 + g2) → dero_locking(no Lock past its cutoff) → dero_locked → stipend_sending → watching_xmr → xmr_confirmed(≥20)
+//          → gate_sending → gate_sent → claimed(read s_a, stable) → sweep_ready → swept | refund_window → refunding(before t2 − 11) → refund_confirming(until stable) → refunded
+//          | punish_window(from t2 − 11 with the lock open; sends no Punish of his own) → reclaiming(from t2 + g2) → reclaim_confirming(until stable) → reclaimed | punished
 //   Alice: setup(registered) → offer_checked → verified_pi_b → lock_announced(code pin + g2 floor) → saw_dero_lock(stable, stipend stable) → xmr_locking
 //          → xmr_locked → gate_received(before t1 − G) → claiming → claim_confirming(until stable) → claimed
 //          | await_refund → refund_seen(read s_b; st 2 or st 4) → sweep_ready → swept
 //          | punish_window(at once from t2) → punishing → punish_confirming(until stable) → punished | await_reclaim(past the punish cutoff) → refund_seen
 ```
 
-**Exits watched to stable depth.** Alice counts her Claim and her Punish, and Bob his Reclaim, only once the block
-holding it is 8 deep (`claim_confirming`, `punish_confirming`, `reclaim_confirming`). One undone by a replaced block and
-not mined again is sent again while its window allows: a Claim before the claim cutoff, a Punish before the punish
-cutoff, a Reclaim at any time, since from t2 + g2 only the maker can move the lock (`TestTakerWatchesHerClaimUntilStable`,
-`TestTakerWatchesHerPunishUntilStable`, `TestMakerWatchesHisReclaimUntilStable`). Bob's Refund is not watched so.
+**Exits watched to stable depth.** Alice counts her Claim and her Punish, and Bob his Refund and his Reclaim, only once
+the block holding it is 8 deep (`claim_confirming`, `punish_confirming`, `refund_confirming`, `reclaim_confirming`). One
+undone by a replaced block and not mined again is sent again while its window allows: a Claim before the claim cutoff, a
+Punish before the punish cutoff, a Refund before the refund cutoff t2 − 11 (MT-B27), a Reclaim at any time, since from
+t2 + g2 only the maker can move the lock (`TestTakerWatchesHerClaimUntilStable`, `TestTakerWatchesHerPunishUntilStable`,
+`TestMakerWatchesHisRefundUntilStable`, `TestMakerWatchesHisReclaimUntilStable`). The Refund's watch reads the lock on
+every pass rather than only once its height is stable, because its window closes 11 blocks before t2.
+
+**Bob's refund cutoff (MT-B27).** A Refund built at height h executes by h + 10 or never, and one executing at or after
+t2 is refused, which leaves the lock open. So Bob's companion sends no Refund, first time or fee re-send, from t2 − 11
+(counting 11, one block conservative, as the Lock and Punish cutoffs do), and refuses at start a t2 − t1 of 11 or less,
+which would leave no height to send one at (`TestBobRefundsAtHisLastHeight`, `TestBobSendsNoRefundAtTheCutoff`,
+`TestDeroClientRefundStopsAtItsCutoff`). A Refund not sent by then, or undone by a replaced block once the height is
+past the cutoff, is not sent at all. What that means for Bob, and his companion says it when it gets there: the lock
+stays open, from t2 until t2 + g2 anyone may Punish it, which pays Alice his DERO and returns him nothing, and if nobody
+does, his Reclaim from t2 + g2 returns it and puts `s_b` on the chain for her
+(`TestARefundUndonePastItsCutoffIsLeftToPunishOrReclaim`). A Refund mined in the last 8 blocks before t2 can still be
+undone by a replaced block and mined again at t2 or later, and refused; no cutoff removes that, it only keeps the
+companion from sending one that cannot execute in time.
 
 **A crash between a sent Punish or Reclaim and its record costs a fee, not coins.** `punishing` and `reclaiming` are
 saved before the call and its result after it. A companion killed in between, or whose call returned an error after the
@@ -305,8 +319,9 @@ read the swap's channel key from `XMRSWAP_CHANNEL_KEY` (`xmrswap channel-key` ma
 without it. `xmrswap status -dir <dir> -daemon <rpc> [-monero <wallet-rpc>]` reconciles every state
 file with the chains. `tools/simhtlc` drives a whole swap on the local DERO simulator, two companions in-process,
 with the Monero side either the fake wallet (`-fake-monero`) or two real `monero-wallet-rpc` on a regtest `monerod`
-(`-regtest`, `tools/regtest`), and exercises **all three exits**: happy path; Bob refunds and Alice recovers XMR with
-`s_b`; Bob vanishes and Alice punishes. It prints every txid, looks every real Monero txid up on the `monerod`, and
+(`-regtest`, `tools/regtest`), and exercises **all four exits**: happy path; Bob refunds and Alice recovers XMR with
+`s_b`; Bob vanishes and Alice punishes; and (`-paths reclaim`) nobody punishes, Bob Reclaims from t2 + g2, and Alice,
+restarted after it, recovers her XMR with the `s_b` it reveals. It prints every txid, looks every real Monero txid up on the `monerod`, and
 reads every contract key back. With `-regtest`, `-paths reorg-before,reorg-after` makes a real reorganisation of the
 Monero chain under a live swap (MT-B11): `pop_blocks` takes Alice's lock off the chain below Bob's depth, or after
 he has released the gate, a longer branch is mined in its place, and in the second case Alice spends the lock's
@@ -368,8 +383,8 @@ Added 2026-09-08 from the adversarial review in `docs/XMR_SWAP.md` §9 — each 
     companion refuses a lower value unless the operator sets it explicitly. This is the one assumption in the
     protocol that is policy rather than proof, and `docs/XMR_SWAP.md` §10 says so.
 11. **No fee spent on a call the contract will refuse** (review R1). Alice's companion stops attempting Claim
-    once `now + 1 ≥ t1 − 8 − margin`; Bob's stops attempting Refund once `now ≥ t2`; each moves to the exit
-    that remains.
+    once `now + 1 ≥ t1 − 8 − margin`; Bob's stops attempting Refund once `now ≥ t2 − 11`, from where one could
+    execute at or after t2 and be refused (MT-B27; the rule was once `now ≥ t2`); each moves to the exit that remains.
 12. **Every contract call is sent at ring size 2, set by the companion itself** (review R16). At any other ring
     size `SIGNER()` is 33 zero bytes and line 21 of each entrypoint refuses the call — and for a **Lock**, which
     carries the DERO, derohe returns a refused call's value only when it can identify the sender, which it
@@ -420,7 +435,13 @@ Added 2026-09-11 from `docs/ATOMIC_SWAP_STUDY.md` and the mainnet gap analysis:
     anyone she trusts may send the Punish for her. The companion then asks the OS to wake the machine ten minutes before the first window closes and again ten
     minutes before t2, when her Punish window opens (MT-J13): a Windows Task Scheduler task with WakeToRun (run here,
     `TestRegisterWakeOnThisOS`), a systemd user timer with WakeSystem on Linux (not run here), and on macOS nothing,
-    because only root can schedule a wake there. A finished swap removes both.
+    because only root can schedule a wake there. A finished swap removes both. The maker gets his own card before his
+    DERO is locked (MT-B28): the state file as a secret, the resume command, and t1, the last height his companion
+    sends a Refund at (t2 − 12), t2 and t2 + g2 as clock times, with a wake ten minutes before t1, when his Refund
+    window opens, and another before t2 + g2, when, nobody having punished, only his Reclaim returns his DERO and her
+    XMR. The same mechanism registers them, under task names of his own, and a finished swap removes both
+    (`TestTheMakersRecoveryCardComesBeforeHisLock`, `TestRegisterTheMakersWakesOnThisOS`,
+    `TestAFinishedSwapRemovesItsWake`).
 24. **`-htlc` defaults to the record, never past the pin** (MT-A18). Omitted, it is the scid deploy/networks.json
     records for the daemon's DERO network (compiled in by `go generate ./xmrswap`, checked against the file by
     `TestRecordedHTLCIsTheDeployRecord`); given or recorded, the companion refuses it at start unless its code is the
@@ -449,8 +470,8 @@ Policy the companion states rather than proves (review R18, R19, R24): it warns 
 DERO blocks to minutes at the rate it has actually observed since the lock and refuses to lock XMR when the
 remaining budget is below what its own path needs; and a height-gated call whose fixed fee does not mine is
 re-sent with a higher fee — a Claim while `now + 1 < t1 − 8 − margin`, the claim cutoff itself (XMR-06), a Refund
-while `now < t2`, a Punish while `now < t2 + g2 − (11 + 8 + margin)` (MT-J13) — then abandoned for the exit that
-remains. A Reclaim has no end and is re-sent until Resends is spent.
+while `now < t2 − 11` (MT-B27), a Punish while `now < t2 + g2 − (11 + 8 + margin)` (MT-J13) — then abandoned for the
+exit that remains. A Reclaim has no end and is re-sent until Resends is spent.
 
 ---
 

@@ -255,6 +255,200 @@ func TestMakerWatchesHisReclaimUntilStable(t *testing.T) {
 	r.check()
 }
 
+// --- MT-B27: the maker's Refund has a cutoff, t2 − DeroTxValidity, and counts only once stable ---
+
+// bobAwayUntil runs both sides until the taker has locked XMR, with the maker away from the moment his stipend is paid,
+// and then moves the chain on with nobody running until height h.
+func bobAwayUntil(r *run, h uint64) {
+	r.until(400, func() bool { p, _ := r.phase("alice"); return p == "xmr_locked" }, func() bool { return !r.stipendPaid() })
+	for r.chain.Height() < h {
+		r.chain.Advance(1)
+		r.fw.Mine(1)
+	}
+}
+
+// TestBobRefundsAtHisLastHeight (MT-B27): at refundCutoff − 1, the last height his companion sends a Refund at, it goes
+// out and, executing as late as DERO allows (10 blocks after the height it was built at), still lands before t2; he
+// counts it only once it is stable, and the taker recovers her XMR with the s_b it reveals.
+func TestBobRefundsAtHisLastHeight(t *testing.T) {
+	r := newRun(t, plan{scenario: "refund", seed: 309})
+	r.chain.flaky = nil
+	r.bob = startWith(r, "bob", nil)
+	r.alice = startWith(r, "alice", nil)
+	r.until(400, func() bool { p, _ := r.phase("alice"); return p == "xmr_locked" }, func() bool { return !r.stipendPaid() })
+	t2 := r.loadState("bob").Lock.T2
+	cut := refundCutoff(t2)
+	bobAwayUntil(r, cut-1)
+	r.chain.mu.Lock()
+	r.chain.execDelay = func() uint64 { return DeroTxValidity - 1 }
+	r.chain.mu.Unlock()
+	d := r.bob.dero.(*memDero)
+	for i := 0; i < 6 && d.calls["Refund"] == 0; i++ {
+		if h := r.chain.Height(); h != cut-1 {
+			t.Fatalf("the chain is at %d, not cut − 1 = %d, before his Refund", h, cut-1)
+		}
+		r.step("bob")
+	}
+	r.chain.mu.Lock()
+	r.chain.execDelay = nil
+	r.chain.mu.Unlock()
+	l, _ := r.chain.read(0)
+	if p, _ := r.phase("bob"); d.calls["Refund"] != 1 || p != "refund_confirming" || l.State != LockRefunded || r.chain.Height() > t2 {
+		t.Fatalf("at cut − 1 = %d (t2 %d) bob is in %s after %d Refund calls, lock state %d, height now %d", cut-1, t2, p, d.calls["Refund"], l.State, r.chain.Height())
+	}
+	r.until(200, r.bothDone, nil)
+	bob, alice := r.loadState("bob"), r.loadState("alice")
+	if bob.Phase != "refunded" || !strings.Contains(bob.Outcome, "stable") || r.chain.StableHeight() < bob.Lock.RefundSeenHeight || alice.Phase != "swept" {
+		t.Fatalf("bob %s (%s), refund read at %d, stable height %d; alice %s", bob.Phase, bob.Outcome, bob.Lock.RefundSeenHeight, r.chain.StableHeight(), alice.Phase)
+	}
+	r.expectExit(LockRefunded)
+	r.check()
+}
+
+// TestBobSendsNoRefundAtTheCutoff (MT-B27): at the refund cutoff itself nothing is sent — one built there could execute
+// at t2, where htlc.bas refuses it and keeps the fee — and his companion says what that leaves him: the lock waits for
+// anyone's Punish in [t2, t2 + g2), which pays the taker his DERO, or else for his Reclaim. Here the taker punishes.
+func TestBobSendsNoRefundAtTheCutoff(t *testing.T) {
+	r := newRun(t, plan{scenario: "refund", seed: 310})
+	r.chain.flaky = nil
+	r.bob = startWith(r, "bob", nil)
+	r.alice = startWith(r, "alice", nil)
+	r.until(400, func() bool { p, _ := r.phase("alice"); return p == "xmr_locked" }, func() bool { return !r.stipendPaid() })
+	cut := refundCutoff(r.loadState("bob").Lock.T2)
+	bobAwayUntil(r, cut)
+	d := r.bob.dero.(*memDero)
+	for i := 0; i < 6; i++ {
+		if p, _ := r.phase("bob"); p == "punish_window" {
+			break
+		}
+		if h := r.chain.Height(); h != cut {
+			t.Fatalf("the chain is at %d, not the cutoff %d", h, cut)
+		}
+		r.step("bob")
+	}
+	if p, _ := r.phase("bob"); p != "punish_window" || d.calls["Refund"] != 0 || !hasLog(r, "at or past the refund cutoff") || !hasLog(r, "anyone may Punish the lock, which pays alice the DERO") {
+		t.Fatalf("at the cutoff %d bob is in %s after %d Refund calls\n%s", cut, p, d.calls["Refund"], strings.Join(r.logs, "\n"))
+	}
+	r.until(300, r.bothDone, nil)
+	bob, alice := r.loadState("bob"), r.loadState("alice")
+	if bob.Phase != "punished" || alice.Phase != "punished" || d.calls["Refund"] != 0 {
+		t.Fatalf("bob %s, alice %s, %d Refund calls", bob.Phase, alice.Phase, d.calls["Refund"])
+	}
+	r.expectExit(LockPunished)
+	r.check()
+}
+
+// TestMakerWatchesHisRefundUntilStable (MT-B27): his Refund counts only once DERO can no longer replace its block. One
+// undone before it is stable, while the height is still before the refund cutoff, is sent again at once — the intent
+// saved first, as before every send — and only the Refund that becomes stable ends his companion.
+func TestMakerWatchesHisRefundUntilStable(t *testing.T) {
+	r := newRun(t, plan{scenario: "refund", seed: 311})
+	r.chain.flaky = nil
+	r.bob = startWith(r, "bob", nil)
+	r.alice = startWith(r, "alice", nil)
+	r.until(400, func() bool { p, _ := r.phase("alice"); return p == "xmr_locked" }, func() bool { return !r.stipendPaid() })
+	bobAwayUntil(r, r.loadState("bob").Lock.T1)
+	var saves []string
+	r.bob.crash = func(phase string) bool { saves = append(saves, phase); return false }
+	bobUntil := func(stop func(*State) bool) *State {
+		for i := 0; i < 80; i++ {
+			if b := r.loadState("bob"); stop(b) {
+				return b
+			}
+			r.step("bob")
+			r.chain.Advance(1)
+			r.fw.Mine(1)
+		}
+		b := r.loadState("bob")
+		t.Fatalf("bob stuck in %s at height %d\n%s", b.Phase, r.chain.Height(), strings.Join(r.logs, "\n"))
+		return nil
+	}
+	bob := bobUntil(func(b *State) bool { return b.Phase == "refund_confirming" })
+	if bob.Done || bob.RefundTx == "" || bob.Lock.RefundSeenHeight == 0 || r.chain.StableHeight() >= bob.Lock.RefundSeenHeight {
+		t.Fatalf("bob done %v (tx %q) with his refund read at %d and the stable height %d", bob.Done, bob.RefundTx, bob.Lock.RefundSeenHeight, r.chain.StableHeight())
+	}
+	if allowed, expected := lockStatesFor(bob); !expected || !allowed[LockOpen] || !allowed[LockRefunded] {
+		t.Fatalf("status for refund_confirming: %v", allowed)
+	}
+	r.chain.unrefund(0) // the block holding his Refund is replaced before it is stable, and nobody mines it again
+	if h, cut := r.chain.Height(), refundCutoff(bob.Lock.T2); h >= cut {
+		t.Fatalf("the test's own premise: height %d is not before the refund cutoff %d", h, cut)
+	}
+	bob = bobUntil(func(b *State) bool { return b.Done })
+	if n := r.bob.dero.(*memDero).calls["Refund"]; n != 2 || bob.Phase != "refunded" || !hasLog(r, "the Refund goes out again") {
+		t.Fatalf("bob %s after %d Refund calls: %s", bob.Phase, n, bob.Outcome)
+	}
+	if r.chain.StableHeight() < bob.Lock.RefundSeenHeight {
+		t.Fatalf("bob done with his second refund read at %d, above the stable height %d", bob.Lock.RefundSeenHeight, r.chain.StableHeight())
+	}
+	// the second Refund's intent was on disk before it went out: refunding is saved twice, each time before a send
+	if n := strings.Count(strings.Join(saves, " "), "refunding"); n != 2 {
+		t.Fatalf("refunding saved %d times: %v", n, saves)
+	}
+	for i := 0; i < 60; i++ {
+		if _, done := r.phase("alice"); done {
+			break
+		}
+		r.step("alice")
+		r.chain.Advance(1)
+		r.fw.Mine(1)
+	}
+	if a := r.loadState("alice"); a.Phase != "swept" || a.Revealed != bob.Own.Secret {
+		t.Fatalf("the taker ended in %s (%s)", a.Phase, a.Outcome)
+	}
+	r.expectExit(LockRefunded)
+	r.check()
+}
+
+// TestARefundUndonePastItsCutoffIsLeftToPunishOrReclaim (MT-B27): a Refund undone by a replaced block once the height
+// is at or past the refund cutoff is not sent again — it could execute only at or after t2 — and his companion says so
+// and what it leaves him. Here nobody punishes in [t2, t2 + g2), so his Reclaim from t2 + g2 returns his DERO and puts
+// s_b on the chain, from which the taker recovers her XMR; had anyone punished, the DERO would have gone to her
+// (TestBobSendsNoRefundAtTheCutoff).
+func TestARefundUndonePastItsCutoffIsLeftToPunishOrReclaim(t *testing.T) {
+	r := newRun(t, plan{scenario: "refund", seed: 312})
+	r.chain.flaky = nil
+	r.bob = startWith(r, "bob", nil)
+	r.alice = startWith(r, "alice", nil)
+	r.until(400, func() bool { p, _ := r.phase("alice"); return p == "xmr_locked" }, func() bool { return !r.stipendPaid() })
+	st := r.loadState("bob")
+	cut := refundCutoff(st.Lock.T2)
+	bobAwayUntil(r, cut-1)
+	d := r.bob.dero.(*memDero)
+	for i := 0; i < 6 && d.calls["Refund"] == 0; i++ {
+		r.step("bob") // at cut − 1, his last height: the Refund goes out and executes
+	}
+	if p, _ := r.phase("bob"); p != "refund_confirming" || r.chain.Height() < cut {
+		t.Fatalf("bob in %s at height %d after his Refund at cut − 1 = %d", p, r.chain.Height(), cut-1)
+	}
+	r.chain.unrefund(0) // replaced before it is stable, with the height now at the cutoff
+	for i := 0; i < 200; i++ {
+		if _, done := r.phase("bob"); done {
+			break
+		}
+		r.step("bob") // the taker is away for the whole Punish window: nobody punishes
+		r.chain.Advance(1)
+		r.fw.Mine(1)
+	}
+	bob := r.loadState("bob")
+	if bob.Phase != "reclaimed" || d.calls["Refund"] != 1 || d.calls["Reclaim"] != 1 || !hasLog(r, "no Refund can execute before t2") || !hasLog(r, "at or past the refund cutoff") {
+		t.Fatalf("bob %s (%s) after %d Refund and %d Reclaim calls", bob.Phase, bob.Outcome, d.calls["Refund"], d.calls["Reclaim"])
+	}
+	for i := 0; i < 60; i++ {
+		if _, done := r.phase("alice"); done {
+			break
+		}
+		r.step("alice")
+		r.chain.Advance(1)
+		r.fw.Mine(1)
+	}
+	if a := r.loadState("alice"); a.Phase != "swept" || a.Revealed != bob.Own.Secret || r.alice.dero.(*memDero).calls["Punish"] != 0 {
+		t.Fatalf("the taker ended in %s (%s)", a.Phase, a.Outcome)
+	}
+	r.expectExit(LockReclaimed)
+	r.check()
+}
+
 // TestAV2SwapInFlightIsRefusedByName: htlc.bas v2's maker saved "closing" while he closed an abandoned lock with his own
 // Punish; v3 has no such phase. A state file left there is refused when the companion starts, naming v2, rather than
 // stopping on an unknown phase, and status says the same and compares it with the chain as v2 would have.

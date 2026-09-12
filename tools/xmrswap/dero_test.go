@@ -267,6 +267,7 @@ func (d *fakeDaemon) handle(req rpcReq) (interface{}, string) {
 			sum := sha256.Sum256([]byte("fake dero stuck tx " + strconv.FormatUint(c.txSeq, 10)))
 			id := hex.EncodeToString(sum[:])
 			c.pool[id] = true
+			c.height += c.advanceOnStuck
 			return map[string]interface{}{"txid": id}, ""
 		}
 		if _, sc := req.Params["sc_rpc"]; !sc {
@@ -466,7 +467,7 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 	}
 	// the maker cannot refund before t1: the fixed-fee send is mined and the contract's refusal is reported
 	before = bob.count("transfer")
-	if _, err := cb.Refund(ctx, 0, sb); err == nil || !strings.Contains(err.Error(), "refused") || bob.count("transfer") != before+1 {
+	if _, err := cb.Refund(ctx, 0, sb, refundCutoff(h+100)); err == nil || !strings.Contains(err.Error(), "refused") || bob.count("transfer") != before+1 {
 		t.Fatalf("early refund: %v, transfers %d -> %d", err, before, bob.count("transfer"))
 	}
 	if u64(bob.last("transfer")["fees"]) != cb.FixedFee {
@@ -488,14 +489,15 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 
 	// second lock: refund in the window, with the fixed fee and no estimate
 	h, _ = cb.Height(ctx)
-	// t1 at least w1min + DeroTxValidity ahead, or the client's own cutoff holds the Lock back
-	_, id, err = cb.Lock(ctx, hb, hk, ha, aliceAddr, h+21, h+30, "", 700, lockCutoff(h+21, chain.w1min))
+	// t1 at least w1min + DeroTxValidity ahead, or the client's own cutoff holds the Lock back; t2 far enough past t1 that
+	// the refund cutoff, t2 − DeroTxValidity, is still ahead once the chain is in [t1, t2)
+	_, id, err = cb.Lock(ctx, hb, hk, ha, aliceAddr, h+21, h+40, "", 700, lockCutoff(h+21, chain.w1min))
 	if err != nil || id != 1 {
 		t.Fatalf("lock 2: %d %v", id, err)
 	}
 	chain.Advance(21)
 	estBefore = bob.count("DERO.GetGasEstimate")
-	if _, err := cb.Refund(ctx, 1, sa); err != nil || bob.count("DERO.GetGasEstimate") != estBefore {
+	if _, err := cb.Refund(ctx, 1, sa, refundCutoff(h+40)); err != nil || bob.count("DERO.GetGasEstimate") != estBefore {
 		t.Fatalf("refund: %v (estimates %d -> %d)", err, estBefore, bob.count("DERO.GetGasEstimate"))
 	}
 	l, _ = ca.ReadLock(ctx, 1)
@@ -754,7 +756,7 @@ func TestCanResendStopsAtTheClaimCutoff(t *testing.T) {
 
 // TestCanResendPunishStopsAtThePunishCutoff (MT-J13): the client's Punish re-send rule and the state machine's punish
 // cutoff are one rule, as XMR-06 made them for the Claim: a re-send at cutoff − 1, none at the cutoff or after it, for
-// every g2 and margin. A Refund is re-sent while height < t2; a Reclaim has no end.
+// every g2 and margin. A Refund is re-sent while height < its cutoff, t2 − DeroTxValidity (MT-B27); a Reclaim has no end.
 func TestCanResendPunishStopsAtThePunishCutoff(t *testing.T) {
 	l := Lock{T1: 1000, T2: 1400}
 	for _, g2 := range []uint64{30, 400, 4800} {
@@ -770,8 +772,15 @@ func TestCanResendPunishStopsAtThePunishCutoff(t *testing.T) {
 			}
 		}
 	}
-	if !canResend("Refund", l.T2-1, l, 0) || canResend("Refund", l.T2, l, 0) {
-		t.Fatal("a Refund's re-send does not stop at t2")
+	// MT-B27: the rule was h < t2, which let a re-send out at heights from which it could execute at or after t2
+	rcut := refundCutoff(l.T2)
+	if rcut != l.T2-DeroTxValidity || !canResend("Refund", rcut-1, l, rcut) || canResend("Refund", rcut, l, rcut) || canResend("Refund", l.T2-1, l, rcut) {
+		t.Fatalf("a Refund's re-send does not stop at its cutoff %d (t2 %d − %d)", rcut, l.T2, DeroTxValidity)
+	}
+	for h := l.T1; h < l.T2+2; h++ {
+		if got, want := canResend("Refund", h, l, rcut), h < rcut; got != want {
+			t.Fatalf("height %d: canResend(Refund) %v, the cutoff %d says %v", h, got, rcut, want)
+		}
 	}
 	for _, h := range []uint64{l.T2, l.T2 + 4800, 1 << 40} {
 		if !canResend("Reclaim", h, l, 0) {
@@ -831,22 +840,80 @@ func TestDeroClientPunishStopsAtItsCutoff(t *testing.T) {
 	for chain.Height() < cut-1 {
 		chain.Advance(1)
 	}
-	chain.stuckBelowFee = 1 << 40
+	chain.stuckBelowFee, chain.advanceOnStuck = 1<<40, 1 // the chain reaches the cutoff while the first send sits in the pool
 	before = alice.count("transfer")
-	go func() { // the chain reaches the cutoff while the first send sits in the pool
-		time.Sleep(5 * time.Millisecond)
-		chain.Advance(1)
-	}()
 	_, err := ca.Punish(ctx, id, cut)
-	chain.stuckBelowFee = 0
+	chain.stuckBelowFee, chain.advanceOnStuck = 0, 0
 	if err == nil || !strings.Contains(err.Error(), "window") || alice.count("transfer") != before+1 {
 		t.Fatalf("a stuck Punish past the cutoff: %v, transfers %d -> %d", err, before, alice.count("transfer"))
 	}
 }
 
+// TestDeroClientRefundStopsAtItsCutoff (MT-B27): DeroRPC's own Refund check (exit, h >= cutoff) with the cutoff
+// refundCutoff gives. At cutoff − 1 the Refund is sent and executes before t2; at the cutoff nothing is sent, since one
+// built there could execute at t2, where htlc.bas refuses it and the lock stays open to Punish; and a Refund sent at
+// cutoff − 1 that sits in the pool is not re-sent once the height has reached the cutoff.
+func TestDeroClientRefundStopsAtItsCutoff(t *testing.T) {
+	ctx := context.Background()
+	chain := newFakeChain(1000)
+	bob := &fakeDaemon{chain: chain, addr: bobAddr}
+	cb := newClient(t, bob)
+	cb.Timeout = 20 * time.Millisecond
+	sb := strings.Repeat("22", 32)
+	// a fresh lock for each case (fresh hashes, or the idempotent Lock finds the last one), and its refund cutoff
+	lock := func(n int) (id, t2, cut uint64) {
+		h, _ := cb.Height(ctx)
+		t1 := h + 21
+		t2 = t1 + 20
+		hash := func(s string) string { return SHA256Hex([]byte(fmt.Sprintf("%s %d", s, n))) }
+		_, id, err := cb.Lock(ctx, hash("ha"), hash("hk"), SHA256Hex(mustHex(sb)), aliceAddr, t1, t2, "", 900, lockCutoff(t1, chain.w1min))
+		if err != nil {
+			t.Fatalf("lock %d: %v", n, err)
+		}
+		return id, t2, refundCutoff(t2)
+	}
+
+	id, t2, cut := lock(0)
+	for chain.Height() < cut-1 {
+		chain.Advance(1)
+	}
+	before := bob.count("transfer")
+	if _, err := cb.Refund(ctx, id, sb, cut); err != nil || bob.count("transfer") != before+1 {
+		t.Fatalf("a Refund at cutoff − 1 = %d: %v, transfers %d -> %d", cut-1, err, before, bob.count("transfer"))
+	}
+	if l, _ := cb.ReadLock(ctx, id); l.State != LockRefunded || l.XB != sb || cut+DeroTxValidity != t2 {
+		t.Fatalf("the Refund at %d (t2 %d) left the lock in state %d", cut-1, t2, l.State)
+	}
+
+	id, _, cut = lock(1)
+	for chain.Height() < cut {
+		chain.Advance(1)
+	}
+	before = bob.count("transfer")
+	if _, err := cb.Refund(ctx, id, sb, cut); err == nil || !strings.Contains(err.Error(), "not sent") || bob.count("transfer") != before {
+		t.Fatalf("a Refund at the cutoff %d: %v, transfers %d -> %d", cut, err, before, bob.count("transfer"))
+	}
+	if l, _ := cb.ReadLock(ctx, id); l.State != LockOpen {
+		t.Fatalf("a Refund refused by the client moved the lock to %d", l.State)
+	}
+
+	id, _, cut = lock(2)
+	for chain.Height() < cut-1 {
+		chain.Advance(1)
+	}
+	chain.stuckBelowFee, chain.advanceOnStuck = 1<<40, 1 // the chain reaches the cutoff while the first send sits in the pool
+	before = bob.count("transfer")
+	_, err := cb.Refund(ctx, id, sb, cut)
+	chain.stuckBelowFee, chain.advanceOnStuck = 0, 0
+	if err == nil || !strings.Contains(err.Error(), "window") || bob.count("transfer") != before+1 {
+		t.Fatalf("a stuck Refund past the cutoff: %v, transfers %d -> %d", err, before, bob.count("transfer"))
+	}
+}
+
 // TestDeroClientResendsWithHigherFee (§4 policy, review R24): an exit whose transaction sits in the pool past
-// Timeout is sent again at double the fee while its window is open — a Claim while height + 8 + 1 < t1, a
-// Refund while height < t2 — and abandoned, with the error saying so, once it is not. Punish has no end.
+// Timeout is sent again at double the fee while its window is open — a Claim while height + 1 < its cutoff, a
+// Refund while height < its cutoff, t2 − DeroTxValidity (MT-B27) — and abandoned, with the error saying so, once it is
+// not. Here Punish is given no cutoff.
 func TestDeroClientResendsWithHigherFee(t *testing.T) {
 	ctx := context.Background()
 	chain := newFakeChain(1000)
@@ -892,31 +959,30 @@ func TestDeroClientResendsWithHigherFee(t *testing.T) {
 	if _, _, err := cb.Lock(ctx, hb, hk, ha, aliceAddr, h+12, h+80, "", 700, noCutoff); err != nil {
 		t.Fatal(err)
 	}
-	chain.stuckBelowFee = 1 << 40
+	chain.stuckBelowFee, chain.advanceOnStuck = 1<<40, 1 // the chain moves on while the first send sits in the pool
 	before = alice.count("transfer")
 	now, _ := ca.Height(ctx)
-	go func() { // the chain moves on while the first send sits in the pool
-		time.Sleep(5 * time.Millisecond)
-		chain.Advance(1)
-	}()
 	_, err = ca.Claim(ctx, 1, sb, kb, now+2)
+	chain.advanceOnStuck = 0
 	if err == nil || !strings.Contains(err.Error(), "window") || alice.count("transfer") != before+1 {
 		t.Fatalf("claim past the re-send window: %v, transfers %d -> %d", err, before, alice.count("transfer"))
 	}
 	// a Refund is re-sent until Resends is spent, then given up with the not-mined error
 	chain.Advance(20) // into [t1, t2)
 	before = bob.count("transfer")
-	_, err = cb.Refund(ctx, 1, sa)
+	rcut := refundCutoff(h + 80)
+	_, err = cb.Refund(ctx, 1, sa, rcut)
 	if err == nil || !errors.Is(err, errNotMined) || bob.count("transfer") != before+1+cb.Resends {
 		t.Fatalf("refund with every re-send stuck: %v, transfers %d -> %d", err, before, bob.count("transfer"))
 	}
 	if u64(bob.last("transfer")["fees"]) != cb.FixedFee<<uint(cb.Resends) {
 		t.Fatalf("last refund fee %v, want %d", bob.last("transfer")["fees"], cb.FixedFee<<uint(cb.Resends))
 	}
-	// and not at all once height ≥ t2, where only Punish can move the lock
+	// and not at all, not even a first attempt, once height ≥ t2 (past the refund cutoff), where only Punish can move
+	// the lock (MT-B27: this Refund was once sent, mined and refused)
 	chain.Advance(60)
 	before = bob.count("transfer")
-	if _, err := cb.Refund(ctx, 1, sa); err == nil || !strings.Contains(err.Error(), "window") || bob.count("transfer") != before+1 {
+	if _, err := cb.Refund(ctx, 1, sa, rcut); err == nil || !strings.Contains(err.Error(), "not sent") || bob.count("transfer") != before {
 		t.Fatalf("refund past t2: %v, transfers %d -> %d", err, before, bob.count("transfer"))
 	}
 	// Punish keeps re-sending: the fee climbs past what the miners take and the lock is punished

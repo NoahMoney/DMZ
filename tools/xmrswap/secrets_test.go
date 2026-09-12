@@ -100,7 +100,7 @@ func TestTheClientsWithholdSecretsFromTheirErrors(t *testing.T) {
 	var logged []string
 	d.Log = func(f string, a ...interface{}) { logged = append(logged, fmt.Sprintf(f, a...)) }
 	_, claimErr := d.Claim(ctx, 0, sa, kb, 1000)
-	_, refundErr := d.Refund(ctx, 0, sb)
+	_, refundErr := d.Refund(ctx, 0, sb, 1000)
 
 	spend, err := NewScalar(rand.Reader)
 	if err != nil {
