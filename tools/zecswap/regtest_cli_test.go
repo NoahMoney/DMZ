@@ -16,6 +16,36 @@ import (
 
 const cliLog = "../../research/regtest/zecswap-cli.log"
 
+// cliNet is where the command line runs: nil is regtest with the test mining the chain (TestRegtestCLI); the Zcash
+// testnet is set by TestTestnetSwap.
+type cliNet struct {
+	network   string        // the -network flag
+	zcash     string        // the node (regtest) or the gate (testnet)
+	mine      bool          // the test mines the Zcash chain (regtest only)
+	wmin      uint64        // swap.bas's wmin at install: the taker refuses one below her policy's minimum
+	wantZat   uint64        // the offer's price in zatoshi
+	interval  string        // the companions' -interval
+	wait      time.Duration // how long one process may run
+	verifyAll bool          // -verify-headers on both swaps, not only the whole one
+	// dero is the DERO daemon, and the three wallets are the maker's, the taker's and the one that installs the
+	// contracts: the simulator's by default, the private DERO testnet's when TestTestnetSwap is pointed at it.
+	dero, makerWallet, takerWallet, installWallet string
+	// makerKey and takerKey are key files; empty makes a fresh key in the swap's directory (regtest, where the test
+	// mines the taker's coin). On testnet they are the operator's funded keys, kept outside the repository.
+	makerKey, takerKey string
+}
+
+func (e *e2e) where() *cliNet {
+	w := &cliNet{network: "regtest", zcash: e2eZcash, mine: true, wmin: 20, wantZat: 200_000, interval: "2s", wait: 75 * time.Minute}
+	if e.cn != nil {
+		w = e.cn
+	}
+	if w.dero == "" {
+		w.dero, w.makerWallet, w.takerWallet, w.installWallet = e2eDaemon, e2eMaker, e2eTaker, e2eThird
+	}
+	return w
+}
+
 // TestRegtestCLI runs the zecswap COMMAND LINE — the built binary, as separate maker, taker and status processes —
 // against the real regtest zebrad and the DERO simulator, for one whole swap and one refund. It records every id in
 // research/regtest/zecswap-cli.log. Skipped unless ZECSWAP_REGTEST=1.
@@ -38,6 +68,9 @@ func TestRegtestCLI(t *testing.T) {
 	e.cookie = cookie
 	e.bin = bin
 	e.logf("== zecswap COMMAND LINE on real nodes: binary %s, zebrad 6.3.0 regtest %s, DERO simulator %s", "<tmp>/zecswap", e2eZcash, e2eDaemon)
+	if note := os.Getenv("ZECSWAP_REGTEST_NOTE"); note != "" {
+		e.logf("== note: %s", note)
+	}
 	ci, err := e.zc.ChainInfo(e.ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -70,20 +103,17 @@ type proc struct {
 	done   chan struct{}
 }
 
-// spawn starts `zecswap <role> ...` with its own key file and DERO wallet, its stdout and stderr streamed to the log
-// with the machine paths scrubbed. It runs until it ends the swap (and exits) or stop() cancels it.
-func (e *e2e) spawn(tag, role, dir, wallet string, keyHex [32]byte, extra ...string) *proc {
-	keyPath := filepath.Join(dir, role+".key")
-	if err := os.WriteFile(keyPath, []byte(hex.EncodeToString(keyHex[:])), 0o600); err != nil {
-		e.t.Fatal(err)
-	}
+// spawn starts `zecswap <role> ...` with its key file and DERO wallet, its stdout and stderr streamed to the log with
+// the machine paths scrubbed. It runs until it ends the swap (and exits) or stop() cancels it.
+func (e *e2e) spawn(tag, role, dir, wallet, keyPath string, extra ...string) *proc {
+	w := e.where()
 	args := []string{role,
-		"-network", "regtest",
-		"-zcash", e2eZcash, "-zcash-cookie", e.cookie,
-		"-daemon", e2eDaemon, "-wallet", wallet,
+		"-network", w.network,
+		"-zcash", w.zcash, "-zcash-cookie", e.cookie,
+		"-daemon", w.dero, "-wallet", wallet,
 		"-board", e.board, "-escrow", e.escrow,
 		"-key", keyPath, "-dir", dir,
-		"-interval", "2s",
+		"-interval", w.interval,
 	}
 	args = append(args, extra...)
 	ctx, cancel := context.WithCancel(e.ctx)
@@ -140,7 +170,7 @@ func (e *e2e) scrub(s, dir string) string {
 }
 
 // miner mines the Zcash chain while the processes run: one block per DERO block, three once the taker's funding is
-// on the chain (bringing cltv sooner costs the taker nothing), until stopped.
+// on the chain (bringing cltv sooner costs the taker nothing), until stopped. Regtest only.
 func (e *e2e) miner(dir string, stop <-chan struct{}) *sync.WaitGroup {
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -188,35 +218,80 @@ func (e *e2e) cliState(dir, role string) *State {
 	return st
 }
 
+// keyFile is the key a companion signs with: the configured file, or a fresh key written into the swap's directory.
+func (e *e2e) keyFile(dir, role, given string) (string, *Key) {
+	if given != "" {
+		k, err := LoadKey(given, Testnet)
+		if err != nil {
+			e.t.Fatalf("the %s's key file: %v", role, err)
+		}
+		return given, k
+	}
+	raw := randomKey(e.t)
+	path := filepath.Join(dir, role+".key")
+	if err := os.WriteFile(path, []byte(hex.EncodeToString(raw[:])), 0o600); err != nil {
+		e.t.Fatal(err)
+	}
+	k, _ := ParseKey(raw)
+	return path, k
+}
+
+// balance is the key's confirmed transparent coins, in zatoshi.
+func (e *e2e) balance(k *Key) uint64 {
+	us, err := e.zc.AddressUTXOs(e.ctx, k.Address(Testnet))
+	if err != nil {
+		e.t.Fatalf("the taker's coins: %v", err)
+	}
+	var sum uint64
+	for _, u := range us {
+		sum += u.Value
+	}
+	return sum
+}
+
 func (e *e2e) cliSwap(tag string, refund bool) {
+	w := e.where()
 	dir := filepath.Join(e.dir, tag)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		e.t.Fatal(err)
 	}
 	stop := make(chan struct{})
-	mining := e.miner(dir, stop)
-	makerKey, takerKey := randomKey(e.t), randomKey(e.t)
-	// the taker funds from a matured coinbase of its own
-	tkKey, _ := ParseKey(takerKey)
-	e.mineTo(tkKey.Address(Testnet), 1)
-	e.mine(101)
-	e.logf("%s: taker's Zcash coin is a coinbase to %s; maker posts 50000 DERO for 200000 zatoshi", tag, tkKey.Address(Testnet))
+	var mining *sync.WaitGroup
+	if w.mine {
+		mining = e.miner(dir, stop)
+	}
+	endMining := func() {
+		close(stop)
+		if mining != nil {
+			mining.Wait()
+		}
+	}
+	makerKeyPath, mkKey := e.keyFile(dir, RoleMaker, w.makerKey)
+	takerKeyPath, tkKey := e.keyFile(dir, RoleTaker, w.takerKey)
+	if w.mine {
+		// the taker funds from a matured coinbase of its own
+		e.mineTo(tkKey.Address(Testnet), 1)
+		e.mine(101)
+		e.logf("%s: taker's Zcash coin is a coinbase to %s; maker posts 50000 DERO for %d zatoshi", tag, tkKey.Address(Testnet), w.wantZat)
+	} else {
+		e.logf("%s: the taker funds from %s, holding %d zatoshi confirmed; the maker posts 50000 DERO for %d zatoshi, claimed to %s", tag, tkKey.Address(Testnet), e.balance(tkKey), w.wantZat, mkKey.Address(Testnet))
+	}
 
-	// the whole swap runs with -verify-headers, so its output shows the header gate skipped on regtest, as it must be
+	// -verify-headers on the whole swap always, and on both where the network asks for it; on regtest the gate is
+	// skipped and says so, on testnet it checks the plumbing only
 	var hdr []string
-	if !refund {
+	if w.verifyAll || !refund {
 		hdr = []string{"-verify-headers"}
 	}
-	makerArgs := append(append([]string{}, hdr...), "-give-amount", "50000", "-want-zat", "200000")
-	maker := e.spawn(tag, RoleMaker, dir, e2eMaker, makerKey, makerArgs...)
+	makerArgs := append(append([]string{}, hdr...), "-give-amount", "50000", "-want-zat", fmt.Sprint(w.wantZat))
+	maker := e.spawn(tag, RoleMaker, dir, w.makerWallet, makerKeyPath, makerArgs...)
 	var taker *proc
 	abort := func(format string, a ...interface{}) {
 		maker.stop()
 		if taker != nil {
 			taker.stop()
 		}
-		close(stop)
-		mining.Wait()
+		endMining()
 		e.t.Fatalf("%s: %s", tag, fmt.Sprintf(format, a...))
 	}
 
@@ -232,7 +307,7 @@ func (e *e2e) cliSwap(tag string, refund bool) {
 		abort("the maker never posted an offer")
 	}
 	e.logf("%s: the maker posted offer %d; the taker is started on it", tag, offer)
-	taker = e.spawn(tag, RoleTaker, dir, e2eTaker, takerKey, append(append([]string{}, hdr...), "-offer", fmt.Sprint(offer))...)
+	taker = e.spawn(tag, RoleTaker, dir, w.takerWallet, takerKeyPath, append(append([]string{}, hdr...), "-offer", fmt.Sprint(offer))...)
 
 	if refund {
 		// the maker is stopped once he has locked: he never claims, and the taker must refund
@@ -247,8 +322,8 @@ func (e *e2e) cliSwap(tag string, refund bool) {
 	}
 
 	// the taker runs to its end
-	if !taker.waitFor(75 * time.Minute) {
-		abort("the taker process did not end within 75 minutes (phase %s)", e.cliState(dir, RoleTaker).Phase)
+	if !taker.waitFor(w.wait) {
+		abort("the taker process did not end within %s (phase %s)", w.wait, e.cliState(dir, RoleTaker).Phase)
 	}
 	tk := e.cliState(dir, RoleTaker)
 	e.logf("%s: the taker process exited in phase %s", tag, tk.Phase)
@@ -258,13 +333,12 @@ func (e *e2e) cliSwap(tag string, refund bool) {
 		// is the operator's recovery after a process died (it would otherwise clear on its own after the stale time).
 		os.Remove(filepath.Join(dir, RoleMaker+".json.lock"))
 		e.logf("%s: the maker process is started again to refund the DERO after T_dero %d", tag, e.cliState(dir, RoleMaker).TDero)
-		maker = e.spawn(tag, RoleMaker, dir, e2eMaker, makerKey, makerArgs...)
+		maker = e.spawn(tag, RoleMaker, dir, w.makerWallet, makerKeyPath, makerArgs...)
 	}
-	if !maker.waitFor(75 * time.Minute) {
-		abort("the maker process did not end within 75 minutes (phase %s)", e.cliState(dir, RoleMaker).Phase)
+	if !maker.waitFor(w.wait) {
+		abort("the maker process did not end within %s (phase %s)", w.wait, e.cliState(dir, RoleMaker).Phase)
 	}
-	close(stop)
-	mining.Wait()
+	endMining()
 
 	mk, tk := e.cliState(dir, RoleMaker), e.cliState(dir, RoleTaker)
 	e.logf("%s: RESULT maker %s — %s", tag, mk.Phase, mk.Outcome)
@@ -300,8 +374,8 @@ func (e *e2e) cliSwap(tag string, refund bool) {
 
 func (e *e2e) cliStatus(tag, dir string) {
 	cmd := exec.CommandContext(e.ctx, e.bin, "status",
-		"-zcash", e2eZcash, "-zcash-cookie", e.cookie,
-		"-daemon", e2eDaemon, "-dir", dir)
+		"-zcash", e.where().zcash, "-zcash-cookie", e.cookie,
+		"-daemon", e.where().dero, "-dir", dir)
 	cmd.Dir, _ = filepath.Abs(".")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

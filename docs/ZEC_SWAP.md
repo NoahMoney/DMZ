@@ -475,12 +475,132 @@ It is verified:
     node's tip.
 
 Not built, or not run, in this order, each its own cycle and each verified before the next:
-1. the Zcash testnet run of a swap (BL-42), and `-verify-headers` on by default after it;
+1. the Zcash testnet run of a swap (BL-42), and `-verify-headers` on by default after it. The driver and the
+   procedure are in §11.1, and the run waits for the testnet node to reach the tip;
 2. zcashd, which is past end of support and never run here;
 3. the screens (§8);
 4. the measurement behind §5 (BL-30).
 
 Mainnet, never from this repository.
+
+### 11.1 The Zcash testnet run (MT-C15)
+
+**The driver.** `TestTestnetSwap` (`tools/zecswap/testnet_swap_test.go`) runs the command line the way
+`TestRegtestCLI` does, as separate maker, taker and `status` processes. The differences:
+- It runs with `-network testnet`, through the harness's rpcgate (`http://127.0.0.1:18232`).
+- It runs under the policy the command line ships for testnet (§5): `C_zec` 10, `cltv` 96 ± 32 Zcash blocks, and
+  `T_dero` 1,600 DERO blocks after the lock. The taker funds only while 1,200 DERO blocks are left, and `swap.bas` is
+  installed with `wmin` 1,200.
+- It runs one whole swap and one refund, both with `-verify-headers`. On testnet the gate checks the plumbing only:
+  the minimum-difficulty rule makes forged headers nearly free.
+- It mines nothing. The taker funds from a key file the operator has filled, and the maker's claim pays another.
+
+It refuses to start unless:
+- the node is the testnet (genesis `05a60a92…2c38`);
+- its tip passes the shipped header check, so it is synced and recent;
+- the taker's address holds enough confirmed TAZ.
+
+Every txid goes to `research/regtest/zecswap-testnet.log`. The driver is gated by `ZECSWAP_TESTNET_SWAP=1`.
+
+**The DERO side is the simulator**, with a board and an escrow the driver installs from wallet 30013. MT-C15 tests the
+Zcash leg on a public network. The DERO leg's calls and rules have already run on the simulator. A private DERO
+testnet would add two things:
+- persistence: the simulator deletes its chain when it restarts, and this run lasts about seven hours;
+- DERO's own 18 s block time. The simulator makes a block about every 14 s, so `T_dero` passes in about 6.2 h
+  instead of 8 h. The policy's wall-clock checks assume 18 s, which overstates the DERO time left by about a quarter.
+
+Neither changes what MT-C15 tests, so the simulator is enough, provided nothing restarts it during the run. DERO's
+public testnet seed is not reachable (`tools/regtest/README.md`).
+
+A private DERO testnet (W-01: derod `--testnet` on 127.0.0.1:40402, with its own miner and wallets) has both
+properties the simulator lacks. It is reserved for MT-F05's week-long exercise, which starts over once the new factory
+and `htlc.bas` are deployed on it, so the driver doesn't use it by default. To run the DERO leg there instead, set
+`ZECSWAP_TESTNET_DERO_DAEMON` and three wallets of the driver's own, funded from that chain:
+`ZECSWAP_TESTNET_DERO_MAKER`, `ZECSWAP_TESTNET_DERO_TAKER` and `ZECSWAP_TESTNET_DERO_INSTALLER`. The driver installs its
+own board and escrow either way, and refuses a DERO daemon that is not on a testnet.
+
+**Testnet ZEC (TAZ).** zecswap funds from a transparent key (`tm…`). Each source below is described from its own
+page, as read on 2026-09-12. Nothing has been claimed and nothing sent.
+
+| Source | Pays | Limit | To a `tm…` address? |
+|---|---|---|---|
+| [zcashfaucet.jinolabs.xyz](https://zcashfaucet.jinolabs.xyz/) (Jino Labs, "not an official Zcash service"; source `github.com/jinolabs-xyz/zcash-faucet`) | 0.1 TAZ | once per address per 24 h | no: "the drip is shielded" |
+| [fauzec.com](https://fauzec.com/) (mines its own TAZ through a Stratum bridge to a Zebra node) | 1 TAZ | per address per 24 h, plus an IP/24 limit and a Cloudflare Turnstile captcha | no: unified or Sapling addresses only |
+| `faucet.zecpages.com`, the faucet the Zcash documentation's [Testnet Guide](https://zcash.readthedocs.io/en/latest/rtd_pages/testnet_guide.html) names | — | — | connection refused on 2026-09-12 |
+| [zcash/zfaucet](https://github.com/zcash/zfaucet), the Zcash project's faucet app | — | — | yes, by its README, which names no running instance |
+| Asking on the Zcash Discord, as the Testnet Guide suggests | a person's choice | — | yes; takes hours to days |
+
+The live faucets pay shielded addresses only. So one shielded wallet must sit between a faucet and the taker's key: it
+receives the drip and sends transparent TAZ to the `tm…` address. That wallet is an operator's tool, not a zecswap
+dependency. [Zallet](https://github.com/zcash/wallet), the zcashd wallet's replacement, is in beta ("Breaking changes
+may occur at any time"). A light wallet would put a lightwalletd in the trust path, but only for that one transfer of
+test coins. A faucet takes minutes, then one shielded-to-transparent send (about one block).
+
+**Mining it ourselves is not a practical funding path.**
+- zebrad 6.3.0 mines only through `getblocktemplate`/`submitblock` with an external Equihash miner, or with the
+  experimental internal miner. That needs a zebrad built with `--features internal-miner`, and Zebra documents it for
+  Regtest ([Regtest with Zebra](https://zebra.zfnd.org/user/regtest.html)). The harness's rpcgate refuses
+  `submitblock` (measured), so a miner would need zebrad's internal RPC.
+- Testnet's minimum-difficulty rule: from height 299,188, a block may carry difficulty PoWLimit only when its time is
+  more than 6 × the target spacing after the previous block, which is 7.5 min
+  ([Zebra RFC 0006](https://zebra.zfnd.org/dev/rfcs/0006-contextual-difficulty.html); `tools/zecspv/params.go`). Since
+  [Zebra 6.2.1](https://github.com/ZcashFoundation/zebra/releases/tag/v6.2.1), `getblocktemplate` switches to a
+  minimum-difficulty template only once that threshold is reached, not 150 s early. A CPU miner therefore wins an
+  easy block only when the network has gone 7.5 minutes without one; otherwise it mines at the network's difficulty.
+  Fauzec's operator reports two blocks from a solo miner in its first month: "mining is a lottery ticket, not a budget"
+  ([Zcash forum, 2026-08-01](https://forum.zcashcommunity.com/t/another-faucet-post-i-know-this-one-mines-its-own-taz/56868)).
+- A coinbase can be spent only 100 blocks later (about 2 h), and a transaction spending a transparent coinbase output
+  may have no transparent outputs ([ZIP 213](https://zips.z.cash/zip-0213)). The coins would still have to pass
+  through a shielded wallet.
+
+**How much.** The run is two swaps of 100,000 zatoshi, plus ZIP 317 fees. The driver requires 280,000 zatoshi confirmed
+at the taker's address; 0.01 TAZ leaves room for a retry.
+
+**The procedure.**
+1. Bring the Zcash testnet node to the tip. `tools/regtest/zcash-testnet-up.sh` reports its height against the
+   target, and the driver checks it again.
+2. Keep the DERO simulator running, and don't restart it for about seven hours. Wallets 30011–30013 need at least
+   1 DERO each: the maker locks 0.5 DERO per swap. Alternatively, with the four `ZECSWAP_TESTNET_DERO_*` variables,
+   use the private DERO testnet and three wallets of the driver's own there.
+3. Make two keys in a directory outside the repository that both WSL and Windows can reach, with zfund
+   (`tools/regtest/README.md`):
+   ```sh
+   wsl -d Ubuntu-24.04 --exec <repo-in-wsl>/vendor/regtest/bin/zfund keygen <keys-dir>/maker.key   # prints "address": "tm…"
+   wsl -d Ubuntu-24.04 --exec <repo-in-wsl>/vendor/regtest/bin/zfund keygen <keys-dir>/taker.key
+   ```
+   Send at least 0.01 TAZ, transparent, to the taker's `tm…` address, and wait for one confirmation.
+4. Run the driver:
+   ```sh
+   cd tools
+   ZECSWAP_TESTNET_SWAP=1 ZECSWAP_TESTNET_MAKER_KEY=<keys-dir>/maker.key ZECSWAP_TESTNET_TAKER_KEY=<keys-dir>/taker.key \
+     PATH="$HOME/sdk/go1.26.8/bin:$PATH" GOTOOLCHAIN=local go test -count=1 -run '^TestTestnetSwap$' -timeout 12h -v ./zecswap
+   ```
+
+**Wall clock**, at testnet's 75 s blocks and the simulator's ~14 s:
+
+| Step | Takes |
+|---|---|
+| Preflight, build, and install the board and escrow (two DERO transactions) | ~2 min |
+| Whole swap: post, accept, lock, and the lock 8 DERO blocks deep | ~4 min |
+| Whole swap: funding mined, then 10 deep (`C_zec`) | ~13–15 min |
+| Whole swap: claim mined, and the taker's DERO Claim settled | ~3–5 min |
+| Whole swap: claim 10 deep; both sides end swapped | ~12–13 min |
+| **Whole swap, total** | **~35–40 min** (Zcash block times vary; an unlucky run doubles it) |
+| Refund: post, accept, lock, lock deep, funding | ~6 min |
+| Refund: `cltv` (96 blocks after the accept), then the taker's refund 10 deep; she ends refunded | ~2 h 15 min |
+| Refund: `T_dero` (1,603 DERO blocks after the lock), then the maker's Refund; he ends refunded | ~6 h 15 min after the lock |
+| **Total** | **about 7 h** |
+
+**Done, for MT-C15:**
+- `TestTestnetSwap` passes: the whole swap ends swapped on both sides, and the refund ends refunded on both.
+- `research/regtest/zecswap-testnet.log` holds every txid:
+  - on Zcash testnet: the two fundings, the claim and the refund;
+  - on the simulator: the DERO Post, Accept, Lock, Claim and Refund;
+  - and the header gate's lines on testnet (plumbing only).
+- Each Zcash txid is checked on a public testnet block explorer, independently of the node the swap used.
+- Hygiene is green.
+
+After that, `-verify-headers` can be made the default (MT-C14's last step), with the testnet caveat unchanged.
 
 ## 12. Sources
 

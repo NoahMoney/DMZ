@@ -155,8 +155,9 @@ type e2e struct {
 	makerKey [32]byte
 	dir      string
 	repo     string
-	cookie   string // absolute path to the zebrad cookie, for the command-line processes
-	bin      string // the built zecswap binary
+	cookie   string  // absolute path to the zebrad cookie, for the command-line processes
+	bin      string  // the built zecswap binary
+	cn       *cliNet // where the command line runs; nil is regtest (regtest_cli_test.go)
 }
 
 func newE2E(t *testing.T) *e2e { return newE2EAt(t, e2eLog) }
@@ -240,7 +241,8 @@ func (e *e2e) installOne(name, file string, args []deroArg, pin string) string {
 		e.t.Fatal(err)
 	}
 	code := ref.Canon(string(b))
-	c := NewDeroRPC(e2eDaemon, e2eThird, "", "")
+	w := e.where()
+	c := NewDeroRPC(w.dero, w.installWallet, "", "")
 	me, err := c.Address(e.ctx)
 	if err != nil {
 		e.t.Fatal(err)
@@ -268,15 +270,16 @@ func (e *e2e) installOne(name, file string, args []deroArg, pin string) string {
 	if err != nil || got != pin {
 		e.t.Fatalf("%s at %s hashes to %s (%v), the pin is %s", name, r.TXID, got, err, pin)
 	}
-	e.logf("dero: installed %s from %s: scid %s, fee %d, code sha256 %s (the pin)", name, e2eThird, r.TXID, fee, got)
+	e.logf("dero: installed %s from %s: scid %s, fee %d, code sha256 %s (the pin)", name, w.installWallet, r.TXID, fee, got)
 	return r.TXID
 }
 
 func (e *e2e) install() {
 	e.board = e.installOne("board.bas v3", "../../contracts/board.bas", nil, BoardCodeSHA256)
-	e.escrow = e.installOne("swap.bas v2 (wmin 20)", "../../contracts/swap.bas", []deroArg{argU("wmin", 20)}, EscrowCodeSHA256)
-	w, err := NewDeroRPC(e2eDaemon, "", e.board, e.escrow).EscrowWMin(e.ctx)
-	if err != nil || w != 20 {
+	wmin := e.where().wmin // 20 on regtest; the taker's policy minimum (1,200) on testnet, or she refuses the escrow
+	e.escrow = e.installOne(fmt.Sprintf("swap.bas v2 (wmin %d)", wmin), "../../contracts/swap.bas", []deroArg{argU("wmin", wmin)}, EscrowCodeSHA256)
+	w, err := NewDeroRPC(e.where().dero, "", e.board, e.escrow).EscrowWMin(e.ctx)
+	if err != nil || w != wmin {
 		e.t.Fatalf("the escrow's wmin: %d %v", w, err)
 	}
 }

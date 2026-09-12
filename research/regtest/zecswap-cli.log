@@ -189,3 +189,195 @@
 2026-09-12T02:19:23Z R status|     refund level 2 9c2c65fb9d25802f21828e8ab3f3f19c0307fb0e570ad3671b09bc887951fe27: unknown to this node
 2026-09-12T02:19:23Z R status|     refund level 3 c160bc51b1f0544a0a671c32adc59914dca50e12f236d8a9914ad797117b97e7: unknown to this node
 2026-09-12T02:19:23Z == done: the command line drove one swap and one refund
+2026-09-12T03:25:28Z == zecswap COMMAND LINE on real nodes: binary <tmp>/zecswap, zebrad 6.3.0 regtest http://127.0.0.1:28232/, DERO simulator 127.0.0.1:20000
+2026-09-12T03:25:28Z == note: rerun on the refactored harness (regtest_cli_test.go: cliNet settings for network, node, mining, wmin, amount, keys, waits and DERO endpoints, regtest's values as the defaults; the same checks as the run above)
+2026-09-12T03:25:28Z zcash: chain "regtest" (block 0 is regtest's genesis), height 2509; the command line is run with -network regtest
+2026-09-12T03:25:51Z dero: installed board.bas v3 from 127.0.0.1:30013: scid 9f9c699110b7201e2832208609616ad705fd8bc55af70c3c2e0cfecf867aedb4, fee 2852, code sha256 162f8d46ad400b1fef981d029ba99f61c9646d6453c3bf9f0cc4bd9e63bc5ab1 (the pin)
+2026-09-12T03:26:16Z dero: installed swap.bas v2 (wmin 20) from 127.0.0.1:30013: scid ec8ca0fa6b60513317ec7abfbef2dfc8538968af6844cb8629d0ad7d2228c8d7, fee 3013, code sha256 b9830de831dbaf34f61ea15b484c8f25105e41dc790aa06412db421a990fd6e3 (the pin)
+2026-09-12T03:27:19Z S: taker's Zcash coin is a coinbase to tmYJ1Vfwqvv4d7vKNtYdGHqkEFTu8NoQSgv; maker posts 50000 DERO for 200000 zatoshi
+2026-09-12T03:27:20Z S maker| Zcash node http://127.0.0.1:28232/ (on this machine) is a trusted party: the companion believes it about what the Zcash chain contains.
+2026-09-12T03:27:20Z S maker| WARNING: http://127.0.0.1:28232/ is the only Zcash node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -zcash makes that take two.
+2026-09-12T03:27:20Z S maker| DERO node 127.0.0.1:20000 (on this machine) is a trusted party: the companion believes it about what the DERO chain contains.
+2026-09-12T03:27:20Z S maker| WARNING: 127.0.0.1:20000 is the only DERO node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -daemon makes that take two.
+2026-09-12T03:27:20Z S maker| WARNING: the state file <tmp>\maker.json (and, for a maker, the secret in it) is created 0600, which Windows does not enforce: it inherits the directory's ACL. Keep it in a directory only this account can read.
+2026-09-12T03:27:20Z S maker| this swap's files: <tmp>\maker.json, <tmp>\maker.json.tmp, <tmp>\maker.json.lock, <tmp>\maker.json.refund.txt, <tmp>\maker.json.refund.txt.tmp, <tmp>\zecswap-used.json, <tmp>\zecswap-used.json.tmp, <tmp>\zecswap-consumed.json, <tmp>\zecswap-consumed.json.tmp
+2026-09-12T03:27:20Z S maker| zecswap has run swaps only on zebrad 6.3.0 regtest (research/regtest/zecswap-e2e.log, zecswap-cli.log); never a swap on zcashd, Zcash testnet or Zcash mainnet.
+2026-09-12T03:27:20Z S maker| HEADER VERIFICATION IS SKIPPED ON REGTEST: zebrad's regtest mines with no proof of work, so there is nothing to verify; -verify-headers checks nothing here
+2026-09-12T03:27:20Z S maker| maker: DERO deto1qyyjr5ehn0h5kcv5dgx6ke00p54rzsmuc0zgdwp3jerngdwq7a8v2qqtuqaz8 (Simulator), Zcash regtest, state <tmp>\maker.json (phase "")
+2026-09-12T03:27:20Z S maker| 13:27:20 maker:  -> posting
+2026-09-12T03:27:43Z S maker| 13:27:43 maker: offer 0 posted under hash 5a7ec5c68d035a3ab5cbdad54c35e819b04a34ac1f5e7638495fb266bc3bf23f: 50000 of "" for 200000 zatoshi to tmUEnjrJBj3fhSTsnG43zCP3QSVMwHLb5Pr
+2026-09-12T03:27:43Z S maker| 13:27:43 maker: posting -> posted
+2026-09-12T03:27:45Z S: the maker posted offer 0; the taker is started on it
+2026-09-12T03:27:45Z S taker| Zcash node http://127.0.0.1:28232/ (on this machine) is a trusted party: the companion believes it about what the Zcash chain contains.
+2026-09-12T03:27:45Z S taker| WARNING: http://127.0.0.1:28232/ is the only Zcash node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -zcash makes that take two.
+2026-09-12T03:27:45Z S taker| DERO node 127.0.0.1:20000 (on this machine) is a trusted party: the companion believes it about what the DERO chain contains.
+2026-09-12T03:27:45Z S taker| WARNING: 127.0.0.1:20000 is the only DERO node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -daemon makes that take two.
+2026-09-12T03:27:45Z S taker| WARNING: the state file <tmp>\taker.json (and, for a maker, the secret in it) is created 0600, which Windows does not enforce: it inherits the directory's ACL. Keep it in a directory only this account can read.
+2026-09-12T03:27:45Z S taker| this swap's files: <tmp>\taker.json, <tmp>\taker.json.tmp, <tmp>\taker.json.lock, <tmp>\taker.json.refund.txt, <tmp>\taker.json.refund.txt.tmp, <tmp>\zecswap-used.json, <tmp>\zecswap-used.json.tmp, <tmp>\zecswap-consumed.json, <tmp>\zecswap-consumed.json.tmp
+2026-09-12T03:27:45Z S taker| zecswap has run swaps only on zebrad 6.3.0 regtest (research/regtest/zecswap-e2e.log, zecswap-cli.log); never a swap on zcashd, Zcash testnet or Zcash mainnet.
+2026-09-12T03:27:45Z S taker| HEADER VERIFICATION IS SKIPPED ON REGTEST: zebrad's regtest mines with no proof of work, so there is nothing to verify; -verify-headers checks nothing here
+2026-09-12T03:27:45Z S taker| taker: DERO deto1qytj4zds5lz3quthjchazsetu9ygvk7qgwjga9tmuea0gxc0crfwvqqn239qm (Simulator), Zcash regtest, state <tmp>\taker.json (phase "")
+2026-09-12T03:27:45Z S taker| 13:27:45 taker:  -> accepting
+2026-09-12T03:27:49Z S maker| 13:27:49 maker: offer 0 accepted by 172a89b0a7c5107177962fd1432be148865bc043a48e957be67af41b0fc0d2e600 at DERO height 691
+2026-09-12T03:27:49Z S maker| 13:27:49 maker: posted -> locking
+2026-09-12T03:27:54Z S taker| 13:27:54 taker: accepted offer 0: refund key hash f7b059fd5b1f085d9739de3ff2acccf2a68a8a36, cltv 2663
+2026-09-12T03:27:54Z S taker| 13:27:54 taker: accepting -> accepted
+2026-09-12T03:27:54Z S taker| 13:27:54 taker: escrow 0 checked at DERO height 692: 50000 of "", T_dero 803
+2026-09-12T03:27:54Z S taker| 13:27:54 taker: accepted -> lock_seen
+2026-09-12T03:28:14Z S maker| 13:28:14 maker: locked 50000 of "" in escrow 0 for the taker, until DERO height 803
+2026-09-12T03:28:14Z S maker| 13:28:14 maker: locking -> locked
+2026-09-12T03:28:14Z S maker| 13:28:14 maker: watching t2H1cASVL6a46aJTcFYFFbzZxaBgLXoPEMb for 200000 zatoshi (claim cutoff at Zcash height 2658)
+2026-09-12T03:30:22Z S taker| 13:30:22 taker: 127.0.0.1:20000 confirms escrow 0: 50000 of "" for this taker under 5a7ec5c68d035a3ab5cbdad54c35e819b04a34ac1f5e7638495fb266bc3bf23f until 803, past the stable depth
+2026-09-12T03:30:22Z S taker| 13:30:22 taker: HEADER VERIFICATION SKIPPED: this is regtest, whose zebrad mines with no proof of work; the tip is not verified by work
+2026-09-12T03:30:22Z S taker| 13:30:22 taker: lock_seen -> funding
+2026-09-12T03:30:22Z S taker| 13:30:22 taker: the pre-signed refund is in <tmp>\taker.json.refund.txt: hand it to a second device or a person you trust now
+2026-09-12T03:30:22Z S taker| 13:30:22 taker: funded the script: tx 256061a409b7346f890d585551633d5316a4f7dac4429199dc8c6977373839dc, 200000 zatoshi to t2H1cASVL6a46aJTcFYFFbzZxaBgLXoPEMb
+2026-09-12T03:30:22Z S taker| 13:30:22 taker: funding -> funded
+2026-09-12T03:30:42Z S maker| 2026/09/12 13:30:42 zecswap: the block that held the funding is no longer on the node's best chain: the tip 2623 is below the funding's height 2624
+2026-09-12T03:30:45Z S maker| 13:30:45 maker: http://127.0.0.1:28232/ confirms the funding 256061a409b7346f890d585551633d5316a4f7dac4429199dc8c6977373839dc:0, 200000 zatoshi to the script, in block eedb48c7401f7cef0d8a102c002f7e71bd64cd8b9530b486420a0ad2d82ada4e at 2624, at least 2 deep
+2026-09-12T03:30:45Z S maker| 13:30:45 maker: HEADER VERIFICATION SKIPPED: this is regtest, whose zebrad mines with no proof of work; nothing about this funding is verified by work
+2026-09-12T03:30:45Z S maker| 13:30:45 maker: locked -> claiming
+2026-09-12T03:30:46Z S maker| 13:30:46 maker: http://127.0.0.1:28232/ confirms the funding 256061a409b7346f890d585551633d5316a4f7dac4429199dc8c6977373839dc:0, 200000 zatoshi to the script, in block eedb48c7401f7cef0d8a102c002f7e71bd64cd8b9530b486420a0ad2d82ada4e at 2624, at least 2 deep
+2026-09-12T03:30:46Z S maker| 13:30:46 maker: claim 0c646922a96d10253c9d9f38c466a84249a049ec9ebea117dde3bf40b10eca37 broadcast: the secret is now public on Zcash
+2026-09-12T03:30:46Z S maker| 13:30:46 maker: claiming -> claimed
+2026-09-12T03:31:02Z S taker| 13:31:02 taker: http://127.0.0.1:28232/ shows the maker's claim 0c646922a96d10253c9d9f38c466a84249a049ec9ebea117dde3bf40b10eca37; the secret is read from it and checked against the hash
+2026-09-12T03:31:02Z S taker| 13:31:02 taker: funded -> secret_seen
+2026-09-12T03:31:07Z S taker| 13:31:07 taker: secret_seen -> dero_claimed
+2026-09-12T03:31:29Z S maker| 13:31:29 maker: sent the taker's DERO Claim for her (swap.bas v2 pays her, whoever sends it)
+2026-09-12T03:31:31Z S maker| 13:31:31 maker: claimed -> swapped
+2026-09-12T03:31:31Z S maker| 13:31:31 maker: done: swapped: 200000 zatoshi claimed in Zcash tx 0c646922a96d10253c9d9f38c466a84249a049ec9ebea117dde3bf40b10eca37; the taker's DERO Claim landed
+2026-09-12T03:31:31Z S maker| maker: swapped: 200000 zatoshi claimed in Zcash tx 0c646922a96d10253c9d9f38c466a84249a049ec9ebea117dde3bf40b10eca37; the taker's DERO Claim landed
+2026-09-12T03:32:59Z S taker| 13:32:59 taker: dero_claimed -> swapped
+2026-09-12T03:32:59Z S taker| 13:32:59 taker: done: swapped: the escrow's 50000 of "" is claimed with the secret the maker revealed in Zcash tx 0c646922a96d10253c9d9f38c466a84249a049ec9ebea117dde3bf40b10eca37
+2026-09-12T03:32:59Z S taker| taker: swapped: the escrow's 50000 of "" is claimed with the secret the maker revealed in Zcash tx 0c646922a96d10253c9d9f38c466a84249a049ec9ebea117dde3bf40b10eca37
+2026-09-12T03:32:59Z S: the taker process exited in phase swapped
+2026-09-12T03:32:59Z S: RESULT maker swapped — swapped: 200000 zatoshi claimed in Zcash tx 0c646922a96d10253c9d9f38c466a84249a049ec9ebea117dde3bf40b10eca37; the taker's DERO Claim landed
+2026-09-12T03:32:59Z S: RESULT taker swapped — swapped: the escrow's 50000 of "" is claimed with the secret the maker revealed in Zcash tx 0c646922a96d10253c9d9f38c466a84249a049ec9ebea117dde3bf40b10eca37
+2026-09-12T03:32:59Z S: dero maker post tx bdb5639d16a7546f938e319181be36819791e0f775aca17506c5a3d913fad72e
+2026-09-12T03:32:59Z S: dero maker relay tx 108cca94b015650bc796b2c09eb1e0907654a6527734ede8090fd52921975a2c
+2026-09-12T03:32:59Z S: dero maker lock tx d95e61fc1e5e8e868e832f378dd6c98dd0d1f5a29bbe68e8f30ffcc4bea05f46
+2026-09-12T03:32:59Z S: dero taker accept tx ae22baf4ebe27b2a2e6c7adb72aaf7636df57f418fd136286940212ab8d84d40
+2026-09-12T03:32:59Z S: dero taker claim tx 07649d0b230dd7bcb26f4b83e3d66ace90dc003db492eab0d16251362714c822
+2026-09-12T03:32:59Z S: zcash funding 256061a409b7346f890d585551633d5316a4f7dac4429199dc8c6977373839dc (v5)
+2026-09-12T03:32:59Z S: zcash claim 0c646922a96d10253c9d9f38c466a84249a049ec9ebea117dde3bf40b10eca37 (v5)
+2026-09-12T03:32:59Z S status| Zcash node http://127.0.0.1:28232/ (on this machine) is a trusted party: the companion believes it about what the Zcash chain contains.
+2026-09-12T03:32:59Z S status| WARNING: http://127.0.0.1:28232/ is the only Zcash node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -zcash makes that take two.
+2026-09-12T03:32:59Z S status| DERO node 127.0.0.1:20000 (on this machine) is a trusted party: the companion believes it about what the DERO chain contains.
+2026-09-12T03:32:59Z S status| WARNING: 127.0.0.1:20000 is the only DERO node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -daemon makes that take two.
+2026-09-12T03:32:59Z S status| <tmp>\maker.json: the maker, phase "swapped"
+2026-09-12T03:32:59Z S status|   ended: swapped: 200000 zatoshi claimed in Zcash tx 0c646922a96d10253c9d9f38c466a84249a049ec9ebea117dde3bf40b10eca37; the taker's DERO Claim landed
+2026-09-12T03:32:59Z S status|   board 9f9c699110b7201e2832208609616ad705fd8bc55af70c3c2e0cfecf867aedb4 offer 0, escrow ec8ca0fa6b60513317ec7abfbef2dfc8538968af6844cb8629d0ad7d2228c8d7 id 0 (T_dero 803); Zcash regtest, cltv 2663, hash 5a7ec5c68d035a3ab5cbdad54c35e819b04a34ac1f5e7638495fb266bc3bf23f
+2026-09-12T03:32:59Z S status|   DERO 127.0.0.1:20000 (a trusted party): height 710, 93 blocks to T_dero
+2026-09-12T03:32:59Z S status|     offer 0: state 1, expiry 768
+2026-09-12T03:32:59Z S status|     escrow 0: state 1, 50000 of "", expiry 803
+2026-09-12T03:32:59Z S status|   script address t2H1cASVL6a46aJTcFYFFbzZxaBgLXoPEMb
+2026-09-12T03:32:59Z S status|   Zcash http://127.0.0.1:28232/ (a trusted party): regtest height 2650, 13 blocks to cltv
+2026-09-12T03:32:59Z S status|     funding output 256061a409b7346f890d585551633d5316a4f7dac4429199dc8c6977373839dc:0: spent (or not on this node's chain)
+2026-09-12T03:32:59Z S status|     claim 0c646922a96d10253c9d9f38c466a84249a049ec9ebea117dde3bf40b10eca37: mined at 2627, 24 confirmations
+2026-09-12T03:32:59Z S status| <tmp>\taker.json: the taker, phase "swapped"
+2026-09-12T03:32:59Z S status|   ended: swapped: the escrow's 50000 of "" is claimed with the secret the maker revealed in Zcash tx 0c646922a96d10253c9d9f38c466a84249a049ec9ebea117dde3bf40b10eca37
+2026-09-12T03:32:59Z S status|   board 9f9c699110b7201e2832208609616ad705fd8bc55af70c3c2e0cfecf867aedb4 offer 0, escrow ec8ca0fa6b60513317ec7abfbef2dfc8538968af6844cb8629d0ad7d2228c8d7 id 0 (T_dero 803); Zcash regtest, cltv 2663, hash 5a7ec5c68d035a3ab5cbdad54c35e819b04a34ac1f5e7638495fb266bc3bf23f
+2026-09-12T03:32:59Z S status|   DERO 127.0.0.1:20000 (a trusted party): height 710, 93 blocks to T_dero
+2026-09-12T03:32:59Z S status|     offer 0: state 1, expiry 768
+2026-09-12T03:32:59Z S status|     escrow 0: state 1, 50000 of "", expiry 803
+2026-09-12T03:32:59Z S status|   script address t2H1cASVL6a46aJTcFYFFbzZxaBgLXoPEMb
+2026-09-12T03:32:59Z S status|   Zcash http://127.0.0.1:28232/ (a trusted party): regtest height 2650, 13 blocks to cltv
+2026-09-12T03:32:59Z S status|     funding 256061a409b7346f890d585551633d5316a4f7dac4429199dc8c6977373839dc: mined at 2624, 27 confirmations
+2026-09-12T03:32:59Z S status|     funding output 256061a409b7346f890d585551633d5316a4f7dac4429199dc8c6977373839dc:0: spent (or not on this node's chain)
+2026-09-12T03:32:59Z S status|     refund level 1 b9c1fe553418f8d1d2ee55ebcf9c4e56ac0d1f7fc0fa3b02b5a9c5ed80337c30: unknown to this node
+2026-09-12T03:32:59Z S status|     refund level 2 51a5af836a05fa7050af213f01d688374fb82a26500dcf8656b2222c80b806e4: unknown to this node
+2026-09-12T03:32:59Z S status|     refund level 3 38e7e835f5ff31059238bc16a8e668c2bac4281baf26cf67f730c1f3e4f83b64: unknown to this node
+2026-09-12T03:33:58Z R: taker's Zcash coin is a coinbase to tmGtNTQ18PM7zq6eQG6GubCMAeYyziufcYJ; maker posts 50000 DERO for 200000 zatoshi
+2026-09-12T03:33:58Z R maker| Zcash node http://127.0.0.1:28232/ (on this machine) is a trusted party: the companion believes it about what the Zcash chain contains.
+2026-09-12T03:33:58Z R maker| WARNING: http://127.0.0.1:28232/ is the only Zcash node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -zcash makes that take two.
+2026-09-12T03:33:58Z R maker| DERO node 127.0.0.1:20000 (on this machine) is a trusted party: the companion believes it about what the DERO chain contains.
+2026-09-12T03:33:58Z R maker| WARNING: 127.0.0.1:20000 is the only DERO node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -daemon makes that take two.
+2026-09-12T03:33:58Z R maker| WARNING: the state file <tmp>\maker.json (and, for a maker, the secret in it) is created 0600, which Windows does not enforce: it inherits the directory's ACL. Keep it in a directory only this account can read.
+2026-09-12T03:33:58Z R maker| this swap's files: <tmp>\maker.json, <tmp>\maker.json.tmp, <tmp>\maker.json.lock, <tmp>\maker.json.refund.txt, <tmp>\maker.json.refund.txt.tmp, <tmp>\zecswap-used.json, <tmp>\zecswap-used.json.tmp, <tmp>\zecswap-consumed.json, <tmp>\zecswap-consumed.json.tmp
+2026-09-12T03:33:58Z R maker| zecswap has run swaps only on zebrad 6.3.0 regtest (research/regtest/zecswap-e2e.log, zecswap-cli.log); never a swap on zcashd, Zcash testnet or Zcash mainnet.
+2026-09-12T03:33:58Z R maker| maker: DERO deto1qyyjr5ehn0h5kcv5dgx6ke00p54rzsmuc0zgdwp3jerngdwq7a8v2qqtuqaz8 (Simulator), Zcash regtest, state <tmp>\maker.json (phase "")
+2026-09-12T03:33:59Z R maker| 13:33:59 maker:  -> posting
+2026-09-12T03:34:20Z R maker| 13:34:20 maker: offer 1 posted under hash 76b6ad6c9814a2ac8623035a323b82608f3fa24040008f9399fa6c8f54420db9: 50000 of "" for 200000 zatoshi to tmUqcRn4BWES9n1qJmFN5feoh6HfDnqZCG2
+2026-09-12T03:34:20Z R maker| 13:34:20 maker: posting -> posted
+2026-09-12T03:34:21Z R: the maker posted offer 1; the taker is started on it
+2026-09-12T03:34:22Z R taker| Zcash node http://127.0.0.1:28232/ (on this machine) is a trusted party: the companion believes it about what the Zcash chain contains.
+2026-09-12T03:34:22Z R taker| WARNING: http://127.0.0.1:28232/ is the only Zcash node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -zcash makes that take two.
+2026-09-12T03:34:22Z R taker| DERO node 127.0.0.1:20000 (on this machine) is a trusted party: the companion believes it about what the DERO chain contains.
+2026-09-12T03:34:22Z R taker| WARNING: 127.0.0.1:20000 is the only DERO node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -daemon makes that take two.
+2026-09-12T03:34:22Z R taker| WARNING: the state file <tmp>\taker.json (and, for a maker, the secret in it) is created 0600, which Windows does not enforce: it inherits the directory's ACL. Keep it in a directory only this account can read.
+2026-09-12T03:34:22Z R taker| this swap's files: <tmp>\taker.json, <tmp>\taker.json.tmp, <tmp>\taker.json.lock, <tmp>\taker.json.refund.txt, <tmp>\taker.json.refund.txt.tmp, <tmp>\zecswap-used.json, <tmp>\zecswap-used.json.tmp, <tmp>\zecswap-consumed.json, <tmp>\zecswap-consumed.json.tmp
+2026-09-12T03:34:22Z R taker| zecswap has run swaps only on zebrad 6.3.0 regtest (research/regtest/zecswap-e2e.log, zecswap-cli.log); never a swap on zcashd, Zcash testnet or Zcash mainnet.
+2026-09-12T03:34:22Z R taker| taker: DERO deto1qytj4zds5lz3quthjchazsetu9ygvk7qgwjga9tmuea0gxc0crfwvqqn239qm (Simulator), Zcash regtest, state <tmp>\taker.json (phase "")
+2026-09-12T03:34:22Z R taker| 13:34:22 taker:  -> accepting
+2026-09-12T03:34:25Z R maker| 13:34:25 maker: offer 1 accepted by 172a89b0a7c5107177962fd1432be148865bc043a48e957be67af41b0fc0d2e600 at DERO height 716
+2026-09-12T03:34:25Z R maker| 13:34:25 maker: posted -> locking
+2026-09-12T03:34:31Z R taker| 13:34:31 taker: accepted offer 1: refund key hash 4eadfa967c4ff08fd998234bde82dc67521cd4ee, cltv 2804
+2026-09-12T03:34:31Z R taker| 13:34:31 taker: accepting -> accepted
+2026-09-12T03:34:31Z R taker| 13:34:31 taker: escrow 1 checked at DERO height 717: 50000 of "", T_dero 828
+2026-09-12T03:34:31Z R taker| 13:34:31 taker: accepted -> lock_seen
+2026-09-12T03:34:48Z R maker| 13:34:48 maker: locked 50000 of "" in escrow 1 for the taker, until DERO height 828
+2026-09-12T03:34:48Z R maker| 13:34:48 maker: locking -> locked
+2026-09-12T03:34:48Z R maker| 13:34:48 maker: watching t2UqEwHbRLHN46h7FSsqctnpTwKDGpL4rYr for 200000 zatoshi (claim cutoff at Zcash height 2799)
+2026-09-12T03:34:48Z R: the maker process is stopped after it locked (phase locked): it will not claim; the taker refunds at cltv
+2026-09-12T03:36:57Z R taker| 13:36:57 taker: 127.0.0.1:20000 confirms escrow 1: 50000 of "" for this taker under 76b6ad6c9814a2ac8623035a323b82608f3fa24040008f9399fa6c8f54420db9 until 828, past the stable depth
+2026-09-12T03:36:57Z R taker| 13:36:57 taker: lock_seen -> funding
+2026-09-12T03:36:57Z R taker| 13:36:57 taker: the pre-signed refund is in <tmp>\taker.json.refund.txt: hand it to a second device or a person you trust now
+2026-09-12T03:36:58Z R taker| 13:36:58 taker: funded the script: tx b99be6e7d895f6b400ecf0f34999b0479e4b8762aa59cb3bc9458ae9c88bcb1b, 200000 zatoshi to t2UqEwHbRLHN46h7FSsqctnpTwKDGpL4rYr
+2026-09-12T03:36:58Z R taker| 13:36:58 taker: funding -> funded
+2026-09-12T03:41:21Z R taker| 13:41:21 taker: Zcash height 2806 has reached cltv 2804: refunding
+2026-09-12T03:41:21Z R taker| 13:41:21 taker: funded -> refunding
+2026-09-12T03:41:21Z R taker| 13:41:21 taker: refund 4a2facec65b3bdc308894651a1108d724ecf526348090ae7c3b14f511170a30d (level 1, fee 10000) broadcast
+2026-09-12T03:41:39Z R taker| 13:41:39 taker: refunding -> refunded
+2026-09-12T03:41:39Z R taker| 13:41:39 taker: done: the ZEC is refunded: Zcash tx 4a2facec65b3bdc308894651a1108d724ecf526348090ae7c3b14f511170a30d, at least 2 confirmations on every node
+2026-09-12T03:41:39Z R taker| taker: the ZEC is refunded: Zcash tx 4a2facec65b3bdc308894651a1108d724ecf526348090ae7c3b14f511170a30d, at least 2 confirmations on every node
+2026-09-12T03:41:39Z R: the taker process exited in phase refunded
+2026-09-12T03:41:39Z R: the maker process is started again to refund the DERO after T_dero 828
+2026-09-12T03:41:40Z R maker| Zcash node http://127.0.0.1:28232/ (on this machine) is a trusted party: the companion believes it about what the Zcash chain contains.
+2026-09-12T03:41:40Z R maker| WARNING: http://127.0.0.1:28232/ is the only Zcash node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -zcash makes that take two.
+2026-09-12T03:41:40Z R maker| DERO node 127.0.0.1:20000 (on this machine) is a trusted party: the companion believes it about what the DERO chain contains.
+2026-09-12T03:41:40Z R maker| WARNING: 127.0.0.1:20000 is the only DERO node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -daemon makes that take two.
+2026-09-12T03:41:40Z R maker| WARNING: the state file <tmp>\maker.json (and, for a maker, the secret in it) is created 0600, which Windows does not enforce: it inherits the directory's ACL. Keep it in a directory only this account can read.
+2026-09-12T03:41:40Z R maker| this swap's files: <tmp>\maker.json, <tmp>\maker.json.tmp, <tmp>\maker.json.lock, <tmp>\maker.json.refund.txt, <tmp>\maker.json.refund.txt.tmp, <tmp>\zecswap-used.json, <tmp>\zecswap-used.json.tmp, <tmp>\zecswap-consumed.json, <tmp>\zecswap-consumed.json.tmp
+2026-09-12T03:41:40Z R maker| zecswap has run swaps only on zebrad 6.3.0 regtest (research/regtest/zecswap-e2e.log, zecswap-cli.log); never a swap on zcashd, Zcash testnet or Zcash mainnet.
+2026-09-12T03:41:40Z R maker| maker: DERO deto1qyyjr5ehn0h5kcv5dgx6ke00p54rzsmuc0zgdwp3jerngdwq7a8v2qqtuqaz8 (Simulator), Zcash regtest, state <tmp>\maker.json (phase "locked")
+2026-09-12T03:41:40Z R maker| 13:41:40 maker: no funding of 200000 zatoshi was 2 blocks deep before the claim cutoff (Zcash height 2809, cltv 2804): the secret is never revealed; the DERO is refunded after T_dero 828
+2026-09-12T03:41:40Z R maker| 13:41:40 maker: locked -> refund_wait
+2026-09-12T04:08:57Z R maker| 14:08:57 maker: refund_wait -> dero_refunding
+2026-09-12T04:09:23Z R maker| 14:09:23 maker: dero_refunding -> refunded
+2026-09-12T04:09:23Z R maker| 14:09:23 maker: done: the DERO is refunded; no ZEC was claimed, and the secret was never revealed by this companion
+2026-09-12T04:09:23Z R maker| maker: the DERO is refunded; no ZEC was claimed, and the secret was never revealed by this companion
+2026-09-12T04:09:23Z R: RESULT maker refunded — the DERO is refunded; no ZEC was claimed, and the secret was never revealed by this companion
+2026-09-12T04:09:23Z R: RESULT taker refunded — the ZEC is refunded: Zcash tx 4a2facec65b3bdc308894651a1108d724ecf526348090ae7c3b14f511170a30d, at least 2 confirmations on every node
+2026-09-12T04:09:23Z R: dero maker lock tx 278b5aedb98bbe31044c69bdb8f0efac9560c68fda88468e1bf84d12e19eff36
+2026-09-12T04:09:23Z R: dero maker post tx 3ac8d05cec7bf72282a1d8a4d001e78796cf417034b7d2351c0e0af23e19c46e
+2026-09-12T04:09:23Z R: dero maker refund tx 93574d78fd1410970547a64b349312a03112dc2924af890cbcfd7a9279e1f31d
+2026-09-12T04:09:23Z R: dero taker accept tx f407d361ff07d82d63cc2c468f9021786c49c333c0902ea799d9a29dc691e55a
+2026-09-12T04:09:23Z R: zcash funding b99be6e7d895f6b400ecf0f34999b0479e4b8762aa59cb3bc9458ae9c88bcb1b (v5)
+2026-09-12T04:09:23Z R: zcash refund 4a2facec65b3bdc308894651a1108d724ecf526348090ae7c3b14f511170a30d (v5)
+2026-09-12T04:09:24Z R status| Zcash node http://127.0.0.1:28232/ (on this machine) is a trusted party: the companion believes it about what the Zcash chain contains.
+2026-09-12T04:09:24Z R status| WARNING: http://127.0.0.1:28232/ is the only Zcash node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -zcash makes that take two.
+2026-09-12T04:09:24Z R status| DERO node 127.0.0.1:20000 (on this machine) is a trusted party: the companion believes it about what the DERO chain contains.
+2026-09-12T04:09:24Z R status| WARNING: 127.0.0.1:20000 is the only DERO node. If it lies — compromised, or run by your counterparty — a single node can cost you the whole swap. Naming a second node you trust with another -daemon makes that take two.
+2026-09-12T04:09:24Z R status| <tmp>\maker.json: the maker, phase "refunded"
+2026-09-12T04:09:24Z R status|   ended: the DERO is refunded; no ZEC was claimed, and the secret was never revealed by this companion
+2026-09-12T04:09:24Z R status|   note: no funding of 200000 zatoshi was 2 blocks deep before the claim cutoff (Zcash height 2809, cltv 2804)
+2026-09-12T04:09:24Z R status|   board 9f9c699110b7201e2832208609616ad705fd8bc55af70c3c2e0cfecf867aedb4 offer 1, escrow ec8ca0fa6b60513317ec7abfbef2dfc8538968af6844cb8629d0ad7d2228c8d7 id 1 (T_dero 828); Zcash regtest, cltv 2804, hash 76b6ad6c9814a2ac8623035a323b82608f3fa24040008f9399fa6c8f54420db9
+2026-09-12T04:09:24Z R status|   DERO 127.0.0.1:20000 (a trusted party): height 830, 2 blocks past T_dero
+2026-09-12T04:09:24Z R status|     offer 1: state 1, expiry 793
+2026-09-12T04:09:24Z R status|     escrow 1: state 2, 50000 of "", expiry 828
+2026-09-12T04:09:24Z R status|   script address t2UqEwHbRLHN46h7FSsqctnpTwKDGpL4rYr
+2026-09-12T04:09:24Z R status|   Zcash http://127.0.0.1:28232/ (a trusted party): regtest height 2899, 95 blocks past cltv
+2026-09-12T04:09:24Z R status| <tmp>\taker.json: the taker, phase "refunded"
+2026-09-12T04:09:24Z R status|   ended: the ZEC is refunded: Zcash tx 4a2facec65b3bdc308894651a1108d724ecf526348090ae7c3b14f511170a30d, at least 2 confirmations on every node
+2026-09-12T04:09:24Z R status|   board 9f9c699110b7201e2832208609616ad705fd8bc55af70c3c2e0cfecf867aedb4 offer 1, escrow ec8ca0fa6b60513317ec7abfbef2dfc8538968af6844cb8629d0ad7d2228c8d7 id 1 (T_dero 828); Zcash regtest, cltv 2804, hash 76b6ad6c9814a2ac8623035a323b82608f3fa24040008f9399fa6c8f54420db9
+2026-09-12T04:09:24Z R status|   DERO 127.0.0.1:20000 (a trusted party): height 830, 2 blocks past T_dero
+2026-09-12T04:09:24Z R status|     offer 1: state 1, expiry 793
+2026-09-12T04:09:24Z R status|     escrow 1: state 2, 50000 of "", expiry 828
+2026-09-12T04:09:24Z R status|   script address t2UqEwHbRLHN46h7FSsqctnpTwKDGpL4rYr
+2026-09-12T04:09:24Z R status|   Zcash http://127.0.0.1:28232/ (a trusted party): regtest height 2899, 95 blocks past cltv
+2026-09-12T04:09:24Z R status|     funding b99be6e7d895f6b400ecf0f34999b0479e4b8762aa59cb3bc9458ae9c88bcb1b: mined at 2765, 135 confirmations
+2026-09-12T04:09:24Z R status|     funding output b99be6e7d895f6b400ecf0f34999b0479e4b8762aa59cb3bc9458ae9c88bcb1b:0: spent (or not on this node's chain)
+2026-09-12T04:09:24Z R status|     refund level 1 4a2facec65b3bdc308894651a1108d724ecf526348090ae7c3b14f511170a30d: mined at 2807, 93 confirmations
+2026-09-12T04:09:24Z R status|     refund level 2 54b69eb7b2ca7dd83bb7f06d8582a6c15e1557f1283171455b74bae174059546: unknown to this node
+2026-09-12T04:09:24Z R status|     refund level 3 b86ec79ff5cdce6471828fa50fe4ba2199d7fe10f66da8738381200b4009ab99: unknown to this node
+2026-09-12T04:09:24Z == done: the command line drove one swap and one refund
