@@ -3,7 +3,6 @@ package xmrswap
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -25,8 +24,8 @@ func TestStateRoundTripAndStrictLoad(t *testing.T) {
 	if err := st.Save(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(path + ".tmp"); err == nil {
-		t.Fatal("temp file left behind")
+	if left, _ := filepath.Glob(path + ".tmp*"); len(left) != 0 {
+		t.Fatalf("temp file left behind: %v", left)
 	}
 	got, err := LoadState(path, "bob", "aa")
 	if err != nil {
@@ -49,32 +48,74 @@ func TestStateRoundTripAndStrictLoad(t *testing.T) {
 	}
 }
 
-// TestStateFileIsPrivate: the file that holds a key share is created for its owner only.
+// TestStateFileIsPrivate: the file that holds a key share is its owner's alone: 0600 where the mode is the guard, and
+// on Windows a protected DACL with one entry, this account's, which the file has from its creation (assertPrivate).
 func TestStateFileIsPrivate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.json")
 	st := NewState(path, "alice", "aa")
 	if err := st.Save(); err != nil {
 		t.Fatal(err)
 	}
-	fi, err := os.Stat(path)
+	assertPrivate(t, path)
+	st.Phase = "setup"
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	assertPrivate(t, path) // and after it is replaced, since every save writes a new file
+	used, err := LoadUsed(UsedPath(path))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Windows reports no Unix mode bits and does not enforce them: the file inherits the directory's ACL, so
-	// there the protection the comment claims does not exist and the operator has to be told so instead of the
-	// assertion being skipped in silence.
-	if runtime.GOOS == "windows" {
-		w := StateFileWarning(path)
-		if w == "" || !strings.Contains(w, path) {
-			t.Fatalf("no warning naming %s on a platform that does not enforce the mode: %q", path, w)
-		}
-		t.Logf("windows: %s", w)
-		return
+	if err := used.Record([]byte("a secret"), "swap", "share"); err != nil {
+		t.Fatal(err)
 	}
-	if w := StateFileWarning(path); w != "" {
-		t.Fatalf("a warning on a platform that does enforce the mode: %q", w)
+	assertPrivate(t, UsedPath(path)) // the register is written the same way
+}
+
+// TestAStateWriteNeverReusesAFileAlreadyThere (the review of 2026-09-12, finding 4): the write used to open path + ".tmp"
+// with O_TRUNC, so a file of that name planted by anyone who can write the directory was reused — its planter's handle
+// and, on Windows, its ACL with it. Now the temporary file has a name nobody can guess, is created new or not at all, and
+// is its owner's alone from its creation; the planted file is never touched.
+func TestAStateWriteNeverReusesAFileAlreadyThere(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bob.json")
+	planted := []byte("planted by another account")
+	if err := os.WriteFile(path+".tmp", planted, 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if m := fi.Mode().Perm(); m&0o077 != 0 {
-		t.Fatalf("state file mode %o", m)
+	st := NewState(path, "bob", "aa")
+	st.Own.Secret = strings.Repeat("ab", 32)
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(path + ".tmp"); err != nil || string(b) != string(planted) {
+		t.Fatalf("the planted %s.tmp was written through: %q %v", path, b, err)
+	}
+	if got, err := LoadState(path, "bob", "aa"); err != nil || got.Own.Secret != st.Own.Secret {
+		t.Fatalf("the state did not round-trip: %v", err)
+	}
+	assertPrivate(t, path)
+	// the temporary name is new every time, and ends in 64 random bits
+	a, err := tempName(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := tempName(path)
+	if a == b || !strings.HasPrefix(a, path+".tmp-") || len(a) != len(path)+len(".tmp-")+16 {
+		t.Fatalf("temporary names %q and %q", a, b)
+	}
+	// a file already at the name is refused, never opened
+	if err := os.WriteFile(a, planted, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := createPrivate(a); err == nil {
+		f.Close()
+		t.Fatal("createPrivate opened a file that was already there")
+	}
+	if got, _ := os.ReadFile(a); string(got) != string(planted) {
+		t.Fatalf("the file already at %s was changed: %q", a, got)
+	}
+	if left, _ := filepath.Glob(path + ".tmp-*"); len(left) != 1 || left[0] != a {
+		t.Fatalf("temporary files beside the state: %v", left)
 	}
 }

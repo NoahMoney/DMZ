@@ -1,15 +1,31 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"veil/tools/xmrswap"
 )
+
+// TestTheG2HelpSaysTheOperatorsAnswer: -htlc-g2 still has no default, and its help says what the operator answered on
+// 2026-09-12 and what follows from it: the xmrswap taker's floor, DefaultG2Min, refuses any smaller install. It used to
+// say G2 had not been chosen.
+func TestTheG2HelpSaysTheOperatorsAnswer(t *testing.T) {
+	f := flag.Lookup("htlc-g2")
+	floor := fmt.Sprintf("%d,%03d", xmrswap.DefaultG2Min/1000, xmrswap.DefaultG2Min%1000)
+	if f == nil || f.DefValue != "0" || !strings.Contains(f.Usage, floor) || !strings.Contains(f.Usage, "2026-09-12") ||
+		!strings.Contains(f.Usage, "DefaultG2Min") || strings.Contains(f.Usage, "not chosen") {
+		t.Fatalf("-htlc-g2 (default %q): %q; want no default and the answer, %s, with the taker's floor", f.DefValue, f.Usage, floor)
+	}
+}
 
 // htlc.bas v3 takes w1min, w2min and g2 at install and refuses a missing or out-of-bounds one (MT-A03(a), MT-J13(b)),
 // so an install that forgot them fails closed. simdeploy must send all three, must refuse before paying for anything a
-// value the contract would refuse, and has no default for any of them: the operator has not chosen G2.
+// value the contract would refuse, and has no default for any of them: each install names its windows.
 func TestHtlcWindowBoundsAreTheContracts(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "contracts", "htlc.bas"))
 	if err != nil {

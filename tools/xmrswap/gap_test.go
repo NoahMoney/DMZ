@@ -18,7 +18,8 @@ import (
 // not told which network its daemon is on does not start.
 func TestTakerRefusesAnOfferForAnotherDeroNetwork(t *testing.T) {
 	r := newRun(t, plan{scenario: "happy", seed: 131})
-	r.bob = startWith(r, "bob", func(c *Config) { c.DeroNet = "mainnet" })
+	// off the simulator the maker's width must carry the t1 rule at his depth (the review of 2026-09-12, finding 6)
+	r.bob = startWith(r, "bob", func(c *Config) { c.DeroNet, c.T1Delta = "mainnet", T1Quote(c.Confirmations, c.GateDeadline) })
 	r.alice = startWith(r, "alice", nil)
 	driveUntil(r, "refused", 30)
 	if a := r.loadState("alice"); !strings.Contains(a.Outcome, "DERO mainnet") || len(r.chain.locks) != 0 {

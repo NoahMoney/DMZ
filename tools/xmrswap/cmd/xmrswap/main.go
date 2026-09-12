@@ -65,7 +65,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -103,9 +102,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if o.confs < xmrswap.DefaultConfirmations {
-		fmt.Fprintf(os.Stderr, "\nWARNING: -confs %d is below the default %d. Bob's safety against a Monero reorganisation after the gate rests on\n"+
-			"this number and nothing else (docs/XMR_SWAP.md §9 R3, §10); an 18-block reorganisation has been reported.\n\n", o.confs, xmrswap.DefaultConfirmations)
+	if tier := xmrswap.TierFor(o.amountXmr).Confirmations; o.confs != 0 && o.confs < tier {
+		fmt.Fprintf(os.Stderr, "\nWARNING: -confs %d is below this trade's confirmation tier, %d. Bob's safety against a Monero reorganisation after the gate rests on\n"+
+			"this number and nothing else (docs/XMR_SWAP.md §9 R3, §10); an 18-block reorganisation has been reported.\n\n", o.confs, tier)
 	}
 	// Policy (review R18): a lying node is the one loss the protocol cannot see, and a node on another machine
 	// is one this companion cannot vouch for. On mainnet the wallets and the monerod must be loopback (parseOptions);
@@ -248,9 +247,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if runtime.GOOS == "windows" {
-		xmrswap.HardenFile = xmrswap.OwnerOnlyACL // the state and the register, restricted to this account (GAP-020)
-	}
+	// the state and the register are owner-only from the moment each file exists, on Windows too (GAP-020; writeAtomic)
 	dir, err := xmrswap.NewDirChannel(o.channel, role)
 	if err != nil {
 		log.Fatal(err)
@@ -276,19 +273,20 @@ func main() {
 	}
 	defer lock.release()
 
-	if w := xmrswap.StateFileWarning(o.state); w != "" {
-		fmt.Fprintf(os.Stderr, "\nWARNING: %s\n\n", w)
-	}
 	// U9 (MT-B15): the card prints, and the wake runs, the very command that started this companion
 	exe, err := os.Executable()
 	if err != nil {
 		exe = os.Args[0]
 	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "" // no wake is then registered, and the card says so: a relative -state would name another file from the task's directory
+	}
 	cfg := xmrswap.Config{HTLC: o.htlc, AmountDero: o.amountDero, AmountXmr: o.amountXmr, Asset: o.asset, AssetDecimals: o.assetDecimals,
 		Net: network, DeroNet: deroNet, MyDero: myDero, MoneroWalletName: o.moneroName, MoneroWalletPassword: o.moneroWalletPass, MoneroWalletDir: o.moneroWalletDir, Monerod: o.monerod,
 		T1Min: o.t1Min, T2Min: o.t2Min, T1Max: o.t1Max, T2Max: o.t2Max, T1Delta: o.t1, T2Delta: o.t2, Confirmations: o.confs, StableBlocks: o.stable, ClaimMargin: o.margin,
 		GateDeadline: o.gateDeadline, Stipend: o.stipend, StipendMin: o.stipendMin, G2Min: o.g2Min, Witnesses: witnesses,
-		ResumeCommand: resumeCommand(exe, os.Args[1:]), Wake: xmrswap.RegisterWake, Log: logf}
+		Resume: xmrswap.Resume{Exe: exe, Args: os.Args[1:], Dir: cwd}, Wake: xmrswap.RegisterWake, Log: logf}
 	var sw *xmrswap.Swap
 	if role == "bob" {
 		sw, err = xmrswap.NewBob(cfg, st, dero, wallet, prov, ch)
@@ -348,22 +346,6 @@ type options struct {
 	t1, t2, t1Min, t2Min, t1Max, t2Max, gateDeadline, g2Min           uint64
 	confs, stable, margin, fee                                        uint64
 	interval                                                          time.Duration
-}
-
-// resumeCommand is the command line that resumes this companion: the executable and the same arguments, each quoted
-// where a shell would split it. The logins and the channel key are not in it; they come from the environment.
-func resumeCommand(exe string, args []string) string {
-	q := func(a string) string {
-		if a == "" || strings.ContainsAny(a, " \t\"&|<>^") {
-			return `"` + strings.ReplaceAll(a, `"`, `\"`) + `"`
-		}
-		return a
-	}
-	parts := []string{q(exe)}
-	for _, a := range args {
-		parts = append(parts, q(a))
-	}
-	return strings.Join(parts, " ")
 }
 
 // channelKeyFrom reads the swap's channel key from XMRSWAP_CHANNEL_KEY (GAP-019). There is no flag for it: a command
@@ -433,7 +415,7 @@ func parseOptions(role string, args []string, getenv func(string) string) (*opti
 	fs.Uint64Var(&o.t2Max, "t2-max", xmrswap.DefaultT2Max, "policy: the most t2 - t1 the taker accepts")
 	fs.Uint64Var(&o.gateDeadline, "gate-deadline", xmrswap.DefaultGateDeadline, "G: alice ignores a gate reaching her at or after t1 − G, and bob releases none that late (lowering it is refused off the simulator)")
 	fs.Uint64Var(&o.g2Min, "g2-min", xmrswap.DefaultG2Min, "alice: the least g2 (the Punish window [t2, t2 + g2) of htlc.bas v3) she accepts in the install (lowering it is refused off the simulator; MT-J13)")
-	fs.Uint64Var(&o.confs, "confs", xmrswap.DefaultConfirmations, "bob: Monero confirmations before the gate secret goes out (policy; lowering it is bob's own risk and must be typed)")
+	fs.Uint64Var(&o.confs, "confs", 0, "Monero confirmations: bob's before the gate secret goes out, and the depth alice holds his t1 to (the t1 rule, off the simulator). 0 is the trade's confirmation tier's, 20 at the lowest (MT-B16); below the tier is bob's own risk, and never below 10")
 	fs.Uint64Var(&o.stable, "stable", xmrswap.DefaultStableBlocks, "alice: DERO blocks the lock must age before XMR is locked")
 	fs.Uint64Var(&o.margin, "claim-margin", xmrswap.DefaultClaimMargin, "alice: blocks of slack under t1 − 8 after which she no longer sends a Claim")
 	fs.Uint64Var(&o.fee, "fee", xmrswap.DefaultFixedFee, "fee for Refund and Punish, which the daemon cannot estimate")
@@ -459,13 +441,11 @@ func parseOptions(role string, args []string, getenv func(string) string) (*opti
 	if (o.htlc != "" && len(o.htlc) != 64) || o.amountDero == 0 || o.amountXmr == 0 {
 		return nil, errors.New("-amount-dero and -amount-xmr are required, and -htlc, when given, is 64 hex (omitted, it is the htlc.bas deploy/networks.json records for the daemon's DERO network)")
 	}
-	// Invariant 10: the confirmation depth is the one number in the protocol that is policy rather than proof.
-	// Below the default it is taken only from the operator's own hand; below Monero's spendable age it is refused
-	// outright, since the gate would open on an output nobody can spend yet.
-	if o.confs < xmrswap.DefaultConfirmations && !typed["confs"] {
-		return nil, fmt.Errorf("-confs %d is below the default %d and was not set on the command line", o.confs, xmrswap.DefaultConfirmations)
-	}
-	if o.confs < 10 {
+	// Invariant 10: the confirmation depth is the one number in the protocol that is policy rather than proof. Left
+	// out, it is the trade's confirmation tier's (Config.withDefaults, the review of 2026-09-12); below the tier it is
+	// taken only from the operator's own hand; below Monero's spendable age it is refused outright, since the gate would
+	// open on an output nobody can spend yet.
+	if typed["confs"] && o.confs < 10 {
 		return nil, fmt.Errorf("-confs %d is below CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE (10): nobody can spend the output before then, so the gate must not open on it", o.confs)
 	}
 	if xmrswap.IsWSLProverCommand(o.prover) {

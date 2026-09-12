@@ -32,7 +32,9 @@ type Dero interface {
 	// transaction is built (lockCutoff): htlc.bas v3 measures t1 − w1min against the height the Lock executes at, up
 	// to DeroTxValidity blocks after it was built, and the estimator cannot see that (it runs at height 0), so a
 	// Lock built later could be refused on chain and its fee lost. The lookup for this swap's lock is made at any
-	// height; at or past the cutoff with none found, nothing is sent and the error wraps ErrLockTooLate.
+	// height; at or past the cutoff with none found, nothing is sent and the error wraps ErrLockTooLate. A cutoff of 0
+	// is therefore the lookup alone: it sends nothing, whatever the height. An error wrapping ErrLockNotSent came before
+	// any transaction was handed to the wallet; any other may have followed a send.
 	Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount, cutoff uint64) (txid string, id uint64, err error)
 	// Claim sends nothing, first time or re-send, at a height h with h + 1 >= cutoff: cutoff is the caller's
 	// claimCutoff(t1, margin), so the client's re-send policy and the state machine's cutoff are one rule (XMR-06).
@@ -192,28 +194,37 @@ type DeroRPC struct {
 	// any Origin, so any web page open during a swap could call transfer on it.
 	Login string
 
-	// pending remembers, per (ha, hk, hb), a Lock transaction this client submitted and did not see mined.
-	// FindLock reads executed contract state, so it cannot see a transaction still in the mempool; without
-	// this memory the next attempt finds nothing, sends a second Lock carrying the same hashes and the same
-	// windows, and both mine — one Monero payment against two locked amounts, either of which the taker can
-	// claim with the one s_a and the one k_b.
+	// pending remembers, per (ha, hk, hb), a Lock transaction this client submitted and did not see mined, and the
+	// height it was built at. FindLock reads executed contract state, so it cannot see a transaction still in a
+	// mempool; without this memory the next attempt finds nothing, sends a second Lock carrying the same hashes and
+	// the same windows, and both mine — one Monero payment against two locked amounts, either of which the taker can
+	// claim with the one s_a and the one k_b. A transaction gone from this node's mempool is not gone from every
+	// node's, so it is remembered until DERO can no longer mine it anywhere (see Lock). The memory lives in this
+	// process; the state machine's own record of each attempt, saved before the send, is what survives a restart.
 	mu      sync.Mutex
-	pending map[string]string
+	pending map[string]pendingLock
 }
 
-func (c *DeroRPC) pendingTx(key string) string {
+// pendingLock is a Lock transaction this client sent and has not seen mined.
+type pendingLock struct {
+	txid   string
+	height uint64 // the daemon's height just before the send: the transaction was built at or about it
+}
+
+func (c *DeroRPC) pendingTx(key string) (pendingLock, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.pending[key]
+	p, ok := c.pending[key]
+	return p, ok
 }
 
-func (c *DeroRPC) setPending(key, txid string) {
+func (c *DeroRPC) setPending(key, txid string, height uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.pending == nil {
-		c.pending = map[string]string{}
+		c.pending = map[string]pendingLock{}
 	}
-	c.pending[key] = txid
+	c.pending[key] = pendingLock{txid: txid, height: height}
 }
 
 func (c *DeroRPC) clearPending(key string) {
@@ -224,8 +235,18 @@ func (c *DeroRPC) clearPending(key string) {
 
 // NewDeroRPC returns a client with the fee and timing the simulator and testnet need; callers adjust the fields.
 func NewDeroRPC(daemon, wallet, scid string) *DeroRPC {
-	return &DeroRPC{Daemon: daemon, Wallet: wallet, SCID: scid, FixedFee: 3000, Timeout: 3 * time.Minute, Poll: 500 * time.Millisecond, HTTP: &http.Client{Timeout: 30 * time.Second}, Resends: 2}
+	return &DeroRPC{Daemon: daemon, Wallet: wallet, SCID: scid, FixedFee: 3000, Timeout: 3 * time.Minute, Poll: 500 * time.Millisecond, HTTP: &http.Client{Timeout: 30 * time.Second, Transport: directTransport}, Resends: 2}
 }
+
+// directTransport is the transport of every daemon and wallet client in this package: it never goes through a proxy.
+// Go's default transport reads HTTP_PROXY from the environment and exempts only loopback, so a node or wallet on
+// another host would be reached through whatever proxy the environment names, the wallet's login riding in the
+// request. The companion talks to its own nodes and wallets directly or not at all.
+var directTransport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = nil
+	return t
+}()
 
 // txStatus is what the daemon knows about one transaction: mined into a block, or still in its mempool, or
 // neither — a transaction it has forgotten, which a fee too low for the miners eventually becomes.
@@ -323,8 +344,8 @@ func (c *DeroRPC) WalletAcceptsAnonymous(ctx context.Context) (bool, error) {
 // below what would hurt the machine.
 const maxDeroReply = 8 << 20
 
-// fallbackRPCClient is the client for a DeroRPC built without one: a bounded wait, as NewDeroRPC gives.
-var fallbackRPCClient = &http.Client{Timeout: 30 * time.Second}
+// fallbackRPCClient is the client for a DeroRPC built without one: a bounded wait and no proxy, as NewDeroRPC gives.
+var fallbackRPCClient = &http.Client{Timeout: 30 * time.Second, Transport: directTransport}
 
 // readCapped reads a whole reply and refuses one longer than max rather than truncating it: a truncated document
 // would fail to decode anyway, but "longer than the cap" is the answer that says what happened, the same way
@@ -965,49 +986,80 @@ func (c *DeroRPC) FindLock(ctx context.Context, makerRaw, ha, hk, hb string) (Lo
 	return Lock{}, false, nil
 }
 
+// ErrLockNotSent wraps every error Lock returns before it hands a transaction to the wallet: nothing this call made is
+// in any mempool. An error that wraps neither it nor ErrLockTooLate may have followed a send.
+var ErrLockNotSent = errors.New("the Lock was not sent")
+
+// heights is the daemon's height and its stable height, from one DERO.GetHeight.
+func (c *DeroRPC) heights(ctx context.Context) (height, stable uint64, err error) {
+	var r struct {
+		Height uint64 `json:"height"`
+		Stable uint64 `json:"stableheight"`
+	}
+	err = c.call(ctx, c.Daemon, "DERO.GetHeight", nil, &r)
+	return r.Height, r.Stable, err
+}
+
 func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount, cutoff uint64) (string, uint64, error) {
+	notSent := func(err error) (string, uint64, error) { return "", 0, fmt.Errorf("%w: %w", ErrLockNotSent, err) }
 	if asset != "" && !isHash(asset) {
-		return "", 0, fmt.Errorf("asset %q is not a 64 lower-case hex SCID", asset)
+		return notSent(fmt.Errorf("asset %q is not a 64 lower-case hex SCID", asset))
 	}
 	me, err := c.Address(ctx)
 	if err != nil {
-		return "", 0, err
+		return notSent(err)
 	}
 	meRaw, err := DeroRaw(me)
 	if err != nil {
-		return "", 0, err
+		return notSent(err)
 	}
-	// A Lock this client already sent and did not see mined is invisible to the lookup below until it leaves
-	// the mempool, so it is asked after by txid first: while the node still holds it, nothing new goes out.
+	// A Lock this client already sent and did not see mined is invisible to the lookup below until it is mined, so it is
+	// asked after by txid first: while the node still holds it, nothing new goes out.
 	key := ha + "|" + hk + "|" + hb
-	if txid := c.pendingTx(key); txid != "" {
-		mined, inPool, err := c.txStatus(ctx, txid)
+	prev, pending := c.pendingTx(key)
+	if pending {
+		mined, inPool, err := c.txStatus(ctx, prev.txid)
 		if err != nil {
-			return txid, 0, err
+			return prev.txid, 0, err
 		}
 		if inPool && !mined {
-			return txid, 0, fmt.Errorf("the Lock transaction %s from an earlier attempt is still in the mempool, where the contract's state cannot show it: not sending another", txid)
+			return prev.txid, 0, fmt.Errorf("the Lock transaction %s from an earlier attempt is still in the mempool, where the contract's state cannot show it: not sending another", prev.txid)
 		}
-		// mined, or gone from the node altogether: from here the lookup tells the truth either way
-		c.clearPending(key)
+		if mined {
+			c.clearPending(key)
+			pending = false
+		}
+		// Gone from this node without a block is not gone: derod drops a transaction from its own pool while other
+		// nodes may still hold it and mine it. Whether another may go out is decided below, before any send.
 	}
 	if l, found, err := c.FindLock(ctx, meRaw, ha, hk, hb); err != nil {
-		return "", 0, err
+		return notSent(err)
 	} else if found {
+		c.clearPending(key)
 		return "", l.ID, nil
 	}
 	// MT-A03(a): the daemon's estimate below runs at height 0 and passes a Lock the chain will refuse for its width, so
 	// this is the only check before the fee is spent
-	h, err := c.Height(ctx)
+	h, stable, err := c.heights(ctx)
 	if err != nil {
-		return "", 0, err
+		return notSent(err)
 	}
 	if h >= cutoff {
 		return "", 0, fmt.Errorf("%w: at height %d a Lock with t1 %d could execute less than w1min before t1 (lock cutoff %d)", ErrLockTooLate, h, t1, cutoff)
 	}
+	// The earlier Lock was built at about prev.height and DERO mines a transaction by DeroTxValidity − 1 blocks after the
+	// height it was built at, or never. Only once every block it could have been mined in is stable, with no lock of
+	// this swap's on the chain, has it certainly not landed anywhere; before that a second Lock could mine beside it,
+	// a second lock under the same hashes that the taker opens with the same s_a and k_b.
+	if pending {
+		if stable < prev.height+DeroTxValidity {
+			return prev.txid, 0, fmt.Errorf("the Lock transaction %s from an earlier attempt, built at about height %d, is in no block and has left this node's mempool, but another node may still mine it until height %d, which is not yet stable (stable height %d): not sending another", prev.txid, prev.height, prev.height+DeroTxValidity, stable)
+		}
+		c.clearPending(key)
+	}
 	dest, err := c.randomAddress(ctx)
 	if err != nil {
-		return "", 0, err
+		return notSent(err)
 	}
 	// An asset lock burns the asset alone into the contract. The wallet adds the zero-DERO payload that carries the
 	// fee ("if we do not have base we can not detect fees", walletapi/wallet_transfer.go), and at the ring size
@@ -1017,13 +1069,13 @@ func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uin
 	args := []Arg{argS("entrypoint", "Lock"), argS("ha", ha), argS("hk", hk), argS("hb", hb), argS("taker", taker), argU("t1", t1), argU("t2", t2), argS("asset", asset)}
 	g, err := c.estimate(ctx, me, "", xfers, args)
 	if err != nil {
-		return "", 0, fmt.Errorf("Lock refused at estimate: %w", err)
+		return notSent(fmt.Errorf("Lock refused at estimate: %w", err))
 	}
 	txid, err := c.submit(ctx, "", xfers, args, g.GasStorage+200)
 	if err != nil {
-		return "", 0, err
+		return "", 0, err // the wallet may have broadcast it before the answer was lost
 	}
-	c.setPending(key, txid)
+	c.setPending(key, txid, h)
 	if _, err := c.waitTx(ctx, txid); err != nil {
 		return txid, 0, err
 	}

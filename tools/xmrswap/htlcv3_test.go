@@ -69,10 +69,14 @@ func TestTakerRefusesAShortPunishWindow(t *testing.T) {
 
 // TestBobBuildsNoLockPastTheCutoff (MT-A03(a)): a maker whose wallet was away until the height at which a Lock could
 // execute less than w1min before t1 sends none: htlc.bas v3 would refuse it and keep the fee, and the estimate would
-// not say so. With no earlier attempt he refuses at once; after a restart he first waits out the DeroTxValidity blocks
-// in which a Lock the earlier process sent could still land, and refuses only once none can.
+// not say so. The state records every Lock attempt before its transaction leaves, so with none on record he refuses at
+// once, after a restart too. With one on record, from a process that died after it, he first waits until every block
+// that Lock could be mined in is stable, and refuses only once none can land.
 func TestBobBuildsNoLockPastTheCutoff(t *testing.T) {
-	for _, restart := range []bool{false, true} {
+	for _, c := range []struct {
+		name               string
+		restart, attempted bool
+	}{{"no restart", false, false}, {"a restart with no attempt on record", true, false}, {"a restart with an attempt on record", true, true}} {
 		r := newRun(t, plan{scenario: "happy", seed: 303})
 		r.chain.flaky = nil
 		r.bob = startWith(r, "bob", nil)
@@ -92,23 +96,34 @@ func TestBobBuildsNoLockPastTheCutoff(t *testing.T) {
 			r.chain.Advance(1) // his wallet is away until the cutoff
 		}
 		d := r.bob.dero.(*memDero)
-		if restart {
+		if c.restart {
+			if c.attempted {
+				// the attempt a process recorded at the last height it could send at, before it died
+				st := r.loadState("bob")
+				st.Lock.AttemptHeight = cut - 1
+				if err := st.Save(); err != nil {
+					t.Fatal(err)
+				}
+			}
 			d = newMemDero(r.chain, bobAddr)
 			r.bob = startHooked(r, "bob", d, nil)
-			for r.chain.Height() < cut+DeroTxValidity {
-				r.step("bob")
-				if p, _ := r.phase("bob"); p != "dero_locking" {
-					t.Fatalf("restarted at height %d, before cut + %d = %d, bob moved to %s", r.chain.Height(), DeroTxValidity, cut+DeroTxValidity, p)
+			if c.attempted {
+				end := r.bob.lockWindowEnd(cut - 1)
+				for r.chain.StableHeight() < end {
+					r.step("bob")
+					if p, _ := r.phase("bob"); p != "dero_locking" {
+						t.Fatalf("%s: at stable height %d, below %d, the last block the recorded Lock could land in, bob moved to %s", c.name, r.chain.StableHeight(), end, p)
+					}
+					r.chain.Advance(1)
 				}
-				r.chain.Advance(1)
 			}
 		}
 		r.step("bob")
 		bob := r.loadState("bob")
 		if bob.Phase != "refused" || !strings.Contains(bob.Outcome, "w1min") || len(r.chain.locks) != 0 || d.calls["LockSent"] != 0 {
-			t.Fatalf("restart %v: bob %s (%s), %d locks, %d Lock transactions sent", restart, bob.Phase, bob.Outcome, len(r.chain.locks), d.calls["LockSent"])
+			t.Fatalf("%s: bob %s (%s), %d locks, %d Lock transactions sent", c.name, bob.Phase, bob.Outcome, len(r.chain.locks), d.calls["LockSent"])
 		}
-		t.Logf("restart %v: bob: %s", restart, bob.Outcome)
+		t.Logf("%s: bob: %s", c.name, bob.Outcome)
 	}
 }
 

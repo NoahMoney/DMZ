@@ -1,12 +1,14 @@
 package xmrswap
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 )
 
@@ -128,12 +130,18 @@ type LockRecord struct {
 	ID           uint64 `json:"id"`
 	Tx           string `json:"tx,omitempty"`
 	IntentHeight uint64 `json:"intentHeight,omitempty"` // Bob: DERO height when the lock was decided
-	// AttemptHeight is the DERO height at which this companion last submitted a transaction for this lock and
-	// did not see it land — a Lock whose inclusion timed out, or a Refund sent without a readable answer. The
-	// transaction may still be in the mempool, where DERO.GetSC cannot show it, so nothing is sent again until
-	// the settle window measured from here has passed.
+	// AttemptHeight is the DERO height at which this companion last handed a transaction for this lock to its wallet,
+	// or was about to. For the Lock it is saved before the send (AttemptsRecorded), so a process that dies while its Lock
+	// waits in a mempool leaves it on disk; a refund sent without a readable answer (refundBlind) sets it too. The
+	// transaction may still be in a mempool, where DERO.GetSC cannot show it, so no second Lock goes out until every
+	// block the first could be mined in is stable (Swap.lockWindowEnd).
 	AttemptHeight uint64 `json:"attemptHeight,omitempty"`
-	SeenHeight    uint64 `json:"seenHeight,omitempty"` // Alice: DERO height when the lock first passed every check
+	// AttemptsRecorded: this state records every Lock attempt in AttemptHeight before its transaction is sent. A state
+	// saved by an earlier build, which recorded one only after a call returned an error, lacks it, and a restart into
+	// dero_locking then takes the height it restarts at (or the cutoff, past which nothing was sent) as one its Lock may
+	// have been built at.
+	AttemptsRecorded bool   `json:"attemptsRecorded,omitempty"`
+	SeenHeight       uint64 `json:"seenHeight,omitempty"` // Alice: DERO height when the lock first passed every check
 	// LockedHeight is Bob's DERO height when his Lock came back executed: the lock's block is at or below it, so
 	// once the stable height reaches it the lock can no longer be replaced, and only then does the stipend go out.
 	LockedHeight uint64 `json:"lockedHeight,omitempty"`
@@ -162,15 +170,6 @@ type ContractRecord struct {
 	W1Min uint64 `json:"w1min,omitempty"`
 	W2Min uint64 `json:"w2min,omitempty"`
 	G2    uint64 `json:"g2,omitempty"`
-}
-
-// settleFrom is the height a wait for a possibly in-flight transaction is measured from: the last attempt if
-// there was one, otherwise the height the lock was decided at.
-func (l LockRecord) settleFrom() uint64 {
-	if l.AttemptHeight > l.IntentHeight {
-		return l.AttemptHeight
-	}
-	return l.IntentHeight
 }
 
 // XmrRecord is the Monero lock as this party knows it.
@@ -226,18 +225,6 @@ func LoadState(path, role, htlc string) (*State, error) {
 // Path is where the state lives.
 func (s *State) Path() string { return s.path }
 
-// StateFileWarning is what the operator must be told about this file's protection on this platform, or "" when
-// the file's own mode is the protection. writeAtomic creates it 0600, which is the whole guard on a Unix-like
-// system; Windows ignores those bits and gives the file the directory's inherited ACL instead, so on Windows
-// nothing here restricts who may read the key share it holds. Saying so is not a fix — it is the difference
-// between an operator who knows and one who believes the 0600 in the comment.
-func StateFileWarning(path string) string {
-	if runtime.GOOS != "windows" || HardenFile != nil {
-		return ""
-	}
-	return "the state file " + path + " holds this party's key share in cleartext, and on Windows the 0600 it is created with is not enforced: it inherits the directory's ACL. Keep it in a directory only this account can read."
-}
-
 // Save writes the whole state atomically: temp file, fsync, rename. Nothing irreversible happens between a
 // phase change and this call.
 func (s *State) Save() error {
@@ -248,37 +235,54 @@ func (s *State) Save() error {
 	return writeAtomic(s.path, b)
 }
 
-// HardenFile, when set, is applied to every file writeAtomic writes — the state and the used-secrets register — once
-// it exists and before a byte of it is written. The command line sets it on Windows to OwnerOnlyACL, because there
-// the 0600 the file is created with means nothing and it would inherit the directory's ACL (GAP-020).
-var HardenFile func(path string) error
-
-// writeAtomic is the durable write both files use: temp file, fsync, rename, 0600 (and HardenFile when set).
+// writeAtomic is the durable write both files use, the state and the used-secrets register: a temporary file beside
+// path, then fsync and rename. The temporary file is new, private and unguessable from the moment it exists:
+//   - createPrivate makes it with O_EXCL (CREATE_NEW on Windows), so a file already there, planted by anyone who can
+//     write the directory, is never opened, truncated or reused;
+//   - it is owner-only in the create call itself: 0600 elsewhere, and on Windows a protected DACL granting this account
+//     alone, in the SECURITY_ATTRIBUTES CreateFileW is given (acl_windows.go). It used to be path + ".tmp", created
+//     with the directory's inherited ACL and restricted a moment later, and a process that opened it in that moment kept
+//     its handle, and the key share written through it, after the ACL changed (GAP-020, the review of 2026-09-12);
+//   - its name ends in 64 random bits (tempName), so nobody can prepare one in advance.
+//
+// The rename keeps the file's own security descriptor, so the state is owner-only under its real name too.
 func writeAtomic(path string, b []byte) error {
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	tmp, err := tempName(path)
 	if err != nil {
 		return err
 	}
-	if HardenFile != nil {
-		if err := HardenFile(tmp); err != nil {
-			f.Close()
-			os.Remove(tmp)
-			return fmt.Errorf("restricting %s to its owner: %w", tmp, err)
-		}
+	f, err := createPrivate(tmp)
+	if err != nil {
+		return err
 	}
 	if _, err := f.Write(b); err != nil {
 		f.Close()
+		os.Remove(tmp)
 		return err
 	}
 	if err := f.Sync(); err != nil {
 		f.Close()
+		os.Remove(tmp)
 		return err
 	}
 	if err := f.Close(); err != nil {
+		os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// tempName is a temporary name beside path that nobody can guess: path + ".tmp-" + 16 random hex digits.
+func tempName(path string) (string, error) {
+	var r [8]byte
+	if _, err := io.ReadFull(rand.Reader, r[:]); err != nil {
+		return "", err
+	}
+	return path + ".tmp-" + hex.EncodeToString(r[:]), nil
 }
 
 // --- the used-secrets register (Invariant 13) ---

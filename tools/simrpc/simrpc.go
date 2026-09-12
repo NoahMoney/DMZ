@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -69,6 +70,48 @@ func RequireWalletLogin(wallets ...string) error {
 // AddressCarriesLogin says whether a wallet address has the user:password@host form. Go's HTTP client sends such a
 // login as basic auth, and a call to one still works, but the login is then on the command line.
 func AddressCarriesLogin(host string) bool { return strings.Contains(host, "@") }
+
+// RequireLoopbackWallets is the other half of the mainnet gate: every wallet address must name this machine. The login
+// rides in each wallet request as HTTP basic auth over plain HTTP, so a wallet anywhere else is one whose login anyone
+// on the way can read. The error names the host without any login it carries.
+func RequireLoopbackWallets(wallets ...string) error {
+	for _, w := range wallets {
+		if !IsLoopback(w) {
+			return fmt.Errorf("the wallet address %s is not on this machine: its login (%s) would travel to it as HTTP basic auth over plain HTTP, readable on every network in between; run the wallet here and give it as 127.0.0.1:<port>", redact(w), LoginEnv)
+		}
+	}
+	return nil
+}
+
+// IsLoopback says whether a host:port address names this machine: localhost, or an IP in 127.0.0.0/8 or ::1. A name
+// that only resolves to one is not taken on trust.
+func IsLoopback(hostport string) bool {
+	host := redact(hostport)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// rpcTransport carries every call this package makes, to a daemon or a wallet, and it never goes through a proxy. Go's
+// default transport reads HTTP_PROXY from the environment and exempts only loopback, so a wallet on another host was
+// reached through whatever proxy the environment named, with the login from VEIL_RPC_LOGIN in the request.
+var rpcTransport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = nil
+	return t
+}()
+
+// rpcClient is the client for one call: rpcTransport, with http.DefaultClient's timeout, which verifydeploy and
+// testnetcheck set for every simrpc call they make.
+func rpcClient() *http.Client {
+	return &http.Client{Transport: rpcTransport, Timeout: http.DefaultClient.Timeout}
+}
 
 // redact drops the user:password@ of an address, for any message that names the host.
 func redact(host string) string {
@@ -132,7 +175,7 @@ func call(host, method string, params interface{}, out interface{}, wallet bool)
 			loginFrom = LoginEnv
 		}
 	}
-	resp, err := http.DefaultClient.Do(req) // the default client: verifydeploy sets its timeout
+	resp, err := rpcClient().Do(req) // no proxy, whatever the environment says; the default client's timeout
 	if err != nil {
 		var ue *url.Error
 		if errors.As(err, &ue) {
@@ -376,7 +419,10 @@ type SCState struct {
 func (c *Client) GetSC(scid string, code bool) SCState {
 	body := map[string]interface{}{"jsonrpc": "2.0", "id": "1", "method": "DERO.GetSC", "params": map[string]interface{}{"scid": scid, "variables": true, "code": code}}
 	b, _ := json.Marshal(body)
-	resp, err := http.Post("http://"+c.Daemon+"/json_rpc", "application/json", bytes.NewReader(b))
+	req, err := http.NewRequest(http.MethodPost, "http://"+c.Daemon+"/json_rpc", bytes.NewReader(b))
+	Must(err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := rpcClient().Do(req)
 	Must(err)
 	defer resp.Body.Close()
 	var env struct {

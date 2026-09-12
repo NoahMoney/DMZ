@@ -74,7 +74,7 @@ stay locked for ever; under v2 she could Punish at any time after T2 (`docs/XMR_
 
 | Constant | Value | Reason |
 |---|---|---|
-| `T1_MIN` | 400 blocks (~2 h) after the lock; Bob's default is lock + 420, and Alice refuses a `t1` further out than her trade's tier's T1Max: the tier's quote plus 60, 480 blocks at the lowest tier (MT-B32; 1,200 for every trade before) | Alice must lock XMR, wait 20 Monero confirmations by default (~40 min; ten is the floor, and the 18-block reorganisation reported on Monero is why the default is twice it), receive `k_b`, and claim — all before T1 |
+| `T1_MIN` | 400 blocks (~2 h) after the lock; Bob's default is lock + 420, and Alice refuses a `t1` further out than her trade's tier's T1Max: the tier's quote plus 60, 480 blocks at the lowest tier (MT-B32; 1,200 for every trade before). The tier also sets Bob's confirmations and his default t1, and off the simulator both parties hold t1 − lock to the t1 rule at the tier's depth (invariant 25) | Alice must lock XMR, wait 20 Monero confirmations by default (~40 min; ten is the floor, and the 18-block reorganisation reported on Monero is why the default is twice it), receive `k_b`, and claim — all before T1 |
 | `T2_MIN` | T1 + 400 blocks (~2 h more), at most T1 + 1,200 | Bob's refund window |
 | Monero confirmations before `k_b` | 20 by default (`DefaultConfirmations`); refused below 10, the `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE` | below ten the output cannot be spent anyway; above it, a reorganisation deeper than the depth Bob chose could still unwind Alice's lock after he has released the gate, and Monero has no bound on that depth (invariant 10) |
 
@@ -243,34 +243,54 @@ documented example addresses) — not from your own encoder. Use `filippo.io/edw
 (`build-reproducible.sh`) and gives it to the companion as `-prover "wsl.exe [-d <distribution>] -e <absolute path
 inside WSL>"`. Hashing the command's first program would hash `wsl.exe`, so the pin is checked on the binary itself
 instead (`NewPinnedWSLProver`, `tools/xmrswap/proof_wsl.go`):
-- The file is read through the distribution's share, `\\wsl.localhost\<distribution>\<path>`, or `\\wsl$\...` on a
-  Windows that has only the older name. It is hashed before every run, as a native binary is. Then Windows' own
-  `%SystemRoot%\System32\wsl.exe` runs it with `-d <distribution> -e <path>`.
+- The file is read inside the distribution, by the distribution's own `/bin/cat`, which Windows' own `wsl.exe` runs as
+  `-d <distribution> -e /bin/cat <path>`; the bytes that come back are hashed before every run, as a native binary is.
+  Then the same `wsl.exe` runs the same path in the same distribution with `-d <distribution> -e <path>`, so the read
+  and the run resolve one path through one Linux kernel. `wsl.exe` is the one in the directory `GetSystemDirectoryW`
+  names, never one `PATH` or `%SystemRoot%` finds (an environment variable, set by whoever starts the companion).
+- It used to be read through the distribution's share, `\\wsl.localhost\<distribution>\<path>`. The adversarial review
+  of 2026-09-12 found two holes in that (findings 2 and 5), and reading inside the distribution closes both at the
+  root. Windows rewrites a path on its way to a share, stripping a component's trailing dots and spaces among other
+  things, so `/opt/dmz/proof-xmr.` hashed the pinned `proof-xmr` while `wsl.exe` ran the file named `proof-xmr.`
+  (reproduced here on 2026-09-13 with `/tmp/…/true.`, a copy of `false`: through the share it hashed as `true`, read
+  inside the distribution as itself). And `\\wsl.localhost` is a UNC server name that, on a Windows without WSL's own
+  network provider, resolves like any other, so a machine on the network could have answered the read. Refusing every
+  name Windows would rewrite would have meant listing every rewrite of every Windows build; a read inside the
+  distribution leaves none to list and never leaves the machine. Trusting the distribution's `cat` is trusting its
+  root, as the share already did (WSL's file server runs there as root), and that root could replace the prover itself.
 - A command that names no distribution runs in the default one. That is read once from the registry
-  (`HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss`, `DefaultDistribution`, as `wsl.exe` reads it) and named on
-  every run, so the distribution hashed is the one run.
+  (`HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss`, `DefaultDistribution`, as `wsl.exe` reads it), through the
+  registry API rather than `reg.exe`, and named on every read and run, so the distribution hashed is the one run.
 - It fails closed. Each of these is refused:
-  - a path that no share root can read, or that is not a regular file;
-  - a first readable copy that hashes wrong (no later root is searched for one that matches);
+  - a path the distribution's `cat` cannot read (a missing file, a directory), one larger than 256 MiB (a device), or
+    one whose read does not end within two minutes (a FIFO);
+  - a binary that hashes wrong;
   - a launcher that is not System32's `wsl.exe`, or a default distribution that cannot be read;
   - any form but the one above: without `-e`, `wsl.exe` runs the command through the user's shell, which finds and
     expands it; there is no other option and nothing after the path;
-  - a path that is not absolute and clean, or that has a character outside `A-Z a-z 0-9 . _ + @ ~ - /`, because WSL's
-    share shows some characters as others.
+  - a path that is not absolute and clean, that has a character outside `A-Z a-z 0-9 . _ + @ ~ - /`, which no command
+    line quotes, splits or expands, or that has a component ending in `.`: no build is installed under such a name,
+    and it is the form that once named one file to the hash and another to the run.
 - The gap between the hash and the run is the native path's. The file is hashed and then run by name, so a
   replacement inside the gap is caught on neither path. Closing it would take running the very bytes that were
   hashed, which neither does.
 
 So the pinned build runs on mainnet from Windows as it does from Linux, with no `-prover-sha256`, which mainnet refuses.
 Tests:
-- `TestAWSLProverCommandIsParsedStrictly`, `TestPinnedWSLProverHashesTheBinaryNotTheLauncher` and
-  `TestPinnedWSLProverFailsClosed` run a stand-in `wsl.exe` over a stand-in share, and check that the launcher's hash
-  is not what is pinned;
+- `TestAWSLProverCommandIsParsedStrictly` (the review's paths among its refusals), `TestPinnedWSLProverHashesTheBinaryWhereItRuns`
+  and `TestPinnedWSLProverFailsClosed` run a stand-in `wsl.exe` over a stand-in distribution, check that the launcher's
+  hash is not what is pinned, and that every read and every run name the same distribution and path;
+- `TestWindowsOwnProgramsAreFoundWithoutTheEnvironment` finds System32 with `%SystemRoot%` and `%windir%` pointing at a
+  decoy; `TestTheDefaultWSLDistributionIsReadWithoutAProgram` reads the default with `PATH` empty;
 - `TestAProverInsideWSLIsNamedByItsCommand` checks the command line;
+- `TestTheRealWSLReadIsTheFileItRuns`, run with `XMRSWAP_TEST_WSL=1`, reads `/bin/true` in the default distribution
+  through the real `wsl.exe`, checks the hash against the distribution's own `sha256sum`, runs it as a prover pinned to
+  that hash, and refuses `/bin/true.`. It passed on 2026-09-13 (Ubuntu-24.04).
 - `TestPinnedWSLProverRunsTheRealProver`, run with `XMRSWAP_TEST_WSL_PROVER=<its path inside WSL>`, runs the
   reproducible build through the real `wsl.exe`: keygen, prove, verify, and a tampered proof refused. It was run on
-  2026-09-12 against the build pinned by `ProverSHA256`, read through `\\wsl.localhost` from the default distribution.
-  The proof took 16.1 s through `wsl.exe` and was 1,601 bytes; it verified, and the tampered copy was refused.
+  2026-09-12 against the build pinned by `ProverSHA256`, then read through `\\wsl.localhost` from the default
+  distribution. The proof took 16.1 s through `wsl.exe` and was 1,601 bytes; it verified, and the tampered copy was
+  refused. It has not been run since the read moved inside the distribution: no path to that build was at hand.
 
 ### 3.D `tools/xmrswap` — the state machine, DERO side, channel, CLI, simulator driver (agent D)
 
@@ -331,10 +351,9 @@ companion from sending one that cannot execute in time.
 saved before the call and its result after it. A companion killed in between, or whose call returned an error after the
 transaction went out, finds the lock still open on its next pass while that transaction is in the mempool, and sends
 the call again: one executes, the other is mined and refused (st is no longer 0), and its fee, 3,000 atomic units
-(`FixedFee`), is lost. The Lock's guard does not fit these two. Its `pending` memory lives in the process and does not
-survive a crash; what protects the Lock across a restart — a settle wait (`LockSettleBlocks`), then the idempotent
-lookup — would spend blocks of Alice's Punish window, which has a deadline, so that a Punish which never went out could
-miss it. The exits' fee re-send already puts a second transaction out while the first may be pending (§4, R24), and
+(`FixedFee`), is lost. The Lock's guard does not fit these two. What protects the Lock — its attempt saved before the
+send, then no second one until every block the first could be mined in is stable (below) — would spend blocks of
+Alice's Punish window, which has a deadline, so that a Punish which never went out could miss it. The exits' fee re-send already puts a second transaction out while the first may be pending (§4, R24), and
 those re-sends are made inside the client with no durable record, so no restart could know when the last of them might
 still be mined; for Bob's Reclaim, which has no deadline, a wait would cost only time, but it would need that record.
 Nothing but the fee is at stake: every exit requires st 0, so at most one executes.
@@ -344,6 +363,69 @@ is not v3's (U4), and a state file in `closing` — v2's maker closing an abando
 does not have — is refused by name (`v2Phases`, `TestAV2SwapInFlightIsRefusedByName`), and `xmrswap status` reports it
 as a divergence. v2 was installed only on the simulator (`deploy/networks.json` never recorded a testnet or mainnet
 htlc), so this strands no testnet or mainnet swap; finish a simulator swap begun on v2 with the build that started it.
+
+**No second Lock while the first can still land** (the adversarial review of 2026-09-12, finding 1). htlc.bas takes a
+second Lock under the same hashes as a second lock for the same taker, and the one `s_a` and `k_b` open both: she claims
+both, or anyone Punishes the one the maker does not know of to her, and he loses a whole amount. The maker used to wait
+only `LockSettleBlocks` (3) after a restart, and recorded an attempt only when a Lock call returned an error, so a
+process killed while its Lock sat in a mempool, restarted three blocks later, sent a second; so did a pass whose node
+dropped the Lock from its own pool while another node could still mine it. Now:
+- every attempt is saved (`LockRecord.AttemptHeight`) before its transaction leaves, and the client sends it only while
+  the height is within `LockSettleBlocks` of that record, so the record bounds the height it is built at;
+- while an attempt is on record the maker only looks (a Lock call with a cutoff of 0 is the lookup alone), until every
+  block that attempt could be mined in, up to its record + `LockSettleBlocks` + 11, is at stable depth with no lock of
+  the swap's on the chain; only then may another go out, and only before the cutoff;
+- a call that provably sent nothing (`ErrLockTooLate`, or `ErrLockNotSent`: it failed before the wallet was handed a
+  transaction) withdraws its record;
+- a state saved by an earlier build, which has no `attemptsRecorded`, takes the height it restarts at (or the cutoff,
+  past which nothing was sent) as its attempt's;
+- `DeroRPC` holds the same rule in memory: a Lock gone from its node's mempool without a block is not sent again until
+  its window is stable.
+
+On the mainnet profile the cutoff is about ten blocks after the intent, so in practice a Lock that did not land is not
+sent again, and the swap ends refused with nothing locked. Tests: `TestARestartWithTheLockInThePoolSendsNoSecond` (the
+review's scenario), `TestALockLeftInTheMempoolIsNotResentInsideItsWindow`, `TestALockThatNeverLandsIsResentOnlyAfterItsWindow`,
+`TestAStateFromAnEarlierBuildWaitsOutItsLock`, `TestTheDeroClientSendsNoSecondLockWhileTheFirstCanStillBeMined` and
+`TestBobBuildsNoLockPastTheCutoff`. The fake chain can hold a Lock in its mempool for up to 10 blocks
+(`fakeChain.poolDelay`); `TestCrashFuzz` does so for most Locks, kills the maker after his attempt is saved and after his
+Lock went out (`lock_attempt`, `lock_sent`), and fails on a second lock, mined or still pooled, and on any Lock the
+contract refused. With the old wait put back, the first two tests and the fuzz fail.
+
+**Other fixes from the same review.**
+- *The Windows wake could run a planted program* (finding 3). It registered `cmd.exe /k <resume command>`; cmd strips
+  the first and the last quote of such a line and splits it at the space, so `"…\my dir\app.bat" bob -channel "…\swap
+  dir"` ran `…\my.bat`. The companion's start is now a `Resume` (executable, arguments, directory). The task's program
+  is the companion's `.exe`, quoted as one path; its arguments are one command line written for the companion's own
+  parser (`syscall.EscapeArg`'s rules); its working directory is the one it ran in; all three reach `powershell.exe`
+  (System32's) through its environment, never through its script. A program that is not an `.exe` (Windows starts a
+  `.bat` through `cmd.exe`) and any `%` (the Task Scheduler expands `%VARIABLE%` in all three) are refused, and the card
+  says to come back by hand. The Linux wake runs the executable with its arguments as an argv under
+  `systemd-run --expand-environment=no` (systemd 254 or later), with no `sh -c`. Tests:
+  `TestTheWakeRegistersAProgramAndItsArguments`, `TestAWakeIsRefusedWhatTheSchedulerWouldRewrite`,
+  `TestTheTaskCommandLineRunsTheCompanionAsGiven` (the task's line started by `CreateProcessW` with no program named
+  apart from it, from `wake dir (x86)`, with a program planted at `wake.exe`), and, with `XMRSWAP_TEST_WAKE=1`,
+  `TestAWakeRunsTheCompanionWithItsArgumentsVerbatim`: a real task, or a real systemd timer, started at once, whose
+  companion received quotes, spaces, a tab, trailing backslashes, `$HOME`, `${HOME}`, backticks, `$(id)`, `&`, `|`,
+  `^`, `!` and, on Linux, `%h` exactly as given, in its own directory, while the planted program never ran. It passed on
+  2026-09-13 on Windows 10 and inside WSL's systemd 255, and left no task or unit behind.
+- *The state's temporary file* (finding 4). `writeAtomic` opened `<path>.tmp` with `O_TRUNC`, reusing any file of that
+  name, and on Windows created it with the directory's inherited ACL and restricted it a moment later, so a handle
+  opened in between kept reading. The temporary file's name now ends in 64 random bits, and it is created with `O_EXCL`
+  and 0600, or on Windows with `CreateFileW(CREATE_NEW)`, no sharing, and a protected owner-only DACL in its
+  `SECURITY_ATTRIBUTES`: private from the moment it exists, and the rename keeps its DACL. The state and the
+  used-secrets register are owner-only on Windows whoever writes them, so `HardenFile` and the Windows state-file
+  warning are gone. Tests: `TestAStateWriteNeverReusesAFileAlreadyThere`, `TestATempFileIsOwnerOnlyFromItsCreation`,
+  `TestStateFileIsPrivate`.
+- *Proxies* (finding 5). `tools/simrpc` sent every call through `http.DefaultClient`, whose transport reads `HTTP_PROXY`
+  and exempts only loopback, so a wallet elsewhere was reached through the proxy with `VEIL_RPC_LOGIN` in its basic
+  auth. Its transport, and every xmrswap daemon and wallet client's, now has no proxy (simrpc keeps
+  `http.DefaultClient`'s timeout, which verifydeploy and testnetcheck set), and on mainnet simdeploy and treasurybot
+  refuse a wallet address that is not loopback (`RequireLoopbackWallets`). Tests: `TestTheLoginNeverGoesThroughAProxy`
+  (a child process started with `HTTP_PROXY` set), `TestRequireLoopbackWallets`, `TestMainnetRefusesAWalletOffThisMachine`,
+  `TestMainnetBotRefusesAWalletOffThisMachine`.
+- *The confirmation tier* (finding 6): see invariant 25.
+- *simdeploy's `-htlc-g2` help* (finding 7) says the operator answered 4,800 on 2026-09-12 and that every taker refuses
+  a smaller install (`DefaultG2Min`); the flag still has no default (`TestTheG2HelpSaysTheOperatorsAnswer`).
 
 Invariants (§4) are asserted in tests, not assumed. `cmd/xmrswap` runs one side: `VEIL_RPC_LOGIN=<u>:<p>
 XMRSWAP_MONERO_LOGIN=<u>:<p> xmrswap bob|alice -state <file> -net <network> -daemon <rpc> -dero <wallet-rpc>
@@ -476,7 +558,9 @@ Added 2026-09-11 from `docs/ATOMIC_SWAP_STUDY.md` and the mainnet gap analysis:
     `TestRegisterWakeOnThisOS`), a systemd user timer with WakeSystem on Linux (registered, found
     and removed inside WSL's systemd 255 on 2026-09-12, X-23: `TestRegisterWakeOnThisOS`, `TestRegisterTheMakersWakesOnThisOS`
     with `XMRSWAP_TEST_WAKE=1`, leaving no `xmrswap-*` unit), and on macOS nothing,
-    because only root can schedule a wake there. A finished swap removes both. The maker gets his own card before his
+    because only root can schedule a wake there. The task's program is the companion itself, with its arguments and its
+    directory apart from it: never a line for `cmd.exe` or `sh` to split and expand again (the review of 2026-09-12,
+    finding 3, §3.D). A finished swap removes both. The maker gets his own card before his
     DERO is locked (MT-B28): the state file as a secret, the resume command, and t1, the last height his companion
     sends a Refund at (t2 − 12), t2 and t2 + g2 as clock times, with a wake ten minutes before t1, when his Refund
     window opens, and another before t2 + g2, when, nobody having punished, only his Reclaim returns his DERO and her
@@ -494,6 +578,13 @@ Added 2026-09-11 from `docs/ATOMIC_SWAP_STUDY.md` and the mainnet gap analysis:
     constants and the defaults disagree, checks the t1 rule at every tier, and checks that every tier's t1 meets
     max(T1Min, w1min + 11). Each value an operator decision still holds open is marked there with its MT-J number,
     and each answered one records the answer and its date (G 100 and g2 4,800, both answered 2026-09-12).
+    A trade's tier sets, together, its Monero confirmations, the maker's default t1 (the rule's need at that depth and
+    G, where that is more than 420) and the taker's T1Max; before the review of 2026-09-12 (finding 6) only T1Max
+    followed it. `-confs` left out is the tier's depth. Off the simulator, whose blocks are neither DERO's nor Monero's,
+    the maker's companion refuses to start with a t1 width below the rule's need at his confirmations and G, and the
+    taker refuses such an offer at her view of the tier (`TestTheTierDrivesTheConfirmationsAndTheT1`,
+    `TestAWidthThatBreaksTheT1RuleIsRefused`, `TestTheTakerRefusesAnOfferTheT1RuleDoesNotCover`,
+    `TestConfsIsTheTradesTierUnlessTyped`).
 26. **htlc.bas v3's install is read and held to policy, and its windows are kept** (MT-A03(a), MT-J13). Each party
     reads the code's hash and `w1min`, `w2min`, `g2` in one `DERO.GetSC` (`Deployment`), from every configured node,
     before anything of its own goes in (`checkDeployment`). Bob refuses an install his agreed widths cannot meet

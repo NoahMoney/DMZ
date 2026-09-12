@@ -53,7 +53,7 @@ var (
 	swapWmin  = flag.Uint64("swap-wmin", 1600, "swap.bas install argument: the minimum escrow width in blocks (Z-D; 1,600 for the ZEC market, docs/ZEC_SWAP.md §5). Fixed for the life of the contract; the taker's companion refuses a swap.bas whose wmin is below its policy")
 	htlcW1min = flag.Uint64("htlc-w1min", 0, "htlc.bas install argument, required to install it: the least t1 - lock height, in blocks (MT-A03(a); the Monero profile's minimum t1 is 400). Fixed for the life of the contract")
 	htlcW2min = flag.Uint64("htlc-w2min", 0, "htlc.bas install argument, required to install it: the least t2 - t1, in blocks (the Monero profile's T2 - T1 is 400). Fixed for the life of the contract")
-	htlcG2    = flag.Uint64("htlc-g2", 0, "htlc.bas install argument, required to install it: the Punish window in blocks from t2; from t2 + g2 only the maker may Reclaim (MT-J13(b)). No default: the operator has not chosen it")
+	htlcG2    = flag.Uint64("htlc-g2", 0, "htlc.bas install argument, required to install it: the Punish window in blocks from t2; from t2 + g2 only the maker may Reclaim (MT-J13(b)). The operator answered 4,800 blocks (24 h) on 2026-09-12, and the xmrswap taker refuses an install whose g2 is below her floor, 4,800 (DefaultG2Min), so every taker refuses a smaller one. No default all the same: each install names it")
 	chatFee   = flag.Uint64("chat-fee", 10000, "fee to post one message, in atomic units — the only spam control there is")
 	chatMax   = flag.Uint64("chat-maxlen", 280, "longest message the contract will store")
 	legacy    = flag.String("legacy", "", "comma-separated kind:sha256 of older template versions the app keeps accepting")
@@ -98,9 +98,10 @@ func checkSwapWmin() error {
 
 // checkHtlcWindows refuses, before anything is installed, htlc.bas install arguments its Initialize would refuse
 // (htlc.bas lines 6-7: w1min, w2min and g2 each 1 to 1,000,000, and w1min + w2min at most 999,999, past which no lock
-// could meet both; TestHtlcWindowBoundsAreTheContracts holds the two in step). The flags have no default: G2 is the
-// operator's open choice, and a width typed in here would be a policy nobody chose. An install that names none of
-// them therefore stops here, rather than after the factory and social contracts have been paid for.
+// could meet both; TestHtlcWindowBoundsAreTheContracts holds the two in step). The flags have no default: each install
+// names its windows (G2 was answered 4,800 on 2026-09-12, and the taker's floor is that), and a width typed in here would
+// be a policy nobody chose for that install. An install that names none of them therefore stops here, rather than after
+// the factory and social contracts have been paid for.
 func checkHtlcWindows() error {
 	w1, w2, g2 := *htlcW1min, *htlcW2min, *htlcG2
 	switch {
@@ -114,14 +115,19 @@ func checkHtlcWindows() error {
 	return nil
 }
 
-// checkWalletLogin refuses a mainnet run, before its first call, that could not authenticate to the wallets or that
-// would carry their password on its command line. netwallet will not start a mainnet wallet without a login, so a run
-// without VEIL_RPC_LOGIN would only stop at its first wallet call (the X-09 rehearsal, X-27).
+// checkWalletLogin refuses a mainnet run, before its first call, that could not authenticate to the wallets, that
+// would carry their password on its command line, or whose wallets are not on this machine. netwallet will not start a
+// mainnet wallet without a login, so a run without VEIL_RPC_LOGIN would only stop at its first wallet call (the X-09
+// rehearsal, X-27); and the login rides in every wallet request as HTTP basic auth over plain HTTP, readable on any
+// network between here and a wallet elsewhere.
 func checkWalletLogin() error {
 	if *network != "mainnet" {
 		return nil
 	}
-	return rpc.RequireWalletLogin(*w0, *w2)
+	if err := rpc.RequireWalletLogin(*w0, *w2); err != nil {
+		return err
+	}
+	return rpc.RequireLoopbackWallets(*w0, *w2)
 }
 
 // checkRenounce answers the -renounce of older runbooks. factory.bas v2 (MT-J15(b)) has no owner: its treasury and

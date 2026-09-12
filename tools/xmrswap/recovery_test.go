@@ -23,14 +23,14 @@ func TestTheMakersRecoveryCardComesBeforeHisLock(t *testing.T) {
 	r := newRun(t, plan{scenario: "happy", seed: 233})
 	r.chain.flaky = nil
 	start := time.Now()
-	const resume = `xmrswap bob -state "swap dir/bob.json" -net stagenet`
+	resume := Resume{Exe: "/opt/dmz/xmrswap", Args: []string{"bob", "-state", "swap dir/bob.json", "-net", "stagenet"}, Dir: "/srv/swaps"}
 	var woken []string
 	var wakeAt []time.Time
 	var atWake string
 	locksAtWake := -1
 	r.bob = startWith(r, "bob", func(c *Config) {
-		c.ResumeCommand = resume
-		c.Wake = func(at time.Time, name, command string) (string, error) {
+		c.Resume = resume
+		c.Wake = func(at time.Time, name string, got Resume) (string, error) {
 			if locksAtWake < 0 {
 				r.chain.mu.Lock()
 				locksAtWake = len(r.chain.locks)
@@ -40,7 +40,7 @@ func TestTheMakersRecoveryCardComesBeforeHisLock(t *testing.T) {
 				r.mu.Unlock()
 			}
 			wakeAt = append(wakeAt, at)
-			woken = append(woken, name+"|"+command)
+			woken = append(woken, name+"|"+strings.Join(append([]string{got.Exe, got.Dir}, got.Args...), "|"))
 			return "a test wake at " + at.Format(time.RFC3339), nil
 		}
 	})
@@ -51,7 +51,8 @@ func TestTheMakersRecoveryCardComesBeforeHisLock(t *testing.T) {
 		t.Fatalf("the maker's first wake was registered with %d locks on the chain: his card comes before his Lock", locksAtWake)
 	}
 	u := func(v uint64) string { return strconv.FormatUint(v, 10) }
-	for _, want := range []string{"RECOVERY CARD — read it before any DERO of yours is locked", "SECRET: " + r.statePath("bob"), "resume: " + resume,
+	for _, want := range []string{"RECOVERY CARD — read it before any DERO of yours is locked", "SECRET: " + r.statePath("bob"), "resume: " + resume.CommandLine(),
+		"in the directory /srv/swaps",
 		"XMRSWAP_CHANNEL_KEY", "t1             height " + u(bob.Lock.T1), "refund sent by height " + u(refundCutoff(bob.Lock.T2)-1),
 		"t2             height " + u(bob.Lock.T2), "reclaim from   height " + u(bob.Lock.T2+testG2), "anyone may Punish", "only your Reclaim"} {
 		if !strings.Contains(atWake, want) {
@@ -59,8 +60,9 @@ func TestTheMakersRecoveryCardComesBeforeHisLock(t *testing.T) {
 		}
 	}
 	names := WakeTaskNames("bob", bob.SwapID)
-	if len(woken) != 2 || woken[0] != names[0]+"|"+resume || woken[1] != names[1]+"|"+resume {
-		t.Fatalf("wakes registered: %v, want %v", woken, names)
+	given := strings.Join(append([]string{resume.Exe, resume.Dir}, resume.Args...), "|")
+	if len(woken) != 2 || woken[0] != names[0]+"|"+given || woken[1] != names[1]+"|"+given {
+		t.Fatalf("wakes registered: %v, want %v with %s", woken, names, given)
 	}
 	for _, a := range WakeTaskNames("alice", alice.SwapID) {
 		for _, b := range names {
@@ -100,7 +102,11 @@ func TestRegisterTheMakersWakesOnThisOS(t *testing.T) {
 		defer UnregisterWake(n)
 	}
 	var logs []string
-	s := &Swap{st: st, cfg: Config{ResumeCommand: `echo xmrswap maker wake test`, Wake: RegisterWake,
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Swap{st: st, cfg: Config{Resume: Resume{Exe: exe, Args: []string{"xmrswap", "maker", "wake", "test"}, Dir: t.TempDir()}, Wake: RegisterWake,
 		Log: func(f string, a ...interface{}) { logs = append(logs, fmt.Sprintf(f, a...)) }}.withDefaults()}
 	// a day and more away, so that neither task could run while it exists
 	const h = 1000
@@ -159,15 +165,15 @@ func TestRegisterTheMakersWakesOnThisOS(t *testing.T) {
 func TestTheRecoveryCardComesBeforeTheXmrLock(t *testing.T) {
 	r := newRun(t, plan{scenario: "happy", seed: 231})
 	start := time.Now()
-	const resume = `xmrswap alice -state "swap dir/alice.json" -net stagenet`
+	resume := Resume{Exe: "/opt/dmz/xmrswap", Args: []string{"alice", "-state", "swap dir/alice.json", "-net", "stagenet"}, Dir: "/srv/swaps"}
 	var woken []string
 	var wakeAt []time.Time
 	r.bob = startWith(r, "bob", nil)
 	r.alice = startWith(r, "alice", func(c *Config) {
-		c.ResumeCommand = resume
-		c.Wake = func(at time.Time, name, command string) (string, error) {
+		c.Resume = resume
+		c.Wake = func(at time.Time, name string, got Resume) (string, error) {
 			wakeAt = append(wakeAt, at)
-			woken = append(woken, name+"|"+command)
+			woken = append(woken, name+"|"+got.CommandLine())
 			return "a test wake at " + at.Format(time.RFC3339), nil
 		}
 	})
@@ -184,7 +190,7 @@ func TestTheRecoveryCardComesBeforeTheXmrLock(t *testing.T) {
 		t.Fatal("alice never locked XMR")
 	}
 	st := r.loadState("alice")
-	for _, want := range []string{"RECOVERY CARD", "SECRET: " + r.statePath("alice"), "resume: " + resume,
+	for _, want := range []string{"RECOVERY CARD", "SECRET: " + r.statePath("alice"), "resume: " + resume.CommandLine(), "in the directory /srv/swaps",
 		"claim cutoff", "gate deadline", "finish by", "t1 ", "t2 ", "wake: a test wake at", "XMRSWAP_CHANNEL_KEY",
 		// MT-J13: her Punish window's end, as a height and a clock time, and what follows it — including that past it,
 		// with nobody having punished, her XMR comes back only if bob Reclaims, and who else may send the Punish
@@ -198,7 +204,7 @@ func TestTheRecoveryCardComesBeforeTheXmrLock(t *testing.T) {
 		t.Fatalf("%d heights carry a clock time; the card has eight", n)
 	}
 	names := WakeTaskNames("alice", st.SwapID)
-	if len(woken) != 2 || woken[0] != names[0]+"|"+resume || woken[1] != names[1]+"|"+resume {
+	if len(woken) != 2 || woken[0] != names[0]+"|"+resume.CommandLine() || woken[1] != names[1]+"|"+resume.CommandLine() {
 		t.Fatalf("wakes registered: %v", woken)
 	}
 	// the first window to close is at most (t1 − the lock's first sight) blocks away, and the first wake comes before
@@ -218,14 +224,15 @@ func TestTheRecoveryCardComesBeforeTheXmrLock(t *testing.T) {
 // is registered and the reason is given, and a wake with nothing to run is refused everywhere.
 func TestWakeRegistrationSaysWhyWhereThereIsNone(t *testing.T) {
 	at := time.Now().Add(time.Hour)
-	if _, err := registerWake("darwin", at, "xmrswap-x", "xmrswap alice"); err == nil || !strings.Contains(err.Error(), "root") {
+	alice := Resume{Exe: "/opt/dmz/xmrswap", Args: []string{"alice"}, Dir: "/srv/swaps"}
+	if _, err := registerWake("darwin", at, "xmrswap-x", alice); err == nil || !strings.Contains(err.Error(), "root") {
 		t.Fatalf("macOS: %v", err)
 	}
-	if _, err := registerWake("plan9", at, "xmrswap-x", "xmrswap alice"); err == nil {
+	if _, err := registerWake("plan9", at, "xmrswap-x", alice); err == nil {
 		t.Fatal("an OS the companion knows nothing of registered a wake")
 	}
 	for _, goos := range []string{"windows", "linux", "darwin"} {
-		if _, err := registerWake(goos, at, "xmrswap-x", ""); err == nil {
+		if _, err := registerWake(goos, at, "xmrswap-x", Resume{}); err == nil {
 			t.Fatalf("%s: a wake with nothing to run was registered", goos)
 		}
 	}
@@ -246,6 +253,28 @@ func TestRemovingAWakeThatIsNotThereIsNoError(t *testing.T) {
 	_, _ = rand.Read(id[:])
 	if err := UnregisterWake(WakeTaskName("never-registered-" + hex.EncodeToString(id[:]))); err != nil {
 		t.Fatalf("removing a wake that is not there: %v", err)
+	}
+}
+
+// psQuote is a PowerShell single-quoted string, for the tests that look a task up: PowerShell takes the typographic
+// single quotes as quotes too, so each is doubled as well.
+func psQuote(s string) string {
+	for _, q := range []string{"'", "\u2018", "\u2019", "\u201a", "\u201b"} {
+		s = strings.ReplaceAll(s, q, q+q)
+	}
+	return "'" + s + "'"
+}
+
+// TestTheResumeCommandIsTheCommandLine (MT-B15): the command the recovery card prints is this companion's own executable
+// with the same arguments, quoted where this OS's command line would split them, and nothing else.
+func TestTheResumeCommandIsTheCommandLine(t *testing.T) {
+	win := Resume{Exe: `D:\tools\xmrswap.exe`, Args: []string{"alice", "-state", `swap dir\alice.json`, "-net", "stagenet", "-dero", "127.0.0.1:30007", "-monero-name", ""}}
+	if got, want := win.commandLine("windows"), `D:\tools\xmrswap.exe alice -state "swap dir\alice.json" -net stagenet -dero 127.0.0.1:30007 -monero-name ""`; got != want {
+		t.Fatalf("resume command\n got  %s\n want %s", got, want)
+	}
+	lin := Resume{Exe: "/opt/dmz/xmrswap", Args: []string{"alice", "-state", "swap dir/alice.json", "-note", "it's $HOME", ""}}
+	if got, want := lin.commandLine("linux"), `/opt/dmz/xmrswap alice -state 'swap dir/alice.json' -note 'it'\''s $HOME' ''`; got != want {
+		t.Fatalf("resume command\n got  %s\n want %s", got, want)
 	}
 }
 
@@ -281,7 +310,11 @@ func TestRegisterWakeOnThisOS(t *testing.T) {
 	_, _ = rand.Read(id[:])
 	name := WakeTaskName("test-" + hex.EncodeToString(id[:]))
 	at := time.Now().Add(24 * time.Hour).Truncate(time.Minute)
-	what, err := RegisterWake(at, name, `echo xmrswap wake test`)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	what, err := RegisterWake(at, name, Resume{Exe: exe, Args: []string{"xmrswap", "wake test"}, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +324,8 @@ func TestRegisterWakeOnThisOS(t *testing.T) {
 	case "windows":
 		out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 			"$t = Get-ScheduledTask -TaskName "+psQuote(name)+"; 'WakeToRun=' + $t.Settings.WakeToRun; 'Start=' + $t.Triggers[0].StartBoundary; 'Run=' + $t.Actions[0].Execute + ' ' + $t.Actions[0].Arguments").CombinedOutput()
-		if err != nil || !strings.Contains(string(out), "WakeToRun=True") || !strings.Contains(string(out), at.Format("2006-01-02T15:04")) {
+		if err != nil || !strings.Contains(string(out), "WakeToRun=True") || !strings.Contains(string(out), at.Format("2006-01-02T15:04")) ||
+			!strings.Contains(string(out), exe) || strings.Contains(strings.ToLower(string(out)), "cmd.exe") {
 			t.Fatalf("the task as the scheduler has it: %v\n%s", err, out)
 		}
 		t.Logf("the scheduler has:\n%s", strings.TrimSpace(string(out)))

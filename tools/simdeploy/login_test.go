@@ -185,6 +185,23 @@ func TestMainnetRefusesALoginInTheWalletAddress(t *testing.T) {
 	}
 }
 
+// A wallet that is not on this machine is refused on mainnet before any call: its login would travel to it as HTTP
+// basic auth over plain HTTP (the review of 2026-09-12, finding 5).
+func TestMainnetRefusesAWalletOffThisMachine(t *testing.T) {
+	d, daemon := startNode(t, "", "")
+	a, w0 := startNode(t, loginUser+":"+loginPass, "dero1qydeployer")
+	for _, far := range []string{"10.0.0.5:30002", "wallet.example:30002"} {
+		code, out := runSimdeploy(t, loginUser+":"+loginPass, mainnetRun(t, daemon, w0, far))
+		noLogin(t, out)
+		if code != 2 || !strings.Contains(out, "not on this machine") || !strings.Contains(out, far) {
+			t.Fatalf("-w2 %s: exit %d, want 2 naming the wallet:\n%s", far, code, shown(out))
+		}
+	}
+	if len(d.seen())+len(a.seen()) != 0 {
+		t.Errorf("calls were made before the refusal: daemon %v, wallet %v", d.seen(), a.seen())
+	}
+}
+
 // With VEIL_RPC_LOGIN set, both wallets are reached with it and the daemon never sees it; the run goes on to its
 // first install, where the fake node stops it before any transfer.
 func TestMainnetSendsTheLoginToTheWalletsOnly(t *testing.T) {

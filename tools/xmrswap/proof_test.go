@@ -25,6 +25,17 @@ import (
 // A pinned prover (NewPinnedProver) is run as its path alone, so it cannot be handed a leading argument: with
 // XMRSWAP_FAKE_PROVER set, the binary answers verify in that mode instead (pinnedFakeMain).
 func TestMain(m *testing.M) {
+	// copies of this binary named wake-child and wake stand in for the companion a wake starts and for a program planted
+	// where a command line split at a space would find one (wake_test.go); either is started by the OS, with no
+	// environment of this test's
+	if exe, err := os.Executable(); err == nil {
+		switch strings.TrimSuffix(strings.ToLower(filepath.Base(exe)), ".exe") {
+		case "wake-child":
+			os.Exit(wakeChildMain(exe))
+		case "wake":
+			os.Exit(wakePlantedMain(exe))
+		}
+	}
 	// a copy of this binary named wsl.exe stands in for WSL's launcher (proof_wsl_test.go)
 	if root := os.Getenv("XMRSWAP_FAKE_WSL_ROOT"); root != "" {
 		os.Exit(fakeWSLMain(root, os.Args[1:]))

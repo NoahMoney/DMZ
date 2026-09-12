@@ -122,10 +122,11 @@ type Config struct {
 	// any XMR (MT-B09). Her own node alone could show her a lock that is not on the chain: she would lock XMR against
 	// nothing, and her Claim would hand s_a to whoever runs that node. Each is only read.
 	Witnesses []LockReader
-	// ResumeCommand is the command that resumes this companion, as the recovery card prints it and the wake runs it
-	// (U9, MT-B15). Wake, when set, registers that wake with the operating system; nil registers none.
-	ResumeCommand string
-	Wake          WakeFunc
+	// Resume is how this companion is started again, as the recovery card prints it and the wake runs it (U9, MT-B15):
+	// its executable, its arguments and its directory, which the wake registers as a program with its arguments, never
+	// as a line for a shell. Wake, when set, registers that wake with the operating system; nil registers none.
+	Resume Resume
+	Wake   WakeFunc
 
 	// T1Min, T2Min are policy floors: Alice refuses a lock below them; Bob refuses to choose below them, and below the
 	// install's own w1min + DeroTxValidity and w2min, which htlc.bas v3 enforces at the Lock's execution height.
@@ -140,8 +141,10 @@ type Config struct {
 	// GateMargin: Bob releases k_b only while height + GateMargin < t1, so Alice has blocks left to claim in —
 	// by default her own cutoff plus two blocks for the channel, since a gate she cannot use is a wasted one.
 	GateMargin uint64
-	// LockSettleBlocks: after a restart during a lock, Bob waits this many blocks for a possibly in-flight
-	// transaction to land before the idempotent Lock looks for it, so a mempool transaction is never doubled.
+	// LockSettleBlocks bounds how far the chain may move between the height Bob records a Lock attempt at, before its
+	// transaction is sent, and the height the wallet builds it at: the client sends nothing once the height is this far
+	// past the record. So an attempt recorded at a is mined by a + LockSettleBlocks + DeroTxValidity − 1 or never, and no
+	// second Lock goes out until that height is stable with no lock of this swap's on the chain (lockWindowEnd).
 	LockSettleBlocks uint64
 	// SweepWaits is how many passes the sweep waits on a joint wallet with nothing spendable in it.
 	SweepWaits uint64
@@ -184,16 +187,28 @@ func (c Config) withDefaults() Config {
 	}
 	def(&c.T1Min, DefaultT1Min)
 	def(&c.T2Min, DefaultT2Min)
-	// the taker sees the lock a couple of blocks after the maker decided t1, and measures t1 − now against the
-	// same floor, so the maker adds slack or his own lock is refused
-	def(&c.T1Delta, c.T1Min+(profileT1Default-profileT1Min))
+	// MT-B32 and the review of 2026-09-12 (finding 6): the trade's confirmation tier sets, together, the Monero depth
+	// the gate waits for, the t1 the maker quotes and the ceiling the taker accepts. Only the ceiling followed the tier
+	// before, so a trade at a 40-confirmation tier would have been gated at 20 and quoted the lowest tier's t1.
+	tier := TierFor(c.AmountXmr)
+	def(&c.Confirmations, tier.Confirmations)
+	def(&c.GateDeadline, DefaultGateDeadline)
+	// the taker sees the lock a couple of blocks after the maker decided t1, and measures t1 − now against the same
+	// floor, so the maker adds slack or his own lock is refused; off the simulator the width is also at least what the
+	// t1 rule needs at this trade's confirmations and G (T1Quote). The simulator's blocks are neither DERO's 18 s nor
+	// Monero's 120 s, so the rule, which counts in them, says nothing there.
+	quote := c.T1Min + (profileT1Default - profileT1Min)
+	if c.DeroNet != "simulator" {
+		if q := T1Quote(c.Confirmations, c.GateDeadline); q > quote {
+			quote = q
+		}
+	}
+	def(&c.T1Delta, quote)
 	def(&c.T2Delta, c.T2Min+(profileT2MinusT1-profileT2Min))
-	def(&c.T1Max, TierFor(c.AmountXmr).T1Max) // MT-B32: the ceiling of the trade's own confirmation tier
+	def(&c.T1Max, tier.T1Max) // MT-B32: the ceiling of the trade's own confirmation tier
 	def(&c.T2Max, DefaultT2Max)
-	def(&c.Confirmations, DefaultConfirmations)
 	def(&c.StableBlocks, DefaultStableBlocks)
 	def(&c.ClaimMargin, DefaultClaimMargin)
-	def(&c.GateDeadline, DefaultGateDeadline)
 	def(&c.GateMargin, DefaultStableBlocks+c.ClaimMargin+2)
 	// U2: a gate Bob releases inside t1 − G is one Alice ignores, so his margin is at least G plus two blocks
 	// for the channel, whatever it was set to
@@ -252,6 +267,8 @@ type Swap struct {
 	stipendNote string
 	// codeChecked: this process has read the contract's code and found it is the htlc.bas it was built for (U4).
 	codeChecked bool
+	// lockWaitNoted is the Lock attempt the operator was last told is being waited out, said once per attempt.
+	lockWaitNoted uint64
 	// crash is a test hook: after each durable step it may abandon the call as a process death would.
 	crash func(stage string) bool
 	// rand is a test hook for the gate secret and the view key: nil is crypto/rand.
@@ -305,6 +322,15 @@ func newSwap(role string, cfg Config, st *State, dero Dero, xmr Wallet, prover P
 	}
 	if role == "bob" && cfg.T1Delta <= cfg.GateMargin {
 		return nil, fmt.Errorf("a t1 width of %d leaves no block in which the gate may go out (gate margin %d, from the gate deadline %d)", cfg.T1Delta, cfg.GateMargin, cfg.GateDeadline)
+	}
+	// The review of 2026-09-12 (finding 6): off the simulator the maker's t1 width must carry the study's t1 rule
+	// (docs/ATOMIC_SWAP_STUDY.md §2.1 U7) at his own confirmations and G, or the taker's XMR can reach its depth too late
+	// for her to claim. Nothing checked it at runtime before; the profile test checked only the defaults. The taker holds
+	// his offer to the same rule at her own view of the tier (stepAlice, setup).
+	if role == "bob" && cfg.DeroNet != "simulator" {
+		if need := RequiredT1(cfg.Confirmations, cfg.GateDeadline, profileK); float64(cfg.T1Delta) < need {
+			return nil, fmt.Errorf("a t1 width of %d is below the %.1f blocks the t1 rule needs at %d Monero confirmations and a gate deadline of %d (docs/ATOMIC_SWAP_STUDY.md §2.1 U7): the taker's XMR could reach its confirmations too late for her to claim; give a t1 width of at least %d, or leave it to the default", cfg.T1Delta, need, cfg.Confirmations, cfg.GateDeadline, T1Quote(cfg.Confirmations, cfg.GateDeadline))
+		}
 	}
 	// MT-B27: his Refund goes out only below refundCutoff(t2) = t2 − DeroTxValidity, so a t2 − t1 of DeroTxValidity or
 	// less leaves no height in [t1, t2) at which one can be sent and still execute before t2
@@ -1235,7 +1261,7 @@ func (s *Swap) stepBob(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		st.Lock = LockRecord{IntentHeight: h, T1: h + st.Terms.T1Delta, T2: h + st.Terms.T1Delta + st.Terms.T2Delta, Amount: st.Terms.AmountDero}
+		st.Lock = LockRecord{IntentHeight: h, T1: h + st.Terms.T1Delta, T2: h + st.Terms.T1Delta + st.Terms.T2Delta, Amount: st.Terms.AmountDero, AttemptsRecorded: true}
 		// U9 for the maker (MT-B28): what to keep secret, what to run, and every window of his as a clock time, said before
 		// the one payment that needs them — and the OS asked to wake this machine before t1, when his Refund window opens,
 		// and before t2 + g2, when nobody having punished, only his Reclaim returns his DERO and the taker's XMR
@@ -1243,53 +1269,112 @@ func (s *Swap) stepBob(ctx context.Context) error {
 		return s.save("dero_locking")
 
 	case "dero_locking":
+		// htlc.bas takes a second Lock under the same hashes as a second lock, for the same taker, and the one s_a and
+		// the one k_b open both: she claims both, or anyone Punishes the one the maker does not know of to her, and he
+		// loses a whole AmountDero. A Lock already sent may be in a mempool — this node's or another's — where DERO.GetSC,
+		// and so every lookup, cannot see it; derod can drop it from its own pool while another node still mines it; and
+		// the process that sent it can die while it waits. So every attempt is on disk before its transaction leaves,
+		// and no second one goes out while DERO could still mine the first: until every block it could land in is stable
+		// with no lock of this swap's on the chain (lockWindowEnd).
 		h, err := s.dero.Height(ctx)
 		if err != nil {
 			return err
-		}
-		// A lock already sent may still be in the mempool, where DERO.GetSC — and so the idempotent lookup Lock
-		// makes — cannot see it. That is true of a restart and equally true of this process's own retry after
-		// the client gave up waiting for inclusion, so the wait covers both; without it a second Lock goes out
-		// carrying the same hashes, the same taker and the same windows, both mine as separate ids, and the
-		// taker claims both with one s_a and one k_b.
-		inFlight := s.resumedPhase == "dero_locking" || st.Lock.AttemptHeight > 0
-		if inFlight && h < st.Lock.settleFrom()+s.cfg.LockSettleBlocks {
-			return nil
 		}
 		c, err := s.contract(ctx)
 		if err != nil {
 			return err
 		}
 		cutoff := lockCutoff(st.Lock.T1, c.W1Min)
-		txid, id, err := s.dero.Lock(ctx, st.Peer.H, st.HK, st.Own.H, st.PeerDero, st.Lock.T1, st.Lock.T2, st.Terms.Asset, st.Lock.Amount, cutoff)
-		if errors.Is(err, ErrLockTooLate) {
-			// MT-A03(a): no lock of this swap's is on the chain, and one built now could execute less than w1min before
-			// t1, where htlc.bas v3 refuses it and keeps the fee. A Lock an earlier attempt sent was built before the
-			// cutoff, so it executes by cutoff + DeroTxValidity or never: until then the lookup may still find it, and
-			// after it "none" is final and nothing of this party's was locked
-			if inFlight && h < cutoff+DeroTxValidity {
+		if !st.Lock.AttemptsRecorded {
+			// A state an earlier build saved in this phase. That build recorded an attempt only after a Lock call returned
+			// an error, so one may have gone out at any height from the intent until now, or until the cutoff, past which
+			// none was sent: that height is taken as the attempt's, and its window is waited out like any other.
+			a := h
+			if cutoff > 0 && a >= cutoff {
+				a = cutoff - 1
+			}
+			if a < st.Lock.IntentHeight {
+				a = st.Lock.IntentHeight
+			}
+			if a > st.Lock.AttemptHeight {
+				st.Lock.AttemptHeight = a
+			}
+			st.Lock.AttemptsRecorded = true
+			if err := st.Save(); err != nil {
+				return err
+			}
+		}
+		if a := st.Lock.AttemptHeight; a > 0 {
+			// an earlier attempt: the chain is only looked at until DERO can no longer mine it. A cutoff of 0 is the
+			// lookup alone, which sends nothing whatever the height (Dero.Lock)
+			_, id, err := s.dero.Lock(ctx, st.Peer.H, st.HK, st.Own.H, st.PeerDero, st.Lock.T1, st.Lock.T2, st.Terms.Asset, st.Lock.Amount, 0)
+			if err == nil {
+				return s.lockLanded(id, st.Lock.Tx)
+			}
+			if !errors.Is(err, ErrLockTooLate) {
+				return err
+			}
+			stable, err := s.dero.StableHeight(ctx)
+			if err != nil {
+				return err
+			}
+			end := s.lockWindowEnd(a)
+			if stable < end {
+				if s.lockWaitNoted != a {
+					s.lockWaitNoted = a
+					s.cfg.Log("bob: the Lock attempted at height %d is not on the chain, and DERO could still mine it until height %d: no other Lock goes out until that height is stable (stable height %d)", a, end, stable)
+				}
 				return nil
 			}
+			s.cfg.Log("bob: the Lock attempted at height %d never landed: every block it could have been mined in, up to %d, is stable and holds no lock of this swap's", a, end)
+		}
+		if h >= cutoff {
+			// MT-A03(a): no lock of this swap's is on the chain, none can still land, and one built now could execute less
+			// than w1min before t1, where htlc.bas v3 refuses it and keeps the fee
 			return s.finish("refused", fmt.Sprintf("the Lock could no longer be built in time: from height %d a Lock with t1 %d could execute less than the contract's w1min %d before t1, and htlc.bas v3 would refuse it on chain; nothing was locked", cutoff, st.Lock.T1, c.W1Min))
 		}
-		if err != nil {
-			// the transaction may be in the pool: record it, and the height it went out at, so the next pass
-			// waits for it to land instead of sending another
-			st.Lock.AttemptHeight = h
-			if txid != "" {
-				st.Lock.Tx = txid
-			}
+		// The attempt is on disk before the Lock leaves, and the client sends it only while the height is within
+		// LockSettleBlocks of the record, so the window counted from the record covers the height it is built at.
+		prev := st.Lock.AttemptHeight
+		st.Lock.AttemptHeight, st.Lock.Tx = h, ""
+		if err := st.Save(); err != nil {
+			st.Lock.AttemptHeight = prev
+			return err
+		}
+		if s.crash != nil && s.crash("lock_attempt") {
+			return errCrashed // the test hook: killed with the attempt recorded and nothing sent
+		}
+		sendBy := cutoff
+		if lim := h + s.cfg.LockSettleBlocks; lim < sendBy {
+			sendBy = lim
+		}
+		txid, id, err := s.dero.Lock(ctx, st.Peer.H, st.HK, st.Own.H, st.PeerDero, st.Lock.T1, st.Lock.T2, st.Terms.Asset, st.Lock.Amount, sendBy)
+		if lockNotSent(err) {
+			// nothing went out: the attempt recorded for this call is withdrawn, so no pass waits on a transaction that
+			// does not exist (the earlier one it replaced, if any, had already been waited out)
+			st.Lock.AttemptHeight = prev
 			if serr := st.Save(); serr != nil {
 				return serr
 			}
+			if errors.Is(err, ErrLockTooLate) {
+				return nil // the next pass holds the height against the cutoff
+			}
 			return err
 		}
-		st.Lock.ID, st.Lock.Tx = id, txid
-		s.cfg.Log("bob: DERO locked: id %d tx %s t1 %d t2 %d amount %d", id, txid, st.Lock.T1, st.Lock.T2, st.Lock.Amount)
-		if err := s.queue(KindDeroLocked, deroLockedBody{ID: id, Tx: txid}); err != nil {
+		if s.crash != nil && s.crash("lock_sent") {
+			return errCrashed // the test hook: killed after the Lock went out and before its result was recorded
+		}
+		if err != nil {
+			// the transaction may be in a mempool: its attempt is on disk already, and the next pass waits it out
+			if txid != "" {
+				st.Lock.Tx = txid
+				if serr := st.Save(); serr != nil {
+					return serr
+				}
+			}
 			return err
 		}
-		return s.save("dero_locked")
+		return s.lockLanded(id, txid)
 
 	case "dero_locked":
 		if st.Lock.LockedHeight == 0 {
@@ -1559,6 +1644,30 @@ func (s *Swap) stepBob(ctx context.Context) error {
 		return v2PhaseError("bob", st.Phase)
 	}
 	return fmt.Errorf("bob: unknown phase %q", st.Phase)
+}
+
+// lockNotSent says whether an error from Dero.Lock means no transaction left: the cutoff refused it, or it failed before
+// the wallet was handed one.
+func lockNotSent(err error) bool {
+	return errors.Is(err, ErrLockTooLate) || errors.Is(err, ErrLockNotSent)
+}
+
+// lockWindowEnd is the last height, counted one block conservative as every cutoff here is, at which a Lock attempt
+// recorded at a could be mined. The client sends it only while the height is below a + LockSettleBlocks, so it is built
+// at or below that, and DERO mines a transaction within DeroTxValidity − 1 blocks of the height it was built at or never
+// (blockchain/miner_block.go). Once this height is stable with no lock of this swap's on the chain, the attempt never
+// landed and never will.
+func (s *Swap) lockWindowEnd(a uint64) uint64 { return a + s.cfg.LockSettleBlocks + DeroTxValidity }
+
+// lockLanded records this swap's Lock, sent now or found on the chain, and tells the taker.
+func (s *Swap) lockLanded(id uint64, txid string) error {
+	st := s.st
+	st.Lock.ID, st.Lock.Tx = id, txid
+	s.cfg.Log("bob: DERO locked: id %d tx %s t1 %d t2 %d amount %d", id, txid, st.Lock.T1, st.Lock.T2, st.Lock.Amount)
+	if err := s.queue(KindDeroLocked, deroLockedBody{ID: id, Tx: txid}); err != nil {
+		return err
+	}
+	return s.save("dero_locked")
 }
 
 // bobFunds is what the maker checks in his own wallet before the lock: the asset (or DERO) the lock carries, the
@@ -2099,6 +2208,10 @@ func (s *Swap) stepAlice(ctx context.Context) error {
 			return s.finish("refused", fmt.Sprintf("offer refused: timelock widths %d/%d below the minimums %d/%d", got.T1Delta, got.T2Delta, s.cfg.T1Min, s.cfg.T2Min))
 		case got.T1Delta > s.cfg.T1Max || got.T2Delta > s.cfg.T2Max:
 			return s.finish("refused", fmt.Sprintf("offer refused: timelock widths %d/%d above the maximums %d/%d; until t1 the XMR she locks has no exit of its own and only the maker decides whether the trade happens", got.T1Delta, got.T2Delta, s.cfg.T1Max, s.cfg.T2Max))
+		case s.cfg.DeroNet != "simulator" && float64(got.T1Delta) < RequiredT1(s.cfg.Confirmations, s.cfg.GateDeadline, profileK):
+			// the review of 2026-09-12 (finding 6): a t1 the rule does not cover at this trade's tier is one in which her
+			// XMR may reach the maker's depth, and the gate her, too late to claim
+			return s.finish("refused", fmt.Sprintf("offer refused: a t1 width of %d is below the %.1f blocks the t1 rule needs at this trade's %d Monero confirmations and a gate deadline of %d (docs/ATOMIC_SWAP_STUDY.md §2.1 U7): the XMR she locks could reach the maker's depth too late for her to claim", got.T1Delta, RequiredT1(s.cfg.Confirmations, s.cfg.GateDeadline, profileK), s.cfg.Confirmations, s.cfg.GateDeadline))
 		}
 		st.Terms = got
 		if err := s.queue(KindAliceSetup, aliceSetupBody{S: st.Own.S, H: st.Own.H, Proof: st.Own.Proof, V: st.ViewPub, View: st.View, Dero: st.MyDero}); err != nil {

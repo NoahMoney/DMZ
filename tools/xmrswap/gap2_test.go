@@ -108,15 +108,12 @@ func TestSetDaemonNamesTheMonerod(t *testing.T) {
 	}
 }
 
-// TestStateFilesAreOwnerOnlyOnWindows (GAP-020): with HardenFile set, as the command line sets it on Windows, the
-// state file carries no inherited entry and grants its owner alone, and the operator is not warned about it.
+// TestStateFilesAreOwnerOnlyOnWindows (GAP-020): every state file is created owner-only, whoever calls Save — the state
+// file carries no inherited entry and grants its owner alone, as icacls shows it.
 func TestStateFilesAreOwnerOnlyOnWindows(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("the ACL is Windows'; elsewhere the file's 0600 is the guard (TestStateFileIsPrivate)")
 	}
-	old := HardenFile
-	HardenFile = OwnerOnlyACL
-	defer func() { HardenFile = old }()
 	st := NewState(filepath.Join(t.TempDir(), "s.json"), "bob", "ab")
 	st.Own.Secret = strings.Repeat("11", 32)
 	if err := st.Save(); err != nil {
@@ -130,9 +127,6 @@ func TestStateFilesAreOwnerOnlyOnWindows(t *testing.T) {
 	if !strings.Contains(text, os.Getenv("USERNAME")+":(F)") || strings.Contains(text, "(I)") || strings.Contains(text, "Everyone") ||
 		strings.Contains(text, `BUILTIN\Users`) || strings.Contains(text, "Authenticated Users") {
 		t.Fatalf("the state file's ACL is not owner-only:\n%s", text)
-	}
-	if w := StateFileWarning(st.Path()); w != "" {
-		t.Fatalf("still warned: %s", w)
 	}
 	t.Logf("icacls: %s", strings.TrimSpace(text))
 }

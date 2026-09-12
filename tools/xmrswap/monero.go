@@ -109,7 +109,7 @@ func NewWalletRPC(endpoint, user, pass string) Wallet {
 	}
 	// A transfer can take the wallet a while (scanning, then building the ring signatures); the caller's ctx is
 	// the real deadline and this is the backstop against a wallet that never answers at all.
-	return &walletRPC{url: endpoint, uri: uri, user: user, pass: pass, http: &http.Client{Timeout: 10 * time.Minute}}
+	return &walletRPC{url: endpoint, uri: uri, user: user, pass: pass, http: &http.Client{Timeout: 10 * time.Minute, Transport: directTransport}}
 }
 
 type walletRPC struct {

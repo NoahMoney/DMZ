@@ -3,9 +3,9 @@ package xmrswap
 // X-17: the pinned prover on Windows, where proof-xmr is a Linux binary inside a WSL distribution.
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -13,36 +13,56 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // A Windows holder runs proof-xmr as `wsl.exe -d <distribution> -e <path>`. The pin cannot be checked on the command's
-// first program, which is wsl.exe. So the companion checks it on the binary itself. It reads the file through the
-// distribution's own share, \\wsl.localhost\<distribution>\<path>, or \\wsl$\<distribution>\<path> on a Windows that
-// has only the older name. It hashes the file before every run, as NewPinnedProver hashes a native binary, and then
-// has Windows' own wsl.exe run it.
+// first program, which is wsl.exe, so the companion checks it on the binary itself, before every run, as NewPinnedProver
+// hashes a native binary. It reads the binary inside the distribution, with `wsl.exe -d <distribution> -e /bin/cat
+// <path>`, and hashes the bytes that come back; then Windows' own wsl.exe runs the same path in the same distribution.
+//
+// Why inside the distribution (the review of 2026-09-12, findings 2 and 5). The binary used to be read through the
+// distribution's share, \\wsl.localhost\<distribution>\<path>, and that had two holes:
+//   - The file hashed was not always the file run. Windows rewrites a path on its way to a share: among other things it
+//     strips a component's trailing dots and spaces. So /opt/dmz/proof-xmr. was hashed as the pinned proof-xmr while
+//     wsl.exe ran the Linux file named proof-xmr., which the review confirmed live. Refusing every name Windows would
+//     rewrite means listing every rewrite every Windows build makes; reading inside the distribution leaves nothing to
+//     list, because the read and the run then resolve the one path through the one Linux kernel.
+//   - \\wsl.localhost is a UNC server name. On a Windows without WSL's own network provider it is resolved like any other
+//     server name, so a machine on the network could answer the read and hand over the pinned build while the local file
+//     ran. A read inside the distribution never leaves this machine.
+//
+// /bin/cat is the distribution's own, named by its absolute path so that no PATH is searched. Trusting it is trusting
+// the distribution's root, as the share already did (WSL's file server runs in the distribution as its root), and that
+// root could replace the prover itself. Components that end in '.' are refused all the same (ParseWSLProverCommand): no
+// build is installed under such a name, and it is the form that once named one file to the hash and another to the run.
+// A read inside the distribution was checked live on 2026-09-13: what wsl.exe passes back hashes as the distribution's
+// own sha256sum hashes the file, and /bin/true. is not /bin/true there.
 
 var (
-	// wslShareRoots are the roots a distribution's files are read through, in order. The first that reads the file is
-	// the one hashed; a later root is tried only when an earlier one cannot read it. A test points them at its own
-	// directories.
-	wslShareRoots = []string{`\\wsl.localhost`, `\\wsl$`}
-	// wslLauncher is the one wsl.exe the companion puts in front of the prover: Windows' own, in System32, never one
-	// that PATH finds. A test names a stand-in.
+	// wslLauncher is the one wsl.exe the companion puts in front of the prover and its read: Windows' own, in the
+	// directory GetSystemDirectoryW names, never one that PATH or %SystemRoot% finds. A test names a stand-in.
 	wslLauncher = systemWSL
 	// wslDefaultDistro names the distribution a command runs in when it names none. A test names its own.
 	wslDefaultDistro = defaultWSLDistro
 )
 
-// maxPinnedProverBytes caps the read of a binary through the share: a path naming a device such as /dev/zero would
-// otherwise be read for ever. The pinned build is 1,340,640 bytes.
+// maxPinnedProverBytes caps the read of the binary: a path naming a device such as /dev/zero would otherwise be read for
+// ever. The pinned build is 1,340,640 bytes.
 const maxPinnedProverBytes = 256 << 20
+
+// wslReadTimeout bounds the read: starting a stopped distribution takes seconds, and a path naming a FIFO would otherwise
+// hold it open for ever.
+const wslReadTimeout = 2 * time.Minute
+
+// wslCat reads the binary inside the distribution: the distribution's own cat, by its absolute path.
+const wslCat = "/bin/cat"
 
 var (
 	wslDistroName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-	// WSL's share shows some characters of a Linux file name as others (: * ? " < > | \ among them). A path with any of
-	// them could name one file to the hash and another to wsl.exe, so only these are accepted.
+	// The path is handed to wsl.exe twice, once to be read and once to be run, and is accepted only in characters that
+	// no command line quotes, splits or expands, so the two are the same string to the same kernel.
 	wslPathChars = regexp.MustCompile(`^[A-Za-z0-9._+@~/-]+$`)
-	wslGUID      = regexp.MustCompile(`^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$`)
 )
 
 // IsWSLProverCommand says whether a -prover value is a wsl.exe command rather than a binary's path: its first word is
@@ -65,7 +85,8 @@ func isWSLName(s string) bool {
 //   - no shell: without -e, wsl.exe runs the command line through the user's shell, which searches PATH for it and
 //     expands it;
 //   - no other option, and nothing after the path, since the companion adds its own verb and arguments;
-//   - a path that is absolute, clean, and made only of characters the share names the way wsl.exe does.
+//   - a path that is absolute and clean, made only of characters no command line treats specially, with no component
+//     that ends in '.'.
 //
 // distro is "" when the command names none. launcher is the first word as given.
 func ParseWSLProverCommand(command []string) (launcher, distro, linuxPath string, err error) {
@@ -92,9 +113,21 @@ func ParseWSLProverCommand(command []string) (launcher, distro, linuxPath string
 	case path.Clean(p) != p:
 		return bad("%q is not a clean path (no . or .. part, no doubled or trailing slash)", p)
 	case !wslPathChars.MatchString(p):
-		return bad("%q has a character WSL's share may show differently from the name wsl.exe runs (accepted: letters, digits, . _ + @ ~ - /)", p)
+		return bad("%q has a character outside the ones accepted (letters, digits, . _ + @ ~ - /)", p)
+	case dotEndedComponent(p) != "":
+		return bad("%q has the component %q, which ends in '.': Windows strips such a dot from a path it handles, which once let one file be hashed and another run, and no build is installed under such a name", p, dotEndedComponent(p))
 	}
 	return command[0], distro, p, nil
+}
+
+// dotEndedComponent is the first component of an absolute path that ends in '.', or "".
+func dotEndedComponent(p string) string {
+	for _, c := range strings.Split(strings.TrimPrefix(p, "/"), "/") {
+		if strings.HasSuffix(c, ".") {
+			return c
+		}
+	}
+	return ""
 }
 
 // PinnedProverFor is the companion's prover for a -prover value: a wsl.exe command (NewPinnedWSLProver) or a binary's
@@ -107,15 +140,15 @@ func PinnedProverFor(v, wantSHA256 string) (Prover, error) {
 }
 
 // NewPinnedWSLProver is NewPinnedProver for a proof-xmr inside a WSL distribution (X-17). The command is
-// `wsl.exe [-d <distribution>] -e <absolute path>` (ParseWSLProverCommand). The binary at that path, read through the
-// distribution's share, must hash to wantSHA256 now and before every later run, or nothing runs. It fails closed:
-//   - a file that no share root can read, or that is not a regular file, is refused, and so is a first readable copy
-//     that hashes wrong (no later root is searched for one that matches);
+// `wsl.exe [-d <distribution>] -e <absolute path>` (ParseWSLProverCommand). The binary at that path, read inside the
+// distribution, must hash to wantSHA256 now and before every later run, or nothing runs. It fails closed:
+//   - a file the distribution's cat cannot read, one larger than any build, or one whose read does not end, is refused,
+//     and so is one that hashes wrong;
 //   - a launcher that is not Windows' own wsl.exe is refused, since whatever runs in front of the prover is trusted
 //     with every proof it checks;
-//   - a command that names no distribution runs in the default one, read once here and then named on every run, so
-//     the distribution hashed is the one run even if the default changes meanwhile; a default that cannot be read is
-//     refused.
+//   - a command that names no distribution runs in the default one, read once here and then named on every read and
+//     run, so the distribution hashed is the one run even if the default changes meanwhile; a default that cannot be
+//     read is refused.
 func NewPinnedWSLProver(command []string, wantSHA256 string) (Prover, error) {
 	if runtime.GOOS != "windows" {
 		return nil, errors.New("proof-xmr: a prover run through wsl.exe is for Windows; elsewhere give the binary's absolute path")
@@ -140,61 +173,48 @@ func NewPinnedWSLProver(command []string, wantSHA256 string) (Prover, error) {
 		}
 	}
 	p := &proverCLI{command: []string{launcher, "-d", distro, "-e", linuxPath}, pin: strings.ToLower(wantSHA256),
-		pinned: func() (string, []byte, error) { return readWSLFile(distro, linuxPath) }}
+		pinned: func() (string, []byte, error) { return readInWSL(launcher, distro, linuxPath) }}
 	if err := p.checkPin(); err != nil {
 		return nil, err
 	}
 	return p, nil
 }
 
-// readWSLFile reads linuxPath in distro through the first share root that can read it, and names the file it read.
-func readWSLFile(distro, linuxPath string) (string, []byte, error) {
-	var why []string
-	for _, root := range wslShareRoots {
-		name := root + `\` + distro + strings.ReplaceAll(linuxPath, "/", `\`)
-		b, err := readRegularFile(name, maxPinnedProverBytes)
-		if err == nil {
-			return name, b, nil
-		}
-		why = append(why, err.Error())
+// readInWSL reads linuxPath inside distro with the distribution's own cat, which wsl.exe runs exactly as it will run
+// the prover, and names what it read.
+func readInWSL(launcher, distro, linuxPath string) (string, []byte, error) {
+	name := linuxPath + " in the WSL distribution " + distro
+	ctx, cancel := context.WithTimeout(context.Background(), wslReadTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, launcher, "-d", distro, "-e", wslCat, linuxPath)
+	out, errb := &capBuffer{max: maxPinnedProverBytes}, &capBuffer{max: 4096}
+	cmd.Stdout, cmd.Stderr = out, errb
+	err := cmd.Run()
+	switch {
+	case out.over:
+		return "", nil, fmt.Errorf("%s is larger than %d bytes: it is not the pinned build, and it is not run", name, maxPinnedProverBytes)
+	case ctx.Err() != nil:
+		return "", nil, fmt.Errorf("%s was not read within %v, so it cannot be hashed, and it is not run", name, wslReadTimeout)
+	case err != nil:
+		return "", nil, fmt.Errorf("%s cannot be read (%v: %s), so it cannot be hashed, and it is not run", name, err, firstLine(errb.String()))
 	}
-	return "", nil, fmt.Errorf("%s in the WSL distribution %s cannot be read, so it cannot be hashed, and it is not run: %s", linuxPath, distro, strings.Join(why, "; "))
+	return name, out.Bytes(), nil
 }
 
-// readRegularFile reads a regular file of at most max bytes.
-func readRegularFile(name string, max int64) ([]byte, error) {
-	f, err := os.Open(name)
-	if err != nil {
-		return nil, err
+// firstLine is the first line of a program's error output, readable: wsl.exe writes its own messages in UTF-16, whose
+// NULs are dropped, and at most 200 bytes are kept.
+func firstLine(s string) string {
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\x00", ""))
+	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
+		s = s[:i]
 	}
-	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil {
-		return nil, err
+	if len(s) > 200 {
+		s = s[:200]
 	}
-	if !fi.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", name)
-	}
-	b, err := io.ReadAll(io.LimitReader(f, max+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(b)) > max {
-		return nil, fmt.Errorf("%s is larger than %d bytes", name, max)
-	}
-	return b, nil
+	return s
 }
 
-// systemDir is Windows' System32, from %SystemRoot%.
-func systemDir() (string, error) {
-	root := os.Getenv("SystemRoot")
-	if root == "" || !filepath.IsAbs(root) {
-		return "", errors.New("%SystemRoot% is not an absolute path, so Windows' own programs cannot be found")
-	}
-	return filepath.Join(root, "System32"), nil
-}
-
-// systemWSL is Windows' own wsl.exe.
+// systemWSL is Windows' own wsl.exe, in the directory GetSystemDirectoryW names.
 func systemWSL() (string, error) {
 	dir, err := systemDir()
 	if err != nil {
@@ -205,39 +225,4 @@ func systemWSL() (string, error) {
 		return "", fmt.Errorf("there is no wsl.exe at %s: WSL is not installed", p)
 	}
 	return p, nil
-}
-
-// lxssKey is where WSL records its distributions for this user: the default's GUID in DefaultDistribution, and each
-// GUID's name in its own subkey's DistributionName.
-const lxssKey = `HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss`
-
-// defaultWSLDistro reads the default distribution's name from the registry, as wsl.exe does, with Windows' own reg.exe.
-func defaultWSLDistro() (string, error) {
-	dir, err := systemDir()
-	if err != nil {
-		return "", err
-	}
-	reg := filepath.Join(dir, "reg.exe")
-	guid, err := regString(reg, lxssKey, "DefaultDistribution")
-	if err != nil {
-		return "", err
-	}
-	if !wslGUID.MatchString(guid) {
-		return "", fmt.Errorf("%s DefaultDistribution is %q, not a GUID", lxssKey, guid)
-	}
-	return regString(reg, lxssKey+`\`+guid, "DistributionName")
-}
-
-// regString is one REG_SZ value, as `reg query <key> /v <value>` prints it: "    <value>    REG_SZ    <data>".
-func regString(reg, key, value string) (string, error) {
-	out, err := exec.Command(reg, "query", key, "/v", value).Output()
-	if err != nil {
-		return "", fmt.Errorf("reg query %s /v %s: %w", key, value, err)
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if f := strings.Fields(line); len(f) == 3 && strings.EqualFold(f[0], value) && f[1] == "REG_SZ" {
-			return f[2], nil
-		}
-	}
-	return "", fmt.Errorf("reg query %s /v %s: no REG_SZ value in the answer", key, value)
 }

@@ -56,9 +56,15 @@ func requiredT1(waits, confirmations, gate, k uint64) float64 {
 // TierT1 is the t1 − lock a maker quotes at a tier: the default t1, raised to the rule's requirement where the tier
 // needs more. The profile test holds every tier's TierT1 at or under T1Max.
 func TierT1(confirmations uint64) uint64 {
-	need := uint64(math.Ceil(RequiredT1(confirmations, profileGateDeadline, profileK)))
+	need := T1Quote(confirmations, profileGateDeadline)
 	if need < profileT1Default {
 		return profileT1Default
 	}
 	return need
+}
+
+// T1Quote is the least whole t1 − lock the t1 rule allows at c confirmations and gate deadline gate, at the profile's
+// k: RequiredT1, rounded up. Config.withDefaults raises the maker's default width to it, off the simulator.
+func T1Quote(confirmations, gate uint64) uint64 {
+	return uint64(math.Ceil(RequiredT1(confirmations, gate, profileK)))
 }

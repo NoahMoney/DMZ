@@ -47,6 +47,19 @@ type fakeChain struct {
 	// htlc.bas v3 checks a Lock's width and a Punish's deadline at the height the call executes. The chain moves on by
 	// that many blocks before the call runs. Called under mu.
 	execDelay func() uint64
+	// poolDelay, when non-nil, is how many blocks a Lock memDero sends waits in the mempool before it is mined; 0 mines
+	// it as it is sent, as before. A pooled Lock is invisible to every lookup, as a mempool is to DERO.GetSC, and
+	// memDero.Lock returns its txid with an error, as a client that stopped waiting for inclusion does. It is mined when
+	// the chain reaches its height, never later than DERO allows (DeroTxValidity − 1 blocks after it was sent), and the
+	// contract then runs it at that height. Called under mu.
+	poolDelay func() uint64
+	// dropPooled, when set, drops every Lock that goes into the pool from every mempool: it is never mined.
+	dropPooled bool
+	pooled     []pooledLock
+	// refusedLocks counts pooled Locks the contract refused when they were mined: each one's fee is lost
+	refusedLocks int
+	// sentAt is the height of every Lock transaction any memDero on this chain sent, pooled or not
+	sentAt []uint64
 	// stuckBelowFee, when set, makes the HTTP daemon hold any transfer with a lower fee in its pool for ever
 	// (DERO.GetTransaction reports in_pool): the fee re-send's trigger
 	stuckBelowFee uint64
@@ -102,7 +115,53 @@ func (c *fakeChain) stable() uint64 {
 func (c *fakeChain) Advance(n uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.height += n
+	c.bump(n)
+}
+
+// pooledLock is a Lock transaction in the mempool (poolDelay): mined at height at, unless it was dropped.
+type pooledLock struct {
+	at                          uint64
+	txid                        string
+	makerRaw, ha, hk, hb, taker string
+	t1, t2                      uint64
+	asset                       string
+	amount                      uint64
+	dropped                     bool
+}
+
+// bump moves the chain on by n blocks, mining each pooled Lock in the block it is due in; called under mu.
+func (c *fakeChain) bump(n uint64) {
+	for i := uint64(0); i < n; i++ {
+		c.height++
+		kept := c.pooled[:0]
+		for _, p := range c.pooled {
+			switch {
+			case p.at > c.height:
+				kept = append(kept, p)
+			case p.dropped:
+				// gone from every mempool: never mined
+			default:
+				if _, err := c.lock(p.at, p.makerRaw, p.ha, p.hk, p.hb, p.taker, p.t1, p.t2, p.asset, p.amount); err != nil {
+					c.refusedLocks++
+				}
+				c.mined[p.txid] = p.at
+			}
+		}
+		c.pooled = kept
+	}
+}
+
+// inPool is how many Locks are still in a mempool, where they may yet be mined.
+func (c *fakeChain) inPool() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, p := range c.pooled {
+		if !p.dropped {
+			n++
+		}
+	}
+	return n
 }
 
 func (c *fakeChain) txid() string {
@@ -110,7 +169,7 @@ func (c *fakeChain) txid() string {
 	sum := sha256.Sum256([]byte("fake dero tx " + strconv.FormatUint(c.txSeq, 10)))
 	id := hex.EncodeToString(sum[:])
 	c.mined[id] = c.height
-	c.height++ // a transaction is mined into the current block and one more block follows, as waitTx wants
+	c.bump(1) // a transaction is mined into the current block and one more block follows, as waitTx wants
 	return id
 }
 
@@ -267,7 +326,7 @@ func (c *fakeChain) unreclaim(id uint64) {
 // delay is how far the chain moves on before a contract call executes (execDelay); called under c.mu.
 func (c *fakeChain) delay() {
 	if c.execDelay != nil {
-		c.height += c.execDelay()
+		c.bump(c.execDelay())
 	}
 }
 
@@ -374,6 +433,20 @@ func (d *memDero) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uin
 		return "", 0, fmt.Errorf("%w: height %d, lock cutoff %d", ErrLockTooLate, c.height, cutoff)
 	}
 	d.calls["LockSent"]++
+	c.sentAt = append(c.sentAt, c.height)
+	if c.poolDelay != nil {
+		if wait := c.poolDelay(); wait > 0 {
+			if wait >= DeroTxValidity {
+				wait = DeroTxValidity - 1 // DERO mines a transaction by 10 blocks after it was built, or never
+			}
+			c.txSeq++
+			sum := sha256.Sum256([]byte("fake dero pooled tx " + strconv.FormatUint(c.txSeq, 10)))
+			id := hex.EncodeToString(sum[:])
+			c.pooled = append(c.pooled, pooledLock{at: c.height + wait, txid: id, makerRaw: d.meRaw, ha: ha, hk: hk, hb: hb, taker: taker,
+				t1: t1, t2: t2, asset: asset, amount: amount, dropped: c.dropPooled})
+			return id, 0, fmt.Errorf("tx %s %w within the client's wait: it is in the mempool", id, errNotMined)
+		}
+	}
 	c.delay() // built at the height above, executed up to 10 blocks later
 	l, err := c.lock(c.height, d.meRaw, ha, hk, hb, taker, t1, t2, asset, amount)
 	if err != nil {

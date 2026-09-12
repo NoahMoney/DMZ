@@ -177,6 +177,22 @@ func TestMainnetBotRefusesALoginInTheWalletAddress(t *testing.T) {
 	}
 }
 
+// A wallet that is not on this machine is refused on a mainnet config before any call, dry run included: its login
+// would travel to it as HTTP basic auth over plain HTTP (the review of 2026-09-12, finding 5).
+func TestMainnetBotRefusesAWalletOffThisMachine(t *testing.T) {
+	d, daemon := startBotNode(t, "")
+	for _, far := range []string{"10.0.0.5:30002", "wallet.example:30002"} {
+		code, out := runBot(t, botUser+":"+botPass, mainnetBot(t, daemon, far))
+		botNoLogin(t, out)
+		if code == 0 || !strings.Contains(out, "not on this machine") || !strings.Contains(out, far) {
+			t.Fatalf("-wallet %s: exit %d, want a refusal naming the wallet:\n%s", far, code, botShown(out))
+		}
+	}
+	if c := d.seen(); len(c) != 0 {
+		t.Errorf("calls were made before the refusal: %v", c)
+	}
+}
+
 // With VEIL_RPC_LOGIN set, the wallet is read with it and the daemon never sees it.
 func TestMainnetBotSendsTheLoginToTheWalletOnly(t *testing.T) {
 	d, daemon := startBotNode(t, "")

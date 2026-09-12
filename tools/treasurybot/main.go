@@ -72,14 +72,18 @@ func cfgValue(src, key string) string {
 	return m[1]
 }
 
-// checkWalletLogin refuses a mainnet config, before the first call, that could not authenticate to the wallet or
-// that would carry its password on the command line. A mainnet netwallet always asks for a login, and a dry run
-// reads the wallet too.
+// checkWalletLogin refuses a mainnet config, before the first call, that could not authenticate to the wallet, that
+// would carry its password on the command line, or whose wallet is not on this machine: the login rides in every wallet
+// request as HTTP basic auth over plain HTTP. A mainnet netwallet always asks for a login, and a dry run reads the
+// wallet too.
 func checkWalletLogin(network string) error {
 	if network != "mainnet" {
 		return nil
 	}
-	return rpc.RequireWalletLogin(*wallet)
+	if err := rpc.RequireWalletLogin(*wallet); err != nil {
+		return err
+	}
+	return rpc.RequireLoopbackWallets(*wallet)
 }
 
 func main() {

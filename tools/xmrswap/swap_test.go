@@ -20,7 +20,10 @@ import (
 // Phases at which each side saves durable state, in protocol order: the crash fuzz kills a process right after
 // each one and restarts it from the file, and fails if no run reaches one of them.
 var (
-	bobPhases = []string{"setup", "verified_pi_a", "dero_locking", "dero_locked", "stipend_sending", "watching_xmr", "xmr_confirmed", "gate_sending", "gate_sent", "claimed", "sweep_ready", "sweeping", "sweep_sent", "swept", "refund_window", "refunding", "refund_confirming", "refunded", "punish_window", "reclaiming", "reclaim_confirming", "reclaimed", "punished"}
+	// lock_attempt and lock_sent are not phases either: they are the moments after the maker's Lock attempt is on disk,
+	// before and after its transaction goes out, and a death at lock_sent with the Lock still in the pool is the one a
+	// second Lock came from (the review of 2026-09-12)
+	bobPhases = []string{"setup", "verified_pi_a", "dero_locking", "lock_attempt", "lock_sent", "dero_locked", "stipend_sending", "watching_xmr", "xmr_confirmed", "gate_sending", "gate_sent", "claimed", "sweep_ready", "sweeping", "sweep_sent", "swept", "refund_window", "refunding", "refund_confirming", "refunded", "punish_window", "reclaiming", "reclaim_confirming", "reclaimed", "punished"}
 	// sweep_sent is not a phase: it is the moment after sweep_all returned and before the sweep was recorded, the one
 	// death between two saves that decides where coins are (MT-B12), and the crash hook fires there too
 	alicePhases = []string{"setup", "offer_checked", "verified_pi_b", "lock_announced", "saw_dero_lock", "xmr_locking", "xmr_locked", "gate_received", "claiming", "claim_confirming", "claimed", "await_refund", "refund_seen", "sweep_ready", "sweeping", "sweep_sent", "swept", "punish_window", "punishing", "punish_confirming", "await_reclaim", "punished"}
@@ -443,8 +446,13 @@ func (r *run) check() {
 	if r.aliceW.transfers > 1 || r.bobW.transfers != 0 || r.bobW.sweeps > 1 || r.aliceW.sweeps > 1 {
 		t.Fatalf("%s: payments: alice transfers %d sweeps %d, bob transfers %d sweeps %d", r.plan.scenario, r.aliceW.transfers, r.aliceW.sweeps, r.bobW.transfers, r.bobW.sweeps)
 	}
-	if lockN := r.chain.locks; len(lockN) != 1 {
-		t.Fatalf("%s: %d DERO locks, want exactly one", r.plan.scenario, len(lockN))
+	// one swap, one Lock: a second, mined or still in a mempool where it may yet be, is a second lock under the same
+	// hashes that the one s_a and k_b open; and none the contract refused, whose fee is lost
+	r.chain.mu.Lock()
+	locks, refused := len(r.chain.locks), r.chain.refusedLocks
+	r.chain.mu.Unlock()
+	if pooled := r.chain.inPool(); locks+pooled != 1 || refused != 0 {
+		t.Fatalf("%s: %d DERO locks and %d more in the pool (%d refused by the contract), want exactly one\n%s", r.plan.scenario, locks, pooled, refused, strings.Join(r.logs, "\n"))
 	}
 	// Path 0: one stipend at most, whatever died when; and one whenever the taker locked XMR
 	stipends := r.chain.paymentsTagged(bobAddr, aliceAddr, stipendPort(bob.HK))
@@ -536,8 +544,8 @@ func (r *run) check() {
 		}
 	}
 	for _, role := range []string{"bob", "alice"} {
-		if _, err := os.Stat(r.statePath(role) + ".tmp"); err == nil {
-			t.Fatalf("%s: temp state file left behind", role)
+		if left, _ := filepath.Glob(r.statePath(role) + ".tmp*"); len(left) != 0 {
+			t.Fatalf("%s: temp state file left behind: %v", role, left)
 		}
 	}
 }
@@ -581,8 +589,10 @@ func fuzzN(t *testing.T) int {
 // swap, the gate only after this node's own confirmations, the XMR lock only after the chain's lock passed
 // every check, no secret in any log line or in any message but its own, and the lock never left open. Every contract
 // call executes up to 10 blocks after the height it was built at, chosen at random per call, as DERO allows
-// (fakeChain.execDelay). With the default scenarios every phase in bobPhases and alicePhases must be reached by some
-// run: a crash planned at a phase nothing reaches would pass without ever happening.
+// (fakeChain.execDelay), and most of the maker's Locks wait up to 10 blocks in the mempool, invisible to his lookups
+// (fakeChain.poolDelay): a death at lock_sent then restarts him with his Lock still in the pool, and a run that ends with
+// two locks, or one mined and another still pooled, fails. With the default scenarios every phase in bobPhases and
+// alicePhases must be reached by some run: a crash planned at a phase nothing reaches would pass without ever happening.
 func TestCrashFuzz(t *testing.T) {
 	seed := int64(1)
 	scenarios := []string{"happy", "refund", "punish", "reclaim"}
@@ -594,6 +604,12 @@ func TestCrashFuzz(t *testing.T) {
 	fuzz := func(p plan) *run {
 		r := newRun(t, p)
 		r.chain.execDelay = func() uint64 { return uint64(r.rng.Intn(int(DeroTxValidity))) }
+		r.chain.poolDelay = func() uint64 {
+			if r.rng.Intn(4) == 0 {
+				return 0
+			}
+			return 1 + uint64(r.rng.Intn(int(DeroTxValidity-1)))
+		}
 		r.drive()
 		r.check()
 		r.noUnknownSweep()
