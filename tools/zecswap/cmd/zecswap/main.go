@@ -19,6 +19,13 @@
 // above all one on another machine — that colludes with the counterparty can cost the whole swap. More nodes make
 // it take more liars; they never remove the trust. Run your own.
 //
+// -verify-headers turns on the header gate (tools/zecswap/spv.go, tools/zecspv): before the maker reveals the secret,
+// the funding's block and every header above it, and before the taker funds, the headers up to the tip her cltv
+// checks read, must carry real proof of work under a pinned floor. It is off by default until it has run against the
+// Zcash testnet node. On regtest it is SKIPPED, and says so, because zebrad's regtest mines with no proof of work; on
+// testnet it checks the plumbing only, because the minimum-difficulty rule makes forged headers nearly free. It reads
+// getblock and getblockheader from the node, besides the seven methods every run needs.
+//
 // THE DERO WALLET must be started with --rpc-login user:password, and the companion given the same in the
 // VEIL_RPC_LOGIN environment variable (or -dero-login, refused on mainnet because the process list shows it). A
 // wallet RPC without a login authenticates nobody, and its /ws endpoint accepts every web page's connection, so
@@ -48,6 +55,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -171,9 +179,14 @@ func run(role string, args []string) {
 	offer := fs.Int64("offer", -1, "the board offer id: the taker's offer to take, or the maker's offer to adopt")
 	secretFile := fs.String("secret-file", "", "maker adopting an offer: the file holding its 32-byte secret as 64 lower-case hex (- for stdin)")
 	refundFile := fs.String("refund-file", "", "taker: where the pre-signed refund is written (default: beside the state file)")
+	networks := fs.String("networks", "deploy/networks.json", "the deployment record; -board and -escrow default to its entry for this network when omitted (the code at the scid is still checked against the pinned hash)")
+	verifyHeaders := fs.Bool("verify-headers", false, "verify Zcash proof of work (tools/zecspv) before the maker reveals and before the taker funds; skipped on regtest, plumbing only on testnet")
 	fs.Parse(args)
 	if *keyFile == "" || *wallet == "" || len(n.daemons) == 0 {
 		log.Fatal("-key, -wallet and -daemon are required")
+	}
+	if err := defaultContractsFromRecord(*network, *networks, n.board, n.escrow); err != nil {
+		log.Fatal(err)
 	}
 	if len(*n.board) != 64 || len(*n.escrow) != 64 {
 		log.Fatal("-board and -escrow must be 64-hex scids")
@@ -282,6 +295,10 @@ func run(role string, args []string) {
 		RefundFile: *refundFile, ZcashName: n.zcash[0], DeroName: n.daemons[0],
 		ZcashWitnesses: zsrc[1:], DeroWitnesses: dwit, Log: logf,
 	}
+	if *verifyHeaders {
+		cfg.Headers = zecswap.DefaultHeaderCheck()
+		fmt.Fprintln(os.Stderr, zecswap.HeaderGateNote(*network))
+	}
 	if *offer >= 0 {
 		cfg.HaveOffer, cfg.OfferID = true, uint64(*offer)
 	}
@@ -373,6 +390,50 @@ func status(args []string) {
 			fmt.Println(line)
 		}
 	}
+}
+
+// defaultContractsFromRecord fills -board and -escrow from the deployment record (deploy/networks.json) when either
+// is omitted (MT-A18). The record's DERO network for each Zcash network: mainnet→mainnet, testnet→testnet,
+// regtest→simulator. The scid is only a pointer to a row; the companion still checks that the code at it hashes to
+// the pinned board.bas v3 / swap.bas v2 before trusting it (zecswap.CheckPins), so a wrong, stale or swapped id is
+// refused, not obeyed. A record that has no scid for the network yet fails closed: give -board and -escrow.
+func defaultContractsFromRecord(network, path string, board, escrow *string) error {
+	if *board != "" && *escrow != "" {
+		return nil
+	}
+	deroNet := map[string]string{"mainnet": "mainnet", "testnet": "testnet", "regtest": "simulator"}[network]
+	if deroNet == "" {
+		return fmt.Errorf("-network %q has no deployment-record network; give -board and -escrow", network)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("-board/-escrow omitted and the deployment record %s could not be read (%v); give -board and -escrow, or point -networks at deploy/networks.json", path, err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return fmt.Errorf("the deployment record %s is not JSON: %w", path, err)
+	}
+	v, ok := raw[deroNet]
+	if !ok {
+		return fmt.Errorf("the deployment record %s has no %q network", path, deroNet)
+	}
+	var rec struct {
+		Board string `json:"board"`
+		Swap  string `json:"swap"`
+	}
+	if err := json.Unmarshal(v, &rec); err != nil {
+		return fmt.Errorf("the deployment record %s: the %s network: %w", path, deroNet, err)
+	}
+	if *board == "" {
+		*board = rec.Board
+	}
+	if *escrow == "" {
+		*escrow = rec.Swap
+	}
+	if len(*board) != 64 || len(*escrow) != 64 {
+		return fmt.Errorf("the deployment record %s has no board and swap scid for %s yet; give -board and -escrow (the scid is still checked against the pinned code hash)", path, deroNet)
+	}
+	return nil
 }
 
 // readSecret reads a secret from a file, or from stdin for "-" — never from the command line, where the process

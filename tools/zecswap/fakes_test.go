@@ -620,6 +620,27 @@ func (f *fakeZcash) handleLocked(method string, p []json.RawMessage) (interface{
 		}
 		return f.blocks[uint32(h)-f.base].hash, 0, ""
 
+	case "getblockheader":
+		// The fake's blocks are not real headers, so it answers 1,487 bytes that no header check can pass: a companion
+		// with the header gate on must refuse to reveal or to fund on this node (TestHeaderGateFailsClosed*).
+		want := str0(p, 0)
+		for _, b := range f.blocks {
+			if b.hash == want {
+				return hex.EncodeToString(make([]byte, 1487)), 0, ""
+			}
+		}
+		return nil, -5, "Block not found"
+
+	case "getblock":
+		// verbosity 1: {hash, height, tx: [txid, …]}
+		want := str0(p, 0)
+		for i, b := range f.blocks {
+			if b.hash == want {
+				return map[string]interface{}{"hash": b.hash, "height": f.base + uint32(i), "tx": append([]string{}, b.txs...)}, 0, ""
+			}
+		}
+		return nil, -5, "Block not found"
+
 	case "getaddressutxos":
 		// https://zcash.github.io/rpc/getaddressutxos.html: [{address, txid, outputIndex, script, satoshis, height}]
 		var q struct {

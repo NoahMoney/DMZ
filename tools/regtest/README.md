@@ -169,7 +169,7 @@ still requires coinbase to be shielded, so a test funding like this one is regte
 
 ### Zcash: real zebrad 6.3.0 vs what tools/zecswap assumes
 
-`smoke-zcash.sh` exercises all seven methods zecswap calls (`getblockchaininfo`, `getblockhash`, `getaddressutxos`,
+`smoke-zcash.sh` exercises the seven core methods zecswap calls (`getblockchaininfo`, `getblockhash`, `getaddressutxos`,
 `getaddresstxids`, `getrawtransaction` verbose, `sendrawtransaction`, `gettxout`) with zecswap's parameters. It then
 runs zecswap's own client and ZIP 244 code against the node (`tools/regtest/zecshape`).
 
@@ -275,7 +275,7 @@ tools/regtest/zcash-testnet-down.sh [--wipe]
   `cookie_dir`, `enable_cookie_auth` and nothing per method. So zebrad's own RPC stays internal on 127.0.0.1:18242,
   and clients use **`tools/regtest/rpcgate`** on **`http://127.0.0.1:18232`**, with the cookie in
   `.sim/zcash-testnet/.cookie`. The gate:
-  - serves only `getblockchaininfo getblockhash getaddressutxos getaddresstxids getrawtransaction sendrawtransaction gettxout`;
+  - serves only `getblockchaininfo getblockhash getaddressutxos getaddresstxids getrawtransaction sendrawtransaction gettxout getblock getblockheader`, the methods zecswap calls (the last two only with `-verify-headers`);
   - refuses everything else with -32601 without forwarding it (measured: `getpeerinfo`, `stop`, `getinfo`, `submitblock`);
   - refuses batches with -32600 and a request without its cookie with HTTP 401;
   - forwards a request rebuilt from the fields it checked, never the client's bytes. A body naming `"method"` twice

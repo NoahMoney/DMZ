@@ -154,18 +154,25 @@ type e2e struct {
 	escrow   string
 	makerKey [32]byte
 	dir      string
+	repo     string
+	cookie   string // absolute path to the zebrad cookie, for the command-line processes
+	bin      string // the built zecswap binary
 }
 
-func newE2E(t *testing.T) *e2e {
+func newE2E(t *testing.T) *e2e { return newE2EAt(t, e2eLog) }
+
+// newE2EAt is the harness writing its evidence to logPath (appended to, never truncated).
+func newE2EAt(t *testing.T, logPath string) *e2e {
 	user, pass, err := ReadCookie(e2eCookie)
 	if err != nil {
 		t.Fatalf("the regtest zebrad's cookie: %v", err)
 	}
-	f, err := os.OpenFile(e2eLog, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &e2e{t: t, ctx: context.Background(), zc: NewZcashRPC(e2eZcash, user, pass), log: f, makerKey: randomKey(t), dir: t.TempDir()}
+	repo, _ := filepath.Abs(filepath.Join("..", ".."))
+	e := &e2e{t: t, ctx: context.Background(), zc: NewZcashRPC(e2eZcash, user, pass), log: f, makerKey: randomKey(t), dir: t.TempDir(), repo: repo}
 	return e
 }
 
@@ -176,6 +183,12 @@ func (e *e2e) logf(format string, a ...interface{}) {
 	// the log is committed evidence: the test's temporary directory is this machine's path, so it is written as <tmp>
 	if e.dir != "" {
 		line = strings.ReplaceAll(line, e.dir, "<tmp>")
+	}
+	if td := os.TempDir(); td != "" {
+		line = strings.ReplaceAll(line, td, "<tmp>")
+	}
+	if e.repo != "" {
+		line = strings.ReplaceAll(line, e.repo, "<repo>")
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -203,10 +216,17 @@ func (e *e2e) zrpc(method string, params ...interface{}) json.RawMessage {
 	return out
 }
 
-// mine mines n Zcash blocks to the node's own miner address; mineTo to an address of ours.
+// mine mines n Zcash blocks to the node's own miner address; mineTo to an address of ours. It mines in small
+// batches: one generate of many blocks can take longer than the RPC client's 30 s timeout once the regtest chain
+// is tall (a few thousand blocks), so each call asks for at most a handful.
 func (e *e2e) mine(n int) {
-	if n > 0 {
-		e.zrpc("generate", n)
+	for n > 0 {
+		k := n
+		if k > 8 {
+			k = 8
+		}
+		e.zrpc("generate", k)
+		n -= k
 	}
 }
 
@@ -267,6 +287,31 @@ type e2eRun struct {
 	mk, tk *State
 	sw     map[string]*Swap
 	deroMk *DeroRPC
+	// noMine hands the Zcash miner to the scenario's act; stop ends the run where it stands (the run is then
+	// recorded as it is, finished or not); lines is every line either machine logged, in order.
+	noMine bool
+	stop   bool
+	lines  []string
+}
+
+// said reports whether a machine of this role has logged a line containing every one of the words.
+func (r *e2eRun) said(role string, words ...string) bool {
+	for _, l := range r.lines {
+		if !strings.HasPrefix(l, role+": ") {
+			continue
+		}
+		all := true
+		for _, w := range words {
+			if !strings.Contains(strings.ToLower(l), strings.ToLower(w)) {
+				all = false
+				break
+			}
+		}
+		if all {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *e2eRun) state(role string) *State {
@@ -309,7 +354,11 @@ func (e *e2e) runSwap(name string, claimVersion uint32, takerKey [32]byte, away 
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	logf := func(format string, a ...interface{}) { e.logf(name+": "+format, a...) }
+	logf := func(format string, a ...interface{}) {
+		line := fmt.Sprintf(format, a...)
+		r.lines = append(r.lines, line)
+		e.logf("%s: %s", name, line)
+	}
 	base := Config{Policy: RegtestPolicy(), Board: e.board, Escrow: e.escrow, ZcashChain: "regtest", Log: logf}
 	mcfg := base
 	mcfg.MyDero, mcfg.GiveAmount, mcfg.WantAmount, mcfg.TxVersion = makerAddr, 50_000, 200_000, claimVersion
@@ -341,6 +390,8 @@ func (e *e2e) runSwap(name string, claimVersion uint32, takerKey [32]byte, away 
 		e.t.Fatal(err)
 	}
 	deadline := time.Now().Add(75 * time.Minute)
+	lastErr := map[string]string{}
+	repeats := map[string]int{}
 	for time.Now().Before(deadline) {
 		mst := r.state(RoleMaker)
 		if r.sw[RoleMaker] == nil {
@@ -364,8 +415,22 @@ func (e *e2e) runSwap(name string, claimVersion uint32, takerKey [32]byte, away 
 			if away != nil && away(r, role) {
 				continue
 			}
-			if _, err := sw.Step(e.ctx); err != nil {
-				logf("%s: step error: %v", role, err)
+			// the same error pass after pass is logged once, with how often it came when it changes
+			_, err := sw.Step(e.ctx)
+			msg := ""
+			if err != nil {
+				msg = err.Error()
+			}
+			if msg != lastErr[role] {
+				if repeats[role] > 1 {
+					logf("%s: (the step error above came %d times in all)", role, repeats[role])
+				}
+				if msg != "" {
+					logf("%s: step error: %s", role, msg)
+				}
+				lastErr[role], repeats[role] = msg, 1
+			} else if msg != "" {
+				repeats[role]++
 			}
 		}
 		if done {
@@ -374,18 +439,28 @@ func (e *e2e) runSwap(name string, claimVersion uint32, takerKey [32]byte, away 
 		if act != nil {
 			act(r)
 		}
+		if r.stop {
+			break
+		}
 		if h, err := r.deroMk.Height(e.ctx); err == nil && h > lastDero {
 			n := int(h - lastDero)
 			if tk := r.state(RoleTaker); tk != nil && tk.FundingTxID != "" && !tk.Done {
 				n *= 3
 			}
-			e.mine(n)
+			if !r.noMine {
+				e.mine(n)
+			}
 			lastDero = h
 		}
 		time.Sleep(time.Second)
 	}
+	for role, n := range repeats {
+		if n > 1 && lastErr[role] != "" {
+			logf("%s: (the step error above came %d times in all)", role, n)
+		}
+	}
 	r.mk, r.tk = r.sw[RoleMaker].State(), r.sw[RoleTaker].State()
-	if !r.mk.Done || !r.tk.Done {
+	if !r.stop && (!r.mk.Done || !r.tk.Done) {
 		e.t.Fatalf("%s did not finish: maker %s, taker %s", name, r.mk.Phase, r.tk.Phase)
 	}
 	e.record(name, r)

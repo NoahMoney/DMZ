@@ -1,0 +1,279 @@
+package zecswap
+
+import (
+	"bufio"
+	"context"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+const cliLog = "../../research/regtest/zecswap-cli.log"
+
+// TestRegtestCLI runs the zecswap COMMAND LINE — the built binary, as separate maker, taker and status processes —
+// against the real regtest zebrad and the DERO simulator, for one whole swap and one refund. It records every id in
+// research/regtest/zecswap-cli.log. Skipped unless ZECSWAP_REGTEST=1.
+//
+// The maker and taker are each `zecswap maker`/`zecswap taker` looping on their own; this test only feeds the Zcash
+// chain blocks (one per DERO block, three once the funding is in, RegtestPolicy's pace) and, for the refund, sends
+// the maker process a stop and starts it again — what a person would do. `zecswap status` is run against the live
+// state at the end of each.
+func TestRegtestCLI(t *testing.T) {
+	if os.Getenv("ZECSWAP_REGTEST") == "" {
+		t.Skip("set ZECSWAP_REGTEST=1 to run the zecswap command line against the real regtest zebrad and the DERO simulator")
+	}
+	e := newE2EAt(t, cliLog)
+	defer e.close()
+	bin := buildCLI(t)
+	cookie, err := filepath.Abs(e2eCookie)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.cookie = cookie
+	e.bin = bin
+	e.logf("== zecswap COMMAND LINE on real nodes: binary %s, zebrad 6.3.0 regtest %s, DERO simulator %s", "<tmp>/zecswap", e2eZcash, e2eDaemon)
+	ci, err := e.zc.ChainInfo(e.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ci.Regtest {
+		t.Fatalf("not a regtest node: %+v", ci)
+	}
+	e.logf("zcash: chain %q (block 0 is regtest's genesis), height %d; the command line is run with -network regtest", ci.Chain, ci.Height)
+	e.install()
+
+	e.cliSwap("S", false) // a whole swap: both sides present, both end swapped
+	e.cliSwap("R", true)  // a refund: the maker is stopped after he locks and the taker refunds her ZEC at cltv
+	e.logf("== done: the command line drove one swap and one refund")
+}
+
+// buildCLI builds cmd/zecswap to a temporary binary.
+func buildCLI(t *testing.T) string {
+	bin := filepath.Join(t.TempDir(), "zecswap.exe")
+	out, err := exec.Command("go", "build", "-o", bin, "./cmd/zecswap").CombinedOutput()
+	if err != nil {
+		t.Fatalf("go build ./cmd/zecswap: %v\n%s", err, out)
+	}
+	return bin
+}
+
+// proc is one running companion process.
+type proc struct {
+	cmd    *exec.Cmd
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// spawn starts `zecswap <role> ...` with its own key file and DERO wallet, its stdout and stderr streamed to the log
+// with the machine paths scrubbed. It runs until it ends the swap (and exits) or stop() cancels it.
+func (e *e2e) spawn(tag, role, dir, wallet string, keyHex [32]byte, extra ...string) *proc {
+	keyPath := filepath.Join(dir, role+".key")
+	if err := os.WriteFile(keyPath, []byte(hex.EncodeToString(keyHex[:])), 0o600); err != nil {
+		e.t.Fatal(err)
+	}
+	args := []string{role,
+		"-network", "regtest",
+		"-zcash", e2eZcash, "-zcash-cookie", e.cookie,
+		"-daemon", e2eDaemon, "-wallet", wallet,
+		"-board", e.board, "-escrow", e.escrow,
+		"-key", keyPath, "-dir", dir,
+		"-interval", "2s",
+	}
+	args = append(args, extra...)
+	ctx, cancel := context.WithCancel(e.ctx)
+	cmd := exec.CommandContext(ctx, e.bin, args...)
+	cmd.Dir, _ = filepath.Abs(".")
+	pr := &proc{cmd: cmd, cancel: cancel, done: make(chan struct{})}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	cmd.Stderr = cmd.Stdout // one stream, in order
+	if err := cmd.Start(); err != nil {
+		e.t.Fatalf("%s: starting %s: %v", tag, role, err)
+	}
+	go func() {
+		sc := bufio.NewScanner(out)
+		sc.Buffer(make([]byte, 1<<20), 1<<20)
+		for sc.Scan() {
+			e.logf("%s %s| %s", tag, role, e.scrub(sc.Text(), dir))
+		}
+		close(pr.done)
+	}()
+	return pr
+}
+
+func (p *proc) wait() { <-p.done; p.cmd.Wait() }
+
+// stop sends the process SIGINT-equivalent (context cancel) — what Ctrl+C does — and waits for it to go.
+func (p *proc) stop() {
+	p.cancel()
+	<-p.done
+	p.cmd.Wait()
+}
+
+func (e *e2e) scrub(s, dir string) string {
+	for _, r := range []string{dir, e.dir, os.TempDir(), e.repo} {
+		if r != "" {
+			s = strings.ReplaceAll(s, r, "<tmp>")
+		}
+	}
+	return s
+}
+
+// miner mines the Zcash chain while the processes run: one block per DERO block, three once the taker's funding is
+// on the chain (bringing cltv sooner costs the taker nothing), until stopped.
+func (e *e2e) miner(dir string, stop <-chan struct{}) *sync.WaitGroup {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d := NewDeroRPC(e2eDaemon, "", e.board, e.escrow)
+		last, _ := d.Height(e.ctx)
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(2 * time.Second):
+			}
+			h, err := d.Height(e.ctx)
+			if err != nil || h <= last {
+				continue
+			}
+			n := int(h - last)
+			if tk, err := LoadState(filepath.Join(dir, RoleTaker+".json"), RoleTaker); err == nil && tk.FundingTxID != "" && !tk.Done {
+				n *= 3
+			}
+			e.mine(n)
+			last = h
+		}
+	}()
+	return &wg
+}
+
+func (e *e2e) cliState(dir, role string) *State {
+	st, err := LoadState(filepath.Join(dir, role+".json"), role)
+	if err != nil {
+		return nil
+	}
+	return st
+}
+
+func (e *e2e) cliSwap(tag string, refund bool) {
+	dir := filepath.Join(e.dir, tag)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		e.t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	mining := e.miner(dir, stop)
+	makerKey, takerKey := randomKey(e.t), randomKey(e.t)
+	// the taker funds from a matured coinbase of its own
+	tkKey, _ := ParseKey(takerKey)
+	e.mineTo(tkKey.Address(Testnet), 1)
+	e.mine(101)
+	e.logf("%s: taker's Zcash coin is a coinbase to %s; maker posts 50000 DERO for 200000 zatoshi", tag, tkKey.Address(Testnet))
+
+	maker := e.spawn(tag, RoleMaker, dir, e2eMaker, makerKey, "-give-amount", "50000", "-want-zat", "200000")
+
+	// wait for the maker to post, then start the taker on that offer
+	offer := int64(-1)
+	for i := 0; i < 120 && offer < 0; i++ {
+		if st := e.cliState(dir, RoleMaker); st != nil && st.HaveOffer {
+			offer = int64(st.OfferID)
+		}
+		time.Sleep(time.Second)
+	}
+	if offer < 0 {
+		maker.stop()
+		close(stop)
+		mining.Wait()
+		e.t.Fatalf("%s: the maker never posted an offer", tag)
+	}
+	e.logf("%s: the maker posted offer %d; the taker is started on it", tag, offer)
+	taker := e.spawn(tag, RoleTaker, dir, e2eTaker, takerKey, "-offer", fmt.Sprint(offer))
+
+	makerStopped := false
+	if refund {
+		// the maker is stopped once he has locked: he never claims, and the taker must refund
+		for i := 0; i < 600; i++ {
+			if st := e.cliState(dir, RoleMaker); st != nil && (st.Phase == "locked" || st.Done) {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+		maker.stop()
+		makerStopped = true
+		e.logf("%s: the maker process is stopped after it locked (phase %s): it will not claim; the taker refunds at cltv", tag, e.cliState(dir, RoleMaker).Phase)
+	}
+
+	// the taker runs to its end
+	taker.wait()
+	tk := e.cliState(dir, RoleTaker)
+	e.logf("%s: the taker process exited in phase %s", tag, tk.Phase)
+
+	if refund {
+		// the maker comes back to refund his DERO after T_dero. The killed process left its lock file; removing it
+		// is the operator's recovery after a process died (it would otherwise clear on its own after the stale time).
+		os.Remove(filepath.Join(dir, RoleMaker+".json.lock"))
+		e.logf("%s: the maker process is started again to refund the DERO after T_dero %d", tag, e.cliState(dir, RoleMaker).TDero)
+		maker = e.spawn(tag, RoleMaker, dir, e2eMaker, makerKey, "-give-amount", "50000", "-want-zat", "200000")
+		makerStopped = false
+	}
+	maker.wait()
+	if makerStopped { // unreachable, but keep the variable honest
+		maker.wait()
+	}
+	close(stop)
+	mining.Wait()
+
+	mk, tk := e.cliState(dir, RoleMaker), e.cliState(dir, RoleTaker)
+	e.logf("%s: RESULT maker %s — %s", tag, mk.Phase, mk.Outcome)
+	e.logf("%s: RESULT taker %s — %s", tag, tk.Phase, tk.Outcome)
+	for _, side := range []struct {
+		who string
+		st  *State
+	}{{"maker", mk}, {"taker", tk}} {
+		for call, txid := range side.st.DeroTxs {
+			e.logf("%s: dero %s %s tx %s", tag, side.who, call, txid)
+		}
+	}
+	if tk.FundingTxID != "" {
+		e.logf("%s: zcash funding %s (v%d)", tag, tk.FundingTxID, versionOf(e, tk.FundingTxID))
+	}
+	if mk.ClaimTxID != "" {
+		e.logf("%s: zcash claim %s (v%d)", tag, mk.ClaimTxID, versionOf(e, mk.ClaimTxID))
+	}
+	if tk.SpendTxID != "" && tk.SpendTxID != mk.ClaimTxID {
+		e.logf("%s: zcash refund %s (v%d)", tag, tk.SpendTxID, versionOf(e, tk.SpendTxID))
+	}
+	// `zecswap status`, the third process, against the live state
+	e.cliStatus(tag, dir)
+
+	want := "swapped"
+	if refund {
+		want = "refunded"
+	}
+	if mk.Phase != want || tk.Phase != want {
+		e.t.Fatalf("%s: maker %s, taker %s; want %s", tag, mk.Phase, tk.Phase, want)
+	}
+}
+
+func (e *e2e) cliStatus(tag, dir string) {
+	cmd := exec.CommandContext(e.ctx, e.bin, "status",
+		"-zcash", e2eZcash, "-zcash-cookie", e.cookie,
+		"-daemon", e2eDaemon, "-dir", dir)
+	cmd.Dir, _ = filepath.Abs(".")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		e.logf("%s: status exited: %v", tag, err)
+	}
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		e.logf("%s status| %s", tag, e.scrub(line, dir))
+	}
+}

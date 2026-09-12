@@ -28,8 +28,11 @@ import (
 	"time"
 )
 
-// zecswapMethods are the seven methods tools/zecswap/node.go calls (its METHODS comment and its c.call sites).
-const zecswapMethods = "getblockchaininfo,getblockhash,getaddressutxos,getaddresstxids,getrawtransaction,sendrawtransaction,gettxout"
+// zecswapMethods are the nine methods tools/zecswap/node.go calls (its METHODS comment and its c.call sites); the last
+// two, getblock and getblockheader, only when the companion runs with -verify-headers. All nine but
+// sendrawtransaction are read-only. tools/zecswap's TestGateServesExactlyTheNodeClientsMethods holds this list to
+// node.go's calls, so the two cannot drift apart.
+const zecswapMethods = "getblockchaininfo,getblockhash,getaddressutxos,getaddresstxids,getrawtransaction,sendrawtransaction,gettxout,getblock,getblockheader"
 
 const (
 	maxRequest  = 8 << 20  // sendrawtransaction of a 2 MB transaction is 4 MB of hex

@@ -15,7 +15,8 @@
 #
 # The RPC: zebrad cannot limit its RPC to a set of methods, so its own RPC listens on an internal loopback port with
 # its cookie inside WSL, and clients get tools/regtest/rpcgate on 127.0.0.1:$ZCASH_TESTNET_RPC_PORT, which serves only
-# the seven methods tools/zecswap calls, behind a cookie of its own at .sim/zcash-testnet/.cookie. The gate runs under
+# only the methods tools/zecswap calls (nine since the header gate added getblock and getblockheader), behind a cookie
+# of its own at .sim/zcash-testnet/.cookie. The gate runs under
 # a wsl.exe host of its own, so a new build of it replaces the old without stopping the sync, and the status report
 # warns when the gate running is not the build in vendor/regtest/bin.
 #
@@ -188,5 +189,5 @@ if ! wait_for 180 "zebrad testnet RPC" answers; then
 fi
 refuse_unless_testnet
 rm -f "$TDIR/progress.tsv"
-say "zcash testnet up: RPC http://127.0.0.1:$ZCASH_TESTNET_RPC_PORT (rpcgate: zecswap's 7 methods only), cookie $TDIR/.cookie"
+say "zcash testnet up: RPC http://127.0.0.1:$ZCASH_TESTNET_RPC_PORT (rpcgate: only the methods zecswap calls), cookie $TDIR/.cookie"
 progress

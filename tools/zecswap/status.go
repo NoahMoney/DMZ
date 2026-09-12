@@ -94,7 +94,7 @@ func Status(ctx context.Context, st *State, zsrc []ZcashSource, dsrc []DeroSourc
 		}
 		line := fmt.Sprintf("  DERO %s (a trusted party): height %d", d.Name, h)
 		if st.TDero > 0 {
-			line += fmt.Sprintf(", %d blocks to T_dero", int64(st.TDero)-int64(h))
+			line += ", " + countdown(int64(st.TDero), int64(h), "T_dero")
 		}
 		add("%s", line)
 		if st.HaveOffer {
@@ -144,7 +144,7 @@ func Status(ctx context.Context, st *State, zsrc []ZcashSource, dsrc []DeroSourc
 		}
 		line := fmt.Sprintf("  Zcash %s (a trusted party): %s height %d", z.Name, ci.Chain, ci.Height)
 		if st.CLTV > 0 {
-			line += fmt.Sprintf(", %d blocks to cltv", int64(st.CLTV)-int64(ci.Height))
+			line += ", " + countdown(int64(st.CLTV), int64(ci.Height), "cltv")
 		}
 		add("%s", line)
 		tx := func(what, txid string) (RawTx, bool) {
@@ -188,6 +188,9 @@ func Status(ctx context.Context, st *State, zsrc []ZcashSource, dsrc []DeroSourc
 			if st.Done && st.Phase == "swapped" && st.Role == RoleMaker && !(known && rt.Mined) {
 				diverge("%s: the swap ended swapped and the claim %s is not mined", z.Name, st.ClaimTxID)
 			}
+			if st.ClaimBlock != "" && !(known && rt.Mined && rt.BlockHash == st.ClaimBlock) {
+				diverge("%s: the claim %s was seen mined at %d in block %s, and this node's chain does not carry it there: a reorganisation (docs/ZEC_SWAP.md §9 Z5)", z.Name, st.ClaimTxID, st.ClaimHeight, st.ClaimBlock)
+			}
 		}
 		for i, r := range st.Refunds {
 			tx(fmt.Sprintf("refund level %d", i+1), r.TxID)
@@ -206,6 +209,8 @@ func escrowStates(st *State) []uint64 {
 			return []uint64{EscrowClaimed}
 		case "refunded", "claimed_refunded":
 			return []uint64{EscrowRefunded}
+		case "lost":
+			return []uint64{EscrowClaimed}
 		}
 		return nil
 	}
@@ -230,6 +235,25 @@ func containsU(xs []uint64, x uint64) bool {
 		}
 	}
 	return false
+}
+
+// countdown is how a height stands against a deadline, in words that are never a negative number: "12 blocks to
+// cltv" before it, "at cltv" on it, "3 blocks past cltv" after it.
+func countdown(deadline, now int64, what string) string {
+	blocks := func(n int64) string {
+		if n == 1 {
+			return "1 block"
+		}
+		return fmt.Sprintf("%d blocks", n)
+	}
+	switch d := deadline - now; {
+	case d > 0:
+		return blocks(d) + " to " + what
+	case d == 0:
+		return "at " + what
+	default:
+		return blocks(-d) + " past " + what
+	}
 }
 
 func netOf(chain string) Network {

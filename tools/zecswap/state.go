@@ -82,8 +82,15 @@ type State struct {
 	ClaimHex      string                `json:"claimHex,omitempty"`
 	ClaimTxID     string                `json:"claimTxid,omitempty"`
 	ClaimBranch   uint32                `json:"claimBranch,omitempty"`
-	SecretSeen    string                `json:"secretSeen,omitempty"` // the taker's copy of s, read from the maker's claim
-	SpendTxID     string                `json:"spendTxid,omitempty"`  // the Zcash transaction that spent the script
+	// where the maker last saw his claim mined: if the chain stops carrying it there, that is a reorganisation
+	ClaimHeight uint32 `json:"claimHeight,omitempty"`
+	ClaimBlock  string `json:"claimBlock,omitempty"`
+	// Revealed is written before the claim first goes to any node: from then on the secret may be public
+	Revealed bool `json:"revealed,omitempty"`
+	// Sighted is the maker's last read of a funding below C_zec, so that its leaving the chain is noticed and said
+	Sighted    *Funding `json:"sighted,omitempty"`
+	SecretSeen string   `json:"secretSeen,omitempty"` // the taker's copy of s, read from the maker's claim
+	SpendTxID  string   `json:"spendTxid,omitempty"`  // the Zcash transaction that spent the script
 
 	DeroClaimHeight uint64 `json:"deroClaimHeight,omitempty"`
 	MaxZecTip       uint32 `json:"maxZecTip,omitempty"`
@@ -122,8 +129,8 @@ var MakerPhases = map[string]PhaseInfo{
 		IfStopped: "a funding goes unclaimed: the taker refunds her ZEC after cltv, and the DERO waits in the escrow until this companion sends Refund after T_dero"},
 	"claiming": {Next: []string{"claimed", "refund_wait"}, Deadline: "the claim cutoff",
 		IfStopped: "the claim is built and stored; a restart sends those same bytes if the cutoff has not passed, and never after it"},
-	"claimed": {Next: []string{"refund_wait", "dero_refunding", "swapped", "claimed_refunded"}, Deadline: "T_dero",
-		IfStopped: "the ZEC is claimed; if the taker never claims the DERO it stays in the escrow until this companion sends Refund after T_dero"},
+	"claimed": {Next: []string{"refund_wait", "dero_refunding", "swapped", "claimed_refunded", "lost"}, Deadline: "T_dero",
+		IfStopped: "the ZEC is claimed; if the taker never claims the DERO it stays in the escrow until this companion sends Refund after T_dero. A reorganisation that takes the funding off the chain is only noticed, and the funding put back, while this companion runs"},
 	"refund_wait": {Next: []string{"dero_refunding", "swapped", "refunded", "claimed_refunded"}, Deadline: "T_dero, then none",
 		IfStopped: "the DERO stays in the escrow; only this wallet can Refund it, at any time after T_dero"},
 	"dero_refunding": {Next: []string{"swapped", "refunded", "claimed_refunded"}, Deadline: "none: Refund has no end",
@@ -136,6 +143,9 @@ var MakerPhases = map[string]PhaseInfo{
 	"cancelled":        {Terminal: true},
 	"expired":          {Terminal: true},
 	"refused":          {Terminal: true},
+	// lost: the secret was revealed, the taker's DERO Claim landed, and a reorganisation deeper than C_zec took the
+	// funding off the chain in a form nobody can mine again (docs/ZEC_SWAP.md §9 Z5)
+	"lost": {Terminal: true},
 }
 
 // TakerPhases is the taker's machine.

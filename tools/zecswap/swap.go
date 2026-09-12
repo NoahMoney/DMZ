@@ -66,7 +66,9 @@ type Config struct {
 	ZcashChain string
 	// TxVersion is the version of the Zcash transactions this party builds: 5 (also when 0) or 6 (ZIP 229).
 	TxVersion uint32
-	Log       func(format string, a ...interface{})
+	// Headers turns on the header gate (spv.go, -verify-headers); nil is off
+	Headers *HeaderCheck
+	Log     func(format string, a ...interface{})
 }
 
 // Swap is one party's machine.
@@ -83,6 +85,7 @@ type Swap struct {
 	crash    func(phase string) bool // test hook: a process death right after a durable write
 	rand     io.Reader               // test hook: the secret's source; nil is crypto/rand
 	said     map[string]bool
+	spvOK    string // the funding, block and tip the header gate last verified, so one pass does not read them twice
 }
 
 var errCrashed = errors.New("crashed by the test hook")
@@ -242,6 +245,12 @@ func (s *Swap) sayOnce(key, format string, a ...interface{}) {
 		s.said[key] = true
 		s.logf(format, a...)
 	}
+}
+
+// onceLogf is logf for a line that would otherwise come pass after pass: each distinct line is said once per process.
+func (s *Swap) onceLogf(format string, a ...interface{}) {
+	line := fmt.Sprintf(format, a...)
+	s.sayOnce("line|"+line, "%s", line)
 }
 
 func (s *Swap) attempt(name string) uint64 { return s.st.Attempts[name] }
@@ -788,6 +797,19 @@ func (s *Swap) makerWatchFunding(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// A funding read here below C_zec that the chain has since dropped is said, with its block, before anything
+	// else: it counts for nothing, and the depth of whatever funding is found next starts over on the chain as it is.
+	if st.Sighted != nil {
+		if _, err := Depth(ctx, s.zc, *st.Sighted, ci.Height); errors.Is(err, ErrReorged) {
+			s.logf("REORGANISATION: the funding %s:%d read at height %d in block %s is off the node's best chain (%v); it counts for nothing, and the secret stays here until a funding is %d deep on the chain as it now is", st.Sighted.TxID, st.Sighted.Index, st.Sighted.Height, st.Sighted.BlockHash, err, p.ConfZec)
+			st.Sighted = nil
+			if err := st.Save(); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+	}
 	if !p.ClaimOpen(cautious, st.CLTV) {
 		st.Note = fmt.Sprintf("no funding of %d zatoshi was %d blocks deep before the claim cutoff (Zcash height %d, cltv %d)", st.WantAmount, p.ConfZec, cautious, st.CLTV)
 		s.logf("%s: the secret is never revealed; the DERO is refunded after T_dero %d", st.Note, st.TDero)
@@ -838,11 +860,21 @@ func (s *Swap) makerWatchFunding(ctx context.Context) error {
 	}
 	if d < p.ConfZec {
 		s.sayOnce("shallow"+f.TxID+f.BlockHash, "funding %s:%d of %d zatoshi seen at depth %d in block %s; claiming at depth %d", f.TxID, f.Index, f.Value, d, f.BlockHash, p.ConfZec)
+		if st.Sighted == nil || *st.Sighted != f {
+			st.Sighted = &f
+			return st.Save()
+		}
 		return nil
 	}
 	// the gate: every Zcash node must show this exact funding before the secret leaves this machine
 	if err := ConfirmFunding(ctx, s.zsrc, st.ZcashChain, h, f, p.ConfZec, s.logf); err != nil {
 		return err
+	}
+	// with -verify-headers the funding's block and every header above it must carry real work before the secret
+	// leaves (spv.go); a failure is logged and tried again next pass, and the claim cutoff still ends the attempt
+	if err := s.headerGateFunding(ctx, ci, f); err != nil {
+		s.onceLogf("not claiming: %v", err)
+		return nil
 	}
 	branch, err := s.signingBranch(ctx, ci)
 	if err != nil {
@@ -857,7 +889,12 @@ func (s *Swap) makerWatchFunding(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	st.Funding = &f
+	// the funding's own bytes are kept: a reorganisation that drops it is answered by sending them again
+	frt, err := s.zc.RawTx(ctx, f.TxID)
+	if err != nil {
+		return err
+	}
+	st.Funding, st.Sighted, st.FundingHex = &f, nil, hex.EncodeToString(frt.Raw)
 	st.ClaimHex, st.ClaimTxID, st.ClaimBranch = hex.EncodeToString(claim.Serialize()), DisplayHex(claim.TxID()), branch
 	if err := s.save("claiming"); err != nil {
 		return err
@@ -913,6 +950,11 @@ func (s *Swap) sendClaim(ctx context.Context) error {
 	if err := ConfirmFunding(ctx, s.zsrc, st.ZcashChain, h, *st.Funding, p.ConfZec, s.logf); err != nil {
 		return err
 	}
+	// a restart in "claiming" is a fresh decision to reveal: the header gate runs again (spv.go)
+	if err := s.headerGateFunding(ctx, ci, *st.Funding); err != nil {
+		s.onceLogf("not claiming: %v", err)
+		return nil
+	}
 	if ci.NextBranch != st.ClaimBranch {
 		branch, err := s.signingBranch(ctx, ci)
 		if err != nil {
@@ -932,6 +974,13 @@ func (s *Swap) sendClaim(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// written before any node sees the claim: from this moment the secret may be public
+	if !st.Revealed {
+		st.Revealed = true
+		if err := st.Save(); err != nil {
+			return err
+		}
+	}
 	if _, err := BroadcastAll(ctx, s.zsrc, raw, s.logf); err != nil {
 		return err
 	}
@@ -950,31 +999,16 @@ func (s *Swap) makerClaimed(ctx context.Context) error {
 		return err
 	}
 	if !known || !rt.Mined {
-		// did something else spend the funding — the taker's refund, which can win once cltv has passed?
-		h, err := s.htlc()
-		if err != nil {
+		return s.claimNotMined(ctx, ci, cautious, known)
+	}
+	if st.ClaimBlock != rt.BlockHash {
+		if st.ClaimBlock != "" {
+			s.logf("REORGANISATION: the claim %s was mined at %d in block %s and is now at %d in block %s", st.ClaimTxID, st.ClaimHeight, st.ClaimBlock, rt.Height, rt.BlockHash)
+		}
+		st.ClaimHeight, st.ClaimBlock = rt.Height, rt.BlockHash
+		if err := st.Save(); err != nil {
 			return err
 		}
-		sp, err := s.scanFor(ctx, s.zsrc[0], h, ci.Height)
-		if err != nil {
-			return err
-		}
-		if sp != nil && sp.TxID != st.ClaimTxID && sp.Mined {
-			st.SpendTxID = sp.TxID
-			st.Note = fmt.Sprintf("the funding was spent by %s (%s), not by this companion's claim", sp.TxID, sp.Kind)
-			s.logf("%s: the secret was public in the claim, so the taker may claim the DERO as well; the escrow is refunded after T_dero if she does not", st.Note)
-			return s.save("refund_wait")
-		}
-		if !known && p.ClaimOpen(cautious, st.CLTV) {
-			raw, err := hex.DecodeString(st.ClaimHex)
-			if err != nil {
-				return err
-			}
-			if _, err := BroadcastAll(ctx, s.zsrc, raw, s.logf); err != nil {
-				return err
-			}
-		}
-		return nil
 	}
 	if rt.Confirmations < p.ConfZec {
 		return nil
@@ -1017,7 +1051,121 @@ func (s *Swap) refundOutcome() (string, string) {
 	if s.st.ClaimTxID != "" && s.st.SpendTxID == s.st.ClaimTxID {
 		return "claimed_refunded", "the ZEC was claimed (Zcash tx " + s.st.ClaimTxID + ") and the escrow was still open at T_dero; it is refunded"
 	}
+	if s.st.Revealed {
+		return "refunded", "the DERO is refunded; no ZEC was claimed: the secret was revealed in claim " + s.st.ClaimTxID + ", which is not on the chain"
+	}
 	return "refunded", "the DERO is refunded; no ZEC was claimed, and the secret was never revealed by this companion"
+}
+
+// claimNotMined is the maker's claim in no block of the node's best chain: in the mempool, dropped, or taken off the
+// chain by a reorganisation, with or without the funding under it. The secret is public from the first broadcast, so
+// from here the work is to get the claim mined — the funding's bytes and the claim's are both public, and anyone may
+// send them again — and, when that has become impossible, to say so and settle the DERO: Refund after T_dero while
+// the escrow is open, or the swap ends lost once the taker's Claim has landed (docs/ZEC_SWAP.md §9 Z5).
+func (s *Swap) claimNotMined(ctx context.Context, ci ChainInfo, cautious uint32, known bool) error {
+	st, p := s.st, s.cfg.Policy
+	if st.Funding == nil {
+		return errors.New("zecswap: a claim with no funding recorded")
+	}
+	if st.ClaimBlock != "" {
+		where := "on no chain this node knows"
+		if known {
+			where = "back in the mempool"
+		}
+		s.sayOnce("claimoff"+st.ClaimBlock+where, "REORGANISATION: the claim %s, mined at %d in block %s, is %s", st.ClaimTxID, st.ClaimHeight, st.ClaimBlock, where)
+	}
+	if st.SpendTxID == st.ClaimTxID {
+		st.SpendTxID = "" // it was deep once; it is not now
+	}
+	e, err := EscrowAgreed(ctx, s.dsrc, st.EscrowID)
+	if err != nil {
+		return err
+	}
+	if e.State == EscrowRefunded {
+		return s.finish(s.refundOutcome())
+	}
+	// Once the taker's Claim has landed she holds the DERO, and nothing the maker sends can cost her: the claim
+	// cutoff, which keeps a late secret from reaching her too close to T_dero, no longer binds him.
+	open := p.ClaimOpen(cautious, st.CLTV) || e.State == EscrowClaimed
+	frt, fknown, err := TxKnown(ctx, s.zc, st.Funding.TxID)
+	if err != nil {
+		return err
+	}
+	gone := false
+	switch {
+	case fknown && frt.Mined:
+		// did something else spend the funding — the taker's refund, which can win once cltv has passed?
+		h, err := s.htlc()
+		if err != nil {
+			return err
+		}
+		sp, err := s.scanFor(ctx, s.zsrc[0], h, ci.Height)
+		if err != nil {
+			return err
+		}
+		if sp != nil && sp.TxID != st.ClaimTxID && sp.Mined {
+			st.SpendTxID = sp.TxID
+			st.Note = fmt.Sprintf("the funding was spent by %s (%s), not by this companion's claim", sp.TxID, sp.Kind)
+			s.logf("%s: the secret was public in the claim, so the taker may claim the DERO as well; the escrow is refunded after T_dero if she does not", st.Note)
+			return s.save("refund_wait")
+		}
+		// the claim goes again only on a funding C_zec deep where the chain now has it
+		if !known && open && frt.Confirmations >= p.ConfZec {
+			raw, err := hex.DecodeString(st.ClaimHex)
+			if err != nil {
+				return err
+			}
+			if _, err := BroadcastAll(ctx, s.zsrc, raw, s.logf); err != nil {
+				return err
+			}
+			s.logf("the claim %s is sent again (the funding is %d deep at height %d)", st.ClaimTxID, frt.Confirmations, frt.Height)
+		}
+	case !fknown:
+		s.sayOnce("fundoff"+st.Funding.BlockHash, "REORGANISATION: the funding %s, read at height %d in block %s before the claim was sent, is on no chain this node knows: the claim %s cannot be mined without it", st.Funding.TxID, st.Funding.Height, st.Funding.BlockHash, st.ClaimTxID)
+		// Its bytes are public. Once the claim cutoff has passed they are not sent again: that would lock the taker's
+		// coin in the script once more, for a claim this companion may no longer send (Z17).
+		if st.FundingHex == "" || !open {
+			gone = true
+			break
+		}
+		raw, err := hex.DecodeString(st.FundingHex)
+		if err != nil {
+			return err
+		}
+		if _, err := BroadcastAll(ctx, s.zsrc, raw, s.onceLogf); err != nil {
+			// Only a node's answer is a verdict. A timeout or a dropped connection says nothing about the funding, and
+			// a companion that took it for a refusal could end the swap lost while the funding can still be mined
+			// (seen on the regtest zebrad, research/regtest/zecswap-reorg.log, run 2, scenario b).
+			var verdict *RPCError
+			if !errors.As(err, &verdict) {
+				return fmt.Errorf("zecswap: the funding could not be sent again, and no node gave a verdict on it: %w", err)
+			}
+			s.sayOnce("fundback", "the funding cannot be put back from its own bytes: %v. Its coin has been spent a second time, or its expiry height has passed; unless the chain reorganises back, the claim can never be mined", err)
+			gone = true
+		} else {
+			s.onceLogf("the funding %s is sent again from its own bytes — anyone holding them could — so that the claim can follow it", st.Funding.TxID)
+		}
+	}
+	if e.State == EscrowClaimed {
+		if !gone {
+			return nil
+		}
+		// no node may know either, not just this one
+		for _, id := range []string{st.Funding.TxID, st.ClaimTxID} {
+			if unknown, err := UnknownEverywhere(ctx, s.zsrc, id); err != nil || !unknown {
+				return err
+			}
+		}
+		return s.finish("lost", fmt.Sprintf("LOST: this companion revealed the secret in claim %s, the taker's DERO Claim landed, and a reorganisation deeper than C_zec (%d) then took the funding %s off the chain in a form no node will mine again (docs/ZEC_SWAP.md §9 Z5). Neither leg is this maker's. The claim's bytes stay in the state file: if a chain ever carries the funding again, anyone can send them", st.ClaimTxID, p.ConfZec, st.Funding.TxID))
+	}
+	h, err := s.dero.Height(ctx)
+	if err != nil {
+		return err
+	}
+	if h >= st.TDero {
+		return s.save("dero_refunding")
+	}
+	return nil
 }
 
 // ---- the taker ----
@@ -1272,7 +1420,7 @@ func (s *Swap) takerSetup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	ci, _, err := s.chain(ctx)
+	ci, cautious, err := s.chain(ctx)
 	if err != nil {
 		return err
 	}
@@ -1340,9 +1488,15 @@ func (s *Swap) takerSetup(ctx context.Context) error {
 		return decline(err.Error())
 	}
 	if o.State == OfferAccepted {
-		// accepted by this wallet already (the app, or an earlier run): adopt its numbers if they are this key's
+		// Accepted by this wallet already (the app, or an earlier run): its numbers are adopted only if they are this
+		// key's and its cltv holds against this companion's own Zcash node. The app computes cltv from a height typed
+		// by hand (+96) and board.bas stores it as given, so it is checked here, before the taker waits on a lock,
+		// and again at funding (takerFund).
 		if o.RefundPkh != hex.EncodeToString(refundPkh[:]) || o.CLTV >= LockTimeThreshold {
 			return s.finish("taken", "this wallet accepted the offer with another refund key or cltv")
+		}
+		if err := p.CheckCLTV(uint32(o.CLTV), cautious); err != nil {
+			return decline("the board's cltv, set when this wallet accepted, does not hold against this companion's own Zcash node: " + err.Error())
 		}
 		cltv = uint32(o.CLTV)
 	}
@@ -1405,10 +1559,20 @@ func (s *Swap) takerFund(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := p.CheckCLTV(st.CLTV, cautious); err != nil {
+	// With -verify-headers the tip these two checks read must be backed by work (spv.go): a node showing a higher tip
+	// than the network's would make a cltv that is really later look in policy. A failure is a retry, not a
+	// decline — until the lock is too short to fund at all.
+	tip, err := s.headerGateTip(ctx, ci, cautious)
+	if err != nil {
+		if st.TDero-h < p.TakerMinDeroLeft {
+			return decline("the Zcash headers up to the tip never verified before the lock became too short to fund: " + err.Error())
+		}
+		return err
+	}
+	if err := p.CheckCLTV(st.CLTV, tip); err != nil {
 		return decline(err.Error())
 	}
-	if err := p.CheckTakerTimes(st.TDero-h, st.CLTV-cautious); err != nil {
+	if err := p.CheckTakerTimes(st.TDero-h, st.CLTV-tip); err != nil {
 		return decline(err.Error())
 	}
 	branch, err := s.signingBranch(ctx, ci)
@@ -1557,8 +1721,8 @@ func (s *Swap) takerFunded(ctx context.Context) error {
 		}
 	case !known:
 		raw, _ := hex.DecodeString(st.FundingHex)
-		if _, err := BroadcastAll(ctx, s.zsrc, raw, s.logf); err != nil {
-			s.logf("the funding could not be re-sent: %v", err)
+		if _, err := BroadcastAll(ctx, s.zsrc, raw, s.onceLogf); err != nil {
+			s.onceLogf("the funding could not be re-sent: %v", err)
 		}
 	case rt.Mined:
 		f := Funding{TxID: st.FundingTxID, Index: FundingOutput, Value: st.WantAmount, Height: rt.Height, BlockHash: rt.BlockHash}

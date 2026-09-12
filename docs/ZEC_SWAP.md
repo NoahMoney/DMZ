@@ -247,10 +247,13 @@ script. `tools/zecswap`: one binary, no host, run by the party on the Zcash side
     of support (2026-07-18), will not follow NU6.3, and is untested here;
   - not `lightwalletd`: it speaks gRPC, which would need a new dependency, and it would be just as much a trusted party
     (`tools/zecswap/node.go:23-29`).
-- It uses exactly seven methods (`node.go:34-64`): `getblockchaininfo`, `getblockhash`, `getaddressutxos`,
-  `getaddresstxids`, `getrawtransaction` (verbose), `sendrawtransaction` and `gettxout`.
-- All seven were exercised against zebrad 6.3.0 on regtest (`tools/regtest/README.md`,
-  `research/regtest/zecswap-e2e.log`).
+- It uses exactly nine methods (`node.go`, its METHODS comment). Seven are used on every run: `getblockchaininfo`,
+  `getblockhash`, `getaddressutxos`, `getaddresstxids`, `getrawtransaction` (verbose), `sendrawtransaction` and
+  `gettxout`. Two are used only with `-verify-headers`: `getblock` (verbosity 1) and `getblockheader` (raw).
+  `tools/regtest/rpcgate` serves exactly these nine, and a test holds its list to `node.go`'s calls.
+- The first seven were exercised against zebrad 6.3.0 on regtest (`research/regtest/zecswap-e2e.log`). The last two
+  were exercised on regtest, and through the gate against the Zcash testnet node on historical blocks
+  (`research/regtest/zecswap-headers.log`).
 
 **The flags.**
 - `-network` is required and has no default. Only `-network regtest` reaches regtest, and only for a node whose block 0
@@ -259,12 +262,30 @@ script. `tools/zecswap`: one binary, no host, run by the party on the Zcash side
 - `-daemon` (DERO) may be repeated.
 - `-wallet` takes its login from `VEIL_RPC_LOGIN`, or from `-dero-login`, which is refused on mainnet. On mainnet a
   wallet that answers without credentials is refused.
+- `-board` and `-escrow` default to the network's entry in `deploy/networks.json` (`-networks`; regtest reads the
+  simulator's). The id is only a pointer: the code at it must still hash to the pinned `board.bas` v3 and `swap.bas`
+  v2. An entry with no id fails closed.
+- `-verify-headers` turns on the header gate (below). It is off by default.
 
 **Every node named is a trusted party**, the local one included, and above all a remote one. It is trusted for everything
 the companion knows about that chain: the height, the outputs paying the script, how deep they are, the transactions
 that spend them. One that colludes with the counterparty costs its reader a whole leg (Z14, Z15). Extra nodes are
 witnesses that must all agree before the maker reveals `s` and before the taker funds (`quorum.go`). They turn "one
 liar" into "every source colludes" and never remove the trust. A node on the user's own machine is the default.
+
+**The header gate** (`-verify-headers`, `tools/zecswap/spv.go`, `tools/zecspv`). It narrows the node's trust to what costs
+work.
+- Before the maker reveals `s`, and again on a restart in "claiming", the funding's block and every header above it to
+  the tip must verify. That means Equihash, the difficulty rule with 200 headers below the funding (so its own
+  difficulty is recomputed, not taken from the node), a floor of Mainnet nBits `1c00802e` × 16, a newest header at most
+  an hour old, and the funding in the block by its Merkle branch. The leaf is computed from the funding's own bytes. On
+  any failure there is no claim; it tries again next pass, and the claim cutoff still ends it.
+- Before the taker funds, the headers up to the tip must verify the same way, and her `cltv` checks read that tip.
+- It proves work, not that this is the network's chain. Ten confirmations cost a forger about 8.94 blocks of network
+  work (`docs/ZCASH_HEADER_VERIFICATION.md` §4).
+- On regtest it is skipped, and says so: zebrad's regtest mines with no proof of work. On testnet it checks the plumbing
+  only: the minimum-difficulty rule makes forged headers nearly free.
+- It stays off by default until it has run against the Zcash testnet node.
 
 **What it checks and writes.**
 - It builds v5 or v6 transactions (ZIP 225, ZIP 229) and reads versions 1–6. It stops on any transaction at the script
@@ -273,11 +294,26 @@ liar" into "every source colludes" and never remove the trust. A node on the use
   its own policy, and the taker's registration.
 - The maker's companion sends the taker's DERO Claim once its own Zcash claim is deep: swap v2 pays the named taker
   whoever sends it.
+- The `cltv` on the board is checked against the companion's own node: by the maker before he locks, and by the taker
+  both when she adopts an accept made elsewhere (the app computes `cltv` from a height typed by hand) and again before
+  she funds. Too soon or too far is refused.
 - The maker's secret is read from a file or stdin, never from the command line.
 - It lists every file it writes, in a directory outside any repository by default: the state, its lock, the
   pre-signed refund, and the used-hash and consumed-funding registers.
 - Keys stay in the user's Zcash wallet and DERO wallet. The companion signs the script spend with a key the user gives
   it for that purpose only, and the docs say so in those words.
+
+**Reorganisations** (tested on the real regtest zebrad with `invalidateblock`, `research/regtest/zecswap-reorg.log`).
+- If the chain drops a funding the maker read below `C_zec`, the companion reports it and the funding counts for nothing.
+  Depth starts over on the chain as it is, and `s` stays with the maker until a funding is `C_zec` deep there.
+- If a claim is taken off the chain with its funding, the companion reports it and puts the funding back from its own
+  bytes. Once the funding is `C_zec` deep again it sends the same claim, while the claim cutoff is open or once the
+  taker's Claim has landed. Only a node's refusal counts as a verdict: a timeout is not one.
+- If the funding can never be mined again (its coin spent a second time) and the taker's Claim has landed, the maker's
+  companion ends in `lost`: the Z5 loss, stated in its outcome. With the escrow still open, it refunds the DERO at
+  `T_dero` instead, and its outcome says the secret was revealed.
+- A companion that has already ended does not see a later reorganisation. `status` flags a claim that is no longer
+  where it was seen mined.
 
 The Monero companion's crash-fuzz discipline applies: durable state before every irreversible step, a `status`
 command that says what happens if it stops now, a `resume` that reads both chains and continues.
@@ -400,23 +436,39 @@ tests), and the driver's scenarios run on the simulator: a Claim sent by a third
 naming no taker and one narrower than `wmin` refused, a late claim refused, a refund to an empty escrow, and a board
 offer cancelled at its acceptance deadline, before its expiry.
 
-Built 2026-09-11, the rest of `tools/zecswap`:
+Built 2026-09-11 and 2026-09-12, the rest of `tools/zecswap`:
 - the node client, the multi-node quorum, the watcher and the ZIP 317 fee;
 - the funding, claim and pre-signed refund builders, in v5 and v6;
 - maker and taker state machines, with durable state and a crash fuzz;
-- the DERO client, the code pins, and the command line.
+- the DERO client, the code pins, and the command line;
+- the reorganisation handling and the `lost` phase (§7);
+- the header gate behind `-verify-headers` (§7);
+- contract ids read from `deploy/networks.json`.
 
-It is verified two ways:
-- unit tests against fake nodes plus real zebrad v6 transactions;
-- three swaps on zebrad 6.3.0 regtest with the DERO simulator, every txid in `research/regtest/zecswap-e2e.log`:
+It is verified:
+- by unit tests against fake nodes, plus real zebrad v6 transactions and real Mainnet headers
+  (`tools/zecspv/testdata`). These include fuzzing of every node-response parser, a test that no secret reaches the
+  output, and the crash fuzz;
+- by three swaps on zebrad 6.3.0 regtest with the DERO simulator, every txid in `research/regtest/zecswap-e2e.log`:
   - a v5 claim, where the maker's companion sent the away taker's DERO Claim;
   - a v6 claim, where the taker's own watcher read the secret;
-  - a refund refused before `cltv` and mined after it, broadcast by a third party holding only the pre-signed file.
+  - a refund refused before `cltv` and mined after it, broadcast by a third party holding only the pre-signed file;
+- by three reorganisations on the regtest zebrad, made with `invalidateblock`, every txid in
+  `research/regtest/zecswap-reorg.log`:
+  - a funding removed below `C_zec`: the maker reported it and never revealed;
+  - a reorganisation deeper than `C_zec` after both sides settled, with the taker's coin spent again: the maker ended
+    `lost`, the Z5 loss;
+  - the same reorganisation without the second spend: the maker's claim was mined again and he ended `swapped`;
+- by the header gate's reads, in `research/regtest/zecswap-headers.log`:
+  - on regtest: the shapes and the Merkle branches; the gate itself is skipped there;
+  - through the gate against the Zcash testnet node, on historical blocks, as plumbing only: Equihash, the difficulty
+    rule with 200 headers below, and the Merkle branch hold, and the shipped tip-age rule refuses the still-syncing
+    node's tip.
 
 Not built, or not run, in this order, each its own cycle and each verified before the next:
-1. the `zecswap` command line itself against a node, as separate maker, taker and status processes (the regtest run
-   drove the same state machines and RPC clients from a test);
-2. the Zcash testnet run (BL-42);
+1. the `zecswap` command line itself against a node, as separate maker, taker and status processes. The driver
+   (`TestRegtestCLI`) is written and waits for the DERO simulator;
+2. the Zcash testnet run of a swap (BL-42), and `-verify-headers` on by default after it;
 3. zcashd, which is past end of support and never run here;
 4. the screens (§8);
 5. the measurement behind §5 (BL-30).

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"veil/tools/zecspv"
 )
 
 // The Zcash node, over its JSON-RPC.
@@ -31,11 +33,13 @@ import (
 // A companion may be given more than one node for each chain (quorum.go): the step each side's safety rests on
 // then waits for every node to agree. That makes one liar insufficient; it does not remove the trust.
 //
-// METHODS. Exactly seven, each named with what it needs. zcashd's pages are https://zcash.github.io/rpc/<method>.html;
+// METHODS. Exactly nine, each named with what it needs. zcashd's pages are https://zcash.github.io/rpc/<method>.html;
 // zebrad's are the RpcServer trait of the zebra-rpc crate (https://docs.rs/zebra-rpc), each method of which links
 // the zcashd page it follows. lightwalletd decodes the replies of both nodes with one set of structures
-// (lightwalletd common/common.go), which is why the field names below are the same for both. All seven were run
-// against a real zebrad 6.3.0 on regtest (tools/regtest, research/regtest/zcash-smoke.log and zecswap-e2e.log).
+// (lightwalletd common/common.go), which is why the field names below are the same for both. The first seven were
+// run against a real zebrad 6.3.0 on regtest (tools/regtest, research/regtest/zcash-smoke.log and zecswap-e2e.log);
+// the last two, which only the header gate calls (-verify-headers, spv.go), by TestRegtestHeaderPlumbing
+// (research/regtest/zecswap-headers.log). tools/regtest/rpcgate serves exactly these nine (TestGateServesExactlyTheNodeClientsMethods).
 //
 //	getblockchaininfo   zcashd: no flag. zebrad: yes, "only the fields required for lightwalletd support", which
 //	                    are chain, blocks, bestblockhash, estimatedheight, upgrades and consensus.{chaintip,nextblock}
@@ -56,6 +60,11 @@ import (
 //	                    transaction.
 //	gettxout            both, no flag (zcash.github.io/rpc/gettxout.html; zebra-rpc get_tx_out): null for an output
 //	                    the chain has spent or never had, else scriptPubKey.hex, confirmations and bestblock.
+//	getblock            both, no flag, for a block on the node's chain named by hash; verbosity 1 answers hash and
+//	                    tx, the txids in the block's order. Only the header gate calls it, for the funding's Merkle
+//	                    branch; a wrong list does not hash to the header's root, so it needs no trust.
+//	getblockheader      both, no flag; verbose false answers the serialized header, 1,487 bytes (zebrad 6.3.0
+//	                    measured). Only the header gate calls it.
 //
 // So: zebrad with its RPC enabled ([rpc] listen_addr) needs nothing else; zcashd needs txindex=1,
 // experimentalfeatures=1 and insightexplorer=1 and a reindex. The 2026-09-10 audit (finding ZEC-8) records that
@@ -502,6 +511,60 @@ func (c *ZcashRPC) BlockHash(ctx context.Context, height uint32) (string, error)
 		return "", err
 	}
 	return hash64("block hash", s)
+}
+
+// BlockHeader is getblockheader <hash> false: the block's serialized header, exactly zecspv.HeaderLen (1,487) bytes.
+// Only the header gate (spv.go) calls it, and zecspv checks every byte of what it returns.
+func (c *ZcashRPC) BlockHeader(ctx context.Context, hash string) ([]byte, error) {
+	want, err := hash64("block hash", hash)
+	if err != nil {
+		return nil, err
+	}
+	var s string
+	if err := c.call(ctx, "getblockheader", []interface{}{want, false}, &s); err != nil {
+		return nil, err
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("zecswap: getblockheader for %s is not hex", want)
+	}
+	if len(b) != zecspv.HeaderLen {
+		return nil, fmt.Errorf("zecswap: getblockheader for %s answered %d bytes, not a %d-byte header", want, len(b), zecspv.HeaderLen)
+	}
+	return b, nil
+}
+
+// maxBlockTxIDs bounds getblock's transaction list: a 2 MB block holds a few thousand transactions at most.
+const maxBlockTxIDs = 50_000
+
+// BlockTxIDs is getblock <hash> 1: the block's transaction ids in the block's own order, in display order. Only the
+// header gate (spv.go) calls it. The list needs no trust — a wrong one does not hash to the header's Merkle root —
+// but its shape is checked like every answer.
+func (c *ZcashRPC) BlockTxIDs(ctx context.Context, hash string) ([]string, error) {
+	want, err := hash64("block hash", hash)
+	if err != nil {
+		return nil, err
+	}
+	var r struct {
+		Hash string   `json:"hash"`
+		Tx   []string `json:"tx"`
+	}
+	if err := c.call(ctx, "getblock", []interface{}{want, 1}, &r); err != nil {
+		return nil, err
+	}
+	if got, err := hash64("getblock hash", r.Hash); err != nil || got != want {
+		return nil, fmt.Errorf("zecswap: getblock for %s answered block %q", want, r.Hash)
+	}
+	if len(r.Tx) == 0 || len(r.Tx) > maxBlockTxIDs {
+		return nil, fmt.Errorf("zecswap: getblock for %s lists %d transactions", want, len(r.Tx))
+	}
+	out := make([]string, len(r.Tx))
+	for i, id := range r.Tx {
+		if out[i], err = hash64("getblock txid", id); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // AddressUTXOs is getaddressutxos for one address: its confirmed unspent outputs.

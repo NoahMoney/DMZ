@@ -200,8 +200,8 @@ Both gates come before an irreversible step. Neither needs the rest of `zecswap`
   `zecspv.HeaderFromBlock`, or `getblockheader <hash> false`. The first was measured against Zebra 6.3.0 for this
   work. The second returns only the 1,487 bytes, where `getblock` returns whole blocks of up to 2 MB, but it was not
   measured here.
-- **The client-facing gate.** `tools/regtest/rpcgate` serves only `zecswap`'s seven methods, so `getblock` or
-  `getblockheader` must be added to its allowlist. Both are read-only.
+- **The client-facing gate.** `tools/regtest/rpcgate` serves only the methods `zecswap` calls. `getblock` and
+  `getblockheader`, both read-only, were added to it when the gate was wired in (W-09, 2026-09-12).
 - **The call and the answer.** Call `zecspv.VerifyFunding(zecspv.Mainnet, proof, policy)`. On any error, do not claim.
   Log the error, which names the height and the reason, and try again next step. `ClaimOpen` still ends the attempt at
   the cutoff, and then the DERO is refunded after `T_dero` and `s` never leaves. Log `Funding.Work` and

@@ -226,11 +226,18 @@ counterparty, the result is not a delay. It is the loss of a whole leg:
 `docs/ZEC_SWAP.md` Z14 and Z15 describe the first two as costing time. That is true only when the liar is not the
 counterparty's accomplice, and the documents are corrected to say so (`MAINNET_TODO.md` MT-I11).
 
+**The Zcash maker's row, with `-verify-headers`.** Before the companion reveals `s`, the funding's block and every
+header above it must carry real Equihash work (`tools/zecswap/spv.go`, `tools/zecspv`). A faked funding then costs real
+mining: about 8.94 blocks of network work, roughly 14 ZEC, for ten confirmations under the shipped policy (Depth 9, 200
+headers below, floor nBits `1c00802e` × 16, newest header at most 1 h old), against 4.49 blocks with only the 28 headers
+the difficulty rule needs (`docs/ZCASH_HEADER_VERIFICATION.md` §4). It proves work, not the network's consensus (§2
+there). The gate is off by default until it has run against the Zcash testnet node.
+
 **What reduces T6, strongest first:**
 1. **Run your own nodes.** This is the companions' default, and the trust statement's.
 2. **Check the proof of work yourself.** For Zcash, check Equihash and the Merkle path before revealing `s` or funding.
-   A lie would then cost at least `C_zec + 1` blocks of real Zcash work. Not built (`DECENTRALIZATION_ARCHITECTURE.md`
-   §7).
+   This is built into `tools/zecswap` behind `-verify-headers`, with the cost of a lie as measured in
+   `docs/ZCASH_HEADER_VERIFICATION.md` §4 (above). It is not built for Monero (`DECENTRALIZATION_ARCHITECTURE.md` §7).
 3. **Read from several independent sources, and act only when they all agree.** Being built into `zecswap` in this
    pass (MT-C10), with the same for the DERO read before an XMR lock (MT-B09). This reduces "one liar" to "every
    source colludes". **It does not remove the trust**, and the companion says so.
