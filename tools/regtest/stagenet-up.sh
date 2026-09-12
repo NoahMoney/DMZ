@@ -29,7 +29,9 @@ if [ "$(bin_hashes || true)" != "$MONEROD_SHA256" ]; then
 	[ "$(bin_hashes || true)" = "$MONEROD_SHA256" ] || die "monerod in $MBIN does not match pins.env after extraction"
 fi
 
-info() { curl -sf --max-time 10 "http://127.0.0.1:$STAGENET_RPC_PORT/json_rpc" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":"0","method":"get_info"}'; }
+# 30 s: while monerod verifies heavy stagenet blocks its RPC can take more than 10 s to answer (measured 2026-09-12
+# near block 577,000), and a status that gave up then reported a running, syncing node as not answering
+info() { curl -sf --max-time 30 "http://127.0.0.1:$STAGENET_RPC_PORT/json_rpc" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":"0","method":"get_info"}'; }
 is_stagenet() { info | tr -d ' \n' | grep -q '"nettype":"stagenet"'; }
 
 # progress: height / target, the database's size on disk, and (from two readings in $SDIR/progress.tsv) a rate and
