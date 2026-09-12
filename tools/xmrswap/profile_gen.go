@@ -18,6 +18,9 @@ const (
 	profileK                  uint64 = 2
 	profileStipendFloor       uint64 = 14016
 	profileConfirmationsFloor uint64 = 20
+	profileW1Min              uint64 = 400
+	profileW2Min              uint64 = 400
+	profileG2                 uint64 = 4800
 )
 
 // profileTiers are the confirmation tiers by notional; a nil threshold is one the operator has not set.

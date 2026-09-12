@@ -50,14 +50,16 @@ type Network struct {
 	Vault    string     `json:"vault"` // the first wrapped asset, for the app's older readers; its record is in Vaults
 	Vaults   []VaultRec `json:"vaults"`
 	Chat     string     `json:"chat"`
-	// The atomic-swap contracts (GAP-002). They have no owner, fee or parameter, so one instance per network serves
-	// every swap. The companions compare the code at these ids with the canonical source before trusting them.
+	// The atomic-swap contracts (GAP-002). They have no owner or fee, and their parameters (swap.bas wmin; htlc.bas
+	// w1min, w2min, g2) are fixed at install, so one instance per network serves every swap. The companions compare
+	// the code at these ids with the canonical source, and read those parameters, before trusting them.
 	Htlc  string `json:"htlc"`  // contracts/htlc.bas: the DERO leg of the Monero swap
 	Swap  string `json:"swap"`  // contracts/swap.bas: the DERO leg of the transparent-Zcash swap
 	Board string `json:"board"` // contracts/board.bas: the Zcash market's offers
 	// The treasury addresses a listed market may pay (GAP-005), current first. A market's treasury is fixed at its
-	// install, so the app checks it against this published set instead of the factory's live tstr pointer, which
-	// the owner can move until Renounce. A record without it renders without it, and the app falls back to tstr.
+	// install, so the app checks it against this published set instead of the factory's tstr pointer, which an older
+	// factory's owner could move until Renounce (factory.bas v2 fixes it at install). A record without it renders
+	// without it, and the app falls back to tstr.
 	Treasuries    []string            `json:"treasuries,omitempty"`
 	FeeBps        uint64              `json:"feeBps"`
 	PfeeBps       uint64              `json:"pfeeBps"`

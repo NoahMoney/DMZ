@@ -5,6 +5,6 @@ package xmrswap
 // recordedHTLC is htlc.bas's scid on each DERO network as deploy/networks.json records it ("" = not deployed there).
 var recordedHTLC = map[string]string{
 	"mainnet":   "",
-	"simulator": "9422717ff20a5ff90d791e10a1c4b0618f232de2c36770a8f74303857fa043ab",
+	"simulator": "ef576fce2edaa15c3e09916463ea86a49bfb428ca030d439e69a63a48a612496",
 	"testnet":   "",
 }

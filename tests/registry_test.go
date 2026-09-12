@@ -2,28 +2,49 @@ package tests
 
 import (
 	"encoding/hex"
+	"strings"
 	"testing"
 
 	"github.com/deroproject/derohe/cryptography/crypto"
+	"github.com/deroproject/derohe/dvm"
 	"github.com/deroproject/derohe/rpc"
 	"github.com/deroproject/derohe/veil/tests/harness"
 )
 
+func factoryArgs(treasury string, regfee uint64) rpc.Arguments {
+	return rpc.Arguments{harness.S("treasury", treasury), harness.U("regfee", regfee)}
+}
+
 func TestFactory(t *testing.T) {
 	c := harness.New()
-	owner, treasury, t2, alice := c.NewAccount(), c.NewAccount(), c.NewAccount(), c.NewAccount()
+	installer, treasury, alice := c.NewAccount(), c.NewAccount(), c.NewAccount()
 	code := readContract(t, "factory.bas")
-	scid, res := c.Install(code, nil, rpc.Arguments{harness.S("treasury", treasury.String()), harness.U("regfee", 10000)}, owner, harness.MaxStorageGas)
+	scid, res := c.Install(code, nil, factoryArgs(treasury.String(), 10000), installer, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}
 	t.Logf("factory.bas: %d bytes, install storage gas %d", len(code), res.GasStorage)
-	if c.S(scid, "owner") != string(owner.Compressed()) || c.S(scid, "treasury") != string(treasury.Compressed()) || c.S(scid, "tstr") != treasury.String() {
+	if c.S(scid, "kind") != "factory" || c.U(scid, "v") != 2 || c.S(scid, "treasury") != string(treasury.Compressed()) ||
+		c.S(scid, "tstr") != treasury.String() || c.U(scid, "regfee") != 10000 || c.U(scid, "initd") != 1 {
 		t.Fatal("init")
 	}
-	// anonymous install must fail
-	if _, r := c.Install(code, nil, rpc.Arguments{harness.S("treasury", treasury.String()), harness.U("regfee", 0)}, nil, harness.MaxStorageGas); r.OK() {
-		t.Fatal("anonymous factory install accepted")
+	// v2 stores no key naming anyone but the treasury: not the installer, and no owner of any kind
+	for _, k := range []string{"owner", "tmpowner", "renounced"} {
+		if c.Exists(scid, k) {
+			t.Fatalf("factory.bas v2 stored %q", k)
+		}
+	}
+	// Inverted from v1, which refused an install at ring size > 2 because it stored the signer as the owner. v2 stores
+	// no signer, so an anonymous install is accepted and records nothing about who made it.
+	anon, r := c.Install(code, nil, factoryArgs(treasury.String(), 0), nil, harness.MaxStorageGas)
+	if !r.OK() || c.Exists(anon, "owner") || c.S(anon, "tstr") != treasury.String() || c.U(anon, "regfee") != 0 {
+		t.Fatalf("anonymous install: %v", r.Err)
+	}
+	// Initialize still refuses a treasury that is not an address
+	for _, bad := range []string{"dero1bad", "", "not an address"} {
+		if _, r := c.Install(code, nil, factoryArgs(bad, 0), installer, harness.MaxStorageGas); r.OK() {
+			t.Fatalf("an install with treasury %q was accepted", bad)
+		}
 	}
 	var fake crypto.Hash
 	fake[0] = 7
@@ -31,7 +52,7 @@ func TestFactory(t *testing.T) {
 	if r := c.Call(scid, "RegisterPool", rpc.Arguments{harness.H("scid", fake)}, map[crypto.Hash]uint64{zero: 9999}, alice); r.OK() {
 		t.Fatal("underpaid registration accepted")
 	}
-	r := c.Call(scid, "RegisterPool", rpc.Arguments{harness.H("scid", fake)}, map[crypto.Hash]uint64{zero: 12000}, alice)
+	r = c.Call(scid, "RegisterPool", rpc.Arguments{harness.H("scid", fake)}, map[crypto.Hash]uint64{zero: 12000}, alice)
 	if !r.OK() || r.Sent(zero, treasury) != 12000 || c.U(scid, "pc") != 1 || c.S(scid, "pool_0") != hex.EncodeToString(fake[:]) {
 		t.Fatalf("register pool: %v sent=%d", r.Err, r.Sent(zero, treasury))
 	}
@@ -49,37 +70,21 @@ func TestFactory(t *testing.T) {
 	if r := c.Call(scid, "RegisterNFT", rpc.Arguments{harness.H("scid", fake)}, map[crypto.Hash]uint64{zero: 10000}, alice); !r.OK() || c.U(scid, "nc") != 1 {
 		t.Fatalf("register nft: %v", r.Err)
 	}
-	// owner-only setters
-	if r := c.Call(scid, "SetRegFee", rpc.Arguments{harness.U("regfee", 0)}, nil, alice); r.OK() {
-		t.Fatal("non-owner set fee")
+	// a factory installed with regfee 0 registers for nothing, forever: there is no setter to make it free or not later
+	if r := c.Call(anon, "RegisterPool", rpc.Arguments{harness.H("scid", fake)}, nil, alice); !r.OK() || c.U(anon, "pc") != 1 {
+		t.Fatalf("free registration: %v", r.Err)
 	}
-	if r := c.Call(scid, "SetRegFee", rpc.Arguments{harness.U("regfee", 0)}, nil, owner); !r.OK() || c.U(scid, "regfee") != 0 {
-		t.Fatal("owner set fee")
+	if c.SCBalance(anon, zero) != 0 {
+		t.Fatal("factory kept a balance")
 	}
-	if r := c.Call(scid, "RegisterPool", rpc.Arguments{harness.H("scid", fake)}, nil, alice); !r.OK() || c.U(scid, "pc") != 2 {
-		t.Fatal("free registration")
-	}
-	if r := c.Call(scid, "SetTreasury", rpc.Arguments{harness.S("treasury", t2.String())}, nil, alice); r.OK() {
-		t.Fatal("non-owner set treasury")
-	}
-	if r := c.Call(scid, "SetTreasury", rpc.Arguments{harness.S("treasury", "dero1bad")}, nil, owner); r.OK() {
-		t.Fatal("bad treasury accepted")
-	}
-	if r := c.Call(scid, "SetTreasury", rpc.Arguments{harness.S("treasury", t2.String())}, nil, owner); !r.OK() || c.S(scid, "tstr") != t2.String() {
-		t.Fatal("owner set treasury")
-	}
-	// ownership cannot be handed on: the two-step transfer is gone and Renounce is the only way it ends
-	// (TestFactoryRenounce)
-	for _, entry := range []string{"TransferOwnership", "ClaimOwnership"} {
-		if r := c.Call(scid, entry, rpc.Arguments{harness.S("newowner", alice.String())}, nil, owner); r.OK() {
-			t.Fatalf("%s is still an entrypoint", entry)
-		}
-		if r := c.Call(scid, entry, nil, nil, alice); r.OK() {
+	// the setters and the transfer are gone (TestFactoryFixedAtInstall has the full matrix)
+	for _, entry := range []string{"SetRegFee", "SetTreasury", "Renounce", "TransferOwnership", "ClaimOwnership"} {
+		if r := c.Call(scid, entry, rpc.Arguments{harness.U("regfee", 0), harness.S("treasury", alice.String()), harness.S("newowner", alice.String())}, nil, installer); r.OK() {
 			t.Fatalf("%s is still an entrypoint", entry)
 		}
 	}
-	if c.S(scid, "owner") != string(owner.Compressed()) || c.Exists(scid, "tmpowner") {
-		t.Fatal("owner moved")
+	if c.S(scid, "tstr") != treasury.String() || c.U(scid, "regfee") != 10000 || c.Exists(scid, "owner") || c.Exists(scid, "tmpowner") {
+		t.Fatal("the factory's state moved")
 	}
 }
 
@@ -351,89 +356,131 @@ func TestFactoryRegisterNFA(t *testing.T) {
 	}
 }
 
-// SEC-K-02 / LIV-08. The owner can end its own powers by its own act, and nothing brings them back. After Renounce
-// every function that was ever owner-gated (SetTreasury, SetRegFee, Renounce; TransferOwnership and ClaimOwnership,
-// which no longer exist) and the one function that ever stored owner (Initialize) is refused — the DVM discards the
-// call, so it commits nothing — for the old owner, a stranger, and an anonymous caller at ring size > 2, whose
-// SIGNER() is 33 zero bytes (the reason owner is deleted rather than overwritten with a zero key, which that caller
-// would match), at this height and later ones, and the stored state stays exactly as Renounce left it. Registration
-// goes on, forwarding every fee in the call, so the factory holds nothing it could owe.
-func TestFactoryRenounce(t *testing.T) {
+// MT-J15(b), replacing TestFactoryRenounce. factory.bas v2 has no owner: the treasury and the registration fee are
+// fixed by Initialize for the life of the factory. From the first block after install and at later heights, every
+// entrypoint name that was ever owner-gated in v1 (SetTreasury, SetRegFee, Renounce; TransferOwnership and
+// ClaimOwnership, removed before v2) and Initialize itself, each with arguments that would move the treasury or the
+// fee, is refused — the DVM discards the call, so it commits nothing — for the installer, a stranger, and an anonymous
+// caller at ring size > 2, whose SIGNER() is 33 zero bytes; and the stored state stays exactly as Initialize left it.
+// No owner, tmpowner or renounced key ever appears. Registration goes on, forwarding every fee in the call to the
+// treasury fixed at install, so the factory holds nothing it could owe.
+func TestFactoryFixedAtInstall(t *testing.T) {
 	c := harness.New()
-	owner, treasury, t2, alice := c.NewAccount(), c.NewAccount(), c.NewAccount(), c.NewAccount()
+	installer, treasury, t2, alice := c.NewAccount(), c.NewAccount(), c.NewAccount(), c.NewAccount()
 	code := readContract(t, "factory.bas")
-	scid, res := c.Install(code, nil, rpc.Arguments{harness.S("treasury", treasury.String()), harness.U("regfee", 10000)}, owner, harness.MaxStorageGas)
+	scid, res := c.Install(code, nil, factoryArgs(treasury.String(), 10000), installer, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}
-	for _, who := range []*rpc.Address{alice, nil} {
-		if r := c.Call(scid, "Renounce", nil, nil, who); r.OK() {
-			t.Fatal("Renounce by a non-owner was accepted")
-		}
+	state := func() [10]interface{} {
+		return [10]interface{}{c.Var(scid, "owner"), c.Var(scid, "tmpowner"), c.Var(scid, "renounced"), c.Var(scid, "treasury"),
+			c.Var(scid, "tstr"), c.Var(scid, "regfee"), c.Var(scid, "initd"), c.Var(scid, "kind"), c.Var(scid, "v"), c.Var(scid, "pc")}
 	}
-	c.NextBlock()
-	if r := c.Call(scid, "Renounce", nil, nil, owner); !r.OK() {
-		t.Fatalf("renounce: %v", r.Err)
+	installed := state()
+	if installed[0] != nil || installed[1] != nil || installed[2] != nil {
+		t.Fatalf("an owner key exists after install: owner %v, tmpowner %v, renounced %v", installed[0], installed[1], installed[2])
 	}
-	if c.Exists(scid, "owner") || c.U(scid, "renounced") != c.Height {
-		t.Fatalf("after Renounce: owner present %v, renounced %v", c.Exists(scid, "owner"), c.Var(scid, "renounced"))
-	}
-	state := func() [7]interface{} {
-		return [7]interface{}{c.Var(scid, "owner"), c.Var(scid, "tmpowner"), c.Var(scid, "treasury"), c.Var(scid, "tstr"),
-			c.Var(scid, "regfee"), c.Var(scid, "renounced"), c.Var(scid, "initd")}
-	}
-	after := state()
 	calls := []struct {
 		entry string
 		args  rpc.Arguments
 	}{
 		{"SetTreasury", rpc.Arguments{harness.S("treasury", t2.String())}},
 		{"SetRegFee", rpc.Arguments{harness.U("regfee", 0)}},
+		{"SetRegFee", rpc.Arguments{harness.U("regfee", ^uint64(0))}},
 		{"Renounce", nil},
-		{"Initialize", rpc.Arguments{harness.S("treasury", t2.String()), harness.U("regfee", 0)}},
+		{"Initialize", factoryArgs(t2.String(), 0)},
+		{"Initialize", factoryArgs(treasury.String(), ^uint64(0))},
 		{"TransferOwnership", rpc.Arguments{harness.S("newowner", alice.String())}},
 		{"ClaimOwnership", nil},
 	}
+	names := map[*rpc.Address]string{installer: "the installer", alice: "a stranger", nil: "an anonymous caller"}
 	seen := map[string]string{}
 	for round := 0; round < 3; round++ {
-		for _, who := range []*rpc.Address{owner, alice, nil} {
-			name := "an anonymous caller"
-			if who != nil {
-				name = e2name(who, owner)
-			}
+		c.NextBlock()
+		for _, who := range []*rpc.Address{installer, alice, nil} {
 			for _, x := range calls {
 				r := c.Call(scid, x.entry, x.args, nil, who)
 				if r.OK() || r.Err == nil {
-					t.Fatalf("round %d: %s by %s was accepted after Renounce", round, x.entry, name)
+					t.Fatalf("round %d: %s by %s was accepted", round, x.entry, names[who])
 				}
-				if state() != after {
-					t.Fatalf("round %d: %s by %s moved the factory's state after Renounce", round, x.entry, name)
+				if state() != installed {
+					t.Fatalf("round %d: %s by %s moved the factory's state", round, x.entry, names[who])
 				}
 				seen[x.entry] = r.Err.Error()
 			}
 		}
-		c.NextBlock()
 	}
-	for _, x := range calls {
-		t.Logf("after Renounce, %s from the old owner, a stranger and a ring>2 caller: refused (%.60s)", x.entry, seen[x.entry])
+	for _, x := range []string{"SetTreasury", "SetRegFee", "Renounce", "Initialize", "TransferOwnership", "ClaimOwnership"} {
+		t.Logf("%s from the installer, a stranger and a ring>2 caller, over three heights: refused (%.60s)", x, seen[x])
 	}
-	// registration is untouched and forwards the whole fee to the treasury fixed at the renunciation: the factory
-	// never holds a balance, so there is nothing it owes that it could fail to hold
 	var fake crypto.Hash
 	fake[0] = 7
 	r := c.Call(scid, "RegisterPool", rpc.Arguments{harness.H("scid", fake)}, map[crypto.Hash]uint64{zero: 12000}, alice)
 	if !r.OK() || r.Sent(zero, treasury) != 12000 || c.U(scid, "pc") != 1 || c.SCBalance(scid, zero) != 0 {
-		t.Fatalf("registration after Renounce: %v sent %d, factory holds %d", r.Err, r.Sent(zero, treasury), c.SCBalance(scid, zero))
+		t.Fatalf("registration: %v sent %d, factory holds %d", r.Err, r.Sent(zero, treasury), c.SCBalance(scid, zero))
 	}
 	if r := c.Call(scid, "RegisterNFA", rpc.Arguments{harness.H("scid", fake)}, map[crypto.Hash]uint64{zero: 10000}, nil); !r.OK() || c.SCBalance(scid, zero) != 0 {
-		t.Fatalf("anonymous NFA registration after Renounce: %v, factory holds %d", r.Err, c.SCBalance(scid, zero))
+		t.Fatalf("anonymous NFA registration: %v, factory holds %d", r.Err, c.SCBalance(scid, zero))
 	}
-	t.Logf("factory renounced at height %d: owner absent, every owner power refused to every caller over three heights; registration still pays the treasury and the factory holds 0", c.U(scid, "renounced"))
+	if c.S(scid, "tstr") != treasury.String() || c.U(scid, "regfee") != 10000 {
+		t.Fatal("registration moved the treasury or the fee")
+	}
+	t.Log("no owner key at any point; every name that ever changed the treasury or the fee, and Initialize, refused to every caller over three heights; registration still pays the treasury fixed at install and the factory holds 0")
 }
 
-func e2name(who, owner *rpc.Address) string {
-	if who.String() == owner.String() {
-		return "the old owner"
+// The same property read from the source the DVM parses, so it holds for every caller and every state rather than
+// the ones a test drives: the old entrypoint names do not exist in any spelling; treasury, tstr and regfee are stored
+// by Initialize alone, which refuses a second run; nothing stores or deletes owner, tmpowner or renounced; and no
+// function reads SIGNER() at all, so no key holds authority over the factory, nor calls UPDATE_SC_CODE.
+func TestFactoryOldEntrypointsAreGone(t *testing.T) {
+	code := readContract(t, "factory.bas")
+	sc, _, err := dvm.ParseSmartContract(code)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return "a stranger"
+	for _, gone := range []string{"SetTreasury", "SetRegFee", "Renounce", "TransferOwnership", "ClaimOwnership"} {
+		for fn := range sc.Functions {
+			if strings.EqualFold(fn, gone) {
+				t.Fatalf("factory.bas defines %s", fn)
+			}
+		}
+	}
+	writers := map[string]map[string]bool{}
+	fn := ""
+	for _, line := range strings.Split(code, "\n") {
+		tl := strings.TrimSpace(line)
+		if strings.HasPrefix(tl, "Function ") {
+			name := strings.Fields(tl)[1]
+			fn = name[:strings.Index(name, "(")]
+		}
+		for _, op := range []string{`STORE("`, `DELETE("`} {
+			for rest := tl; strings.Contains(rest, op); {
+				rest = rest[strings.Index(rest, op)+len(op):]
+				key := rest[:strings.Index(rest, `"`)]
+				if writers[key] == nil {
+					writers[key] = map[string]bool{}
+				}
+				writers[key][fn] = true
+			}
+		}
+		for _, banned := range []string{"SIGNER()", "UPDATE_SC_CODE"} {
+			if strings.Contains(tl, banned) {
+				t.Fatalf("factory.bas %s reads %s: %q", fn, banned, tl)
+			}
+		}
+	}
+	for _, k := range []string{"treasury", "tstr", "regfee", "initd"} {
+		if len(writers[k]) != 1 || !writers[k]["Initialize"] {
+			t.Fatalf("%q is written by %v; factory.bas v2 lets only Initialize write it", k, writers[k])
+		}
+	}
+	for _, k := range []string{"owner", "tmpowner", "renounced"} {
+		if len(writers[k]) != 0 {
+			t.Fatalf("%q is written by %v; factory.bas v2 has no owner", k, writers[k])
+		}
+	}
+	if !strings.Contains(code, `5 IF EXISTS("initd") != 0 THEN GOTO 900`) {
+		t.Fatal("Initialize no longer refuses a second run at line 5")
+	}
+	t.Logf("factory.bas entrypoints %d, none of them a setter; treasury, tstr, regfee written only by Initialize; no signer read", len(sc.Functions)-1)
 }

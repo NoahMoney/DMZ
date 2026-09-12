@@ -1,16 +1,21 @@
 package xmrswap
 
-// HTLCCodeSHA256 is the SHA-256 of contracts/htlc.bas v2 as it is installed: the bytes reference.Canon makes of the
+// HTLCCodeSHA256 is the SHA-256 of contracts/htlc.bas v3 as it is installed: the bytes reference.Canon makes of the
 // source, which are exactly the code DERO.GetSC returns for the contract (U4). The maker checks it before he locks
 // and the taker before she reads the lock, and each refuses an -htlc whose code hashes to anything else: a
 // look-alike contract whose storage passes every other check could otherwise take either side's coins, and the
 // SCID reaches the companion from a flag the operator typed or a page filled in. pin_test.go recomputes it from the
 // tree, so an edit to htlc.bas that leaves this line behind fails the tests.
 //
+// v3 (MT-J13(b), MT-A03(a)) takes three install arguments, w1min, w2min and g2, and the same code installed with other
+// values hashes the same: the pin no longer names a deployment on its own. Each companion therefore reads the three
+// values with the code (DERO.GetSC, Deployment) and refuses an install outside its own policy (checkDeployment). It
+// replaced v2's 44864ec3…, whose Punish had no end and which had no Reclaim.
+//
 // The pin is only as good as the binary that carries it: a reproducible, signed build (BL-14) is what turns it
 // from a claim into a check, and until one exists whoever built this binary is trusted to have pinned the right
 // contract.
-const HTLCCodeSHA256 = "44864ec3cddac871286b9cfd18d18e0b1d2ef0e31960436cee3bacc3025fef06"
+const HTLCCodeSHA256 = "b785028da4a2554521d47f989f1011ec1f0a26be491e6a7eb2786c1f50834c36"
 
 // ProverSHA256 is the SHA-256 of the one proof-xmr binary the companion runs (GAP-003): the reproducible build of the
 // committed research/crosschain/poc/proof-xmr, made by its build-reproducible.sh (MT-B26), 1,340,640 bytes. Anyone with

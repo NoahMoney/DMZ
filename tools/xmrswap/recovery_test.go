@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,12 +21,12 @@ func TestTheRecoveryCardComesBeforeTheXmrLock(t *testing.T) {
 	start := time.Now()
 	const resume = `xmrswap alice -state "swap dir/alice.json" -net stagenet`
 	var woken []string
-	var wakeAt time.Time
+	var wakeAt []time.Time
 	r.bob = startWith(r, "bob", nil)
 	r.alice = startWith(r, "alice", func(c *Config) {
 		c.ResumeCommand = resume
 		c.Wake = func(at time.Time, name, command string) (string, error) {
-			wakeAt = at
+			wakeAt = append(wakeAt, at)
 			woken = append(woken, name+"|"+command)
 			return "a test wake at " + at.Format(time.RFC3339), nil
 		}
@@ -42,23 +43,34 @@ func TestTheRecoveryCardComesBeforeTheXmrLock(t *testing.T) {
 	if atTransfer == "" {
 		t.Fatal("alice never locked XMR")
 	}
+	st := r.loadState("alice")
 	for _, want := range []string{"RECOVERY CARD", "SECRET: " + r.statePath("alice"), "resume: " + resume,
-		"claim cutoff", "gate deadline", "finish by", "t1 ", "t2 ", "wake: a test wake at", "XMRSWAP_CHANNEL_KEY"} {
+		"claim cutoff", "gate deadline", "finish by", "t1 ", "t2 ", "wake: a test wake at", "XMRSWAP_CHANNEL_KEY",
+		// MT-J13: her Punish window's end, as a height and a clock time, and what follows it — including that past it,
+		// with nobody having punished, her XMR comes back only if bob Reclaims, and who else may send the Punish
+		"punish sent by", "punish ends    height " + strconv.FormatUint(st.Lock.T2+testG2-1, 10), "Reclaim",
+		"comes back only if bob Reclaims", "locked for ever", "someone you trust"} {
 		if !strings.Contains(atTransfer, want) {
 			t.Fatalf("the card printed before the XMR lock lacks %q:\n%s", want, atTransfer)
 		}
 	}
-	if n := len(regexp.MustCompile(`height \d+\s+(about )?\d{4}-\d\d-\d\d \d\d:\d\d`).FindAllString(atTransfer, -1)); n < 6 {
-		t.Fatalf("%d heights carry a clock time; the card has six", n)
+	if n := len(regexp.MustCompile(`height \d+\s+(about )?\d{4}-\d\d-\d\d \d\d:\d\d`).FindAllString(atTransfer, -1)); n < 8 {
+		t.Fatalf("%d heights carry a clock time; the card has eight", n)
 	}
-	st := r.loadState("alice")
-	if len(woken) != 1 || woken[0] != WakeTaskName(st.SwapID)+"|"+resume {
+	names := WakeTaskNames(st.SwapID)
+	if len(woken) != 2 || woken[0] != names[0]+"|"+resume || woken[1] != names[1]+"|"+resume {
 		t.Fatalf("wakes registered: %v", woken)
 	}
-	// the first window to close is at most (t1 − the lock's first sight) blocks away; the wake comes before it
-	latest := start.Add(time.Duration(st.Lock.T1-st.Lock.SeenHeight)*deroBlock + time.Minute)
-	if !wakeAt.After(start) || !wakeAt.Before(latest) {
-		t.Fatalf("the wake is set for %v, outside (%v, %v)", wakeAt, start, latest)
+	// the first window to close is at most (t1 − the lock's first sight) blocks away, and the first wake comes before
+	// it; the second comes before t2, when her Punish window opens
+	for i, blocks := range []uint64{st.Lock.T1 - st.Lock.SeenHeight, st.Lock.T2 - st.Lock.SeenHeight} {
+		latest := start.Add(time.Duration(blocks)*deroBlock + time.Minute)
+		if !wakeAt[i].After(start) || !wakeAt[i].Before(latest) {
+			t.Fatalf("wake %d is set for %v, outside (%v, %v)", i, wakeAt[i], start, latest)
+		}
+	}
+	if !wakeAt[1].After(wakeAt[0]) {
+		t.Fatalf("the t2 wake (%v) is not after the first (%v)", wakeAt[1], wakeAt[0])
 	}
 }
 

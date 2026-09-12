@@ -130,11 +130,8 @@ for completeness.
 
 | Contract · function | Who can call | What it can change | Steal funds? | Mint? | Freeze users? | Modify code? | Change settlement destination or fee recipient? | Ownership recover / transfer | Renounce |
 |---|---|---|---|---|---|---|---|---|---|
-| factory · `Initialize` (11-30) | first caller once (`initd`, 12); must be a ring-2 signer (14-15) | sets `owner`, `treasury`, `regfee` | no | no | no | no | sets them | — | — |
-| factory · `SetTreasury` (32-42) | owner | `treasury`, `tstr` | no user funds held; redirects every later registration fee | no | not on chain; and not in the app for a bundle that ships `treasuries` (GAP-005): markets are checked against that set, and against `tstr` only when a bundle ships none (`app/feed.js:147-154`) | no | **yes** (the fee recipient; the app's verification rule only for a bundle without `treasuries`) | none: transfer of ownership was removed (SEC-K-02) | `Renounce`, committed |
-| factory · `SetRegFee` (44-50) | owner | `regfee`, no bound | no | no | **yes**: registration of every kind stops (SEC-K-06) | no | **yes** (fee amount) | as above | as above |
-| factory · `TransferOwnership` / `ClaimOwnership` | owner / pending owner | `tmpowner` → `owner` | no | no | no | no | indirectly | a transfer completes only when the new key signs, so a burn address can never claim | — |
-| factory · `Renounce` (75-83) | owner | deletes `owner`, `tmpowner`; stores `renounced` | no | no | no | no | ends both setters for ever | none afterwards | **this is it** (in flux) |
+| factory · `Initialize` | the install, once (`initd`) | sets `treasury`, `tstr` and `regfee`, fixed for the factory's life (v2, MT-J15(b)) | no | no | no | no | sets them, once | none: v2 has no owner | nothing to renounce |
+| factory · `SetTreasury`, `SetRegFee`, `TransferOwnership` / `ClaimOwnership`, `Renounce` | nobody: removed in v2 (2026-09-12, MT-J15(b)); `TestFactoryOldEntrypointsAreGone` | — | — | — | — | — | — | — | — |
 | vault · `SetLimits` (101-111), `AddSigner` (153-170), `Seal` (242-260) | owner, only while `sealed == 0` | limits; the signer set; sealing | chooses the signers who will custody everything | indirectly | no | no | no | `owner` is never deleted, but no function reads it after Seal | Seal is the renounce |
 | vault · `Mint` (313-350) | k active signers | `sup`; sends units to `ua_<j>` | **yes**: k signers mint against a deposit that never happened | **yes**, up to `cap`, with `cap/capratio ≤ bondtot` (329-330) | no | no | no | — | — |
 | vault · `Attest` (288-307) | k signers | `da_<j>`, the foreign address a depositor pays | **yes**: the quorum names an address it controls (the custody model) | no | no | no | **yes** (deposit destination) | — | — |
@@ -168,12 +165,12 @@ TELA by `EXISTS("owner")`.
 - **Burn:** none arbitrary.
 - **Withdrawal / confiscation:** vault quorum (`Released` without paying; `Attest` of its own address); one signer
   freezing `Reclaim` (`Paying`); a TELA INDEX owner through an injected MOD.
-- **Destination or fee change:** factory `SetTreasury` / `SetRegFee` until `Renounce`; vault `Attest`.
-- **Verifier change:** factory `SetTreasury` changes the app's verification rule only for a bundle that ships no `treasuries` set (GAP-005; every bundle `simdeploy` records ships one). The TELA INDEX owner
+- **Destination or fee change:** none in the factory since v2, which fixes both at install; vault `Attest`.
+- **Verifier change:** none in the factory since v2. The TELA INDEX owner
   changes the verifier itself, since the app holds the template hashes (GAP-001).
 - **Upgrade:** TELA-INDEX-1 `UpdateCode` only.
-- **Pause:** vault `Halt`; factory `SetRegFee` is a de facto pause of registration.
-- **Ownership transfer:** factory (two-step); TELA INDEX only through code replacement.
+- **Pause:** vault `Halt`. The factory has had no setter since v2, so nothing pauses registration.
+- **Ownership transfer:** none in the factory (v2 has no owner); TELA INDEX only through code replacement.
 - **Standing off-chain promise:** founders `share` depends on the treasury choosing to deposit.
 
 ---
@@ -256,7 +253,7 @@ Read every item with `DERO.GetSC {scid, code: true, variables: true}`. String va
 |---|---|---|
 | App TELA INDEX | Installed above ring 2 (GAP-001); `owner` = `"anon"`, `commit` = 0, `hash` = its own SCID, `mods` = "" | Code equals TELA-INDEX-1 v1.1.0 with DMZ's headers (`tela.ValidINDEXVersion`, `parse.go:942-954`). `owner` hex is `616e6f6e`. `commit` is 0. `DOC1..DOCn` each resolve to a DOC whose code is TELA-DOC-1 plus the gzip bytes recorded in `dist/<network>/manifest.json` (`tools/genconfig/main.go:120-171`). `DOC1` is `index.html`. |
 | App TELA DOCs | Immutable at any ring | Code has no `UpdateCode`; content hash as above. |
-| factory.bas | `Renounce` has run (in flux) | No `owner` key, no `tmpowner` key, `renounced` present; code hash equals `Canon(contracts/factory.bas)` with `Renounce`. Registration still works (`tests/registry_test.go:361-431`). |
+| factory.bas | v2: no owner ever exists (MT-J15(b)) | `v` = 2 and no `owner` key; `tstr` and `regfee` are the published values; code hash equals `Canon(contracts/factory.bas)`. Registration still works (`TestFactory`, `TestFactoryFixedAtInstall`). |
 | pool, launch, nft, nfa markets | Nothing to renounce; parameters fixed at install | Code hash equals `app/templates/<kind>.bas` (after GAP-006 is fixed); `treasury` equals the published treasury; for an NFA, `ownerCanUpdate` = 0, and it must be stated that `creatorAddr` can still rewrite its URLs (`nfa.bas:130-146`). |
 | founders.bas | Nothing to renounce | Code hash, `treasury`, `share`, `reserve`, `maxsupply` read back. The deposit of `share` remains a promise by the treasury key. |
 | htlc, swap, board, chat, social | No owner exists | Code hash equals the canonical source. For htlc the companion does this itself (`tools/xmrswap/pin.go:13`); for swap and board nothing does (GAP-011). |
@@ -267,7 +264,7 @@ Read every item with `DERO.GetSC {scid, code: true, variables: true}`. String va
   `IS_ADDRESS_VALID` rejects, and its `UpdateCode` then refuses for ever, while every DOC is immutable at any ring.
 - DMZ's tooling installs and updates the INDEX at ring 2 only, so as built the app has a publisher who can replace
   it.
-- The state without an escape hatch is: an anon INDEX with `commit` 0; a renounced factory; canonical code hashes
+- The state without an escape hatch is: an anon INDEX with `commit` 0; a factory with no owner (v2); canonical code hashes
   for every contract; no vault.
 
 ---
@@ -332,7 +329,8 @@ Read every item with `DERO.GetSC {scid, code: true, variables: true}`. String va
   or a DNS name operated by DMZ.
 - Every default endpoint is loopback, and the mainnet record's endpoints are empty (`deploy/networks.json:3-19`).
 - The trust points are the user's own nodes and wallets, the file channel between two Monero parties, an external
-  prover binary, and three operator keys: the TELA publisher, the factory owner until Renounce, and the treasury.
+  prover binary, and two operator keys: the TELA publisher until the ring-16 INDEX, and the treasury. The factory has no
+  owner (v2).
 
 | Dependency | Why it exists | Mandatory? | Who runs it | Trust added | Availability | Privacy | Where it is called |
 |---|---|---|---|---|---|---|---|
@@ -340,7 +338,7 @@ Read every item with `DERO.GetSC {scid, code: true, variables: true}`. String va
 | The wallet's own daemon, via XSWD `DERO.*` proxy | Read fallback | when no WS node answers | the user's wallet (may be remote) | as above; the app's loopback-or-wss rule does not apply on this path (`app/app.js:49,54`) | — | IP to that node | `app/xswd.js:117` |
 | XSWD wallet, `ws://localhost:44326/xswd` | All signing | yes, to transact | the user | Key custody. Methods used: `GetAddress` (`xswd.js:65`), `GetDaemon` (66), `GetBalance` (113), `transfer` at ring 2, or 16 in private mode (`xswd.js:115`, `app.js:153,197`), `Subscribe` (`app.js:92`). `DERO.*` passes without prompts. No explicit permission list is requested. | nothing is signed without it | the wallet sees the app name, url and session id (`xswd.js:48`) | `app/xswd.js:30-81` |
 | TELA host plus **the INDEX publisher** | Serves the app from DOCs | yes | the user runs the host; **the operator holds the INDEX key** | Can replace the app (GAP-001) | can stop default hosts (GAP-036) | — | `tools/telainstall/main.go:249,259` |
-| **Factory owner** until `Renounce` | Registry parameters | — | operator | Treasury pointer and fee (GAP-005) | registration | — | `contracts/factory.bas:32-50` |
+| **Factory owner** | none since `factory.bas` v2: the treasury and the fee are fixed at install | — | — | — | — | — | `contracts/factory.bas` |
 | **Treasury key** | Receives fees; deposits the Founders share; the vault's `ClaimFees` | payouts only | operator (`tools/treasurybot/main.go:63-197`; no RPC auth, SEC-K-08) | Decides whether holders are paid at all (`app/notice.js:39-40`) | payout liveness | — | `contracts/founders.bas:137-146` |
 | Civilware | Artificer fee recipient | only if an NFA's creator sets a share | third party | Receives that share | — | — | `contracts/nfa.bas:85` |
 | derod, read by the companions | Contract state, heights, gas, tx status | yes | the user; `-daemon`, default `127.0.0.1:20000` | Trusted for all contract state. xmrswap's code pin reads the code from the same node (`tools/xmrswap/dero.go:410-422`). | Refund needs it; xmrswap sends a blind Refund if reads fail (`tools/xmrswap/swap.go:1369-1405`) | own node | xmrswap `dero.go` (GetTransaction, GetHeight, GetInfo, GetEncryptedBalance, GetSC, GetRandomAddress, GetGasEstimate); zecswap `dero.go:246-441` |

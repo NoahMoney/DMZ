@@ -1,11 +1,14 @@
 package xmrswap
 
-// U9 / MT-B15: the taker's recovery card, printed before her XMR moves, and a wake registered with the operating system
-// for the first window that closes. Once her XMR is at the joint address, nothing of hers has a deadline — after a
-// refund the XMR waits for her alone, and after t2 the DERO can only go to her — but the swap itself does: a gate that
-// reaches her after t1 − G is not used, and no Claim of hers is sent after the claim cutoff. The card says what to keep
-// secret, what to run, and when every window opens and closes, in clock time; the wake brings the machine back, and the
-// resume command up, before the first of them closes.
+// U9 / MT-B15: the taker's recovery card, printed before her XMR moves, and wakes registered with the operating system
+// for the first window that closes and for t2. Once s_b is on the chain — after a Refund, or the maker's Reclaim after
+// t2 + g2 — her XMR waits for her alone, with no deadline. The swap has deadlines: a gate that reaches her after t1 − G
+// is not used, no Claim of hers is sent after the claim cutoff, and since htlc.bas v3 her Punish has one, t2 + g2
+// (MT-J13). Past it, if nobody punished, her XMR comes back only if the maker Reclaims; one who never does — unwilling,
+// or having lost his state or s_b — leaves it, and his DERO, locked for ever, and only a timely Punish (hers, or anyone's
+// for her) rules that out. The card says so, says what to keep secret and what to run, and gives every window's opening
+// and close in clock time; the wakes bring the machine back, and the resume command up, before the first of them closes
+// and as her Punish window opens.
 
 import (
 	"errors"
@@ -26,8 +29,9 @@ const deroBlock = 18 * time.Second
 // wakeLead is how long before the first window's close the wake is set.
 const wakeLead = 10 * time.Minute
 
-// recoveryCard is the card's lines, and the time the wake should be set for.
-func (s *Swap) recoveryCard(l Lock, h uint64, now time.Time) (lines []string, wakeAt time.Time) {
+// recoveryCard is the card's lines, and the times the two wakes should be set for: before the first window closes,
+// and before t2, when her Punish window opens.
+func (s *Swap) recoveryCard(l Lock, h uint64, now time.Time) (lines []string, wakeAt, punishWakeAt time.Time) {
 	at := func(height uint64) time.Time {
 		if height <= h {
 			return now
@@ -55,36 +59,58 @@ func (s *Swap) recoveryCard(l Lock, h uint64, now time.Time) (lines []string, wa
 		fmt.Sprintf("gate deadline  height %d  about %s  a gate reaching you from here is not used (t1 − G)", gate, clock(gate)),
 		fmt.Sprintf("finish by      height %d  about %s  be running before this to complete the swap", finish, clock(finish)),
 		fmt.Sprintf("t1             height %d  about %s  bob may refund from here; his refund puts s_b on the chain, and your XMR comes back with it", l.T1, clock(l.T1)),
-		fmt.Sprintf("t2             height %d  about %s  bob can no longer refund; Punish, which anyone may send, pays you the DERO", l.T2, clock(l.T2)),
-		"none of these is a deadline for your coins: after a refund your XMR waits at the joint address for you alone, and after t2 the DERO can go only to you",
 	}
+	g2 := s.st.Contract.G2
+	pcut := punishCutoff(l.T2, g2, s.cfg.ClaimMargin)
+	lastSend := l.T2
+	if pcut > l.T2 {
+		lastSend = pcut - 1
+	}
+	lines = append(lines,
+		fmt.Sprintf("t2             height %d  about %s  bob can no longer refund; your companion sends Punish at once, and anyone may send it for you: it carries no secret and pays only you", l.T2, clock(l.T2)),
+		fmt.Sprintf("punish sent by height %d  about %s  the last height your companion sends Punish at (t2 + g2 − %d), so that it is stable before the window closes", lastSend, clock(lastSend), DeroTxValidity+DefaultStableBlocks+s.cfg.ClaimMargin),
+		fmt.Sprintf("punish ends    height %d  about %s  the Punish window's last block (g2 = %d): from t2 + g2 the contract refuses Punish and the lock is bob's to Reclaim", l.T2+g2-1, clock(l.T2+g2-1), g2),
+		"your XMR has no deadline once s_b is on the chain: bob's refund puts it there, and so does his Reclaim after t2 + g2, and the XMR then comes back to you alone; a Punish in [t2, t2 + g2) pays you the DERO instead, and any XMR you locked then stays under the joint key",
+		"if bob neither releases the gate nor refunds, and nobody sends Punish in [t2, t2 + g2), your XMR comes back only if bob Reclaims: a bob who never does — unwilling, or having lost his state or s_b — leaves your XMR and his DERO locked for ever. Only a Punish before t2 + g2 rules that out: be running then, or have someone you trust send it for you (anyone may; it carries no secret and pays only you)",
+	)
+	early := now.Add(time.Minute)
 	wakeAt = at(finish).Add(-wakeLead)
-	if earliest := now.Add(time.Minute); wakeAt.Before(earliest) {
-		wakeAt = earliest
+	if wakeAt.Before(early) {
+		wakeAt = early
 	}
-	return lines, wakeAt
+	punishWakeAt = at(l.T2).Add(-wakeLead)
+	if punishWakeAt.Before(early) {
+		punishWakeAt = early
+	}
+	return lines, wakeAt, punishWakeAt
 }
 
-// printRecoveryCard logs the card and registers the wake. A wake that cannot be registered is said, loudly, and does
-// not hold the swap: the card is what the operator needs, and the wake only saves them remembering it.
+// printRecoveryCard logs the card and registers the two wakes. A wake that cannot be registered is said, loudly, and
+// does not hold the swap: the card is what the operator needs, and a wake only saves them remembering it.
 func (s *Swap) printRecoveryCard(l Lock, h uint64, now time.Time) {
-	lines, wakeAt := s.recoveryCard(l, h, now)
+	lines, wakeAt, punishWakeAt := s.recoveryCard(l, h, now)
 	for _, line := range lines {
 		s.cfg.Log("%s: %s", s.st.Role, line)
 	}
-	if s.cfg.Wake == nil {
-		s.cfg.Log("%s: wake: none registered (this companion runs without an OS wake hook): be back by %s yourself", s.st.Role, wakeAt.Format("2006-01-02 15:04 MST"))
-		return
+	names := WakeTaskNames(s.st.SwapID)
+	for i, w := range []struct {
+		at   time.Time
+		what string
+	}{{wakeAt, "the first window closes"}, {punishWakeAt, "t2, when the Punish window opens"}} {
+		if s.cfg.Wake == nil {
+			s.cfg.Log("%s: wake: none registered (this companion runs without an OS wake hook): be back by %s yourself, before %s", s.st.Role, w.at.Format("2006-01-02 15:04 MST"), w.what)
+			continue
+		}
+		what, err := s.cfg.Wake(w.at, names[i], s.cfg.ResumeCommand)
+		if err != nil {
+			s.cfg.Log("%s: wake: NOT registered (%v): be back by %s yourself, before %s", s.st.Role, err, w.at.Format("2006-01-02 15:04 MST"), w.what)
+			continue
+		}
+		s.cfg.Log("%s: wake: %s (before %s)", s.st.Role, what, w.what)
 	}
-	what, err := s.cfg.Wake(wakeAt, WakeTaskName(s.st.SwapID), s.cfg.ResumeCommand)
-	if err != nil {
-		s.cfg.Log("%s: wake: NOT registered (%v): be back by %s yourself", s.st.Role, err, wakeAt.Format("2006-01-02 15:04 MST"))
-		return
-	}
-	s.cfg.Log("%s: wake: %s", s.st.Role, what)
 }
 
-// WakeTaskName is the OS task a swap's wake is registered under.
+// WakeTaskName is the OS task a swap's first wake is registered under.
 func WakeTaskName(swapID string) string {
 	var b strings.Builder
 	for _, r := range swapID {
@@ -93,6 +119,11 @@ func WakeTaskName(swapID string) string {
 		}
 	}
 	return "xmrswap-" + b.String()
+}
+
+// WakeTaskNames are both of a swap's wakes: the first window's, and t2's (MT-J13). A finished swap removes both.
+func WakeTaskNames(swapID string) []string {
+	return []string{WakeTaskName(swapID), WakeTaskName(swapID) + "-t2"}
 }
 
 // RegisterWake is the WakeFunc the command line uses, for the operating system it runs on.

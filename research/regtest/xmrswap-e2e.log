@@ -700,3 +700,369 @@ raw driver output, run 2
 [2581.1s] the XMR alice locked stays under the joint key 45k5ciDNp6o6LszNJWZB2mTXdV5rK6a1uYZZPY2TWqFw27Nn7RhL35LVQMeHjDoPWn5xbiodwuFdGER9yXY6LA3NSq5mFmE: nobody holds s_a + s_b
 [2581.1s] DERO balances: bob 318952 -> 267973, alice 890020 -> 929457; contract holds 0 (expect 0)
 exit 0
+
+=============================================================================================================
+RUN 3: htlc.bas v3, the same three exits, 2026-09-12 14:40-15:27 AEST
+=============================================================================================================
+tools/simhtlc -regtest, built from the working tree with xmrswap adapted to htlc.bas v3, before the fixes of the
+review that followed. Those changed the maker's Reclaim path (reclaim_confirming) and the recovery card's wording,
+not the happy, refund or punish logic run here. The driver installed its own htlc.bas v3 (scid 93f92162...,
+code sha256 b785028da4a2554521d47f989f1011ec1f0a26be491e6a7eb2786c1f50834c36) with w1min 10, w2min 6, g2 30.
+The prover was the reproducible proof-xmr build, sha256
+7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d.
+Real: monerod 0.18.5.1 --regtest (127.0.0.1:28081) and two monero-wallet-rpc 0.18.5.1 (alice :28083, bob :28084)
+in WSL2, and the DERO simulator (127.0.0.1:20000, wallets 30006 bob and 30007 alice). No fake wallet.
+
+Outcomes (a Monero txid with a block number was found in that monerod block by the driver):
+- happy:  alice claimed the DERO (38255f22..., stable at height 965); bob read s_a from the chain and swept the
+          XMR (18e9e3e9..., monerod block 7128).
+- refund: bob refunded (f120fe2f...); alice read s_b and swept her XMR back (fbf6c461..., monerod block 7824).
+- punish: alice punished inside [t2, t2 + g2) (cb850e6b..., stable at height 1086); her XMR stays under the joint
+          key, by design.
+The contract held 0 DERO after every exit. DERO balances: bob 363929 -> 312944, alice 804805 -> 842980.
+Not run live: v3's fourth exit, the maker's Reclaim, for which simhtlc has no path. It is covered by the DVM
+suite (tests/htlc_v3_test.go) and by xmrswap's unit tests and crash fuzz.
+Machine paths are replaced with <tmp>. The raw driver output follows.
+
+[   0.0s] simulator Simulator at height 935 (18 s blocks)
+[   0.0s] bob   deto1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgfywu80 (wallet 127.0.0.1:30006) has 363929 DERO atomic units; needs about 90048
+[   0.0s] alice deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce (wallet 127.0.0.1:30007) has 804805 DERO atomic units; needs about 6000
+[   0.0s] timelocks: t1 = lock + 48 blocks, t2 = t1 + 8; alice ignores a gate from t1 − 4 and sends no Claim from t1 − 8 − 2 = lock + 38 on
+[   0.0s] stipend (Path 0): 14016 DERO atomic units per swap, from bob to alice, before any XMR
+[  23.0s] INSTALL htlc.bas: scid 93f92162484c63ada5c35e537edbc47eb6ae8403b658f2b1263ebcb062110eaf, 5104 canonical bytes, storage gas 5169 (cap 20000), code sha256 b785028da4a2554521d47f989f1011ec1f0a26be491e6a7eb2786c1f50834c36 (pinned b785028da4a2554521d47f989f1011ec1f0a26be491e6a7eb2786c1f50834c36), w1min 10 w2min 6 g2 30
+[  23.0s] htlc.bas v3 installed with w1min 10, w2min 6, g2 30 (Punish in [t2, t2 + 30), Reclaim from t2 + 30); alice's g2 floor 30
+[  34.4s] regtest monerod http://127.0.0.1:28081 (0.18.5.1-release, nettype fakechain) at height 6831: bob 4AgUixTE4y1S7Qv8gvtJQNPh1wtGTNVVzSdAowQCeZgJcWZGqNdvpGFCkXp1oGpLnnVxfVEfyuvzeM4jttZuPbL9UKWh8ys (xmrswap-e2e-1789188078-bob on http://127.0.0.1:28084), alice 47UfeQpH7vt1MXYC4qLVkFXhsNqUAmpHuj9LRXTNMG8QGa7SBqhVQakCNkK7hEprnLC2SkFgQNd7KGVY7vH4BsLU5SxDctz (xmrswap-e2e-1789188078-alice on http://127.0.0.1:28083); alice mined 5 coinbases
+[  45.7s] PROVER self-test: keygen+prove 9.2s, verify 2.14s, proof 1601 bytes
+[  45.7s] state and channel under the -state-dir
+[  45.7s] ===== HAPPY =====
+[  45.7s] happy: the channel is sealed (AES-256-GCM) under a fresh swap key (GAP-019)
+           14:41:56 bob:  -> setup
+           14:41:56 bob: sent offer
+           14:42:11 alice:  -> setup
+           14:42:12 alice: setup -> offer_checked
+           14:42:12 alice: sent alice_setup
+           14:42:16 bob: π_a verified; joint address 49czAMorZ6gLzLCZvmDepFYcsu3KncKXz39GdJQhmH9cFtWsgN6hh8ZDYzvutaRLtMWQrz4HBtfcJBbGZeQ9mahwR8MNMwM; taker deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce
+           14:42:16 bob: setup -> verified_pi_a
+           14:42:16 bob: sent bob_setup
+           14:42:18 alice: π_b verified; joint address 49czAMorZ6gLzLCZvmDepFYcsu3KncKXz39GdJQhmH9cFtWsgN6hh8ZDYzvutaRLtMWQrz4HBtfcJBbGZeQ9mahwR8MNMwM
+           14:42:18 alice: offer_checked -> verified_pi_b
+           14:42:19 bob: verified_pi_a -> dero_locking
+           14:42:40 bob: DERO locked: id 0 tx f5e4d5a29cc25c93a322665fa05085d3ed217178074b6f9186a17a87da029d35 t1 988 t2 996 amount 2000
+           14:42:40 bob: dero_locking -> dero_locked
+           14:42:40 bob: sent dero_locked
+           14:42:40 alice: verified_pi_b -> lock_announced
+           14:42:53 bob: dero_locked -> stipend_sending
+           14:42:53 alice: lock 0 checked at height 942: t1 988 t2 996 amount 2000
+           14:42:53 alice: lock_announced -> saw_dero_lock
+           14:43:11 bob: sent dero_locked
+           14:43:16 alice: waiting for the maker's stipend of 14016 DERO atomic units (Path 0); no XMR is locked until it is
+           14:43:41 bob: sent dero_locked
+           14:44:12 bob: sent dero_locked
+           14:44:43 bob: sent dero_locked
+           14:45:25 bob: sent the taker a stipend of 14016 DERO atomic units for her gas (Path 0): tx 1d83a38f46e099aa8129f76084cbc33d733751ed428f7856e3759a6b4e9f81aa
+           14:45:25 bob: stipend_sending -> watching_xmr
+           14:45:25 bob: sent dero_locked
+           14:45:25 alice: the stipend (tx 1d83a38f46e099aa8129f76084cbc33d733751ed428f7856e3759a6b4e9f81aa, height 951) is not at stable depth yet (stable height 944); no XMR is locked until it is
+           14:45:46 alice: the stipend (tx 1d83a38f46e099aa8129f76084cbc33d733751ed428f7856e3759a6b4e9f81aa, height 951) is not at stable depth yet (stable height 945); no XMR is locked until it is
+           14:45:57 bob: sent dero_locked
+           14:46:02 alice: the stipend (tx 1d83a38f46e099aa8129f76084cbc33d733751ed428f7856e3759a6b4e9f81aa, height 951) is not at stable depth yet (stable height 946); no XMR is locked until it is
+           14:46:21 alice: the stipend (tx 1d83a38f46e099aa8129f76084cbc33d733751ed428f7856e3759a6b4e9f81aa, height 951) is not at stable depth yet (stable height 947); no XMR is locked until it is
+           14:46:27 bob: sent dero_locked
+           14:46:38 alice: the stipend (tx 1d83a38f46e099aa8129f76084cbc33d733751ed428f7856e3759a6b4e9f81aa, height 951) is not at stable depth yet (stable height 948); no XMR is locked until it is
+           14:47:01 bob: sent dero_locked
+           14:47:01 alice: the stipend (tx 1d83a38f46e099aa8129f76084cbc33d733751ed428f7856e3759a6b4e9f81aa, height 951) is not at stable depth yet (stable height 949); no XMR is locked until it is
+           14:47:15 alice: the stipend (tx 1d83a38f46e099aa8129f76084cbc33d733751ed428f7856e3759a6b4e9f81aa, height 951) is not at stable depth yet (stable height 950); no XMR is locked until it is
+           14:47:32 bob: sent dero_locked
+           14:47:37 alice: the maker's stipend of 14016 DERO atomic units is at stable depth (tx 1d83a38f46e099aa8129f76084cbc33d733751ed428f7856e3759a6b4e9f81aa, height 951); this wallet can spend 813452
+           14:47:37 alice: locking 1000000000000 piconero against t1 988 and t2 996 — about 0 and 0 hours from height 959, and until t1 the XMR has no exit of its own
+           14:47:37 alice: RECOVERY CARD — read it before any XMR of yours moves
+           14:47:37 alice: SECRET: <tmp>\e2e-v3\happy\alice.json holds your key share and the joint wallets' password. Back it up now, where only you can read it: without it, XMR locked now cannot be recovered after a refund, and whoever copies it can take that XMR once s_b is public.
+           14:47:37 alice: resume: the same companion command again, on the same state file
+           14:47:37 alice:         it reads VEIL_RPC_LOGIN, XMRSWAP_MONERO_LOGIN and XMRSWAP_CHANNEL_KEY from the environment; their values are written nowhere, the wake task included
+           14:47:37 alice: now            height 959  2026-09-12 14:47 AEST
+           14:47:37 alice: claim cutoff   height 978  about 2026-09-12 14:53 AEST  no Claim of yours is sent from here
+           14:47:37 alice: gate deadline  height 984  about 2026-09-12 14:55 AEST  a gate reaching you from here is not used (t1 − G)
+           14:47:37 alice: finish by      height 978  about 2026-09-12 14:53 AEST  be running before this to complete the swap
+           14:47:37 alice: t1             height 988  about 2026-09-12 14:56 AEST  bob may refund from here; his refund puts s_b on the chain, and your XMR comes back with it
+           14:47:37 alice: t2             height 996  about 2026-09-12 14:58 AEST  bob can no longer refund; your companion sends Punish at once, and anyone may send it for you: it carries no secret and pays only you
+           14:47:37 alice: punish sent by height 1004  about 2026-09-12 15:01 AEST  the last height your companion sends Punish at (t2 + g2 − 21), so that it is stable before the window closes
+           14:47:37 alice: punish ends    height 1025  about 2026-09-12 15:07 AEST  the Punish window's last block (g2 = 30): from t2 + g2 the contract refuses Punish and the lock is bob's to Reclaim
+           14:47:37 alice: your XMR itself has no deadline: after bob's refund, or his Reclaim after t2 + g2, s_b is on the chain and the XMR comes back to you alone; a Punish in [t2, t2 + g2) pays you the DERO instead, and any XMR you locked then stays under the joint key
+           14:47:37 alice: wake: none registered (this companion runs without an OS wake hook): be back by 2026-09-12 14:48 AEST yourself, before the first window closes
+           14:47:37 alice: wake: none registered (this companion runs without an OS wake hook): be back by 2026-09-12 14:48 AEST yourself, before t2, when the Punish window opens
+           14:47:37 alice: saw_dero_lock -> xmr_locking
+           14:47:49 alice: XMR locked: tx 39fa81ed0bec5f715f3c8359eda1fbe73b4c83cbd2a73b3ed4f8745aad2d69b3 to 49czAMorZ6gLzLCZvmDepFYcsu3KncKXz39GdJQhmH9cFtWsgN6hh8ZDYzvutaRLtMWQrz4HBtfcJBbGZeQ9mahwR8MNMwM
+           14:47:49 alice: xmr_locking -> xmr_locked
+           14:47:49 alice: sent xmr_locked
+           14:47:50 bob: alice reports Monero tx 39fa81ed0bec5f715f3c8359eda1fbe73b4c83cbd2a73b3ed4f8745aad2d69b3; watching the view wallet, not the message
+           14:48:22 alice: sent xmr_locked
+           14:48:51 bob: 1000000000000 piconero at the joint address with ≥ 10 confirmations (Monero height 6992)
+           14:48:51 bob: watching_xmr -> xmr_confirmed
+           14:48:59 bob: xmr_confirmed -> gate_sending
+           14:48:59 bob: sent gate
+           14:48:59 bob: gate_sending -> gate_sent
+           14:48:59 alice: sent xmr_locked
+           14:48:59 alice: xmr_locked -> gate_received
+           14:49:00 alice: gate_received -> claiming
+           14:49:00 alice's dero client: Claim estimated: storage gas 304, fee 504
+           14:49:23 alice: claimed: tx 38255f22b6c4baa19a77d7fd97ec2b7fdcf6b892dd8ff5c098753160b22aa1dc; watching it until it is stable
+           14:49:23 alice: claiming -> claim_confirming
+           14:49:24 bob: alice claimed; s_a read from the chain at height 965
+           14:49:24 bob: gate_sent -> claimed
+           14:51:46 bob: the claim is stable (read at height 965): the XMR at the joint address is this party's; sweeping it
+           14:51:55 bob: claimed -> sweep_ready
+           14:51:55 alice: done: claimed the DERO: tx 38255f22b6c4baa19a77d7fd97ec2b7fdcf6b892dd8ff5c098753160b22aa1dc, stable (stable height 965)
+           14:51:55 alice: claim_confirming -> claimed
+           14:51:55 alice: sent done
+           14:52:02 bob: sweep_ready -> sweeping
+           14:52:02 bob: swept the joint wallet to 4AgUixTE4y1S7Qv8gvtJQNPh1wtGTNVVzSdAowQCeZgJcWZGqNdvpGFCkXp1oGpLnnVxfVEfyuvzeM4jttZuPbL9UKWh8ys: [18e9e3e9186e414fc54f99c5a76574eeb3c6901991df7246fbab06c37b9a2d1c]
+           14:52:02 bob: the joint wallets xmrswap-93f92162-fda773bd2be47b99-0-spend and xmrswap-93f92162-fda773bd2be47b99-0-view stay in the wallet-rpc's wallet-dir, encrypted under this swap's password; delete them once the sweep is confirmed
+           14:52:02 bob: done: swept the XMR to 4AgUixTE4y1S7Qv8gvtJQNPh1wtGTNVVzSdAowQCeZgJcWZGqNdvpGFCkXp1oGpLnnVxfVEfyuvzeM4jttZuPbL9UKWh8ys
+           14:52:02 bob: sweeping -> swept
+           14:52:02 bob: sent done
+[ 667.1s] happy: bob ended "swept": swept the XMR to 4AgUixTE4y1S7Qv8gvtJQNPh1wtGTNVVzSdAowQCeZgJcWZGqNdvpGFCkXp1oGpLnnVxfVEfyuvzeM4jttZuPbL9UKWh8ys
+[ 667.1s] happy: alice ended "claimed": claimed the DERO: tx 38255f22b6c4baa19a77d7fd97ec2b7fdcf6b892dd8ff5c098753160b22aa1dc, stable (stable height 965)
+[ 667.1s] happy: DERO txids: lock f5e4d5a29cc25c93a322665fa05085d3ed217178074b6f9186a17a87da029d35 | stipend 1d83a38f46e099aa8129f76084cbc33d733751ed428f7856e3759a6b4e9f81aa (alice saw it at height 951) | claim 38255f22b6c4baa19a77d7fd97ec2b7fdcf6b892dd8ff5c098753160b22aa1dc | refund - | punish -
+[ 667.1s] happy: Monero (regtest) lock 39fa81ed0bec5f715f3c8359eda1fbe73b4c83cbd2a73b3ed4f8745aad2d69b3 to the joint address 49czAMorZ6gLzLCZvmDepFYcsu3KncKXz39GdJQhmH9cFtWsgN6hh8ZDYzvutaRLtMWQrz4HBtfcJBbGZeQ9mahwR8MNMwM: in monerod block 6982
+[ 667.1s] happy: Monero (regtest) bob's sweep 18e9e3e9186e414fc54f99c5a76574eeb3c6901991df7246fbab06c37b9a2d1c to 4AgUixTE4y1S7Qv8gvtJQNPh1wtGTNVVzSdAowQCeZgJcWZGqNdvpGFCkXp1oGpLnnVxfVEfyuvzeM4jttZuPbL9UKWh8ys: in monerod block 7128
+[ 667.1s] happy: set_daemon 127.0.0.1:28081, sent to the real monero-wallet-rpc after every open and generate: 41 accepted, 0 refused so far
+           a_0      = 
+           ha_0     = 7c9bbb0e1d9a2a0949223bdd7768fcd5ed7141e0b06fe22fa0a90e20bbf725a2
+           hb_0     = 0ec19851bb077dbb19e548d0e0cef7b5c583b443a042981c5e033034c32664dc
+           hk_0     = 5ee5f410803c3bc28df3d16a8e65e12170baba92c31b4b8db2527c98a1cb0e3f
+           m_0      = 0da6f57058e06383fbc2d0133562cd567df15fa8f99d03ea2c3d9c5245bba6ca01
+           st_0     = 1
+           t1_0     = 988
+           t2_0     = 996
+           t_0      = 1f4e4d3ba7dfdc81b477aebd1168373ed14c9ad1c6ddf41447242dee7a881ca700
+           v_0      = 2000
+           xa_0     = 36e62f97e67098a2c78b028dcb1bd5515058e7389bee48c7ae2eed75dfb1c403
+[ 667.1s] happy: the contract holds 0 DERO atomic units after this exit
+[ 667.1s] bob read s_a from the chain and swept with s_a + s_b; joint address 49czAMorZ6gLzLCZvmDepFYcsu3KncKXz39GdJQhmH9cFtWsgN6hh8ZDYzvutaRLtMWQrz4HBtfcJBbGZeQ9mahwR8MNMwM
+[ 667.1s] ===== REFUND =====
+[ 667.1s] refund: the channel is sealed (AES-256-GCM) under a fresh swap key (GAP-019)
+           14:52:13 bob:  -> setup
+           14:52:13 bob: sent offer
+           14:52:30 alice:  -> setup
+           14:52:32 alice: setup -> offer_checked
+           14:52:32 alice: sent alice_setup
+           14:52:35 bob: π_a verified; joint address 43JDwStxSzT3BzTcj4sUH9DoT3bwY9utgdcMLd6mFLCkPdGoUT49yDZZtKnR8wuueia1N4bPqtpe5NiN1dVs8hSiFUDuav5; taker deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce
+           14:52:35 bob: setup -> verified_pi_a
+           14:52:35 bob: sent bob_setup
+           14:52:36 alice: π_b verified; joint address 43JDwStxSzT3BzTcj4sUH9DoT3bwY9utgdcMLd6mFLCkPdGoUT49yDZZtKnR8wuueia1N4bPqtpe5NiN1dVs8hSiFUDuav5
+           14:52:36 alice: offer_checked -> verified_pi_b
+           14:52:38 bob: verified_pi_a -> dero_locking
+           14:53:02 bob: DERO locked: id 1 tx 29295336ebe582c663ff1e6b7dde1b58c2305faf51c3ec1b2f01e28bb3b3afe7 t1 1023 t2 1031 amount 2000
+           14:53:02 bob: dero_locking -> dero_locked
+           14:53:02 bob: sent dero_locked
+           14:53:02 alice: verified_pi_b -> lock_announced
+           14:53:10 bob: dero_locked -> stipend_sending
+           14:53:10 alice: lock 1 checked at height 977: t1 1023 t2 1031 amount 2000
+           14:53:10 alice: lock_announced -> saw_dero_lock
+           14:53:33 bob: sent dero_locked
+           14:53:35 alice: waiting for the maker's stipend of 14016 DERO atomic units (Path 0); no XMR is locked until it is
+           14:54:03 bob: sent dero_locked
+           14:54:34 bob: sent dero_locked
+           14:55:05 bob: sent dero_locked
+           14:55:47 bob: sent the taker a stipend of 14016 DERO atomic units for her gas (Path 0): tx 9dd6ffdf07da69174ec89c9fedfad0a52d84bffbb29c2071b57ee9566bc74c63
+           14:55:47 bob: stipend_sending -> watching_xmr
+           14:55:47 bob: sent dero_locked
+           14:55:47 alice: the stipend (tx 9dd6ffdf07da69174ec89c9fedfad0a52d84bffbb29c2071b57ee9566bc74c63, height 986) is not at stable depth yet (stable height 979); no XMR is locked until it is
+[ 893.1s] bob goes offline after his lock and the stipend (he will be back at t1 = 1023 to refund)
+           14:56:02 alice: the stipend (tx 9dd6ffdf07da69174ec89c9fedfad0a52d84bffbb29c2071b57ee9566bc74c63, height 986) is not at stable depth yet (stable height 980); no XMR is locked until it is
+           14:56:20 alice: the stipend (tx 9dd6ffdf07da69174ec89c9fedfad0a52d84bffbb29c2071b57ee9566bc74c63, height 986) is not at stable depth yet (stable height 981); no XMR is locked until it is
+           14:56:39 alice: the stipend (tx 9dd6ffdf07da69174ec89c9fedfad0a52d84bffbb29c2071b57ee9566bc74c63, height 986) is not at stable depth yet (stable height 982); no XMR is locked until it is
+           14:56:57 alice: the stipend (tx 9dd6ffdf07da69174ec89c9fedfad0a52d84bffbb29c2071b57ee9566bc74c63, height 986) is not at stable depth yet (stable height 983); no XMR is locked until it is
+           14:57:15 alice: the stipend (tx 9dd6ffdf07da69174ec89c9fedfad0a52d84bffbb29c2071b57ee9566bc74c63, height 986) is not at stable depth yet (stable height 984); no XMR is locked until it is
+           14:57:33 alice: the stipend (tx 9dd6ffdf07da69174ec89c9fedfad0a52d84bffbb29c2071b57ee9566bc74c63, height 986) is not at stable depth yet (stable height 985); no XMR is locked until it is
+           14:57:51 alice: the maker's stipend of 14016 DERO atomic units is at stable depth (tx 9dd6ffdf07da69174ec89c9fedfad0a52d84bffbb29c2071b57ee9566bc74c63, height 986); this wallet can spend 828964
+           14:57:51 alice: locking 1000000000000 piconero against t1 1023 and t2 1031 — about 0 and 0 hours from height 994, and until t1 the XMR has no exit of its own
+           14:57:51 alice: RECOVERY CARD — read it before any XMR of yours moves
+           14:57:51 alice: SECRET: <tmp>\e2e-v3\refund\alice.json holds your key share and the joint wallets' password. Back it up now, where only you can read it: without it, XMR locked now cannot be recovered after a refund, and whoever copies it can take that XMR once s_b is public.
+           14:57:51 alice: resume: the same companion command again, on the same state file
+           14:57:51 alice:         it reads VEIL_RPC_LOGIN, XMRSWAP_MONERO_LOGIN and XMRSWAP_CHANNEL_KEY from the environment; their values are written nowhere, the wake task included
+           14:57:51 alice: now            height 994  2026-09-12 14:57 AEST
+           14:57:51 alice: claim cutoff   height 1013  about 2026-09-12 15:03 AEST  no Claim of yours is sent from here
+           14:57:51 alice: gate deadline  height 1019  about 2026-09-12 15:05 AEST  a gate reaching you from here is not used (t1 − G)
+           14:57:51 alice: finish by      height 1013  about 2026-09-12 15:03 AEST  be running before this to complete the swap
+           14:57:51 alice: t1             height 1023  about 2026-09-12 15:06 AEST  bob may refund from here; his refund puts s_b on the chain, and your XMR comes back with it
+           14:57:51 alice: t2             height 1031  about 2026-09-12 15:08 AEST  bob can no longer refund; your companion sends Punish at once, and anyone may send it for you: it carries no secret and pays only you
+           14:57:51 alice: punish sent by height 1039  about 2026-09-12 15:11 AEST  the last height your companion sends Punish at (t2 + g2 − 21), so that it is stable before the window closes
+           14:57:51 alice: punish ends    height 1060  about 2026-09-12 15:17 AEST  the Punish window's last block (g2 = 30): from t2 + g2 the contract refuses Punish and the lock is bob's to Reclaim
+           14:57:51 alice: your XMR itself has no deadline: after bob's refund, or his Reclaim after t2 + g2, s_b is on the chain and the XMR comes back to you alone; a Punish in [t2, t2 + g2) pays you the DERO instead, and any XMR you locked then stays under the joint key
+           14:57:51 alice: wake: none registered (this companion runs without an OS wake hook): be back by 2026-09-12 14:58 AEST yourself, before the first window closes
+           14:57:51 alice: wake: none registered (this companion runs without an OS wake hook): be back by 2026-09-12 14:58 AEST yourself, before t2, when the Punish window opens
+           14:57:51 alice: saw_dero_lock -> xmr_locking
+           14:57:55 alice: XMR locked: tx 3d8af06313a9c5a457e42095dab6b412170ba87370c1124eb4cc8a445bb716ef to 43JDwStxSzT3BzTcj4sUH9DoT3bwY9utgdcMLd6mFLCkPdGoUT49yDZZtKnR8wuueia1N4bPqtpe5NiN1dVs8hSiFUDuav5
+           14:57:55 alice: xmr_locking -> xmr_locked
+           14:57:55 alice: sent xmr_locked
+           14:58:25 alice: sent xmr_locked
+           14:58:56 alice: sent xmr_locked
+           14:59:26 alice: sent xmr_locked
+           14:59:56 alice: sent xmr_locked
+           15:00:26 alice: sent xmr_locked
+           15:00:57 alice: sent xmr_locked
+           15:01:27 alice: sent xmr_locked
+           15:01:57 alice: sent xmr_locked
+           15:02:27 alice: sent xmr_locked
+           15:02:58 alice: sent xmr_locked
+           15:03:28 alice: sent xmr_locked
+           15:03:58 alice: sent xmr_locked
+           15:04:29 alice: sent xmr_locked
+           15:04:59 alice: sent xmr_locked
+           15:05:25 alice: t1 − G (1019) passed without the gate: waiting for bob's refund, or t2
+           15:05:25 alice: xmr_locked -> await_refund
+           15:05:30 alice: sent xmr_locked
+           15:06:00 alice: sent xmr_locked
+           15:06:31 alice: sent xmr_locked
+[1562.0s] bob is back at height 1024
+           15:06:57 bob: sent dero_locked
+           15:06:57 bob: watching_xmr -> refund_window
+           15:06:58 bob: refund_window -> refunding
+           15:07:19 bob: refunded: tx f120fe2ff02ac0ad2dc0f46712af0ae3f217d66d475aa1337cc627127e320f57
+           15:07:19 bob: done: refunded: tx f120fe2ff02ac0ad2dc0f46712af0ae3f217d66d475aa1337cc627127e320f57; s_b is on the chain so alice can recover any XMR she locked
+           15:07:19 bob: refunding -> refunded
+           15:07:19 bob: sent done
+           15:07:19 alice: sent xmr_locked
+           15:07:19 alice: bob refunded; s_b read from the chain
+           15:07:19 alice: await_refund -> refund_seen
+           15:07:30 alice: refund_seen -> sweep_ready
+           15:07:36 alice: sweep_ready -> sweeping
+           15:07:36 alice: swept the joint wallet to 47UfeQpH7vt1MXYC4qLVkFXhsNqUAmpHuj9LRXTNMG8QGa7SBqhVQakCNkK7hEprnLC2SkFgQNd7KGVY7vH4BsLU5SxDctz: [fbf6c461ef27b046d701601d477c5590c94a196622587fe43103780074cb8ac3]
+           15:07:36 alice: the joint wallets xmrswap-93f92162-481d7c525e392ee1-1-spend and xmrswap-93f92162-481d7c525e392ee1-1-view stay in the wallet-rpc's wallet-dir, encrypted under this swap's password; delete them once the sweep is confirmed
+           15:07:36 alice: done: swept the XMR to 47UfeQpH7vt1MXYC4qLVkFXhsNqUAmpHuj9LRXTNMG8QGa7SBqhVQakCNkK7hEprnLC2SkFgQNd7KGVY7vH4BsLU5SxDctz
+           15:07:36 alice: sweeping -> swept
+[1600.9s] refund: bob ended "refunded": refunded: tx f120fe2ff02ac0ad2dc0f46712af0ae3f217d66d475aa1337cc627127e320f57; s_b is on the chain so alice can recover any XMR she locked
+[1600.9s] refund: alice ended "swept": swept the XMR to 47UfeQpH7vt1MXYC4qLVkFXhsNqUAmpHuj9LRXTNMG8QGa7SBqhVQakCNkK7hEprnLC2SkFgQNd7KGVY7vH4BsLU5SxDctz
+[1600.9s] refund: DERO txids: lock 29295336ebe582c663ff1e6b7dde1b58c2305faf51c3ec1b2f01e28bb3b3afe7 | stipend 9dd6ffdf07da69174ec89c9fedfad0a52d84bffbb29c2071b57ee9566bc74c63 (alice saw it at height 986) | claim - | refund f120fe2ff02ac0ad2dc0f46712af0ae3f217d66d475aa1337cc627127e320f57 | punish -
+[1600.9s] refund: Monero (regtest) lock 3d8af06313a9c5a457e42095dab6b412170ba87370c1124eb4cc8a445bb716ef to the joint address 43JDwStxSzT3BzTcj4sUH9DoT3bwY9utgdcMLd6mFLCkPdGoUT49yDZZtKnR8wuueia1N4bPqtpe5NiN1dVs8hSiFUDuav5: in monerod block 7378
+[1600.9s] refund: Monero (regtest) alice's recovery sweep fbf6c461ef27b046d701601d477c5590c94a196622587fe43103780074cb8ac3 to 47UfeQpH7vt1MXYC4qLVkFXhsNqUAmpHuj9LRXTNMG8QGa7SBqhVQakCNkK7hEprnLC2SkFgQNd7KGVY7vH4BsLU5SxDctz: in monerod block 7824
+[1600.9s] refund: set_daemon 127.0.0.1:28081, sent to the real monero-wallet-rpc after every open and generate: 47 accepted, 0 refused so far
+           a_1      = 
+           ha_1     = 2310504efda0781c43d65f1ac37053bf6b4099e32cd3c9eece8eae3190a5277f
+           hb_1     = 8dbdc8910e46a104a160b2527aea4fd4ffbad3c710a0511bbfeb4f6efa2c9f99
+           hk_1     = 812c3bbd0afb3f7b1316139c3202e02d0fe7044f9c1391b0a6683cc5790cd9e5
+           m_1      = 0da6f57058e06383fbc2d0133562cd567df15fa8f99d03ea2c3d9c5245bba6ca01
+           st_1     = 2
+           t1_1     = 1023
+           t2_1     = 1031
+           t_1      = 1f4e4d3ba7dfdc81b477aebd1168373ed14c9ad1c6ddf41447242dee7a881ca700
+           v_1      = 2000
+           xb_1     = bf795751be59ccde281fae32173883f391cbb2403ba52ab89fecc755d686520f
+[1600.9s] refund: the contract holds 0 DERO atomic units after this exit
+[1600.9s] alice read s_b from the chain and recovered with s_a + s_b; joint address 43JDwStxSzT3BzTcj4sUH9DoT3bwY9utgdcMLd6mFLCkPdGoUT49yDZZtKnR8wuueia1N4bPqtpe5NiN1dVs8hSiFUDuav5
+[1600.9s] ===== PUNISH =====
+[1600.9s] punish: the channel is sealed (AES-256-GCM) under a fresh swap key (GAP-019)
+           15:07:47 bob:  -> setup
+           15:07:47 bob: sent offer
+           15:07:59 alice:  -> setup
+           15:08:00 alice: setup -> offer_checked
+           15:08:00 alice: sent alice_setup
+           15:08:03 bob: π_a verified; joint address 47vqmEaJGLPPgn1LDJRSehebhoTAy9AoDjdBip3Z6EffQqp2N1QcAT9WwAgsDpojEt1X2zUwtAyyKXDd3fS3AZC78vJzcBe; taker deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce
+           15:08:03 bob: setup -> verified_pi_a
+           15:08:03 bob: sent bob_setup
+           15:08:05 alice: π_b verified; joint address 47vqmEaJGLPPgn1LDJRSehebhoTAy9AoDjdBip3Z6EffQqp2N1QcAT9WwAgsDpojEt1X2zUwtAyyKXDd3fS3AZC78vJzcBe
+           15:08:05 alice: offer_checked -> verified_pi_b
+           15:08:06 bob: verified_pi_a -> dero_locking
+           15:08:29 bob: DERO locked: id 2 tx 84f84d6123849af85c668fc98669a3223783a066aff41ae38fe483ba34aed672 t1 1076 t2 1084 amount 2000
+           15:08:29 bob: dero_locking -> dero_locked
+           15:08:29 bob: sent dero_locked
+           15:08:29 alice: verified_pi_b -> lock_announced
+           15:08:39 bob: dero_locked -> stipend_sending
+           15:08:39 alice: lock 2 checked at height 1030: t1 1076 t2 1084 amount 2000
+           15:08:39 alice: lock_announced -> saw_dero_lock
+           15:09:00 bob: sent dero_locked
+           15:09:03 alice: waiting for the maker's stipend of 14016 DERO atomic units (Path 0); no XMR is locked until it is
+           15:09:31 bob: sent dero_locked
+           15:10:02 bob: sent dero_locked
+           15:10:33 bob: sent dero_locked
+           15:11:15 bob: sent the taker a stipend of 14016 DERO atomic units for her gas (Path 0): tx c53047b08a8637b5fe08f3469bf972959d93e829fc51929a498f0ab9679fc290
+           15:11:15 bob: stipend_sending -> watching_xmr
+           15:11:15 bob: sent dero_locked
+           15:11:15 alice: the stipend (tx c53047b08a8637b5fe08f3469bf972959d93e829fc51929a498f0ab9679fc290, height 1039) is not at stable depth yet (stable height 1032); no XMR is locked until it is
+[1821.0s] bob vanishes after his lock and the stipend (t2 = 1084); alice will punish
+           15:11:31 alice: the stipend (tx c53047b08a8637b5fe08f3469bf972959d93e829fc51929a498f0ab9679fc290, height 1039) is not at stable depth yet (stable height 1033); no XMR is locked until it is
+           15:11:49 alice: the stipend (tx c53047b08a8637b5fe08f3469bf972959d93e829fc51929a498f0ab9679fc290, height 1039) is not at stable depth yet (stable height 1034); no XMR is locked until it is
+           15:12:07 alice: the stipend (tx c53047b08a8637b5fe08f3469bf972959d93e829fc51929a498f0ab9679fc290, height 1039) is not at stable depth yet (stable height 1035); no XMR is locked until it is
+           15:12:25 alice: the stipend (tx c53047b08a8637b5fe08f3469bf972959d93e829fc51929a498f0ab9679fc290, height 1039) is not at stable depth yet (stable height 1036); no XMR is locked until it is
+           15:12:43 alice: the stipend (tx c53047b08a8637b5fe08f3469bf972959d93e829fc51929a498f0ab9679fc290, height 1039) is not at stable depth yet (stable height 1037); no XMR is locked until it is
+           15:13:02 alice: the stipend (tx c53047b08a8637b5fe08f3469bf972959d93e829fc51929a498f0ab9679fc290, height 1039) is not at stable depth yet (stable height 1038); no XMR is locked until it is
+           15:13:20 alice: the maker's stipend of 14016 DERO atomic units is at stable depth (tx c53047b08a8637b5fe08f3469bf972959d93e829fc51929a498f0ab9679fc290, height 1039); this wallet can spend 842980
+           15:13:20 alice: locking 1000000000000 piconero against t1 1076 and t2 1084 — about 0 and 0 hours from height 1047, and until t1 the XMR has no exit of its own
+           15:13:20 alice: RECOVERY CARD — read it before any XMR of yours moves
+           15:13:20 alice: SECRET: <tmp>\e2e-v3\punish\alice.json holds your key share and the joint wallets' password. Back it up now, where only you can read it: without it, XMR locked now cannot be recovered after a refund, and whoever copies it can take that XMR once s_b is public.
+           15:13:20 alice: resume: the same companion command again, on the same state file
+           15:13:20 alice:         it reads VEIL_RPC_LOGIN, XMRSWAP_MONERO_LOGIN and XMRSWAP_CHANNEL_KEY from the environment; their values are written nowhere, the wake task included
+           15:13:20 alice: now            height 1047  2026-09-12 15:13 AEST
+           15:13:20 alice: claim cutoff   height 1066  about 2026-09-12 15:19 AEST  no Claim of yours is sent from here
+           15:13:20 alice: gate deadline  height 1072  about 2026-09-12 15:20 AEST  a gate reaching you from here is not used (t1 − G)
+           15:13:20 alice: finish by      height 1066  about 2026-09-12 15:19 AEST  be running before this to complete the swap
+           15:13:20 alice: t1             height 1076  about 2026-09-12 15:22 AEST  bob may refund from here; his refund puts s_b on the chain, and your XMR comes back with it
+           15:13:20 alice: t2             height 1084  about 2026-09-12 15:24 AEST  bob can no longer refund; your companion sends Punish at once, and anyone may send it for you: it carries no secret and pays only you
+           15:13:20 alice: punish sent by height 1092  about 2026-09-12 15:26 AEST  the last height your companion sends Punish at (t2 + g2 − 21), so that it is stable before the window closes
+           15:13:20 alice: punish ends    height 1113  about 2026-09-12 15:33 AEST  the Punish window's last block (g2 = 30): from t2 + g2 the contract refuses Punish and the lock is bob's to Reclaim
+           15:13:20 alice: your XMR itself has no deadline: after bob's refund, or his Reclaim after t2 + g2, s_b is on the chain and the XMR comes back to you alone; a Punish in [t2, t2 + g2) pays you the DERO instead, and any XMR you locked then stays under the joint key
+           15:13:20 alice: wake: none registered (this companion runs without an OS wake hook): be back by 2026-09-12 15:14 AEST yourself, before the first window closes
+           15:13:20 alice: wake: none registered (this companion runs without an OS wake hook): be back by 2026-09-12 15:14 AEST yourself, before t2, when the Punish window opens
+           15:13:20 alice: saw_dero_lock -> xmr_locking
+           15:13:23 alice: XMR locked: tx 620265f36e8334b7959739cac1bd57a52f6db9a2ee73e09069d3aca76127b7d9 to 47vqmEaJGLPPgn1LDJRSehebhoTAy9AoDjdBip3Z6EffQqp2N1QcAT9WwAgsDpojEt1X2zUwtAyyKXDd3fS3AZC78vJzcBe
+           15:13:23 alice: xmr_locking -> xmr_locked
+           15:13:23 alice: sent xmr_locked
+           15:13:53 alice: sent xmr_locked
+           15:14:24 alice: sent xmr_locked
+           15:14:54 alice: sent xmr_locked
+           15:15:24 alice: sent xmr_locked
+           15:15:54 alice: sent xmr_locked
+           15:16:25 alice: sent xmr_locked
+           15:16:55 alice: sent xmr_locked
+           15:17:26 alice: sent xmr_locked
+           15:17:56 alice: sent xmr_locked
+           15:18:26 alice: sent xmr_locked
+           15:18:57 alice: sent xmr_locked
+           15:19:27 alice: sent xmr_locked
+           15:19:57 alice: sent xmr_locked
+           15:20:27 alice: sent xmr_locked
+           15:20:54 alice: t1 − G (1072) passed without the gate: waiting for bob's refund, or t2
+           15:20:54 alice: xmr_locked -> await_refund
+           15:20:58 alice: sent xmr_locked
+           15:21:29 alice: sent xmr_locked
+           15:21:59 alice: sent xmr_locked
+           15:22:30 alice: sent xmr_locked
+           15:23:01 alice: sent xmr_locked
+           15:23:31 alice: sent xmr_locked
+           15:24:02 alice: sent xmr_locked
+           15:24:33 alice: sent xmr_locked
+           15:24:33 alice: await_refund -> punish_window
+           15:24:34 alice: punish_window -> punishing
+           15:24:56 alice: punished: tx cb850e6b29b196b044a78998de7af50a12180dfb0dd4dd7a355bb7a805df11f3; watching it until it is stable
+           15:24:56 alice: punishing -> punish_confirming
+           15:25:03 alice: sent xmr_locked
+           15:25:34 alice: sent xmr_locked
+           15:26:05 alice: sent xmr_locked
+           15:26:36 alice: sent xmr_locked
+           15:27:07 alice: sent xmr_locked
+           15:27:19 alice: done: punished: took the DERO, tx cb850e6b29b196b044a78998de7af50a12180dfb0dd4dd7a355bb7a805df11f3, stable (stable height 1086); any XMR locked stays under the joint key
+           15:27:19 alice: punish_confirming -> punished
+           15:27:19 alice: sent done
+           15:27:20 bob: sent dero_locked
+           15:27:20 bob: watching_xmr -> refund_window
+           15:27:21 bob: done: punished: alice took the DERO after t2; the refund window was missed
+           15:27:21 bob: refund_window -> punished
+[2786.7s] punish: bob ended "punished": punished: alice took the DERO after t2; the refund window was missed
+[2786.7s] punish: alice ended "punished": punished: took the DERO, tx cb850e6b29b196b044a78998de7af50a12180dfb0dd4dd7a355bb7a805df11f3, stable (stable height 1086); any XMR locked stays under the joint key
+[2786.7s] punish: DERO txids: lock 84f84d6123849af85c668fc98669a3223783a066aff41ae38fe483ba34aed672 | stipend c53047b08a8637b5fe08f3469bf972959d93e829fc51929a498f0ab9679fc290 (alice saw it at height 1039) | claim - | refund - | punish cb850e6b29b196b044a78998de7af50a12180dfb0dd4dd7a355bb7a805df11f3
+[2786.7s] punish: Monero (regtest) lock 620265f36e8334b7959739cac1bd57a52f6db9a2ee73e09069d3aca76127b7d9 to the joint address 47vqmEaJGLPPgn1LDJRSehebhoTAy9AoDjdBip3Z6EffQqp2N1QcAT9WwAgsDpojEt1X2zUwtAyyKXDd3fS3AZC78vJzcBe: in monerod block 8075
+[2786.7s] punish: set_daemon 127.0.0.1:28081, sent to the real monero-wallet-rpc after every open and generate: 51 accepted, 0 refused so far
+           a_2      = 
+           ha_2     = bbd8d09506a22eb755339f3a76a75b0ff537041c2343bd97f6acedddb20dadb3
+           hb_2     = 5f6b7a7387be10f5949abe67129ab2d5fa87bb96766729eeddb396c0596c5f9f
+           hk_2     = 8fa4951db5fe8f6eedd276c7f5db8937ef4434c16524dc8eb0ebe5a5c0b43c2b
+           m_2      = 0da6f57058e06383fbc2d0133562cd567df15fa8f99d03ea2c3d9c5245bba6ca01
+           st_2     = 3
+           t1_2     = 1076
+           t2_2     = 1084
+           t_2      = 1f4e4d3ba7dfdc81b477aebd1168373ed14c9ad1c6ddf41447242dee7a881ca700
+           v_2      = 2000
+[2786.7s] punish: the contract holds 0 DERO atomic units after this exit
+[2786.7s] the XMR alice locked stays under the joint key 47vqmEaJGLPPgn1LDJRSehebhoTAy9AoDjdBip3Z6EffQqp2N1QcAT9WwAgsDpojEt1X2zUwtAyyKXDd3fS3AZC78vJzcBe: nobody holds s_a + s_b
+[2786.7s] DERO balances: bob 363929 -> 312944, alice 804805 -> 842980; contract holds 0 (expect 0)

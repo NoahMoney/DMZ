@@ -86,7 +86,10 @@ func TestRoleWriters(t *testing.T) {
 			sort.Strings(got)
 			want := append([]string{}, r.Writers...)
 			sort.Strings(want)
-			if !reflect.DeepEqual(got, want) {
+			if r.Legacy && len(want) != 0 {
+				t.Errorf("%s.%s is Legacy, a role of an older version, but lists writers %v", k.Kind, r.Role, want)
+			}
+			if (len(got) != 0 || len(want) != 0) && !reflect.DeepEqual(got, want) {
 				t.Errorf("%s.%s: functions writing %v are %v; the table lists %v", k.Kind, r.Role, r.Keys, got, want)
 			}
 		}
@@ -143,14 +146,35 @@ func find(rows []roleRow, role string) roleRow {
 	return roleRow{}
 }
 
-func TestFactoryOwnerLiveFailsRenouncedPasses(t *testing.T) {
+// factory.bas v2 (MT-J15(b)) has no owner, so a v2 factory's report has no owner row and nothing in it fails. An older
+// v1 factory is still recognised by its state: a live owner fails and names what it can do, and a renounced one passes.
+func TestFactoryOwnerOnlyInAnOlderFactory(t *testing.T) {
 	base := vars{"treasury": sv(key(2)), "tstr": ss("dero1x"), "regfee": nv(10000), "initd": nv(1), "pc": nv(0), "lc": nv(0), "nc": nv(0)}
+	v2 := vars{"kind": ss("factory"), "v": nv(2)}
+	for k, v := range base {
+		v2[k] = v
+	}
+	rows := evalRoles("factory", "factory", "f", v2, nil)
+	if o := find(rows, "owner"); o.Role != "" {
+		t.Fatalf("a v2 factory shows an owner row: %+v", o)
+	}
+	if tr := find(rows, "treasury"); !strings.Contains(tr.State, "fixed for ever") {
+		t.Fatalf("v2 treasury: %+v", tr)
+	}
+	if rf := find(rows, "regfee"); !strings.Contains(rf.State, "fixed for ever") {
+		t.Fatalf("v2 regfee: %+v", rf)
+	}
+	for _, r := range rows {
+		if r.Status == sFail || r.Status == sAllowed {
+			t.Fatalf("a v2 factory needs no -allow, yet: %+v", r)
+		}
+	}
 	live := vars{"owner": sv(key(1))}
 	for k, v := range base {
 		live[k] = v
 	}
 	o := find(evalRoles("factory", "factory", "f", live, nil), "owner")
-	if o.Status != sFail || !o.Live || !strings.Contains(o.State, "SetTreasury") {
+	if o.Status != sFail || !o.Live || !strings.Contains(o.State, "SetTreasury") || !strings.Contains(o.State, "older factory.bas") {
 		t.Fatalf("live owner: %+v", o)
 	}
 	allowed := find(evalRoles("factory", "factory", "f", live, map[string]string{"factory.owner": "testnet: Renounce after the soak"}), "owner")
@@ -161,7 +185,7 @@ func TestFactoryOwnerLiveFailsRenouncedPasses(t *testing.T) {
 	for k, v := range base {
 		ren[k] = v
 	}
-	rows := evalRoles("factory", "factory", "f", ren, nil)
+	rows = evalRoles("factory", "factory", "f", ren, nil)
 	if o := find(rows, "owner"); o.Status != sPass || o.Live || !strings.Contains(o.Value, "812") {
 		t.Fatalf("renounced owner: %+v", o)
 	}

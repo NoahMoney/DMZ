@@ -85,9 +85,13 @@ type roleSpec struct {
 	Keys    []string // "prefix*" for a family of keys
 	Policy  policy
 	Warn    bool     // a by-design role worth a WARN whenever it is live (custody)
-	Writers []string // every function that STOREs or DELETEs one of Keys
+	Writers []string // every function that STOREs or DELETEs one of Keys; empty for a Legacy role
 	Cites   []cite
 	Eval    func(v vars) (val string, live bool, state string)
+	// Legacy marks a role only an older version of the contract has. The current source writes none of its keys
+	// (TestRoleWriters holds Writers empty), so it is reported only for a contract whose state carries one of them:
+	// an older deployment is still recognised and judged, and a current one shows no such row.
+	Legacy bool
 }
 
 type kindSpec struct {
@@ -143,54 +147,47 @@ const guardText = `IF EXISTS("initd") != 0 THEN GOTO 900`
 var roleTable = []kindSpec{
 	{
 		Kind:  "factory",
-		About: "one owner until Renounce; the registry itself is open to anyone who pays regfee",
+		About: "no owner (v2): the treasury and the registration fee are fixed at install; the registry is open to anyone who pays regfee",
 		Roles: []roleSpec{
 			{
-				Role: "owner", Keys: []string{"owner", "renounced"}, Policy: pRevoke,
-				Writers: []string{"Initialize", "Renounce"},
-				Cites: []cite{
-					c("factory.bas", 25, `STORE("owner", s)`),
-					c("factory.bas", 39, `IF EXISTS("owner") == 0 THEN GOTO 900`), c("factory.bas", 40, `IF SIGNER() != LOAD("owner")`),
-					c("factory.bas", 50, `IF EXISTS("owner") == 0 THEN GOTO 900`), c("factory.bas", 51, `IF SIGNER() != LOAD("owner")`),
-					c("factory.bas", 61, `IF EXISTS("owner") == 0 THEN GOTO 900`), c("factory.bas", 62, `IF SIGNER() != LOAD("owner")`),
-					c("factory.bas", 63, `DELETE("owner")`), c("factory.bas", 64, `STORE("renounced", BLOCK_HEIGHT())`),
-				},
+				// factory.bas v1 had an owner with SetTreasury and SetRegFee until Renounce (MT-J15 chose v2 instead).
+				// v2 stores no owner and no function of it writes one, so the row appears only for a factory whose
+				// state carries v1's owner or renounced key: a live owner FAILs, a renounced one passes.
+				Role: "owner", Keys: []string{"owner", "renounced"}, Policy: pRevoke, Legacy: true,
+				Cites: []cite{c("factory.bas", 5, "no owner at all")},
 				Eval: func(v vars) (string, bool, string) {
 					if v.has("owner") {
-						return v.keyVal("owner"), true, "can call SetTreasury (moves every future registration fee), SetRegFee and Renounce; the ceremony ends it with Renounce"
+						return v.keyVal("owner"), true, "an older factory.bas (v1) with a live owner: it can call SetTreasury (moves every future registration fee), SetRegFee and Renounce. factory.bas v2 has no owner: install one and move the listings to it (simdeploy -migrate-from)"
 					}
-					if v.has("renounced") {
-						return "(deleted by Renounce at height " + v.num("renounced") + ")", false, "owner is absent: SetTreasury, SetRegFee and Renounce refuse every signer at their EXISTS guard, and nothing can store an owner again"
-					}
-					return "(absent)", false, "owner is absent (no renounced height recorded): the setters refuse every signer at their EXISTS guard"
+					return "(deleted by Renounce at height " + v.num("renounced") + ")", false, "an older factory.bas (v1), renounced: owner is absent, so SetTreasury, SetRegFee and Renounce refuse every signer"
 				},
 			},
 			{
 				Role: "treasury", Keys: []string{"treasury", "tstr"}, Policy: pPayee,
-				Writers: []string{"Initialize", "SetTreasury"},
-				Cites:   []cite{c("factory.bas", 26, `STORE("treasury", t)`), c("factory.bas", 43, `STORE("treasury", t)`), c("factory.bas", 110, `SEND_DERO_TO_ADDRESS(LOAD("treasury"), DEROVALUE())`)},
+				Writers: []string{"Initialize"},
+				Cites:   []cite{c("factory.bas", 23, `STORE("treasury", t)`), c("factory.bas", 75, `SEND_DERO_TO_ADDRESS(LOAD("treasury"), DEROVALUE())`)},
 				Eval: func(v vars) (string, bool, string) {
 					s := "receives every registration fee (reg, line 35); cannot act"
 					if v.has("owner") {
-						s += "; the owner can still move it (SetTreasury)"
+						s += "; this older factory's owner can still move it (v1 SetTreasury)"
 					} else {
-						s += "; fixed for ever (SetTreasury needs an owner)"
+						s += "; fixed for ever: only Initialize writes it, and Initialize refuses a second run"
 					}
 					return v.keyVal("treasury"), false, s
 				},
 			},
 			{
 				Role: "regfee", Keys: []string{"regfee"}, Policy: pFixed,
-				Writers: []string{"Initialize", "SetRegFee"},
-				Cites:   []cite{c("factory.bas", 28, `STORE("regfee", regfee)`), c("factory.bas", 52, `STORE("regfee", regfee)`), c("factory.bas", 108, `IF DEROVALUE() < LOAD("regfee")`)},
+				Writers: []string{"Initialize"},
+				Cites:   []cite{c("factory.bas", 25, `STORE("regfee", regfee)`), c("factory.bas", 73, `IF DEROVALUE() < LOAD("regfee")`)},
 				Eval: func(v vars) (string, bool, string) {
 					if v.has("owner") {
-						return "regfee=" + v.num("regfee"), false, "the owner can still change it (SetRegFee)"
+						return "regfee=" + v.num("regfee"), false, "this older factory's owner can still change it (v1 SetRegFee)"
 					}
-					return "regfee=" + v.num("regfee"), false, "fixed for ever (SetRegFee needs an owner)"
+					return "regfee=" + v.num("regfee"), false, "fixed for ever: only Initialize writes it"
 				},
 			},
-			initGuard("factory.bas", 17, guardText, 32, `STORE("initd", 1)`, "Initialize"),
+			initGuard("factory.bas", 17, guardText, 29, `STORE("initd", 1)`, "Initialize"),
 		},
 	},
 	{
@@ -311,8 +308,15 @@ var roleTable = []kindSpec{
 	},
 	{
 		Kind:  "htlc",
-		About: "no owner, admin or fee: a lock moves only by its maker's refund, its taker's claim or the clock (Punish)",
-		Roles: []roleSpec{initGuard("htlc.bas", 17, guardText, 21, `STORE("initd", 1)`, "Initialize")},
+		About: "no owner, admin or fee: a lock moves only by its taker's claim, its maker's refund or reclaim, or the clock (Punish, by anyone, for g2 blocks from t2)",
+		Roles: []roleSpec{
+			fixedRole("windows", []string{"w1min", "w2min", "g2"}, []string{"Initialize"},
+				[]cite{c("htlc.bas", 41, `STORE("w1min", w1min)`), c("htlc.bas", 42, `STORE("w2min", w2min)`), c("htlc.bas", 43, `STORE("g2", g2)`),
+					c("htlc.bas", 37, `w1min + w2min > 999999`), c("htlc.bas", 66, `IF t1 < h + LOAD("w1min") || t2 < t1 + LOAD("w2min") THEN GOTO 900`),
+					c("htlc.bas", 173, `h >= LOAD("t2_" + id) + LOAD("g2")`), c("htlc.bas", 197, `IF BLOCK_HEIGHT() < LOAD("t2_" + id) + LOAD("g2") THEN GOTO 900`)},
+				"the least t1 - lock height, the least t2 - t1 and the Punish window, written only at install: the same code with other values has the same code hash, so a companion must read them"),
+			initGuard("htlc.bas", 35, guardText, 44, `STORE("initd", 1)`, "Initialize"),
+		},
 	},
 	{
 		Kind:  "swap",
@@ -498,6 +502,9 @@ func evalRoles(label, kind, scid string, v vars, allow map[string]string) []role
 	}
 	var rows []roleRow
 	for _, r := range ks.Roles {
+		if r.Legacy && !hasAny(v, r.Keys) {
+			continue
+		}
 		val, live, state := r.Eval(v)
 		row := roleRow{Contract: label, SCID: scid, Kind: kind, Role: r.Role, ID: kind + "." + r.Role, Keys: r.Keys, Policy: r.Policy,
 			Value: val, Live: live, State: state, Status: statusOf(r, live), Cites: compactCites(r.Cites)}
@@ -511,12 +518,27 @@ func evalRoles(label, kind, scid string, v vars, allow map[string]string) []role
 	return rows
 }
 
+// hasAny reports whether the state carries at least one of keys.
+func hasAny(v vars, keys []string) bool {
+	for _, k := range keys {
+		if v.has(k) {
+			return true
+		}
+	}
+	return false
+}
+
 // printRoleTable writes the table this tool applies, with the functions that write each role's keys and the lines
 // it cites, so a reader can check the table against the source without running anything else (-roles).
 func printRoleTable(w io.Writer) {
 	for _, k := range roleTable {
 		fmt.Fprintf(w, "%s: %s\n", k.Kind, k.About)
 		for _, r := range k.Roles {
+			if r.Legacy {
+				fmt.Fprintf(w, "  %-15s %-10s keys %s; written by no function of the current source: reported only for an older contract whose state has one\n", r.Role, r.Policy, strings.Join(r.Keys, ", "))
+				fmt.Fprintf(w, "  %-15s cites %s\n", "", strings.Join(compactCites(r.Cites), "; "))
+				continue
+			}
 			fmt.Fprintf(w, "  %-15s %-10s keys %s; written by %s\n", r.Role, r.Policy, strings.Join(r.Keys, ", "), strings.Join(r.Writers, ", "))
 			fmt.Fprintf(w, "  %-15s cites %s\n", "", strings.Join(compactCites(r.Cites), "; "))
 		}

@@ -76,12 +76,17 @@ must have an entry. Policies:
 
 | policy | meaning | when live |
 |---|---|---|
-| must end | a deployer power (factory owner, vault owner before Seal, TELA INDEX owner) | **FAIL**, unless `-allow` names it with a reason |
+| must end | a deployer power (an older factory's owner, vault owner before Seal, TELA INDEX owner) | **FAIL**, unless `-allow` names it with a reason |
 | guard | the re-initialisation guard (`initd`; for an NFA, `owner` exists) | **FAIL**: Initialize could run again |
 | by design | a market creator's power, or a k-of-n federation | listed; a sealed vault's signers are a WARN |
 | payee | receives funds; at most pulls what is already its own | listed |
 | parameter | fixed at install, or changeable only as printed | listed |
 | inert | stored, and read by no function | listed |
+
+A role only an older version of a contract had is marked legacy: the current source writes none of its keys, so it is
+reported only when the contract's state carries one. `factory.bas` v2 (MT-J15(b)) has no owner, so a v2 factory shows
+no owner row and needs no `-allow`, while a v1 factory whose `owner` is still stored fails on it, and one whose
+`renounced` is stored passes.
 
 *Proves:* by the contract's own gates, no must-end role can act now. *Does not prove:* anything about keys held off
 chain. A treasury wallet is still someone's wallet, and a vault federation is still trusted with custody.
@@ -115,7 +120,8 @@ that the app's code is safe, or what a TELA host does with it.
   into a scratch record. The check before the ceremony fails on the live factory owner, the unsealed vault owner and
   the ring-2 INDEX owner. After `Seal` and `Renounce`, only the ring-2 INDEX owner fails, and it is accepted with
   `-allow`. A ring-16 INDEX passes clean. A contract that differs from its source by one character fails, and the
-  report names the line.
+  report names the line. (That run used `factory.bas` v1, which had an owner until `Renounce`. A v2 factory has no
+  owner to fail on.)
 - `research/release/tela-anon-index.log`: the ring-16 INDEX as `DERO.GetSC` reports it (owner `616e6f6e` =
   "anon", commit 0, hash = SCID). The daemon refuses `UpdateCode` from the installer's own wallet, and the call,
   sent anyway, changes nothing. By contrast, the ring-2 INDEX's owner replaces that app in one call.

@@ -1,5 +1,58 @@
 The xmrswap COMMAND LINE as two separate processes, bob and alice: regtest monerod and monero-wallet-rpc, DERO simulator
 =======================================================================================================================
+RUN 3, 2026-09-12 from 14:15 AEST: the happy path again, through bob's sweep, on htlc.bas v3 (MT-J13(b), MT-A03(a)).
+Runs 2 and 1 follow it unchanged. Machine paths are written <tmp>, <repo> and <user>.
+
+What differs from run 2
+- The contract: the simulator's recorded htlc is now the v3 install
+  ef576fce2edaa15c3e09916463ea86a49bfb428ca030d439e69a63a48a612496, made the same afternoon with
+  `go run ./simdeploy -contracts ../contracts -app ../app -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 4800`, every other
+  recorded contract reused (factory 8e70572e..., social, founders, chat, swap and board). derod's own answer to one
+  DERO.GetSC with code:true and keysstring [w1min, w2min, g2, v, n]: "400","400","4800","3","0", and the code hashes to
+  b785028da4a2554521d47f989f1011ec1f0a26be491e6a7eb2786c1f50834c36 (5,104 bytes), the companion's v3 pin.
+  `go run ./verifydeploy -network simulator -app ../app` afterwards: "PASS htlc ef576fce2eda…: installed code sha256
+  b785028d… = sha256(reference.Canon(contracts/htlc.bas))"; 31 PASS, 13 WARN (legacy template hashes, the vault's
+  signer set), no failure. g2 4,800 is the proposal pending operator decision MT-J13.
+- The binary: built with go1.26.8 from the working tree carrying the companion's v3 adoption (not yet committed),
+  sha256 7b54489ceb4ab65b3e1dcec9777db534ea758c9338bf18e21acb07b46310ef8a. The prover wrapper is run 2's (4de242f7...),
+  pinned with -prover-sha256 off mainnet only.
+- Everything else as run 2: -net regtest, -monerod 127.0.0.1:28081, logins from the environment, the sealed channel,
+  alice with two -daemon names for the one simulator node, one regtest block mined about every 6 s by the driver,
+  the command line's own policy (t1 = 420, t2 = t1 + 400, G 100, 20 confirmations, stable 8, claim margin 8).
+  Wallets 30006 (bob) and 30007 (alice) had no transfer since height 849; 30010-30013 were not used.
+
+What run 3 did
+  14:15:47  both companions, -htlc not given, took the recorded ef576fce... (MT-A18) and printed the install as each
+            read it: "htlc.bas v3 at ef576fce..., installed with w1min 400, w2min 400, g2 4800 (Punish in [t2, t2 + 4800),
+            Reclaim from t2 + 4800)". Alice's second -daemon showed the same code and the same three values (MT-B09).
+  14:15:50  bob verified π_a and passed the install policy (his t1 width 420 is at least max(t1-min 400, w1min 400 + 11));
+            14:15:54 alice verified π_b; joint address 43ZtUw7zFbZaUp88r91iTz4GLan5zMDTBdA86kbvHHxz9y1LG4TQEQdan1tLCAXyQN7njegUPZvs11ab8J8wruJYSdqNRmw
+  14:16:10  DERO lock     494121a7e34fb32afe89851671785c9f39bf31cb6c8ab0cbd750a7321ea465c4  (lock id 0, t1 1271, t2 1671,
+            amount 2000; in block 852; alice checked it at height 853 and took g2 4800 against her floor of 4800)
+  14:18:55  DERO stipend  e9f74506acde39ffdde423a7d90c8b62f0a6afa7a3b31c7be12695ca9703c93c  (block 862; at stable depth
+            for alice at 14:21:03)
+  14:21:03  alice, before any XMR moved: the recovery card, now with t2 (height 1671, about 18:21), the last height her
+            companion sends Punish at (6443, t2 + g2 − 27) and the Punish window's last block (6470, about 2026-09-13
+            18:21), and two wakes: the Windows tasks "xmrswap-cb71107873a87720" (15:41, before the first window closes)
+            and "xmrswap-cb71107873a87720-t2" (18:11, before t2).
+  14:21:08  XMR lock      749592261af0ab99976141ea2d36068f87d7bec9ec4cfc7b2004a359b1fe633c  1 XMR to the joint address,
+            in monerod block 6707
+  14:23:15  bob: 1000000000000 piconero at the joint address with ≥ 20 confirmations (Monero height 6728), counted by
+            his own view-only wallet; 14:23:18 he released k_b.
+  14:23:41  DERO claim    5f5f0522668ffcb4c685dcf87b54a7bd378c4dbf66842e2a7ce82c8a090e4551  (block 878; bob read s_a at
+            height 878; alice watched the Claim to stable height 879)
+  14:26:00  XMR sweep     c91bad1cf9d8ca57adc7af6c06249418788667a50dcbcd4ccffe2c4d2054ec10  to bob's own regtest address
+            43FxV3gD..., in monerod block 6755.
+  14:26:01  bob's process exited 0 ("swept the XMR to 43FxV3gD..."); 14:26:06 alice's exited 0 ("claimed the DERO: tx
+            5f5f0522..., stable (stable height 879)").
+  14:26:12  both wakes removed by the companion at its end: no "xmrswap-*" task left in the scheduler.
+
+Checked afterwards: every DERO txid above is in the block given (DERO.GetTransaction, in_pool false) and both Monero
+txids in the monerod block given (get_transactions); lock 0 reads st 1, the contract holds 0. The opt-in
+TestKeyedReadsAgainstARealDaemon, with XMRSWAP_SIM_SCID set to the v3 install, read lock 0 (st 1) and FindLock found it.
+No xmrswap, simhtlc or proverwrap process was left running.
+
+=======================================================================================================================
 RUN 2, 2026-09-12 from 11:38 AEST, on the restored simulator: the happy path, all the way through bob's sweep. Run 1
 (2026-09-11, interrupted after alice's Claim by a stall of the companion's own, since fixed) is kept at the end of this
 file. Machine paths are written <tmp>, <repo> and <user>.

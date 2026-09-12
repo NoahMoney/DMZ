@@ -5,14 +5,46 @@ package xmrswap
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
-// liarDero is a DERO node that answers for the lock with a lie of its own making; everything else it reads truly.
+// liarDero is a DERO node that answers for the lock with a lie of its own making, and for the install with depLie's
+// when set; everything else it reads truly.
 type liarDero struct {
 	*memDero
-	lie func(Lock) (Lock, error)
+	lie    func(Lock) (Lock, error)
+	depLie func(Deployment) Deployment
+}
+
+func (d *liarDero) Deployment(ctx context.Context) (Deployment, error) {
+	dep, err := d.memDero.Deployment(ctx)
+	if err == nil && d.depLie != nil {
+		dep = d.depLie(dep)
+	}
+	return dep, err
+}
+
+// TestAWitnessShowingAnotherInstallBlocksTheXmrLock (MT-B09 with MT-A03(a)): htlc.bas v3's code is the same for every
+// install, so a witness must also show the install arguments her own node showed; one that shows another g2, or
+// another w1min, keeps her XMR where it is, and the maker refunds at t1.
+func TestAWitnessShowingAnotherInstallBlocksTheXmrLock(t *testing.T) {
+	for _, lie := range []func(Deployment) Deployment{
+		func(d Deployment) Deployment { d.G2++; return d },
+		func(d Deployment) Deployment { d.W1Min--; return d },
+	} {
+		r := newRun(t, plan{scenario: "happy", seed: 173})
+		witness := &liarDero{memDero: newMemDero(r.chain, aliceAddr), lie: func(l Lock) (Lock, error) { return l, nil }, depLie: lie}
+		r.bob = startWith(r, "bob", nil)
+		r.alice = startAliceOn(r, newMemDero(r.chain, aliceAddr), func(c *Config) { c.Witnesses = []LockReader{witness} })
+		r.until(800, r.bothDone, nil)
+		alice, bob := r.loadState("alice"), r.loadState("bob")
+		if r.aliceW.transfers != 0 || alice.Phase != "refused" || !strings.Contains(alice.Outcome, "installed with") || bob.Phase != "refunded" {
+			t.Fatalf("alice %s (%s), %d transfers; bob %s", alice.Phase, alice.Outcome, r.aliceW.transfers, bob.Phase)
+		}
+		t.Logf("alice: %s", alice.Outcome)
+	}
 }
 
 func (d *liarDero) ReadLock(ctx context.Context, id uint64) (Lock, error) {

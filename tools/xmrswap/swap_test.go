@@ -18,12 +18,12 @@ import (
 )
 
 // Phases at which each side saves durable state, in protocol order: the crash fuzz kills a process right after
-// each one and restarts it from the file.
+// each one and restarts it from the file, and fails if no run reaches one of them.
 var (
-	bobPhases = []string{"setup", "verified_pi_a", "dero_locking", "dero_locked", "stipend_sending", "watching_xmr", "xmr_confirmed", "gate_sending", "gate_sent", "claimed", "sweep_ready", "sweeping", "sweep_sent", "swept", "refund_window", "refunding", "refunded", "punish_window", "closing", "punished"}
+	bobPhases = []string{"setup", "verified_pi_a", "dero_locking", "dero_locked", "stipend_sending", "watching_xmr", "xmr_confirmed", "gate_sending", "gate_sent", "claimed", "sweep_ready", "sweeping", "sweep_sent", "swept", "refund_window", "refunding", "refunded", "punish_window", "reclaiming", "reclaim_confirming", "reclaimed", "punished"}
 	// sweep_sent is not a phase: it is the moment after sweep_all returned and before the sweep was recorded, the one
 	// death between two saves that decides where coins are (MT-B12), and the crash hook fires there too
-	alicePhases = []string{"setup", "offer_checked", "verified_pi_b", "lock_announced", "saw_dero_lock", "xmr_locking", "xmr_locked", "gate_received", "claiming", "claim_confirming", "claimed", "await_refund", "refund_seen", "sweep_ready", "sweeping", "sweep_sent", "swept", "punish_window", "punishing", "punished"}
+	alicePhases = []string{"setup", "offer_checked", "verified_pi_b", "lock_announced", "saw_dero_lock", "xmr_locking", "xmr_locked", "gate_received", "claiming", "claim_confirming", "claimed", "await_refund", "refund_seen", "sweep_ready", "sweeping", "sweep_sent", "swept", "punish_window", "punishing", "punish_confirming", "await_reclaim", "punished"}
 )
 
 const (
@@ -35,7 +35,9 @@ const (
 	// room for the lock, its stable wait (8), the stipend and its stable wait (8), ten Monero blocks, the gate
 	// before t1 − G, and a claim stable before t1
 	testT1Delta = uint64(80)
-	testT2Delta = uint64(10)
+	// t2 − t1: room for a Refund sent a block or two after t1 to execute before t2 when the fuzz runs every contract call
+	// up to 10 blocks after it was built, the most DERO allows (fakeChain.execDelay)
+	testT2Delta = uint64(20)
 	testStable  = uint64(2)
 	testConfs   = uint64(10)
 	// Alice sends no Claim once height + 1 ≥ t1 − 8 − testClaimMargin; Bob releases the gate only while she
@@ -48,11 +50,16 @@ const (
 	testStipend = uint64(1400)
 	// the passes a sweep gives a joint wallet with nothing spendable in it before it takes that for the answer
 	testSweepWaits = uint64(6)
+	// the fake htlc.bas v3 install (fakeChain): the maker's t1 width must be at least testW1Min + DeroTxValidity and
+	// his t2 − t1 at least testW2Min, and the taker's Punish window is testG2 blocks, above her floor of 11 + 8 + 2
+	testW1Min = uint64(10)
+	testW2Min = uint64(5)
+	testG2    = uint64(30)
 )
 
 // plan is one fuzz run: the scenario (who goes offline when) and where each side dies.
 type plan struct {
-	scenario    string          // happy | refund | punish | nomine
+	scenario    string          // happy | refund | punish | reclaim | nomine
 	bobCrash    map[string]bool // crash once, the first time this phase is saved
 	aliceCrash  map[string]bool
 	randomCrash float64 // additionally, crash at any save with this probability
@@ -80,11 +87,12 @@ type run struct {
 	gateSends                  int
 	sweepChecks                int // Bob's sweeps the Invariant 9 hook looked at
 	bobRestarts, aliceRestarts int
-	stepErrors                 int // non-fatal errors a Step returned (an rpc "timeout", a rename the OS refused): each is retried by the next Step
+	stepErrors                 int             // non-fatal errors a Step returned (an rpc "timeout", a rename the OS refused): each is retried by the next Step
+	reached                    map[string]bool // every "role|phase" either side saved, as the crash hook saw it
 }
 
 func newRun(t *testing.T, p plan) *run {
-	r := &run{t: t, ctx: context.Background(), plan: p, dir: t.TempDir(), rng: mrand.New(mrand.NewSource(p.seed)), prover: &stubProver{}}
+	r := &run{t: t, ctx: context.Background(), plan: p, dir: t.TempDir(), rng: mrand.New(mrand.NewSource(p.seed)), prover: &stubProver{}, reached: map[string]bool{}}
 	r.chain = newFakeChain(1000)
 	r.chain.flaky = func() bool { return r.rng.Float64() < 0.1 }
 	r.fw = NewFakeWallet(Stagenet)
@@ -143,7 +151,7 @@ func (r *run) config(role string) Config {
 	return Config{HTLC: testHTLC, AmountDero: testDero, AmountXmr: testXmr, Net: Stagenet, DeroNet: "simulator", MyDero: addr, MoneroWalletName: name,
 		T1Min: testT1Min, T2Min: testT2Min, T1Delta: testT1Delta, T2Delta: testT2Delta, Confirmations: testConfs, StableBlocks: testStable,
 		ClaimMargin: testClaimMargin, GateMargin: testGateMargin, GateDeadline: testGateDeadline, LockSettleBlocks: 2, SweepWaits: testSweepWaits,
-		Stipend: testStipend, StipendMin: testStipend, StipendSettleBlocks: 3, CloseAfter: 3,
+		Stipend: testStipend, StipendMin: testStipend, StipendSettleBlocks: 3, G2Min: testG2,
 		Poll: 3 * time.Millisecond, ResendAfter: time.Second, Log: r.logf}
 }
 
@@ -153,9 +161,11 @@ func (r *run) stipendPaid() bool {
 	return st.HK != "" && len(r.chain.paymentsTagged(bobAddr, aliceAddr, stipendPort(st.HK))) > 0
 }
 
-// crashFn is the process death: once at each planned phase, and at random when the plan says so.
-func (r *run) crashFn(once map[string]bool) func(string) bool {
+// crashFn is the process death: once at each planned phase, and at random when the plan says so. It also notes every
+// phase the side saves, which TestCrashFuzz holds against the phase lists.
+func (r *run) crashFn(role string, once map[string]bool) func(string) bool {
 	return func(phase string) bool {
+		r.reached[role+"|"+phase] = true
 		if once[phase] {
 			delete(once, phase)
 			return true
@@ -176,11 +186,11 @@ func (r *run) start(role string) *Swap {
 	var sw *Swap
 	if role == "bob" {
 		sw, err = NewBob(r.config(role), st, newMemDero(r.chain, bobAddr), r.bobW, r.prover, spy)
-		sw.crash = r.crashFn(r.plan.bobCrash)
+		sw.crash = r.crashFn("bob", r.plan.bobCrash)
 		r.bobRestarts++
 	} else {
 		sw, err = NewAlice(r.config(role), st, newMemDero(r.chain, aliceAddr), r.aliceW, r.prover, spy)
-		sw.crash = r.crashFn(r.plan.aliceCrash)
+		sw.crash = r.crashFn("alice", r.plan.aliceCrash)
 		r.aliceRestarts++
 	}
 	if err != nil {
@@ -328,7 +338,7 @@ func (r *run) checkTransfer(to string, amount uint64) error {
 // drive runs the scenario to its end: both machines in lockstep, one DERO block and one Monero block per
 // round, Bob offline as the scenario says.
 func (r *run) drive() {
-	var bobT1 uint64
+	var bobT1, bobT2 uint64
 	// Bob vanishes once he has locked AND told Alice the lock id (a maker who vanishes before announcing harms
 	// only himself: nothing of Alice's is at stake yet, and his DERO waits for his own refund)
 	announced := func() bool {
@@ -344,7 +354,7 @@ func (r *run) drive() {
 	bobOffline := func() bool {
 		st := r.loadState("bob")
 		if st.Lock.T1 > 0 {
-			bobT1 = st.Lock.T1
+			bobT1, bobT2 = st.Lock.T1, st.Lock.T2
 		}
 		// the maker stays for his stipend (Path 0): without it the taker locks no XMR, and a maker who leaves before
 		// paying it has left a lock only his own refund ends
@@ -355,8 +365,21 @@ func (r *run) drive() {
 			return announced() && r.stipendPaid() && r.chain.Height() <= bobT1
 		case "punish":
 			return announced() && r.stipendPaid()
+		case "reclaim":
+			// nobody punishes and the maker reclaims (htlc.bas v3): he vanishes as in "refund" but stays away until t2, so
+			// he never refunds, and comes back to Reclaim from t2 + g2
+			return announced() && r.stipendPaid() && r.chain.Height() < bobT2
 		}
 		return false
+	}
+	// in "reclaim" the taker is away from t2 until her punish cutoff, so nobody punishes: she comes back to await_reclaim
+	// and recovers her XMR with the s_b his Reclaim reveals
+	aliceOffline := func() bool {
+		if r.plan.scenario != "reclaim" || bobT2 == 0 {
+			return false
+		}
+		h := r.chain.Height()
+		return h >= bobT2 && h < punishCutoff(bobT2, testG2, testClaimMargin)
 	}
 	deadline := time.Now().Add(60 * time.Second)
 	for round := 0; ; round++ {
@@ -368,7 +391,9 @@ func (r *run) drive() {
 		if !bobOffline() {
 			r.step("bob")
 		}
-		r.step("alice")
+		if !aliceOffline() {
+			r.step("alice")
+		}
 		r.chain.Advance(1)
 		if r.plan.scenario != "nomine" {
 			r.fw.Mine(1)
@@ -436,8 +461,19 @@ func (r *run) check() {
 			}
 		}
 	}
-	// the lock never stays open: every scenario ends in one of the three exits
+	// the lock never stays open: every scenario ends in one of the four exits
 	switch lock.State {
+	case LockReclaimed:
+		// htlc.bas v3: nobody punished in [t2, t2 + g2) and the maker took the lock back, revealing s_b as a Refund does
+		if bob.Phase != "reclaimed" || r.gateSends != 0 {
+			t.Fatalf("%s: reclaimed but bob %s, gate sends %d", r.plan.scenario, bob.Phase, r.gateSends)
+		}
+		if r.aliceW.transfers == 1 && alice.Done && alice.Phase != "swept" && alice.Phase != "sweep_unknown" {
+			t.Fatalf("%s: alice locked XMR and ended in %s after a reclaim", r.plan.scenario, alice.Phase)
+		}
+		if alice.Revealed != "" && alice.Revealed != bob.Own.Secret {
+			t.Fatalf("%s: alice read %q as s_b", r.plan.scenario, alice.Revealed)
+		}
 	case LockClaimed:
 		if r.aliceW.transfers != 1 || r.gateSends == 0 {
 			t.Fatalf("%s: claimed with %d transfers and %d gate sends", r.plan.scenario, r.aliceW.transfers, r.gateSends)
@@ -531,27 +567,37 @@ func fuzzN(t *testing.T) int {
 // TestCrashFuzz kills each side right after every durable step of every exit, restarts it from its state
 // file, and checks the properties §4 and §5.D demand: at most one Monero payment and one sweep per side per
 // swap, the gate only after this node's own confirmations, the XMR lock only after the chain's lock passed
-// every check, no secret in any log line or in any message but its own, and the lock never left open.
+// every check, no secret in any log line or in any message but its own, and the lock never left open. Every contract
+// call executes up to 10 blocks after the height it was built at, chosen at random per call, as DERO allows
+// (fakeChain.execDelay). With the default scenarios every phase in bobPhases and alicePhases must be reached by some
+// run: a crash planned at a phase nothing reaches would pass without ever happening.
 func TestCrashFuzz(t *testing.T) {
 	seed := int64(1)
-	scenarios := []string{"happy", "refund", "punish"}
+	scenarios := []string{"happy", "refund", "punish", "reclaim"}
+	all := true
 	if v := os.Getenv("XMRSWAP_FUZZ_SCENARIOS"); v != "" {
-		scenarios = strings.Split(v, ",")
+		scenarios, all = strings.Split(v, ","), false
+	}
+	reached := map[string]bool{}
+	fuzz := func(p plan) *run {
+		r := newRun(t, p)
+		r.chain.execDelay = func() uint64 { return uint64(r.rng.Intn(int(DeroTxValidity))) }
+		r.drive()
+		r.check()
+		r.noUnknownSweep()
+		for k := range r.reached {
+			reached[k] = true
+		}
+		return r
 	}
 	for _, scenario := range scenarios {
 		for _, phase := range bobPhases {
 			seed++
-			r := newRun(t, plan{scenario: scenario, bobCrash: map[string]bool{phase: true}, aliceCrash: map[string]bool{alicePhases[int(seed)%len(alicePhases)]: true}, seed: seed})
-			r.drive()
-			r.check()
-			r.noUnknownSweep()
+			fuzz(plan{scenario: scenario, bobCrash: map[string]bool{phase: true}, aliceCrash: map[string]bool{alicePhases[int(seed)%len(alicePhases)]: true}, seed: seed})
 		}
 		for _, phase := range alicePhases {
 			seed++
-			r := newRun(t, plan{scenario: scenario, aliceCrash: map[string]bool{phase: true}, bobCrash: map[string]bool{bobPhases[int(seed)%len(bobPhases)]: true}, seed: seed})
-			r.drive()
-			r.check()
-			r.noUnknownSweep()
+			r := fuzz(plan{scenario: scenario, aliceCrash: map[string]bool{phase: true}, bobCrash: map[string]bool{bobPhases[int(seed)%len(bobPhases)]: true}, seed: seed})
 			// the exits are decided by who is present, not by where a process died — except that a death
 			// at the XMR lock intent means the XMR was never sent (and never sent twice), so the swap
 			// degrades to a refund of the untouched DERO
@@ -564,17 +610,46 @@ func TestCrashFuzz(t *testing.T) {
 				r.expectExit(LockRefunded)
 			case scenario == "punish":
 				r.expectExit(LockPunished)
+			case scenario == "reclaim":
+				r.expectExit(LockReclaimed)
 			}
 		}
 		for i := 0; i < fuzzN(t); i++ {
 			seed++
-			r := newRun(t, plan{scenario: scenario, randomCrash: 0.2, seed: seed})
-			r.drive()
-			r.check()
-			r.noUnknownSweep()
+			r := fuzz(plan{scenario: scenario, randomCrash: 0.2, seed: seed})
 			t.Logf("%s random run %d: %d restarts, %d transient step errors retried", scenario, i, r.bobRestarts+r.aliceRestarts, r.stepErrors)
 		}
 		t.Logf("%s: %d runs done", scenario, len(bobPhases)+len(alicePhases)+fuzzN(t))
+	}
+	if !all {
+		return
+	}
+	for _, side := range []struct {
+		role   string
+		phases []string
+	}{{"bob", bobPhases}, {"alice", alicePhases}} {
+		for _, p := range side.phases {
+			if !reached[side.role+"|"+p] {
+				t.Errorf("no run of the fuzz reached %s's phase %q: a crash planned there never happens", side.role, p)
+			}
+		}
+	}
+}
+
+// TestEveryExitWithTheLongestExecutionDelay: every contract call executes 10 blocks after the height it was built at,
+// the most DERO allows (blockchain.go:748). The companion's cutoffs are counted from the height the contract checks, so
+// each scenario still ends in its exit: the Lock meets w1min, the Claim lands before t1, the Refund before t2, the
+// Punish inside [t2, t2 + g2), the Reclaim from t2 + g2.
+func TestEveryExitWithTheLongestExecutionDelay(t *testing.T) {
+	for i, c := range []struct {
+		scenario string
+		want     uint64
+	}{{"happy", LockClaimed}, {"refund", LockRefunded}, {"punish", LockPunished}, {"reclaim", LockReclaimed}} {
+		r := newRun(t, plan{scenario: c.scenario, seed: int64(401 + i)})
+		r.chain.execDelay = func() uint64 { return DeroTxValidity - 1 }
+		r.drive()
+		r.check()
+		r.expectExit(c.want)
 	}
 }
 

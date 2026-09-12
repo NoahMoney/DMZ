@@ -16,8 +16,8 @@ a few hundred units, measured where given):
 | `vault.bas` | 19 059 | 19 400 of 20 000 (measured) | — |
 | `nft.bas` | 3 873 (2026-09-11) | 4 489 (measured) | — |
 | `swap.bas` | 3 599 | — | — |
-| `htlc.bas` | 5 798 (3 561 installed) | 3 598 (measured) | — |
-| `factory.bas` | 2 260 (2026-09-11) | 2 531 (measured) | — |
+| `htlc.bas` v3 | 11 206 (5 104 installed, 2026-09-12) | 5 169–5 180 (measured; 5 177 at 400/400/2 400) | Reclaim 434 600 |
+| `factory.bas` v2 | 3 452 (1 443 installed, 2026-09-12) | 1 680 (measured) | — |
 | `nfa.bas` | 14 937 (2026-09-11) | 15 876 DERO-quoted, 15 941 wrapped (measured) | ~1 050 000 (install) |
 | `board.bas` | 2 848 | — | — |
 | `social.bas` | 1 736 (2026-09-11) | — | — |
@@ -130,30 +130,31 @@ rpool locked stot sacc gh tc pc lh lt t_<n> p_<n> st_<addr> sd_<addr>`.
 
 ---
 
-## factory.bas — registry + treasury pointer (owner-operated until Renounce)
+## factory.bas — registry + treasury pointer (v2: no owner, both fixed at install)
 
-`Initialize(treasury S, regfee U)`. Owner = installer. `RegisterPool(scid H)`, `RegisterLaunch(scid H)`,
+`Initialize(treasury S, regfee U)`. `RegisterPool(scid H)`, `RegisterLaunch(scid H)`,
 `RegisterNFT(scid H)`, `RegisterNFA(scid H)`: pay ≥ `regfee` DERO (forwarded to the treasury in the same call, so the
 factory never holds a balance), append the SCID hex under `pool_<n>` / `launch_<n>` / `nft_<n>` / `nfa_<n>` with
 counters `pc` / `lc` / `nc` (NFTs and NFAs share `nc`). Registrations are hints: the DVM cannot read other contracts,
 so the **app verifies** each SCID's code equals the shipped template and its `treasury` equals `tstr` before listing
 it (DECISIONS §10.1, RISKS R-3).
 
-Owner powers — all owner-only, all ended for ever by `Renounce` (2026-09-11, FINDINGS_2026-09-10 SEC-K-02 / LIV-08):
+**No owner** (v2, operator ruling MT-J15(b), 2026-09-11). `treasury`, `tstr` and `regfee` are written by `Initialize`
+and by nothing else, and `Initialize` refuses a second run, so both the treasury and the fee are fixed for the life of
+the factory. There is no owner key, no setter, no `Renounce` and no transfer of ownership. No function reads
+`SIGNER()`, so no key has any power over the factory, the installer's included, and an install at any ring size is
+accepted (v1 refused one above ring 2 only because it stored the signer as the owner). A deployment that needs
+another treasury or fee installs a new factory and re-registers the listings on it (`tools/simdeploy -migrate-from`);
+the app reads exactly one factory. `regfee` is unbounded, as it was in v1: an unpayable fee can now only be
+installed, once and in public, and `tools/verifydeploy` prints it.
 
-| Entry | What it can change | Why it exists |
-|---|---|---|
-| `SetTreasury(treasury S)` | `treasury`, `tstr` — the address the app compares every listed market against | to correct the pointer during deployment, before the app's config is published against it |
-| `SetRegFee(regfee U)` | `regfee` (unbounded) | to set the anti-spam registration fee during deployment, before the registry opens |
-| `Renounce()` | deletes `owner`, stores `renounced` = the height | the revocation: afterwards the two setters and `Renounce` itself refuse every signer, the old owner included, and nothing can store an owner again (`Initialize` refuses a second run) |
+v1 had an owner with `SetTreasury` and `SetRegFee` until `Renounce` (2026-09-11, FINDINGS_2026-09-10 SEC-K-02 /
+LIV-08). `verifydeploy` still recognises a v1 factory by its state and fails one whose `owner` is stored.
 
-There is no transfer of ownership. `TransferOwnership` / `ClaimOwnership` were removed: a transfer to a burn address
-could never complete (the new owner has to sign the claim), and a key feared exposed is answered by `Renounce`, not
-by moving it. `owner` is deleted rather than set to a marker because `SIGNER()` above ring 2 is 33 zero bytes (rule
-5): a stored zero key would make every anonymous caller the owner. `Renounce` fixes the treasury and the regfee of
-that moment for the life of the factory, so the ceremony sets both first. Tests: `tests/registry_test.go`
-`TestFactoryRenounce` (every formerly owner-gated function, and `Initialize`, called by the old owner, a stranger and
-a ring>2 caller at three heights: all refused, state unchanged, the factory holding 0), `tests/zz_adversary_owner_test.go`.
+Tests: `tests/registry_test.go` `TestFactoryFixedAtInstall` (every name that was ever owner-gated, and `Initialize`,
+called by the installer, a stranger and a ring>2 caller at three heights: all refused, state unchanged, the factory
+holding 0) and `TestFactoryOldEntrypointsAreGone` (from the source: only `Initialize` writes `treasury`, `tstr` or
+`regfee`; nothing writes `owner`; nothing reads `SIGNER()`); `tests/zz_adversary_owner_test.go`.
 
 ## social.bas — profiles and follows
 
@@ -253,6 +254,34 @@ The DERO leg of a cross-chain atomic swap. No fee, no admin, immutable.
 
 Each lock is final in one of two ways (`st_<id>` 1 claimed / 2 refunded). The other chain runs the mirror escrow keyed to the
 same hash (a script on Bitcoin/Litecoin/transparent Zcash, a small program on Solana). Tested in `tests/swap_test.go`.
+
+## htlc.bas — the Monero swap's DERO leg (v3)
+
+The maker (who has DERO) locks DERO or one asset for a named taker (who has XMR) under three sha256 hashes: `ha` of the
+taker's Monero key share `s_a`, `hk` of the maker's gate secret `k_b`, `hb` of the maker's key share `s_b`. No fee, no
+admin, immutable. Protocol: `docs/XMR_SWAP.md`, `docs/XMR_SWAP_BUILD.md`.
+
+`Initialize(w1min U, w2min U, g2 U)`, each fixed for the contract's life: the least `t1 − lock height`, the least
+`t2 − t1` (MT-A03(a)), and `g2`, the Punish window. Each is refused at 0 and above 1,000,000, and `w1min + w2min`
+above 999,999, where no lock could meet both.
+
+| Entry | Who | When | What |
+|---|---|---|---|
+| `Lock(ha, hk, hb, taker, t1, t2, asset)` | anyone, ringsize 2 | — | hashes 64 lower-case hex; `taker` required; `t1 ≥ height + max(2, w1min)`, `t2 ≥ t1 + w2min`, `t2 ≤ height + 1,000,000` |
+| `Claim(id, sa, kb)` | the taker | before `t1` | pays the taker; stores `s_a` in `xa_<id>` (st 1) |
+| `Refund(id, sb)` | the maker | [`t1`, `t2`) | pays the maker; stores `s_b` in `xb_<id>` (st 2) |
+| `Punish(id)` | anyone, ringsize 2 | [`t2`, `t2 + g2`) | pays only the taker, with no secret (st 3) |
+| `Reclaim(id, sb)` | the maker | from `t2 + g2`, no end | pays the maker; stores `s_b` in `xb_<id>` as Refund does (st 4) |
+
+The windows are disjoint, so at any height at most one exit is open. Before `t2 + g2` time alone carries a lock to an
+exit someone may send, and in [`t2`, `t2 + g2`) anyone may send it. From `t2 + g2` an open lock waits on its own maker:
+the maker's per-party window, the one exception the operator's liveness ruling MT-J11(a) accepts (v3: the study's
+decision 17 (a), MT-J13(b), 2026-09-12). v2 let anyone Punish from `t2` for ever; v1 let only the taker, and a lock she
+never punished was frozen for ever (LIV-07). Every exit refuses DERO and the lock's own asset attached (GAP-027).
+
+Keys: `kind v n w1min w2min g2`, per lock `m_ t_ ha_ hk_ hb_ a_ v_ t1_ t2_ st_ xa_ xb_`. Tests: `tests/htlc_test.go`,
+`htlc_v2_test.go`, `htlc_v3_test.go` (`TestHtlcV3WindowMatrix`, the liveness pin), `zzconservation_htlc_test.go`,
+`zzadversarial_liveness_test.go` `TestHtlcPastT2TheLockAlwaysHasAnExit`.
 
 ## board.bas — atomic-swap order board
 

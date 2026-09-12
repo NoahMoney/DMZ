@@ -14,7 +14,7 @@ of the following, the operator and the authors of this repository included:
 - **Freeze** an address, **blacklist** it, or **confiscate** from it.
 - **Reverse** a transaction, or **recover** coins sent to the wrong place.
 - **Upgrade** a contract. None calls `UPDATE_SC_CODE`; a fix is a new contract at a new id.
-- **Change** a treasury, a fee or a registration fee after the factory's `Renounce`.
+- **Change** a treasury, a fee or a registration fee: `factory.bas` v2 fixes them at install and has no owner.
 - **Move** anyone's coins out of an escrow, a pool or an NFA except through that contract's own exits.
 
 That is the security property, and in an incident it is also the limitation. An incident here is handled by telling
@@ -76,10 +76,10 @@ operator decision, and until it is made this page says so plainly (`MAINNET_TODO
 |---|---|---|
 | a user's DERO, Monero or Zcash wallet | that user's coins | the user moves what is left; nothing in DMZ can help |
 | a swap's key share or secret (`xmrswap` or `zecswap` state) | that swap's counterparty's leg, in some states | finish or refund the swap at once; the state file is a secret, and the recovery card says so |
-| the **factory owner key, before Renounce** | `SetTreasury`, which delists every market from the app's view (not theft), and `SetRegFee` | call `Renounce` at once; it cannot be undone and ends both powers |
-| the **treasury key** | the protocol fees paid to the treasury from then on. The treasury address cannot be changed after Renounce, so fees keep flowing to the compromised key | announce it; no contract change is possible. Choose and protect this key accordingly (`SECURITY_KEY_MANAGEMENT.md`) |
+| the **factory owner key** | none exists: `factory.bas` v2 has no owner. (An older v1 factory's owner could move the treasury pointer and the fee until Renounce.) | — |
+| the **treasury key** | the protocol fees paid to the treasury from then on. The treasury address is fixed at the factory's install, so fees keep flowing to the compromised key | announce it; no contract change is possible. Choose and protect this key accordingly (`SECURITY_KEY_MANAGEMENT.md`) |
 | the **TELA INDEX key**, if the INDEX was left updatable | the ability to republish a lying app | users run `tools/verifydeploy` against the INDEX, and move to a verified one. Avoided by the INDEX's final state |
-| the **deployer key, after installation** | nothing, beyond any passes or DERO still in that wallet | none needed; it holds no role after Renounce |
+| the **deployer key, after installation** | nothing, beyond any passes or DERO still in that wallet | none needed; it holds no role once the contracts are installed |
 
 ### I-5. A foreign-chain event
 

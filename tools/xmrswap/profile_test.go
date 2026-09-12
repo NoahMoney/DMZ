@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +25,9 @@ type profileFile struct {
 	K                  uint64 `json:"k"`
 	StipendFloor       uint64 `json:"stipend_floor"`
 	ConfirmationsFloor uint64 `json:"confirmations_floor"`
+	W1Min              uint64 `json:"w1min"`
+	W2Min              uint64 `json:"w2min"`
+	G2                 uint64 `json:"g2"`
 	Tiers              []struct {
 		Confirmations uint64  `json:"confirmations"`
 		FromPiconero  *uint64 `json:"from_piconero"`
@@ -59,6 +63,7 @@ func TestTheProfileIsTheCompanionsDefaults(t *testing.T) {
 		{"t2_min", p.T2Min, profileT2Min}, {"t2_minus_t1", p.T2MinusT1, profileT2MinusT1}, {"t2_max", p.T2Max, profileT2Max},
 		{"gate_deadline", p.GateDeadline, profileGateDeadline}, {"k", p.K, profileK}, {"stipend_floor", p.StipendFloor, profileStipendFloor},
 		{"confirmations_floor", p.ConfirmationsFloor, profileConfirmationsFloor},
+		{"w1min", p.W1Min, profileW1Min}, {"w2min", p.W2Min, profileW2Min}, {"g2", p.G2, profileG2},
 	}
 	for _, g := range gen {
 		if g.file != g.got {
@@ -78,6 +83,7 @@ func TestTheProfileIsTheCompanionsDefaults(t *testing.T) {
 		{"Confirmations", p.ConfirmationsFloor, DefaultConfirmations}, {"GateDeadline (G)", p.GateDeadline, DefaultGateDeadline},
 		{"ClaimMargin", p.ClaimMargin, DefaultClaimMargin}, {"StableBlocks (DERO's STABLE_LIMIT)", p.StableBlocks, DefaultStableBlocks},
 		{"the stipend floor", p.StipendFloor, DefaultStipend},
+		{"G2Min (the taker's floor on the install's g2)", p.G2, DefaultG2Min}, {"G2Min, defaulted", p.G2, cfg.G2Min},
 	} {
 		if c.want != c.got {
 			t.Fatalf("%s: the profile says %d, the companion runs with %d", c.name, c.want, c.got)
@@ -93,9 +99,51 @@ func TestTheProfileIsTheCompanionsDefaults(t *testing.T) {
 	case p.GateDeadline < p.StableBlocks+p.ClaimMargin:
 		t.Fatalf("G %d leaves a gate on time no room to claim before the cutoff (%d)", p.GateDeadline, p.StableBlocks+p.ClaimMargin)
 	}
-	for _, key := range []string{"gate_deadline", "confirmations_floor", "confirmation_tiers", "t1_max", "t2_max", "t2_minus_t1"} {
+	for _, key := range []string{"gate_deadline", "confirmations_floor", "confirmation_tiers", "t1_max", "t2_max", "t2_minus_t1", "g2"} {
 		if p.Pending[key] == "" {
 			t.Fatalf("%s is an operator decision still open, and the file does not say so", key)
+		}
+	}
+	if !strings.Contains(p.Pending["g2"], "MT-J13") {
+		t.Fatalf("g2 must name MT-J13 as its pending decision: %q", p.Pending["g2"])
+	}
+}
+
+// TestEveryTierBuildsALockTheInstallAccepts (MT-A03(a), MT-J13): with the profile's own install arguments, the maker's
+// Lock is one htlc.bas v3 accepts at every tier. The contract measures t1 − w1min at the height the Lock executes,
+// which is up to DeroTxValidity blocks after it was built, so the t1 a maker quotes must be at least
+// max(t1_min, w1min + 11); the default t2 − t1 (and the floor under it) must be at least w2min; the install never
+// demands a wider t1 than the policy's own floor; and g2 leaves the taker a height at which a Punish can go out and be
+// stable before t2 + g2.
+func TestEveryTierBuildsALockTheInstallAccepts(t *testing.T) {
+	p := readProfile(t)
+	floor := p.T1Min
+	if f := p.W1Min + DeroTxValidity; f > floor {
+		floor = f
+	}
+	if p.T1Default < floor {
+		t.Fatalf("the default t1 %d is below max(t1_min %d, w1min %d + %d) = %d", p.T1Default, p.T1Min, p.W1Min, DeroTxValidity, floor)
+	}
+	for _, tier := range Tiers() {
+		if q := TierT1(tier.Confirmations); q < floor || q > p.T1Max {
+			t.Fatalf("%d confirmations: the maker quotes t1 %d, outside [%d, T1Max %d]", tier.Confirmations, q, floor, p.T1Max)
+		}
+	}
+	if p.T2MinusT1 < p.W2Min || p.T2Min < p.W2Min {
+		t.Fatalf("t2 − t1 %d (floor %d) is below w2min %d: the contract would refuse the Lock", p.T2MinusT1, p.T2Min, p.W2Min)
+	}
+	if p.W1Min > p.T1Min {
+		t.Fatalf("w1min %d is above t1_min %d: the install would refuse locks the policy allows", p.W1Min, p.T1Min)
+	}
+	if punishCutoff(0, p.G2, p.ClaimMargin) == 0 {
+		t.Fatalf("g2 %d leaves no height to Punish at (it needs more than %d + %d + %d)", p.G2, DeroTxValidity, p.StableBlocks, p.ClaimMargin)
+	}
+	t.Logf("the maker's t1 floor at this install: max(t1_min %d, w1min %d + %d) = %d, under the default %d; the taker sends Punish from t2 to t2 + %d, g2 %d blocks (%.1f h)",
+		p.T1Min, p.W1Min, DeroTxValidity, floor, p.T1Default, punishCutoff(0, p.G2, p.ClaimMargin)-1, p.G2, float64(p.G2*p.DeroBlockSeconds)/3600)
+	// MT-J13's candidate values (docs/HTLC_V3_COMPANION_NOTES.md §7): each leaves room to Punish
+	for _, g2 := range []uint64{400, 2400, 4800, 9600} {
+		if punishCutoff(0, g2, p.ClaimMargin) == 0 {
+			t.Fatalf("g2 = %d leaves no height to Punish at", g2)
 		}
 	}
 }

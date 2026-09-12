@@ -1,7 +1,8 @@
 package tests
 
-// Adversarial probes of the factory owner key: the one privilege the directive says the
-// operator must be able to revoke after deployment.
+// Adversarial probes of the factory owner key, inverted for factory.bas v2 (MT-J15(b)): the key they attacked no
+// longer exists. v1 had an owner with SetTreasury and SetRegFee until Renounce; v2 fixes the treasury and the
+// registration fee at Initialize for the life of the factory, so there is nothing to transfer, renounce or abuse.
 
 import (
 	"testing"
@@ -10,68 +11,61 @@ import (
 	"github.com/deroproject/derohe/veil/tests/harness"
 )
 
-// ADV-5 / SEC-K-02 (was TestFactoryOwnershipCannotBeRevoked). TransferOwnership used to arm tmpowner only, and the
-// transfer completed when the NEW owner signed ClaimOwnership, so the planned transfer to a burn address could never
-// complete and left the old key in full control behind a pending transfer a reader could take for a revocation.
-// The transfer is gone (a key feared exposed is answered by Renounce, not by moving it). Renounce is the owner's own
-// act and deletes owner; after it SetTreasury and SetRegFee refuse every caller for ever (TestFactoryRenounce has
-// the full matrix).
-func TestFactoryOwnershipEndsOnlyByRenounce(t *testing.T) {
+// ADV-5 / SEC-K-02 (was TestFactoryOwnershipCannotBeRevoked, then TestFactoryOwnershipEndsOnlyByRenounce). v1's
+// TransferOwnership armed tmpowner only, so a transfer to a burn address could never complete; the transfer was
+// removed and Renounce ended the owner's powers. v2 has no owner to transfer or renounce, and no deployment window in
+// which the installer could still move the treasury or the fee: the installer's first calls after install are refused.
+func TestFactoryHasNoOwnerToTransferOrRenounce(t *testing.T) {
 	c := harness.New()
-	owner, treasury := c.NewAccount(), c.NewAccount()
+	installer, treasury := c.NewAccount(), c.NewAccount()
 	code := readContract(t, "factory.bas")
-	scid, res := c.Install(code, nil, rpc.Arguments{harness.S("treasury", treasury.String()), harness.U("regfee", 10000)}, owner, harness.MaxStorageGas)
+	scid, res := c.Install(code, nil, factoryArgs(treasury.String(), 10000), installer, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}
-	// "burn": a well-formed address whose key nobody will ever use to sign. Nothing can hand it the factory.
-	burn := c.NewAccount()
-	if r := c.Call(scid, "TransferOwnership", rpc.Arguments{harness.S("newowner", burn.String())}, nil, owner); r.OK() || c.Exists(scid, "tmpowner") {
-		t.Fatal("a transfer of ownership is still possible")
+	burn, other := c.NewAccount(), c.NewAccount()
+	if r := c.Call(scid, "TransferOwnership", rpc.Arguments{harness.S("newowner", burn.String())}, nil, installer); r.OK() || c.Exists(scid, "tmpowner") {
+		t.Fatal("a transfer of ownership is possible")
 	}
-	// Until the owner renounces, the setters are the owner's: the deployment window.
-	newTreasury := c.NewAccount()
-	mustOK(t, c.Call(scid, "SetTreasury", rpc.Arguments{harness.S("treasury", newTreasury.String())}, nil, owner), "SetTreasury before Renounce")
-	mustOK(t, c.Call(scid, "SetRegFee", rpc.Arguments{harness.U("regfee", 1)}, nil, owner), "SetRegFee before Renounce")
-
-	// The owner renounces, and every power goes with it.
-	mustOK(t, c.Call(scid, "Renounce", nil, nil, owner), "renounce")
-	for _, who := range []*rpc.Address{owner, burn, nil} {
-		if r := c.Call(scid, "SetTreasury", rpc.Arguments{harness.S("treasury", treasury.String())}, nil, who); r.OK() {
-			t.Fatal("SetTreasury accepted after Renounce")
+	for _, who := range []*rpc.Address{installer, burn, nil} {
+		if r := c.Call(scid, "SetTreasury", rpc.Arguments{harness.S("treasury", other.String())}, nil, who); r.OK() {
+			t.Fatal("SetTreasury accepted")
 		}
-		if r := c.Call(scid, "SetRegFee", rpc.Arguments{harness.U("regfee", 5)}, nil, who); r.OK() {
-			t.Fatal("SetRegFee accepted after Renounce")
+		if r := c.Call(scid, "SetRegFee", rpc.Arguments{harness.U("regfee", 1)}, nil, who); r.OK() {
+			t.Fatal("SetRegFee accepted")
+		}
+		if r := c.Call(scid, "Renounce", nil, nil, who); r.OK() {
+			t.Fatal("Renounce accepted")
 		}
 	}
-	if c.S(scid, "tstr") != newTreasury.String() || c.U(scid, "regfee") != 1 || c.Exists(scid, "owner") {
-		t.Fatal("state moved after Renounce")
+	if c.S(scid, "tstr") != treasury.String() || c.U(scid, "regfee") != 10000 || c.Exists(scid, "owner") || c.Exists(scid, "renounced") {
+		t.Fatal("the factory's state moved, or an owner key appeared")
 	}
-	t.Log("ADV-5 REPAIRED: no transfer of the factory exists, and Renounce leaves no owner: SetTreasury and SetRegFee refuse the old key, a stranger and an anonymous caller, for ever")
+	t.Log("ADV-5 CLOSED BY DESIGN: factory.bas v2 has no owner; no transfer, setter or Renounce exists, and the installer's calls are refused from the first block")
 }
 
-// ADV-6. SetRegFee is unbounded. One owner call freezes the registry: no pool, launch,
-// NFT or NFA can ever be listed again, and nothing in the contract can undo it but the
-// same key. A kill switch with no ceiling and no timelock.
-func TestOwnerCanFreezeTheRegistryWithOneCall(t *testing.T) {
+// ADV-6, inverted. In v1 SetRegFee was unbounded, so one owner call could set a fee nobody can pay and freeze the
+// registry until the same key lifted it. v2 has no SetRegFee: the fee is the one Initialize stored, and no call by
+// anyone can raise it. The only way to an unpayable fee is to install one, once and in public: tools/verifydeploy
+// prints regfee, and a deployment that got it wrong installs a new factory (tools/simdeploy -migrate-from).
+func TestNoCallCanFreezeTheRegistry(t *testing.T) {
 	c := harness.New()
-	owner, treasury, creator := c.NewAccount(), c.NewAccount(), c.NewAccount()
+	installer, treasury, creator := c.NewAccount(), c.NewAccount(), c.NewAccount()
 	code := readContract(t, "factory.bas")
-	scid, res := c.Install(code, nil, rpc.Arguments{harness.S("treasury", treasury.String()), harness.U("regfee", 0)}, owner, harness.MaxStorageGas)
+	scid, res := c.Install(code, nil, factoryArgs(treasury.String(), 0), installer, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}
 	mustOK(t, c.Call(scid, "RegisterPool", rpc.Arguments{harness.H("scid", txhash(1))}, nil, creator), "register while open")
-
-	mustOK(t, c.Call(scid, "SetRegFee", rpc.Arguments{harness.U("regfee", 18446744073709551615)}, nil, owner), "set an unpayable fee")
-	if r := c.Call(scid, "RegisterPool", rpc.Arguments{harness.H("scid", txhash(2))}, nil, creator); r.OK() {
-		t.Fatal("a pool registered at an unpayable fee")
+	for _, who := range []*rpc.Address{installer, creator, nil} {
+		if r := c.Call(scid, "SetRegFee", rpc.Arguments{harness.U("regfee", 18446744073709551615)}, nil, who); r.OK() {
+			t.Fatal("an unpayable fee was set")
+		}
 	}
-	if r := c.Call(scid, "RegisterNFA", rpc.Arguments{harness.H("scid", txhash(3))}, nil, creator); r.OK() {
-		t.Fatal("an NFA registered at an unpayable fee")
+	mustOK(t, c.Call(scid, "RegisterPool", rpc.Arguments{harness.H("scid", txhash(2))}, nil, creator), "register after the attempt")
+	mustOK(t, c.Call(scid, "RegisterNFA", rpc.Arguments{harness.H("scid", txhash(3))}, nil, creator), "register an NFA after the attempt")
+	if c.U(scid, "pc") != 2 || c.U(scid, "nc") != 1 || c.U(scid, "regfee") != 0 {
+		t.Fatalf("pc %d nc %d regfee %d", c.U(scid, "pc"), c.U(scid, "nc"), c.U(scid, "regfee"))
 	}
-	if c.U(scid, "pc") != 1 {
-		t.Fatalf("pc %d", c.U(scid, "pc"))
-	}
-	t.Logf("ADV-6 CONFIRMED: regfee is now %d; every Register* entrypoint is dead and only the owner key can lift it", c.U(scid, "regfee"))
+	t.Log("ADV-6 CLOSED BY DESIGN: no call can change regfee; the registry stays open at the fee installed")
 }

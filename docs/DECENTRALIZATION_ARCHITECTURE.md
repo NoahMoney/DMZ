@@ -227,7 +227,7 @@ N of M verifiers vote, and the contract mints or releases at the threshold.
 | Configuration | the app's `config.js`, which lists contract ids | no | yes | a TELA document, checked against source by `tools/verifydeploy`; the companions check a contract's code before they trust it (`docs/ATOMIC_SWAP_STUDY.md` U4) |
 | Upgrade authority | none for contracts | — | — | no DMZ contract calls `UPDATE_SC_CODE`; each fix is a new contract at a new id |
 | Emergency authority | none | — | — | no mainnet contract has a pause; the vault's halt lease is not deployed |
-| Registry settings (the factory owner) | yes, until renounced | set once at deployment | yes, by renouncing | recorded in `MAINNET_DEPLOYMENT.md` |
+| Registry settings | none: `factory.bas` v2 fixes the treasury and the fee at install and has no owner | — | — | `MAINNET_DEPLOYMENT.md` §1; `verifydeploy` fails a factory that has an owner |
 | Companion releases | the publisher | to get fixes | only by naming more publishers | a reproducible build (`tools/release`) whose hashes are printed in the repository; who signs releases is operator decision 14 |
 | Discovery | — | for Zcash, `board.bas` on chain | — | Monero discovery does not exist yet (BL-10, BL-12) |
 
@@ -240,7 +240,7 @@ where value goes:
 
 | Role | Who may do it | What the protocol checks for itself | What a malicious sender can do |
 |---|---|---|---|
-| Send Punish on `htlc.bas` | anyone, from `t2` | the height; the lock is still open; the payee is `t_<id>` from storage (`htlc.bas:128-138`) | choose the moment the lock closes, never who is paid |
+| Send Punish on `htlc.bas` | anyone, in [`t2`, `t2 + g2`) (v3) | the height; the lock is still open; the payee is `t_<id>` from storage (`htlc.bas`, `Punish`) | choose the moment the lock closes within that window, never who is paid |
 | Send Claim on `swap.bas` | anyone holding `s` | the preimage, the expiry, the open state; the payee is `t_<id>` (`swap.bas:73-90`) | pay the fee to complete the taker's leg |
 | Broadcast the taker's pre-signed Zcash refund | anyone holding its hex | Zcash consensus: the locktime, and the taker's signature over the whole transaction | broadcast it, or not; it pays only the taker's refund key |
 
@@ -263,7 +263,7 @@ These are different claims, and they are stated separately.
 Nobody, the operator included, can change a rule, stop a swap or redirect a payment. That can be verified: fetch the
 installed code and compare it with the source (`tools/verifydeploy`).
 
-The other contracts carry the roles listed in `MAINNET_GAP_ANALYSIS.md` (the privileged-path table). Each is renounced or
+The other contracts carry the roles listed in `MAINNET_GAP_ANALYSIS.md` (the privileged-path table). Each is absent by design or
 justified in `MAINNET_DEPLOYMENT.md`.
 
 **Infrastructure availability.** The protocol depends on things DMZ does not provide and cannot guarantee:
@@ -277,7 +277,7 @@ the availability of the machines around them.
 
 **What would break autonomy:**
 - a TELA INDEX left updatable by a key someone holds;
-- a factory owner key that was never renounced;
+- a factory with an owner key (an older v1 factory never renounced; v2 has none);
 - a companion that only one publisher can fix.
 
 Each is a named item in `MAINNET_SECURITY_GATE.md`.

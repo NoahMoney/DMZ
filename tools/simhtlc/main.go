@@ -35,6 +35,13 @@
 // and a Punish, and alice locks no XMR until that stipend is itself at stable depth. It is sized as mainnet sizes
 // it (xmrswap.DefaultStipend) unless -stipend says otherwise.
 //
+// htlc.bas v3 (MT-A03(a), MT-J13) takes three install arguments. Installed here, it gets -htlc-w1min, -htlc-w2min and
+// -htlc-g2, small for the simulator (10, 6, 30); with -htlc, the install's own values are read and printed. Either way
+// -t1 must be at least w1min + 11 (DERO mines a Lock at most 10 blocks after it is built; the companion counts 11) and
+// -t2 at least w2min, and alice's
+// floor on g2 (-g2-min) defaults to the install's. The punish exit ends with alice's Punish, sent at once from t2 and
+// inside [t2, t2 + g2); bob sends none of his own.
+//
 // The timelock policy is lowered for the run — the simulator mines a block every 18 s, or at once when a
 // transaction is waiting — and the companions accept that only because the daemon reports itself as the
 // simulator. -t1 is 48 blocks (mainnet policy: 400): the lock takes 2–7 blocks to mine and be announced, it must
@@ -77,6 +84,9 @@ var (
 	moneroAlice   = flag.String("monero-alice", "http://127.0.0.1:28083", "-regtest: alice's monero-wallet-rpc")
 	moneroBob     = flag.String("monero-bob", "http://127.0.0.1:28084", "-regtest: bob's monero-wallet-rpc")
 	monerod       = flag.String("monerod", "http://127.0.0.1:28081", "-regtest: the monerod both wallet-rpc use, for mining and for looking every Monero txid up")
+	stagenetMode  = flag.Bool("stagenet", false, "use two real monero-wallet-rpc on the synced STAGENET node (tools/regtest/stagenet-wallets-up.sh): named, funded wallets, real 2-minute blocks, nothing mined (MT-B19)")
+	stagenetAlice = flag.String("stagenet-alice-wallet", "xmrswap-stagenet-alice", "-stagenet: alice's wallet file on her wallet-rpc (funded beforehand)")
+	stagenetBob   = flag.String("stagenet-bob-wallet", "xmrswap-stagenet-bob", "-stagenet: bob's wallet file on his wallet-rpc")
 	prover        = flag.String("prover", "", "the proof-xmr command, e.g. \"proof-xmr\", or \"wsl.exe -e <path to proof-xmr>\"")
 	fakeProver    = flag.Bool("fake-prover", false, "stand-in prover whose proofs are tags, not zero-knowledge proofs: only for exercising the driver when proof-xmr is not built")
 	amountDero    = flag.Uint64("amount-dero", 2000, "atomic units of the DERO-side asset bob locks per swap")
@@ -91,7 +101,10 @@ var (
 	margin        = flag.Uint64("claim-margin", 2, "blocks of slack under t1 − 8 after which alice sends no Claim (policy: 8)")
 	gateDeadline  = flag.Uint64("gate-deadline", 4, "G: alice ignores a gate reaching her at or after t1 − G (policy: 100)")
 	stipend       = flag.Uint64("stipend", xmrswap.DefaultStipend, "the DERO bob sends alice for her gas, and the least she accepts")
-	closeAfter    = flag.Uint64("close-after", 3, "blocks past t2 after which bob closes an abandoned lock himself")
+	htlcW1min     = flag.Uint64("htlc-w1min", 10, "htlc.bas v3 install argument when the driver installs it: the least t1 − the Lock's execution height (bob's -t1 must be at least this + 11)")
+	htlcW2min     = flag.Uint64("htlc-w2min", 6, "htlc.bas v3 install argument when the driver installs it: the least t2 − t1 (-t2 must be at least this)")
+	htlcG2        = flag.Uint64("htlc-g2", 30, "htlc.bas v3 install argument when the driver installs it: the Punish window [t2, t2 + g2), after which bob may Reclaim (above 11 + 8 + -claim-margin)")
+	g2Min         = flag.Uint64("g2-min", 0, "alice's floor on the install's g2 (default: -htlc-g2)")
 	confs         = flag.Uint64("confs", 10, "Monero confirmations bob waits for before the gate (policy: 20; a block is mined per round)")
 	fee           = flag.Uint64("fee", 2000, "fixed fee for Refund and Punish")
 	paths         = flag.String("paths", "happy,refund,punish", "which exits to run, in order: happy, refund, punish; with -regtest also reorg-before and reorg-after (MT-B11)")
@@ -142,8 +155,19 @@ func (c countingWallet) SetDaemon(ctx context.Context, address string) error {
 
 func main() {
 	flag.Parse()
-	if *fakeMonero == *regtest {
-		log.Fatal("give exactly one of -fake-monero (the in-process fake) and -regtest (real monero-wallet-rpc on tools/regtest)")
+	modes := 0
+	for _, on := range []bool{*fakeMonero, *regtest, *stagenetMode} {
+		if on {
+			modes++
+		}
+	}
+	if modes != 1 {
+		log.Fatal("give exactly one of -fake-monero (the in-process fake), -regtest (real monero-wallet-rpc on tools/regtest) and -stagenet (the synced stagenet node)")
+	}
+	if *stagenetMode {
+		stagenetDefaults()
+		// before anything touches the DERO side: a node that is not stagenet, or still syncing, ends the run here
+		stagenetNode()
 	}
 	if *prover == "" && !*fakeProver {
 		log.Fatal("-prover \"<command>\" is required (or -fake-prover, which proves nothing)")
@@ -236,24 +260,37 @@ func main() {
 		}
 		code := ref.Canon(string(raw))
 		var gas uint64
-		scid, gas, err = aliceD.Install(ctx, aliceAddr, code)
+		scid, gas, err = aliceD.Install(ctx, aliceAddr, code, xmrswap.HTLCInstallArgs(*htlcW1min, *htlcW2min, *htlcG2)...)
 		if err != nil {
 			log.Fatalf("install: %v", err)
 		}
 		sum := sha256.Sum256([]byte(code))
-		say("INSTALL htlc.bas: scid %s, %d canonical bytes, storage gas %d (cap 20000), code sha256 %x (pinned %s)", scid, len(code), gas, sum, xmrswap.HTLCCodeSHA256)
+		say("INSTALL htlc.bas: scid %s, %d canonical bytes, storage gas %d (cap 20000), code sha256 %x (pinned %s), w1min %d w2min %d g2 %d", scid, len(code), gas, sum, xmrswap.HTLCCodeSHA256, *htlcW1min, *htlcW2min, *htlcG2)
 	} else {
 		say("using htlc.bas at %s", scid)
 	}
 	bobD.SCID, aliceD.SCID = scid, scid
-	if h, err := bobD.CodeSHA256(ctx); err != nil || h != xmrswap.HTLCCodeSHA256 {
-		log.Fatalf("the contract at %s hashes to %s (%v), not the pinned htlc.bas v2: the companions would refuse it", scid, h, err)
+	dep, err := bobD.Deployment(ctx)
+	if err != nil || dep.CodeSHA256 != xmrswap.HTLCCodeSHA256 {
+		log.Fatalf("the contract at %s hashes to %s (%v), not the pinned htlc.bas v3: the companions would refuse it", scid, dep.CodeSHA256, err)
+	}
+	if *g2Min == 0 {
+		*g2Min = *htlcG2
+		if *htlc != "" {
+			*g2Min = dep.G2 // an install the driver did not make: alice takes its g2 as her floor, and says so
+		}
+	}
+	say("htlc.bas v3 installed with w1min %d, w2min %d, g2 %d (Punish in [t2, t2 + %d), Reclaim from t2 + %d); alice's g2 floor %d", dep.W1Min, dep.W2Min, dep.G2, dep.G2, dep.G2, *g2Min)
+	if *t1 < dep.W1Min+xmrswap.DeroTxValidity || *t2 < dep.W2Min {
+		log.Fatalf("-t1 %d / -t2 %d: this install needs t1 ≥ w1min + %d = %d and t2 ≥ w2min = %d, or bob's own companion refuses to lock", *t1, *t2, xmrswap.DeroTxValidity, dep.W1Min+xmrswap.DeroTxValidity, dep.W2Min)
 	}
 
 	// 3. Monero
 	var xm *moneroSide
 	if *regtest {
 		xm = regtestSide(ctx, say, len(pathList))
+	} else if *stagenetMode {
+		xm = stagenetSide(ctx, say, len(pathList))
 	} else {
 		var closeFn func()
 		xm, closeFn = fakeSide(ctx, say, len(pathList))
@@ -385,6 +422,124 @@ func regtestSide(ctx context.Context, say func(string, ...interface{}), paths in
 	return &moneroSide{kind: "regtest", net: xmrswap.Mainnet, bob: countingWallet{bobW, sets}, alice: countingWallet{aliceW, sets},
 		bobName: bobName, aliceName: aliceName, bobAddr: bobAddr, aliceAddr: aliceAddr,
 		mine: func(n uint64) { mine(n, bobAddr) }, where: monerodWhere, monerod: host, sets: sets}
+}
+
+// stagenetFeeMargin is what the driver sets aside, per exit, for alice's Monero fee: 0.001 XMR, far above a stagenet
+// transfer's fee.
+const stagenetFeeMargin = 1_000_000_000
+
+// stagenetDefaults gives -stagenet its own value for every flag not typed on the command line: the stagenet wallet-rpc
+// and node, 0.05 XMR per exit, and the mainnet profile's own timing — 20 real confirmations, G 100, a stable depth and
+// claim margin of 8, t1 420 and t2 400 DERO blocks — so the run rehearses the numbers a mainnet swap uses. The DERO
+// side is still the simulator, whose 18 s blocks those widths are counted in.
+func stagenetDefaults() {
+	typed := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { typed[f.Name] = true })
+	for name, v := range map[string]string{
+		"monero-alice": "http://127.0.0.1:38088", "monero-bob": "http://127.0.0.1:38087", "monerod": "http://127.0.0.1:38081",
+		"confs": "20", "stable": "8", "claim-margin": "8", "gate-deadline": "100", "t1": "420", "t2": "400",
+		"htlc-w1min": "400", "htlc-w2min": "400", "htlc-g2": "4800",
+		"amount-xmr": "50000000000", "round": "5s", "timeout": "6h",
+	} {
+		if !typed[name] {
+			if err := flag.Set(name, v); err != nil {
+				log.Fatalf("-stagenet default %s=%s: %v", name, v, err)
+			}
+		}
+	}
+}
+
+// stagenetSide is two real monero-wallet-rpc on the harness's STAGENET node (MT-B19, tools/regtest/stagenet-wallets-up.sh):
+// the public test network, where nothing is mined on demand and every block is a real one of about two minutes. The
+// driver refuses a node that is not stagenet or not synchronized, opens the two parties' named wallets (made once, and
+// alice's funded beforehand: tools/regtest/README.md, "The stagenet swap run"), and refuses to start unless alice can
+// spend what every exit will lock.
+// stagenetInfo is what -stagenet reads from the node's get_info.
+type stagenetInfo struct {
+	Height       uint64 `json:"height"`
+	TargetHeight uint64 `json:"target_height"`
+	Nettype      string `json:"nettype"`
+	Synchronized bool   `json:"synchronized"`
+	Version      string `json:"version"`
+	Difficulty   uint64 `json:"difficulty"`
+}
+
+// stagenetNode refuses, with the reason, a node that is not stagenet or not at the tip: the run waits for the sync.
+func stagenetNode() stagenetInfo {
+	var info stagenetInfo
+	if err := jsonRPC(*monerod, "get_info", nil, &info); err != nil {
+		log.Fatalf("stagenet monerod %s: %v", *monerod, err)
+	}
+	if info.Nettype != "stagenet" {
+		log.Fatalf("monerod %s reports nettype %q: -stagenet runs against a STAGENET node only", *monerod, info.Nettype)
+	}
+	if !info.Synchronized || info.Height+2 < info.TargetHeight {
+		log.Fatalf("the stagenet node is not synchronized (height %d of %d): the run waits for the tip; tools/regtest/stagenet-up.sh reports the sync", info.Height, info.TargetHeight)
+	}
+	return info
+}
+
+func stagenetSide(ctx context.Context, say func(string, ...interface{}), paths int) *moneroSide {
+	info := stagenetNode()
+	open := func(url, name, role string) (xmrswap.Wallet, string) {
+		w := xmrswap.NewWalletRPC(url, "", "")
+		if err := w.OpenWallet(ctx, name, ""); err != nil {
+			log.Fatalf("%s's stagenet wallet %s on %s: %v (tools/regtest/stagenet-wallets-up.sh --create makes it)", role, name, url, err)
+		}
+		if err := w.Refresh(ctx, 0); err != nil {
+			log.Fatalf("refreshing %s's wallet %s: %v", role, name, err)
+		}
+		addr, err := w.Address(ctx)
+		if err != nil {
+			log.Fatalf("%s's wallet %s: %v", role, name, err)
+		}
+		if pa, err := xmrswap.ParseAddress(addr); err != nil || pa.Net != xmrswap.Stagenet {
+			log.Fatalf("%s's wallet %s holds %s, not a stagenet address (%v)", role, name, addr, err)
+		}
+		return w, addr
+	}
+	bobW, bobAddr := open(*moneroBob, *stagenetBob, "bob")
+	aliceW, aliceAddr := open(*moneroAlice, *stagenetAlice, "alice")
+	var bal struct {
+		Balance        uint64 `json:"balance"`
+		Unlocked       uint64 `json:"unlocked_balance"`
+		BlocksToUnlock uint64 `json:"blocks_to_unlock"`
+	}
+	if err := jsonRPC(*moneroAlice, "get_balance", map[string]interface{}{"account_index": 0}, &bal); err != nil {
+		log.Fatalf("alice's balance: %v", err)
+	}
+	var outs struct {
+		Transfers []struct {
+			Amount      uint64 `json:"amount"`
+			Spent       bool   `json:"spent"`
+			BlockHeight uint64 `json:"block_height"`
+		} `json:"transfers"`
+	}
+	_ = jsonRPC(*moneroAlice, "incoming_transfers", map[string]interface{}{"transfer_type": "available", "account_index": 0}, &outs)
+	each := *amountXmr + stagenetFeeMargin
+	large := 0
+	for _, o := range outs.Transfers {
+		if !o.Spent && o.Amount >= each {
+			large++
+		}
+	}
+	say("stagenet monerod %s (%s) at height %d, synchronized, difficulty %d: bob %s (%s on %s), alice %s (%s on %s)",
+		*monerod, info.Version, info.Height, info.Difficulty, bobAddr, *stagenetBob, *moneroBob, aliceAddr, *stagenetAlice, *moneroAlice)
+	say("alice can spend %d piconero now (%d in all; %d blocks until the rest unlocks), in %d outputs of at least %d each", bal.Unlocked, bal.Balance, bal.BlocksToUnlock, large, each)
+	if need := uint64(paths) * each; bal.Unlocked < need {
+		log.Fatalf("alice can spend %d piconero and %d exits of %d piconero need %d: fund her wallet first (tools/regtest/README.md)", bal.Unlocked, paths, *amountXmr, need)
+	}
+	if large < paths {
+		say("WARNING: alice has %d outputs large enough for one exit, fewer than the %d exits: a later exit may wait up to 10 blocks (20 min) for the change of an earlier one to unlock; splitting her funds first avoids it (README)", large, paths)
+	}
+	host := *monerod
+	if u, err := url.Parse(*monerod); err == nil && u.Host != "" {
+		host = u.Host
+	}
+	sets := &daemonSets{}
+	return &moneroSide{kind: "stagenet", net: xmrswap.Stagenet, bob: countingWallet{bobW, sets}, alice: countingWallet{aliceW, sets},
+		bobName: *stagenetBob, aliceName: *stagenetAlice, bobAddr: bobAddr, aliceAddr: aliceAddr,
+		mine: func(uint64) {}, where: monerodWhere, monerod: host, sets: sets}
 }
 
 // monerodWhere says where the regtest monerod has a transaction: in a block, in its pool, or nowhere.
@@ -696,7 +851,7 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 		return xmrswap.Config{HTLC: scid, AmountDero: *amountDero, AmountXmr: *amountXmr, Asset: *asset, AssetDecimals: *assetDecimals,
 			Net: xm.net, DeroNet: "simulator", MyDero: addr, MoneroWalletName: walletName, Monerod: xm.monerod,
 			T1Min: *t1Min, T2Min: *t2Min, T1Delta: *t1, T2Delta: *t2, Confirmations: *confs, StableBlocks: *stable, ClaimMargin: *margin,
-			GateDeadline: *gateDeadline, Stipend: *stipend, StipendMin: *stipend, CloseAfter: *closeAfter,
+			GateDeadline: *gateDeadline, Stipend: *stipend, StipendMin: *stipend, G2Min: *g2Min,
 			Poll: 200 * time.Millisecond, ResendAfter: 30 * time.Second, Log: logf}
 	}
 	// GAP-019: the companions' channel is sealed under a key made for this swap alone, as the command line's is

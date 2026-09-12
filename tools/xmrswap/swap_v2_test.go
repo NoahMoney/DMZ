@@ -1,8 +1,9 @@
 package xmrswap
 
 // Named regressions for the readiness pass: the stipend (Path 0), the asset leg (U1), the gate deadline (U2), the
-// Claim watched to stable depth (U3), the code pin and lower-case hashes (U4), the maker closing an abandoned lock
-// under htlc.bas v2 (LIV-07), and the replay rule (a lock, or a Monero payment, is never served to two swaps).
+// Claim watched to stable depth (U3), the code pin and lower-case hashes (U4), the maker reclaiming a lock nobody
+// punished under htlc.bas v3 (MT-J13; under v2 he closed it with a Punish, LIV-07), and the replay rule (a lock, or a
+// Monero payment, is never served to two swaps).
 // Each drives the real state machines over the fakes in fakes_test.go.
 
 import (
@@ -309,7 +310,7 @@ func TestTakerWatchesHerClaimUntilStable(t *testing.T) {
 
 // --- U4: the code pin and lower-case hashes ---
 
-// TestALookAlikeContractIsRefused: a contract whose code is not the pinned htlc.bas v2 gets nothing from either
+// TestALookAlikeContractIsRefused: a contract whose code is not the pinned htlc.bas v3 gets nothing from either
 // side — the maker locks nothing in it, the taker locks no XMR against it.
 func TestALookAlikeContractIsRefused(t *testing.T) {
 	t.Run("maker", func(t *testing.T) {
@@ -324,7 +325,7 @@ func TestALookAlikeContractIsRefused(t *testing.T) {
 			r.step("alice")
 			r.chain.Advance(1)
 		}
-		if bob := r.loadState("bob"); bob.Phase != "refused" || !strings.Contains(bob.Outcome, "not htlc.bas v2") || len(r.chain.locks) != 0 {
+		if bob := r.loadState("bob"); bob.Phase != "refused" || !strings.Contains(bob.Outcome, "not htlc.bas v3") || len(r.chain.locks) != 0 {
 			t.Fatalf("bob %s (%s), %d locks", bob.Phase, bob.Outcome, len(r.chain.locks))
 		}
 	})
@@ -336,7 +337,7 @@ func TestALookAlikeContractIsRefused(t *testing.T) {
 		r.alice = startHooked(r, "alice", look, nil)
 		r.until(600, r.bothDone, nil)
 		alice := r.loadState("alice")
-		if alice.Phase != "refused" || !strings.Contains(alice.Outcome, "not htlc.bas v2") || r.aliceW.transfers != 0 {
+		if alice.Phase != "refused" || !strings.Contains(alice.Outcome, "not htlc.bas v3") || r.aliceW.transfers != 0 {
 			t.Fatalf("alice %s (%s), %d transfers", alice.Phase, alice.Outcome, r.aliceW.transfers)
 		}
 		r.expectExit(LockRefunded)
@@ -390,13 +391,14 @@ func TestUpperCaseHashesAreRefused(t *testing.T) {
 	}
 }
 
-// --- LIV-07: an abandoned lock closes itself ---
+// --- MT-J13 (LIV-07 under v3): a lock nobody punished goes back to its maker, and the taker's XMR back to her ---
 
-// TestMakerClosesAnAbandonedLockWithNoHumanAction: the maker misses his whole refund window and the taker, who
-// locked XMR, never comes back to punish. Under htlc.bas v1 that lock stayed open for ever and the maker's companion
-// waited on it for ever. Now his companion, running unattended, closes it after t2 + CloseAfter with Punish, which
-// pays the taker; the taker's companion, whenever it runs again, reads that she was paid.
-func TestMakerClosesAnAbandonedLockWithNoHumanAction(t *testing.T) {
+// TestMakerReclaimsALockNobodyPunished: the maker misses his whole refund window and the taker, who locked XMR, is
+// away for the whole Punish window [t2, t2 + g2). Under htlc.bas v1 that lock stayed open for ever; under v2 the
+// maker's companion closed it with a Punish that paid her (LIV-07). Under v3 the lock is his again from t2 + g2: his
+// companion, running unattended, sends no Punish of its own and Reclaims it with s_b; hers, whenever it runs again,
+// reads st 4 exactly as st 2, finds s_b in xb_<id>, and sweeps her XMR back.
+func TestMakerReclaimsALockNobodyPunished(t *testing.T) {
 	r := newRun(t, plan{scenario: "punish", seed: 115})
 	r.bob = startWith(r, "bob", nil)
 	r.alice = startWith(r, "alice", nil)
@@ -404,28 +406,43 @@ func TestMakerClosesAnAbandonedLockWithNoHumanAction(t *testing.T) {
 	t2 := r.loadState("bob").Lock.T2
 	for r.chain.Height() < t2+1 {
 		r.chain.Advance(1) // nobody runs: the maker's window passes, and the taker is gone
+		r.fw.Mine(1)
 	}
-	for i := 0; i < 40; i++ {
+	for i := 0; i < 80; i++ {
 		if _, done := r.phase("bob"); done {
 			break
 		}
 		r.step("bob")
 		r.chain.Advance(1)
+		r.fw.Mine(1)
 	}
 	bob := r.loadState("bob")
 	l, _ := r.chain.read(bob.Lock.ID)
-	if l.State != LockPunished || bob.Phase != "punished" || bob.PunishTx == "" || !strings.Contains(bob.Outcome, "closed the abandoned lock") {
-		t.Fatalf("lock state %d, bob %s: %s", l.State, bob.Phase, bob.Outcome)
+	if l.State != LockReclaimed || bob.Phase != "reclaimed" || bob.ReclaimTx == "" || l.XB != bob.Own.Secret {
+		t.Fatalf("lock state %d (xb %q), bob %s: %s", l.State, l.XB, bob.Phase, bob.Outcome)
 	}
-	if n := r.bob.dero.(*memDero).calls["Punish"]; n != 1 {
-		t.Fatalf("the maker sent %d Punish calls", n)
+	if d := r.bob.dero.(*memDero); d.calls["Punish"] != 0 || d.calls["Reclaim"] != 1 {
+		t.Fatalf("the maker sent %d Punish and %d Reclaim calls; want none and one", d.calls["Punish"], d.calls["Reclaim"])
 	}
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 60; i++ {
+		if _, done := r.phase("alice"); done {
+			break
+		}
 		r.step("alice")
+		r.chain.Advance(1)
+		r.fw.Mine(1)
 	}
-	if a := r.loadState("alice"); a.Phase != "punished" {
-		t.Fatalf("the taker ended in %s", a.Phase)
+	a := r.loadState("alice")
+	if a.Phase != "swept" || a.Revealed != bob.Own.Secret {
+		t.Fatalf("the taker ended in %s (%s), s_b read %v", a.Phase, a.Outcome, a.Revealed == bob.Own.Secret)
 	}
+	if n, amt := r.paidTo(a.Joint, r.aliceXmr); n != 1 || amt != testXmr-FakeFee {
+		t.Fatalf("her recovery: %d payments of %d from the joint address", n, amt)
+	}
+	if n := r.alice.dero.(*memDero).calls["Punish"]; n != 0 {
+		t.Fatalf("the taker, back after t2 + g2, sent %d Punish calls", n)
+	}
+	r.check()
 }
 
 // --- the replay rule ---

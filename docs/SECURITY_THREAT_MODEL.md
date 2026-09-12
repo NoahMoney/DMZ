@@ -40,7 +40,7 @@ lists are elsewhere:*
 | A7 | **The companion's publisher** (supply chain) | ship a build that leaks keys | against a party who builds from source, or checks the reproducible build's hash (`tools/release`) |
 | A8 | **Malware on a user's machine** | read state files and wallets | — (outside any protocol's reach; the state files are marked as secrets to back up) |
 | A9 | **A network observer** | see IP addresses, timing and volumes of traffic to nodes | read XSWD (localhost) |
-| A10 | **The operator, before revocation** | set the factory's treasury and regfee; install the Founders Pass with its parameters; publish the app | take a coin from any escrow, pool or NFA. After `Renounce` and the INDEX step in `MAINNET_DEPLOYMENT.md`, nothing |
+| A10 | **The operator, before revocation** | set the factory's treasury and regfee at its install, for its life (v2 has no owner); install the Founders Pass with its parameters; publish the app | take a coin from any escrow, pool or NFA. After the installs and the ring-16 INDEX step in `MAINNET_DEPLOYMENT.md`, nothing |
 
 ---
 
@@ -75,7 +75,7 @@ lists are elsewhere:*
 | A refused call loses its value when above ring 2 (`transaction_execute.go:395-404`) | every contract | the app and the companions call at ring 2; the `...To` wrappers are the ring-16 exceptions and carry no refund risk | a user who calls by hand above ring 2 can lose attached value |
 | The Monero Claim is withheld until `t1` (attack A) | `htlc.bas` + DERO miners | the claim cutoff; the gate deadline G (U2) | priced, not closed (T4) |
 | A secret front-run in the mempool | `swap.bas` Claim; `htlc.bas` Claim | swap v2 pays the stored taker whoever sends it. The `htlc` Claim is taker-only, and `s_a` in it helps only Bob, who already knows the swap | none |
-| An abandoned lock frozen for ever (LIV-07) | `htlc.bas` | v2: anyone may Punish from `t2`, and it pays the stored taker | none |
+| An abandoned lock frozen for ever (LIV-07) | `htlc.bas` | v3: anyone may Punish in [`t2`, `t2 + g2`), and it pays the stored taker; from `t2 + g2` the maker Reclaims, revealing `s_b`, from which the taker recovers her XMR | the taker's Punish deadline, `t2 + g2`. If nobody punishes in time and the maker never reclaims (hostile, or he lost his state or `s_b`), his DERO and any XMR she locked stay locked for ever. New in v3: v2's Punish had no end. Anyone may send the Punish for her |
 | Offer freezing (ADV-PRICE-07) | `board.bas` | v3: an accepted offer is dead at `ad_<id>` (accept height + 200) | the griefer pays one Accept fee per 200 blocks |
 | A stale bid settles a later listing (NFA-1) | `nfa.bas` | every end of an auction settles or refunds its bid | none known |
 | A look-alike contract or token | app; companions | the app checks template hashes and flags impersonating names (APP-1). The companions compare installed code with canonical source (U4) | an asset leg's token identity must be shown by the companion (U1) |

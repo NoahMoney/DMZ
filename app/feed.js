@@ -41,7 +41,7 @@
 
     async registry_() {
       const cfg = this.cfg; if (!cfg.factory) throw new Error("no factory configured");
-      const keys = ["pc", "lc", "nc", "regfee", "tstr", "owner", "renounced"]; const r0 = await V.node.getSC(cfg.factory, { keys });
+      const keys = ["pc", "lc", "nc", "regfee", "tstr", "owner", "renounced", "v"]; const r0 = await V.node.getSC(cfg.factory, { keys });
       // factory.bas stores pc, lc, nc at Initialize: an absent factory is not an empty registry (it read as "0 markets")
       if (!["pc", "lc", "nc"].every((k) => isNum(r0.vals[k]))) throw new Error("the factory this build names is not on this node's chain");
       const n = (k) => (isNum(r0.vals[k]) ? B(r0.vals[k]) : 0n);
@@ -53,16 +53,18 @@
       const list = (p, c) => { const out = []; for (let i = 0n; i < c; i++) { const v = V.hexToStr(vals[p + i] || ""); if (/^[0-9a-f]{64}$/.test(v)) out.push(v); } return out; };
       const reg = { treasury: V.hexToStr(r0.vals.tstr || ""), regfee: n("regfee"), pools: list("pool_", n("pc")), launches: list("launch_", n("lc")), nfts: list("nft_", n("nc")), nfas: list("nfa_", n("nc")) };
       reg.treasuryCanon = V.canonAddress(reg.treasury);
-      // A market's treasury is fixed at its install, so the factory's live pointer is a hint, not the rule: one
-      // SetTreasury would delist every market ever made. A bundle that ships an accepted set (current + legacy,
+      // A market's treasury is fixed at its install, so the factory's pointer is a hint, not the rule: on an older
+      // factory with an owner, one SetTreasury would delist every market. A bundle that ships an accepted set (current + legacy,
       // the shape the template hashes take) makes that set the rule and reads the factory only for regfee.
       const shipped = (cfg.treasuries || []).map((a) => V.canonAddress(a)).filter(Boolean);
       reg.treasuries = new Set(shipped.length ? shipped : reg.treasuryCanon ? [reg.treasuryCanon] : []);
       // A treasury that cannot be read must not switch the check off in silence, and must not empty the list
       // either: the flag rides on every record instead, so the badge can say what was not checked.
       reg.treasuryUnverified = !reg.treasuries.size;
-      // factory.bas's own powers, for the message from the dev: owner while it holds them, renounced (a height) after
+      // factory.bas's own powers, for the message from the dev. v2 has none: no owner, treasury and regfee fixed at
+      // install. An older v1 factory: owner while it holds its powers, renounced (a height) after
       reg.owner = this.rawToAddr(r0.vals.owner || ""); reg.renounced = isNum(r0.vals.renounced) ? r0.vals.renounced : "";
+      reg.v = isNum(r0.vals.v) ? Number(r0.vals.v) : 0;
       this.registry = reg; return reg;
     },
     // fetch many string keys in chunks; returns {key: hexvalue}

@@ -1,10 +1,16 @@
-// simdeploy installs factory.bas, social.bas and founders.bas on a running simulator (wallet 0 = owner, wallet 2 =
-// treasury), copies the templates into app/templates and writes app/config.js with the SCIDs and template hashes.
+// simdeploy installs factory.bas, social.bas, founders.bas, chat.bas and the swap contracts on a running simulator
+// (wallet 0 = the deployer, wallet 2 = treasury), copies the templates into app/templates and writes app/config.js with
+// the SCIDs and template hashes.
 //
-//	go run ./simdeploy -contracts ../contracts -app ../app
+//	go run ./simdeploy -contracts ../contracts -app ../app -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 <G2>
 //	go run ./simdeploy -factory <scid> -social <scid> -founders <scid>   # reuse what is deployed, just rewrite config
+//	-migrate-from <old factory>             # install a new factory and re-register the old one's listings on it
 //	-legacy launch:<sha256>,pool:<sha256>   # older template hashes the app should still accept (simulator history)
 //	-revoke launch:<sha256>                 # a hash the app must STOP accepting: the code it names has a defect
+//
+// factory.bas v2 has no owner (MT-J15(b)): its treasury and registration fee are the -w2 address and -regfee at
+// install, for the life of the factory. htlc.bas v3 takes three install arguments with no default (-htlc-w1min,
+// -htlc-w2min, -htlc-g2), checked against the contract's bounds before anything is installed.
 package main
 
 import (
@@ -29,7 +35,7 @@ var (
 	w2        = flag.String("w2", "127.0.0.1:30002", "treasury wallet rpc")
 	contracts = flag.String("contracts", "../contracts", "contracts directory")
 	app       = flag.String("app", "../app", "app directory")
-	regfee    = flag.Uint64("regfee", 10000, "registration fee in atomic units")
+	regfee    = flag.Uint64("regfee", 10000, "registration fee in atomic units, fixed for the life of the factory: factory.bas v2 has no setter")
 	network   = flag.String("network", "simulator", "network label for config.js and the deploy/networks.json block to update")
 	networks  = flag.String("networks", "../deploy/networks.json", "per-network deployment record")
 	factory   = flag.String("factory", "", "reuse an existing factory scid instead of installing")
@@ -39,8 +45,11 @@ var (
 	htlcF     = flag.String("htlc", "", "reuse an existing htlc.bas scid (the Monero swap's DERO leg) instead of installing")
 	swapF     = flag.String("swap", "", "reuse an existing swap.bas scid (the Zcash swap's DERO leg) instead of installing")
 	boardF    = flag.String("board", "", "reuse an existing board.bas scid (the Zcash market's offers) instead of installing")
-	renounce  = flag.Bool("renounce", false, "do nothing but end the ownership of -factory: call Renounce from the owner wallet (-w0), then read back that owner is gone. It cannot be undone (docs/MAINNET_DEPLOYMENT.md §5 step 8)")
+	renounce  = flag.Bool("renounce", false, "kept only to explain, and exit: factory.bas v2 has no owner, so there is nothing to renounce (MT-J15(b))")
 	swapWmin  = flag.Uint64("swap-wmin", 1600, "swap.bas install argument: the minimum escrow width in blocks (Z-D; 1,600 for the ZEC market, docs/ZEC_SWAP.md §5). Fixed for the life of the contract; the taker's companion refuses a swap.bas whose wmin is below its policy")
+	htlcW1min = flag.Uint64("htlc-w1min", 0, "htlc.bas install argument, required to install it: the least t1 - lock height, in blocks (MT-A03(a); the Monero profile's minimum t1 is 400). Fixed for the life of the contract")
+	htlcW2min = flag.Uint64("htlc-w2min", 0, "htlc.bas install argument, required to install it: the least t2 - t1, in blocks (the Monero profile's T2 - T1 is 400). Fixed for the life of the contract")
+	htlcG2    = flag.Uint64("htlc-g2", 0, "htlc.bas install argument, required to install it: the Punish window in blocks from t2; from t2 + g2 only the maker may Reclaim (MT-J13(b)). No default: the operator has not chosen it")
 	chatFee   = flag.Uint64("chat-fee", 10000, "fee to post one message, in atomic units — the only spam control there is")
 	chatMax   = flag.Uint64("chat-maxlen", 280, "longest message the contract will store")
 	legacy    = flag.String("legacy", "", "comma-separated kind:sha256 of older template versions the app keeps accepting")
@@ -83,6 +92,36 @@ func checkSwapWmin() error {
 	return nil
 }
 
+// checkHtlcWindows refuses, before anything is installed, htlc.bas install arguments its Initialize would refuse
+// (htlc.bas lines 6-7: w1min, w2min and g2 each 1 to 1,000,000, and w1min + w2min at most 999,999, past which no lock
+// could meet both; TestHtlcWindowBoundsAreTheContracts holds the two in step). The flags have no default: G2 is the
+// operator's open choice, and a width typed in here would be a policy nobody chose. An install that names none of
+// them therefore stops here, rather than after the factory and social contracts have been paid for.
+func checkHtlcWindows() error {
+	w1, w2, g2 := *htlcW1min, *htlcW2min, *htlcG2
+	switch {
+	case w1 == 0 || w2 == 0 || g2 == 0:
+		return fmt.Errorf("installing htlc.bas needs -htlc-w1min, -htlc-w2min and -htlc-g2, each at least 1 (got %d, %d, %d); pass -htlc <scid> to reuse an installed one", w1, w2, g2)
+	case w1 > 1000000 || w2 > 1000000 || g2 > 1000000:
+		return fmt.Errorf("-htlc-w1min %d, -htlc-w2min %d, -htlc-g2 %d: htlc.bas takes each up to 1000000", w1, w2, g2)
+	case w1+w2 > 999999:
+		return fmt.Errorf("-htlc-w1min %d + -htlc-w2min %d = %d: htlc.bas refuses a sum above 999999, where no lock could meet both widths", w1, w2, w1+w2)
+	}
+	return nil
+}
+
+// checkRenounce answers the -renounce of older runbooks. factory.bas v2 (MT-J15(b)) has no owner: its treasury and
+// registration fee are fixed at Initialize and no function can change them, so there is no ceremony to run, and this
+// tool sends Renounce to nothing. An older factory that still has an owner is left, not renounced: install a v2
+// factory and move its listings to it with -migrate-from, then publish an app that reads the new one.
+func checkRenounce() error {
+	if !*renounce {
+		return nil
+	}
+	return fmt.Errorf("-renounce: factory.bas v2 has no owner, so there is nothing to renounce: its treasury and registration fee are fixed when it is installed and no function can change them. " +
+		"To leave an older factory that still has an owner, install a new one and re-register its listings: go run ./simdeploy -migrate-from <old factory> (docs/MAINNET_DEPLOYMENT.md)")
+}
+
 // checkPassHeaders refuses, before anything is installed, a Founders Pass that founders.bas InitializePrivate would
 // refuse (founders.bas:22-24; TestPassLimitsAreTheContracts holds the two in step). The contract's refusal surfaces
 // only at the gas estimate, by which time the factory and social contracts are already installed and paid for.
@@ -116,6 +155,10 @@ func sha(s string) string  { h := sha256.Sum256([]byte(s)); return hex.EncodeToS
 
 func main() {
 	flag.Parse()
+	if err := checkRenounce(); err != nil {
+		fmt.Println(err)
+		os.Exit(2)
+	}
 	if *network == "mainnet" && !*yes {
 		fmt.Println("mainnet: this installs contracts and mints the founders reserve with real DERO; pass -yes to run it")
 		os.Exit(2)
@@ -140,14 +183,16 @@ func main() {
 			os.Exit(2)
 		}
 	}
+	if *htlcF == "" {
+		if err := checkHtlcWindows(); err != nil {
+			fmt.Println(err)
+			os.Exit(2)
+		}
+	}
 	c := &rpc.Client{Daemon: *daemon, Timeout: *timeout}
 	if testnet, name := c.Info(); (*network == "mainnet") == testnet {
 		fmt.Printf("-network %s but the daemon at %s reports %q (testnet=%v)\n", *network, *daemon, name, testnet)
 		os.Exit(2)
-	}
-	if *renounce {
-		renounceFactory(c, *w0, rpc.Address(*w0), *factory)
-		return
 	}
 	owner, treasury := rpc.Address(*w0), rpc.Address(*w2)
 	fmt.Printf("owner %s\ntreasury %s\n", owner, treasury)
@@ -171,13 +216,15 @@ func main() {
 		*chat, _, _ = c.Send(*w0, owner, read(filepath.Join(*contracts, "chat.bas")), "", nil, []rpc.Arg{
 			rpc.S("treasury", treasury), rpc.U("fee", *chatFee), rpc.U("maxlen", *chatMax)})
 	}
-	// The swap contracts hold no role: Initialize sets their counters, and swap.bas's its fixed minimum width. The
-	// install's signer is recorded nowhere in their storage. One instance per network serves every swap (GAP-002).
+	// The swap contracts hold no role: Initialize sets their counters, swap.bas's its fixed minimum width and htlc.bas's
+	// its two minimum widths and its Punish window. The install's signer is recorded nowhere in their storage. One
+	// instance per network serves every swap (GAP-002).
+	htlcArgs := []rpc.Arg{rpc.U("w1min", *htlcW1min), rpc.U("w2min", *htlcW2min), rpc.U("g2", *htlcG2)}
 	for _, s := range []struct {
 		name string
 		scid *string
 		args []rpc.Arg
-	}{{"htlc.bas", htlcF, nil}, {"swap.bas", swapF, []rpc.Arg{rpc.U("wmin", *swapWmin)}}, {"board.bas", boardF, nil}} {
+	}{{"htlc.bas", htlcF, htlcArgs}, {"swap.bas", swapF, []rpc.Arg{rpc.U("wmin", *swapWmin)}}, {"board.bas", boardF, nil}} {
 		if *s.scid == "" {
 			fmt.Println("installing", s.name)
 			*s.scid, _, _ = c.Send(*w0, owner, read(filepath.Join(*contracts, s.name)), "", nil, s.args)
@@ -380,10 +427,11 @@ func record(hashes map[string]string, old, rev map[string]map[string]bool, treas
 
 // migrateRegistry re-registers every pool, launch, holder-NFT and NFA an older factory lists on the newly
 // installed one. A factory cannot be upgraded in place — it has no UPDATE_SC_CODE entrypoint by design, the
-// registry's code being the listing's guarantee — so a factory.bas change is a new install with an empty
-// registry, and the app reads exactly one factory. Duplicate registrations on the old factory (this simulator has
-// three) collapse to one; each registration burns regfee from the owner wallet, which the factory forwards to the
-// treasury, so on a simulator the money moves between two of its own wallets.
+// registry's code being the listing's guarantee — so a factory.bas change, or a treasury or fee other than the one
+// fixed at install (factory.bas v2 has no setter), is a new install with an empty registry, and the app reads exactly
+// one factory. Duplicate registrations on the old factory (this simulator has three) collapse to one; each
+// registration burns the new factory's own regfee, read from the chain, from the deployer wallet, which the factory
+// forwards to the treasury, so on a simulator the money moves between two of its own wallets.
 func migrateRegistry(c *rpc.Client, owner, oldF, newF string) {
 	st := c.GetSC(oldF, false)
 	kinds := []struct{ count, prefix, entry string }{{"pc", "pool_", "RegisterPool"}, {"lc", "launch_", "RegisterLaunch"}, {"nc", "nft_", "RegisterNFT"}, {"nc", "nfa_", "RegisterNFA"}}
@@ -391,6 +439,11 @@ func migrateRegistry(c *rpc.Client, owner, oldF, newF string) {
 	// Whatever the new factory already lists is not registered again, so a run interrupted half-way (the owner
 	// wallet ran dry on the simulator the first time) is resumed by running it again with -factory <new>.
 	ns0 := c.GetSC(newF, false)
+	var pay []rpc.Transfer
+	if fee := ns0.U0("regfee"); fee > 0 {
+		pay = []rpc.Transfer{{Destination: c.RandomAddress(), Burn: fee}}
+	}
+	fmt.Printf("the new factory's registration fee is %d\n", ns0.U0("regfee"))
 	for _, k := range kinds {
 		n := ns0.U0(k.count)
 		for i := uint64(0); i < n; i++ {
@@ -410,7 +463,7 @@ func migrateRegistry(c *rpc.Client, owner, oldF, newF string) {
 			}
 			seen[scid] = true
 			fmt.Printf("migrating %s%d %s… via %s\n", k.prefix, i, scid[:12], k.entry)
-			c.Send(*w0, owner, "", newF, []rpc.Transfer{{Destination: c.RandomAddress(), Burn: *regfee}}, []rpc.Arg{rpc.S("entrypoint", k.entry), rpc.H("scid", scid)})
+			c.Send(*w0, owner, "", newF, pay, []rpc.Arg{rpc.S("entrypoint", k.entry), rpc.H("scid", scid)})
 			done++
 		}
 	}
@@ -419,36 +472,6 @@ func migrateRegistry(c *rpc.Client, owner, oldF, newF string) {
 }
 
 // scidVar reads a string variable holding a 64-hex SCID, whether the daemon returns it raw or hex-encoded.
-// renounceFactory is the last step of a deployment: factory.bas Renounce from the owner wallet, and then the proof,
-// read from the chain, that ownership is over (owner absent, renounced set). It sends nothing to a contract with no
-// owner key. factory.bas refuses any signer but the owner, so a wrong wallet fails at the gas estimate and pays
-// nothing (MT-E05; docs/MAINNET_DEPLOYMENT.md §5 step 8).
-func renounceFactory(c *rpc.Client, wallet, signer, f string) {
-	if !is64hex(f) {
-		fmt.Println("-renounce needs -factory <scid>")
-		os.Exit(2)
-	}
-	st := c.GetSC(f, false)
-	if _, ok := st.StringKeys["owner"]; !ok {
-		if at, done := st.StringKeys["renounced"]; done {
-			fmt.Printf("factory %s was renounced at height %v already; nothing to do\n", f, at)
-			return
-		}
-		fmt.Printf("factory %s has neither an owner nor a renounced key: it is not a factory.bas with Renounce\n", f)
-		os.Exit(1)
-	}
-	fmt.Printf("renouncing factory %s from %s; this cannot be undone\n", f, signer)
-	txid, _, h := c.Send(wallet, signer, "", f, nil, []rpc.Arg{rpc.S("entrypoint", "Renounce")})
-	st = c.GetSC(f, false)
-	_, still := st.StringKeys["owner"]
-	at, done := st.StringKeys["renounced"]
-	if still || !done {
-		fmt.Printf("Renounce tx %s (height %d) did not end the ownership: owner present %v, renounced present %v\n", txid, h, still, done)
-		os.Exit(1)
-	}
-	fmt.Printf("renounced at height %v by tx %s: the owner key is gone, and SetTreasury and SetRegFee refuse every caller from now on\n", at, txid)
-}
-
 func scidVar(st rpc.SCState, k string) string {
 	v, ok := st.StringKeys[k]
 	if !ok {

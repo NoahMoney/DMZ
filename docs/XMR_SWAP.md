@@ -63,8 +63,9 @@ lets Bob *notice* a claim without an XMR lock; it does not let him stop it (buil
 
 1. **Bob locks DERO** in `htlc.bas`: `Lock(ha, hk, hb, taker = Alice, t1, t2, asset)` with the DERO (or a
    DERO-native asset: a token or an NFA unit, U1) attached to the call. Before he does, his companion reads the
-   contract's code and refuses any SCID whose code does not hash to the `htlc.bas` v2 it was built for
-   (`HTLCCodeSHA256`, `tools/xmrswap/pin.go:13`; `swap.go:510`), refuses a taker whose DERO address has never
+   contract's code and refuses any SCID whose code does not hash to the `htlc.bas` v3 it was built for
+   (`HTLCCodeSHA256`, `tools/xmrswap/pin.go`; `swap.go` `checkDeployment`), or whose install arguments his agreed
+   windows cannot meet (w1min + 11 above his t1 width, or w2min above t2 − t1), refuses a taker whose DERO address has never
    registered, and checks that his own wallet can pay the lock, the stipend and his fees. Once the lock is 8 blocks
    deep he sends Alice a **stipend** of DERO (Path 0, `swap.go:1352`): 14,016 atomic units by default, a Claim and a
    Punish at their last re-sends, so that she can pay for her own exits without buying DERO from anyone.
@@ -88,20 +89,23 @@ lets Bob *notice* a claim without an XMR lock; it does not let him stop it (buil
 
 For each lock `id`, `htlc.bas` stores `m_<id>` (maker, Bob), `t_<id>` (taker, Alice), `ha_<id>`, `hk_<id>`,
 `hb_<id>` (the three hashes, 64 hex characters each), `a_<id>` (asset, empty for DERO), `v_<id>` (amount),
-`t1_<id>`, `t2_<id>` (absolute DERO heights), `st_<id>` (0 open, 1 claimed, 2 refunded, 3 punished), and after a
-reveal `xa_<id>` (`s_a`) or `xb_<id>` (`s_b`). The two revealed keys never coexist for one lock, because every exit
-requires `st == 0` and sets it to something else (build spec §3.A). That mutual exclusion is the whole safety
-argument of §2 in one line.
+`t1_<id>`, `t2_<id>` (absolute DERO heights), `st_<id>` (0 open, 1 claimed, 2 refunded, 3 punished, 4 reclaimed),
+and after a reveal `xa_<id>` (`s_a`) or `xb_<id>` (`s_b`; a Reclaim stores it where a Refund does). The two revealed
+keys never coexist for one lock, because every exit requires `st == 0` and sets it to something else (build spec
+§3.A). That mutual exclusion is the whole safety argument of §2 in one line. Since v3 the contract also stores its
+three install arguments, `w1min`, `w2min` and `g2` (MT-A03(a), MT-J13): the same code installed with other values
+hashes the same, so each companion reads them with the code and refuses an install outside its policy.
 
 ---
 
-## 2. The three exits, and who ends with what
+## 2. The four exits, and who ends with what
 
 | Path | Condition | Who calls | Reveals | Result |
 |---|---|---|---|---|
 | **Claim** | height < T1, `SHA256(s_a) = H_a`, `SHA256(k_b) = H_k`, caller is the taker | Alice | `s_a` | Alice: DERO. Bob: XMR (via `s_a + s_b`). The swap. |
 | **Refund** | T1 ≤ height < T2, `SHA256(s_b) = H_b`, caller is the maker | Bob | `s_b` | Bob: DERO back. Alice, if she locked: XMR back (via `s_a + s_b`). |
-| **Punish** | height ≥ T2; **anyone** may send it, and it pays the taker (`htlc.bas` v2) | Alice, Bob, or anyone | nothing | Alice: the DERO. Bob: nothing — he had [T1, T2) to refund and did not. Any XMR Alice locked stays under the joint key forever (she is paid in DERO; Bob cannot take it without `s_a`). |
+| **Punish** | T2 ≤ height < T2 + g2; **anyone** may send it, and it pays the taker (`htlc.bas` v2); refused from T2 + g2 (v3) | Alice, or anyone | nothing | Alice: the DERO. Bob: nothing — he had [T1, T2) to refund and did not. Any XMR Alice locked stays under the joint key forever (she is paid in DERO; Bob cannot take it without `s_a`). |
+| **Reclaim** | height ≥ T2 + g2, with no end; `SHA256(s_b) = H_b`, caller is the maker (`htlc.bas` v3) | Bob | `s_b`, in `xb_<id>` as a Refund stores it | Bob: DERO back. Alice, if she locked: XMR back (via `s_a + s_b`), with no deadline. Nobody punished in time. |
 
 **Claim is the trade.** Alice has the DERO she wanted; Bob has the XMR he wanted, at the price they agreed. There
 is no better outcome, because this *is* the outcome both asked for. Bob's sweep has no deadline: `s_a` sits in
@@ -125,15 +129,36 @@ was the XMR she agreed to sell. The only party who ends worse than the agreed tr
 The XMR itself is destroyed for everyone; that is the cost of a Monero side that can enforce nothing, and it is
 paid only by a Bob who chose it.
 
-**Anyone may close an abandoned lock, in the taker's favour.** In `htlc.bas` v1 only the taker could send Punish,
-and Claim and Refund have both closed by t2, so a lock she never punished — key lost, walked away, or worth less
-than her fee — was frozen for ever (LIV-07). In v2 Punish pays the stored taker `t_<id>` whoever sends it
-(`contracts/htlc.bas:138-153`: the signer's only role is to be a valid ring-2 signer, line 141; the payment goes to
-`LOAD("t_" + id)`, lines 149-153). Punish carries no secret, so letting anyone send it changes who may press the
-button and nothing else: it still opens only at t2, still refuses attached value, and still pays only the taker.
-Bob's companion, left running past t2 on a lock still open, closes it itself after 20 blocks (`swap.go:1276`), so
-no lock and no companion waits on a person (`tests/htlc_v2_test.go`, `TestHtlcPunishByAnyonePaysTheTaker`;
-`tests/zzadversarial_liveness_test.go`, `TestHtlcPastT2AnyoneClosesTheLockForTheTaker`).
+**Anyone may Punish, in the taker's favour, for `g2` blocks; then the lock goes back to its maker.** In `htlc.bas` v1
+only the taker could send Punish, and Claim and Refund have both closed by t2, so a lock she never punished — key
+lost, walked away, or worth less than her fee — was frozen for ever (LIV-07). In v2 Punish pays the stored taker
+`t_<id>` whoever sends it: the signer's only role is to be a valid ring-2 signer, and the payment goes to
+`LOAD("t_" + id)` (`contracts/htlc.bas`, Punish). Punish carries no secret, so letting anyone send it changes who
+may press the button and nothing else: it refuses attached value and pays only the taker. v3 (MT-J13(b),
+`docs/ATOMIC_SWAP_STUDY.md` §5 decision 17 (a)) gives Punish an end: it is open in [t2, t2 + g2) only, `g2` being an
+install argument (4,800 blocks, 24 h, proposed and pending the operator), and from t2 + g2 the lock is the maker's
+to **Reclaim** with `s_b`, which the contract stores in `xb_<id>` as a Refund does. Bob therefore loses the lock only
+to a timely Punish, and his companion sends none of its own (under v2 it did, at t2 + 20, because the DERO was lost to
+him at t2 either way); it Reclaims from t2 + g2 instead, and counts the Reclaim only once it is stable, sending it again
+if a replaced block undoes it. Alice's companion treats st 4 exactly as st 2: it reads `s_b` and recovers her XMR, with
+no deadline. So the lock always has an exit, and from t2 + g2 it waits only on the party it pays, the maker; what that
+means for Alice's XMR is the next paragraph (`tests/htlc_v3_test.go`, `TestHtlcV3Reclaim`, `TestHtlcV3WindowMatrix`;
+`tests/zzadversarial_liveness_test.go`, `TestHtlcPastT2TheLockAlwaysHasAnExit`; `tools/xmrswap/swap_v2_test.go`,
+`TestMakerReclaimsALockNobodyPunished`; `tools/xmrswap/htlcv3_test.go`, `TestMakerWatchesHisReclaimUntilStable`).
+
+**What v3 costs the taker: her Punish has a deadline, t2 + g2, and past it her XMR depends on Bob.** Her companion
+sends Punish at once from t2, counts it only once it is stable, and sends none from t2 + g2 − (11 + 8 + margin): DERO
+mines a transaction at most 10 blocks after the height it was built at (`vendor/derohe/blockchain/blockchain.go:748`,
+`miner_block.go:275`), the companion counts 11, one block conservative, and a Punish that executes at t2 + g2 is mined,
+refused and keeps its fee. Anyone may send Punish: `htlc.bas` asks only for a valid ring-2 signer, and the call carries
+no secret and pays only the stored taker, so someone she trusts, or a second machine of hers, can send it for her. Her
+recovery card says so, prints t2 and the window's last block with their clock times, and registers a second wake
+before t2 (`tools/xmrswap/recovery.go`). If nobody punishes in time, her XMR comes back only if Bob Reclaims, which
+reveals `s_b` (`htlcv3_test.go`, `TestTakerPastHerPunishCutoffWaitsForTheReclaim`). Nothing makes him: a Bob who never
+Reclaims — hostile, or having lost his state or `s_b`, a maker the contract's own header says cannot then leave —
+leaves her XMR under the joint key and his DERO in the contract, both for ever. Under v2 she could not be left with
+neither: she could Punish at any time after t2 and take his DERO (her XMR stayed under the joint key either way). This
+dependence on Bob is new in v3, and only a Punish before t2 + g2 removes it.
 
 ### 2.1 What each party can lose, by state reached
 
@@ -144,6 +169,8 @@ no lock and no companion waits on a person (`tests/htlc_v2_test.go`, `TestHtlcPu
 | Alice locks; Bob releases `k_b`; Alice claims | nothing | nothing: the trade |
 | Alice locks; Bob releases `k_b`; Alice never claims; Bob refunds at T1 | Monero fees; XMR back after the refund | two DERO fees, the time |
 | Alice locks; Bob neither releases nor refunds; Alice punishes at T2 | her XMR is gone; she holds the DERO she bought | the DERO |
+| Alice locks; Bob neither releases nor refunds; nobody punishes in [T2, T2 + g2); Bob reclaims | Monero fees, XMR locked until the reclaim; then XMR back | two DERO fees, the time from T1 to T2 + g2 |
+| Alice locks; Bob neither releases nor refunds; nobody punishes in [T2, T2 + g2); Bob never reclaims (hostile, or he lost his state or `s_b`) | her XMR locked under the joint key for ever, and no DERO. New in v3 (under v2 she could Punish at any time); only a Punish before T2 + g2, hers or anyone's for her, prevents it | the DERO, locked in the contract for ever |
 | Alice locks; Bob refunds at T1 but Alice's `s_a + s_b` never works | impossible if `π_b` verified (§9, R14) | — |
 | Alice claims but Bob's `s_a + s_b` never works | — | impossible if `π_a` verified (§9, R13) |
 | a party's own node lied to it | see §9, R18 | see §9, R18 |
@@ -191,8 +218,8 @@ the block-time constant, and §9 R19 says why that conversion is an estimate.
 | `T2_MIN` | T1 + 400 blocks (≈ 2 h more), and no more than T1 + 1,200 | Bob's refund window; long enough that a Bob who is merely offline for an hour is not punished | `tools/xmrswap/swap.go:25, 45` |
 | gate deadline G | 100 blocks (≈ 30 min) before T1 | Alice treats a `k_b` reaching her at or after `t1 − G` as never received, and Bob releases none that late: suppressing her Claim after a late gate must then last G blocks. 100 is the study's assumed value (operator decision 5) | `tools/xmrswap/swap.go:64`; `docs/ATOMIC_SWAP_STUDY.md` §2.1 U2 |
 | stipend | 14,016 atomic units (0.14016 DERO) | a Claim at its fee (304 storage gas measured on the DVM, + 200) and a Punish at 3,000, each doubled twice by the re-send policy: (3,000 + 504) × 4. A walker keeps it: it is the maker's cost on every swap | `tools/xmrswap/swap.go:71-76`; `tests/htlc_test.go` `TestHtlcClaim` |
-| close-after | T2 + 20 blocks | how long Bob's companion leaves an open lock to Alice's own Punish before sending it itself, which pays her | `tools/xmrswap/swap.go:90` |
-| contract bounds | `now + 1 < t1 < t2 ≤ now + 1,000,000` | ordering only; the contract cannot know Monero's state, so the minimums are policy in the companion, which refuses a lock below them | build spec §3.A |
+| g2, the Punish window | 4,800 blocks (≈ 24 h) after T2, **pending operator decision MT-J13** | an `htlc.bas` v3 install argument: Punish in [T2, T2 + g2), the maker's Reclaim from T2 + g2. It is the taker's floor (`-g2-min`): she refuses an install with less. Her companion sends no Punish from T2 + g2 − (11 + 8 + margin). Below about 19 + margin blocks no Punish can go out and be stable in time | `tools/xmrswap/mainnet_profile.json`; `docs/HTLC_V3_COMPANION_NOTES.md` §7 |
+| contract bounds | `now + 1 < t1 < t2 ≤ now + 1,000,000`, and since v3 `t1 ≥ now + w1min`, `t2 ≥ t1 + w2min` at the Lock's execution height (install arguments, 400 and 400 at the profile) | the contract cannot know Monero's state; it enforces ordering and the minimum widths (MT-A03(a)), and the companion's own floors apply on top. DERO mines a Lock at most 10 blocks after it is built (the companion counts 11, one block conservative) and the daemon's estimate runs at height 0, so Bob's companion accepts no t1 width below max(T1_MIN, w1min + 11) = 411 and builds no Lock from t1 − w1min − 10. 411 is the contract's least with no slack: at exactly 411 the Lock can be built only at the height the windows were decided at, so one block arriving before the Lock reads the height makes his companion refuse (nothing is sent), and Alice's first-sight check leaves the Lock 11 blocks to be mined and read. The default of 420 is what leaves room: 10 heights to build at, 20 blocks for her check | build spec §3.A; `tools/xmrswap/dero.go` `lockCutoff` |
 
 **The mainnet profile** (MT-B16, BL-27). Every policy number above lives in one file,
 `tools/xmrswap/mainnet_profile.json`: T1Min 400, the default t1 420, T1Max 1,200, T2Min 400, the default T2 − T1 400,
@@ -300,7 +327,10 @@ What the companion refuses before anything of either party is locked (`tools/xmr
   absolute path of the proof-xmr build pinned by `ProverSHA256` (`pin.go:26`), hashed before every run (GAP-003).
   An omitted `-htlc` is the scid `deploy/networks.json` records for the daemon's DERO network, compiled in and checked
   against the file by a test; recorded or given, the contract is refused at start unless its code is the pinned
-  `htlc.bas` v2 (MT-A18, `tools/xmrswap/record.go`).
+  `htlc.bas` v3 and every `-daemon` shows the same code and install arguments (MT-A18, MT-B09,
+  `tools/xmrswap/record.go`). v3's code hashes the same for every install, so the companion also reads `w1min`,
+  `w2min` and `g2` with it, and each party refuses an install outside its policy (the maker: widths his Lock cannot
+  meet; the taker: a `g2` below `-g2-min`, the profile's 4,800 by default).
 - **An answer it cannot read the same way twice.** Every daemon and wallet reply is read through a size cap and a
   timeout; one with trailing data, or with neither a result nor an error, is refused (`dero.go:256-295`,
   `monero.go:157`).
@@ -501,11 +531,15 @@ a Claim, and ignores it; the contract would refuse it anyway. Alice waits; Bob r
 **R10. Bob refunds at T1 in the same block as Alice claims.** *Outcome:* Claim requires `height < t1`, Refund
 requires `t1 ≤ height`; no single block satisfies both, and within a block the first to set `st` wins while the
 other is refused. Exactly one succeeds. At T2 the same holds between Refund (`height < t2`) and Punish
-(`height ≥ t2`). *Covered:* yes, by the contract; the only way this becomes a race is R2.
+(`height ≥ t2`), and at T2 + g2 between Punish (`height < t2 + g2`) and Reclaim (`height ≥ t2 + g2`). *Covered:* yes,
+by the contract; the only way this becomes a race is R2.
 
-**R11. Bob vanishes after Alice locked.** No gate, no refund. *Outcome:* at T2 Alice punishes and takes the DERO.
+**R11. Bob vanishes after Alice locked.** No gate, no refund. *Outcome:* from T2 Alice punishes and takes the DERO.
 Her XMR is under a key nobody will ever complete. She has what she agreed to buy; Bob has nothing. *Covered:* yes;
-this is what Punish is for (§2).
+this is what Punish is for (§2) — provided a Punish, hers or anyone's for her, lands before T2 + g2 (v3). If none
+does, her XMR comes back only if Bob Reclaims from T2 + g2 and so reveals `s_b` (his companion does, unattended); a Bob
+who has vanished for good, lost his state or `s_b`, or chooses never to reclaim leaves her XMR and his DERO locked for
+ever. Under v2 she could Punish at any later time; this is v3's cost to her, and §10 states it.
 
 **R12. Alice vanishes after Bob locked.** *Outcome:* Bob refunds at T1; nothing else moved. Bob is out two fees and
 about two hours; Alice exercised the free option of §3. *Covered:* yes, and the cost to Bob is the open item of §3.
@@ -612,7 +646,8 @@ The pattern across all of these: every outcome that costs a party coins is eithe
 or mistake (R8, R11 for Bob, R16's burned Lock, R23), (ii) a skipped proof (R13, R14), (iii) a lie from a node
 that party chose to read from (R18), or (iv) one of two gaps the build spec must close before "done" — the
 last-eight-blocks rule (R2) and the `unlock_time` check (R6) — plus the Monero-depth assumption (R3), which cannot
-be closed, only stated and sized.
+be closed, only stated and sized. Since v3 there is one more: a taker who let T2 + g2 pass with no Punish on the chain,
+facing a maker who then never reclaims (R11) — her missed window, compounded by his choice or his loss.
 
 ---
 
@@ -651,9 +686,18 @@ be closed, only stated and sized.
 - **Each party's own machine, at its window.** If Bob's companion is not running between t1 and t2 he cannot
   Refund, and from t2 Alice may Punish and take the DERO he locked. No construction on DERO removes that need: a
   Refund held by anyone else is held by someone who could use `s_b` to steal (`docs/ATOMIC_SWAP_STUDY.md` §6).
-- **Nobody, after t2 — LIV-07 is fixed.** In `htlc.bas` v1 only the taker could call Punish, so a lock she never
-  punished was frozen for ever. In v2 anyone may send Punish from t2, and it pays the stored taker
-  (`contracts/htlc.bas:138-153`), so no lock is frozen and none waits on a person (§2).
+- **The taker's Punish has a deadline: t2 + g2** (`htlc.bas` v3, MT-J13). Her companion, or anyone she asks — it
+  carries no secret and pays only her — must get a Punish in before t2 + g2 (4,800 blocks, about 24 hours, proposed
+  and pending the operator); her companion sends none from t2 + g2 − (11 + 8 + margin), and her recovery card prints
+  the window's last block and wakes her machine before t2. Missing it costs her the punishment and makes her XMR
+  depend on Bob: from t2 + g2 the lock is his to Reclaim, and his Reclaim puts `s_b` on the chain as a Refund does, but
+  nothing makes him send it. A Bob who never does — hostile, or having lost his state or `s_b` — leaves her XMR and his
+  DERO locked for ever. Under v2 she could Punish at any time after t2; this dependence is new in v3.
+- **Nobody, for the lock itself, after t2 — LIV-07 stays fixed.** In `htlc.bas` v1 only the taker could call Punish,
+  so a lock she never punished was frozen for ever. In v2 and v3 anyone may send Punish from t2, and it pays the stored
+  taker; in v3 it closes at t2 + g2, after which the maker Reclaims. The lock always has an exit and none waits on a
+  person other than the party it would pay (§2); Alice's XMR, once nobody has punished by t2 + g2, waits on Bob (the
+  item above).
 - **DERO including Alice's Claim in time.** The companion sends no Claim from sixteen blocks before t1
   (`tools/xmrswap/swap.go:34-37`), so that any Claim it did send is final before Bob's Refund opens. The mempool is
   ordered by fee per byte (`vendor/derohe/blockchain/mempool/mempool.go:377`), and a miner, or a flood of
@@ -666,23 +710,30 @@ be closed, only stated and sized.
 - **The operator of DMZ.** They host nothing for a swap, hold no key that touches it, and could not take or
   freeze either side's coins if they wished to. `htlc.bas` has no owner, no admin, no fee and no update path.
 - **Any signer set.** There is none. Nothing is wrapped; nothing is held in reserve; nothing is minted.
-- **The counterparty, once your checks have passed.** Before their lock, they can walk (§3). After both locks, the
-  only choices they have are the three exits, and every one of them leaves you whole or paid (§2): Bob can decline
-  the gate and refund, which returns your XMR; he can do nothing, which costs him the DERO; Alice can decline to
-  claim, which returns Bob's DERO. The one counterparty action that would freeze your coins — a lock with a
-  far-future `unlock_time` — is §9 R6, and it must be closed by a check before this is used.
+- **The counterparty, once your checks have passed — provided you act in your windows.** Before their lock, they can
+  walk (§3). After both locks, the only choices they have are the four exits (§2): Bob can decline the gate and
+  refund, which returns your XMR; he can do nothing, which costs him the DERO if a Punish — yours, or anyone's for
+  you — lands before t2 + g2, and otherwise leaves your XMR waiting on his Reclaim; Alice can decline to claim, which
+  returns Bob's DERO. Two counterparty actions could freeze your coins. A lock with a far-future `unlock_time` is §9 R6,
+  closed by the gate's check. And since v3, a Bob who does nothing and then never Reclaims freezes the XMR you locked,
+  with his own DERO, for ever once nobody has punished by t2 + g2: only a timely Punish rules that out, which is why
+  the taker's deadline is listed above among what is trusted.
 - **The channel.** Needed for the swap to happen, not for your coins to be safe (§8, §9 R17).
 
 **Why "trustless" is justified here and not for the federation.** The word means one thing on this page: *no
 party — operator, signer set, or counterparty — can take or freeze either side's coins.* Here that is true by
-construction: the DERO is in a contract with no owner whose three exits are exhaustive and mutually exclusive,
-and the XMR is under a key that only the protocol's own reveals complete. The wrapped assets (wXMR, wZEC) are the
+construction for a party whose machine acts in its own window — for Bob, his refund in [t1, t2); for Alice, since v3, a
+Punish in [t2, t2 + g2), hers or anyone's for her, if Bob has neither released the gate nor refunded: the DERO is in a
+contract with no owner whose four exits are exhaustive and mutually exclusive, and the XMR is under a key that only
+the protocol's own reveals complete. Past t2 + g2 with no Punish, a Bob who never reclaims freezes Alice's XMR, and this
+page does not claim otherwise. The wrapped assets (wXMR, wZEC) are the
 opposite by construction, and `research/wrapper/README.md` "Trust statement" says so in its first paragraph —
 *"Nothing here is 'trustless'"*: k of the n signers, colluding, can pay themselves the reserve or mint units against
 deposits that never happened, and nothing on chain stops them. That is a custodian with a bond, and the app names
 it as one. The swap has no such party. It has an economic weakness (§3), an unaudited proof, a Monero-depth
-assumption, a public DERO leg (§5), a window in which each party's own machine must be running, and a contract
-defect that freezes a lock nobody punishes (LIV-07) — none of which is a party who can take your coins, and "trustless" was
+assumption, a public DERO leg (§5), a window in which each party's own machine must be running, and a deadline on
+the taker's Punish (t2 + g2), past which, if no Punish came, the maker can freeze her XMR by never reclaiming — none
+of which is a party who can take your coins, and "trustless" was
 never a claim that nothing can go wrong. It is the claim that when something does, it is not because someone
 else held your keys.
 
@@ -699,13 +750,15 @@ action or a live clock.
 **What the screen shows** — all of it read from the DERO chain, none of it typed by the user:
 
 1. **The lock, verbatim.** Contract id, maker address, taker address, amount and asset, the three hashes, `t1`,
-   `t2`, and the state word (open / claimed / refunded / punished). Shown as the chain has them, so a user can
+   `t2`, `g2`, and the state word (open / claimed / refunded / punished / reclaimed). Shown as the chain has them, so a user can
    compare them with what their companion prints. The app does not say "matches" — it cannot, since it holds
    nothing to match against; the companion does the matching (§1.3 step 2) and the page says so.
 2. **The block clock.** Current DERO height, blocks to T1, blocks to T2, and the same in minutes at 18 s per block
    with the word *target* beside it. The live diagonal sits on whichever window is open now.
 3. **Which exit is open, for whom.** Before T1: "Alice may claim (needs `s_a` and `k_b` — companion)". In [T1, T2):
-   "Bob may refund (needs `s_b` — companion)". At or after T2: "Alice may punish (needs nothing but her wallet)".
+   "Bob may refund (needs `s_b` — companion)". In [T2, T2 + g2): "Alice, or anyone for her, may punish (needs nothing
+   but a wallet), until block T2 + g2 − 1". At or after T2 + g2: "Bob may reclaim (needs `s_b` — companion); Alice's XMR
+   comes back only through it".
    Grey for the party you are not.
 4. **The reveal, when there is one.** `xa_<id>` or `xb_<id>` in full once written — they are public, and the party
    who needs one reads it from here or from their companion, whichever they trust more.
@@ -724,10 +777,10 @@ action or a live clock.
 - **A Monero address to pay.** The joint address is computed by the companion from values that never enter the
   browser; a web page that says "send your XMR here" is exactly the shape of a phishing page, so this page does not
   have that shape. If the address is ever on screen, something is wrong.
-- **A swap transaction.** In this build the companions send all three exits. Punish needs no secret and, with
-  `htlc.bas` v2, may be sent by anyone, so the page could send it through XSWD; it is left with the companions — the
-  taker's at t2, the maker's own after t2 + 20 — so that there is one place that acts and one that shows. If that
-  changes, this paragraph changes first.
+- **A swap transaction.** In this build the companions send all four exits. Punish needs no secret and, since
+  `htlc.bas` v2, may be sent by anyone, so the page could send it through XSWD; it is left with the taker's companion,
+  which sends it at once from t2 and none past its cutoff before t2 + g2, so that there is one place that acts and one
+  that shows. If that changes, this paragraph changes first.
 - **A Monero balance, confirmation count, or "your XMR is safe."** It cannot know, so it does not say.
 - **Anything about the counterparty beyond their DERO address**, which the chain shows anyway.
 
@@ -760,9 +813,11 @@ Primary, read for this page (fetch dates as noted; the derohe files are the vend
 - derohe `dvm/sc.go:278–288` — a non-zero `RETURN` discards the call's changes and becomes an execution error
   ("Discarded knowingly"); https://github.com/deroproject/derohe/blob/master/dvm/sc.go
 - `contracts/swap.bas` — the conventions `htlc.bas` extends; `tests/sendorder_test.go` — the send-order rule.
-- `contracts/htlc.bas` v2 — Punish sendable by anyone and paying `t_<id>` (lines 138-153), Lock refusing a hash that
-  is not 64 lower-case hex (line 39), every exit refusing the lock's own asset attached (lines 91, 120, 147);
-  `tests/htlc_v2_test.go`.
+- `contracts/htlc.bas` v3 — Punish sendable by anyone and paying `t_<id>`, in [t2, t2 + g2) only (Punish line 25);
+  Reclaim, the maker's from t2 + g2, storing `xb_<id>` as Refund does; the Lock width refusal `t1 < height + w1min ||
+  t2 < t1 + w2min` (Lock line 26); the install arguments (Initialize lines 6-7, 13-15); Lock refusing a hash that is
+  not 64 lower-case hex, and every exit refusing the lock's own asset attached, as in v2; `tests/htlc_v3_test.go`,
+  `tests/htlc_v2_test.go`; `docs/HTLC_V3_COMPANION_NOTES.md`.
 - `research/regtest/monero-smoke.log`, `tools/regtest/README.md` — monero-wallet-rpc 0.18.5.1 against the companion's
   calls in regtest: `generate_from_keys` does not check keys against the address, a view-only wallet's `transfer`
   answers an `unsigned_txset` and sends nothing, `set_daemon` holds only for the open wallet, `get_height` is the

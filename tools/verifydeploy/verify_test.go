@@ -100,33 +100,47 @@ func failures(r *report) []string {
 	return out
 }
 
-func factoryVars(owner bool) vars {
-	v := vars{"treasury": sv(key(2)), "tstr": ss("dero1x"), "regfee": nv(10000), "initd": nv(1), "pc": nv(0), "lc": nv(0), "nc": nv(0), "kind": ss("factory"), "v": nv(1)}
-	if owner {
-		v["owner"] = sv(key(1))
-	} else {
-		v["renounced"] = nv(850)
+// factoryVars is a factory's state: "v2" as factory.bas v2 leaves it (no owner key), or with an older v1 factory's
+// "owner" or "renounced" key added.
+func factoryVars(state string) vars {
+	v := vars{"treasury": sv(key(2)), "tstr": ss("dero1x"), "regfee": nv(10000), "initd": nv(1), "pc": nv(0), "lc": nv(0), "nc": nv(0), "kind": ss("factory"), "v": nv(2)}
+	switch state {
+	case "owner":
+		v["owner"], v["v"] = sv(key(1)), nv(1)
+	case "renounced":
+		v["renounced"], v["v"] = nv(850), nv(1)
 	}
 	return v
 }
 
-// The whole pipeline against a fake GetSC: the same factory code, once with a live owner, once renounced.
+// The whole pipeline against a fake GetSC: a v2 factory passes with no -allow and no owner row; the same code read
+// with an older factory's live owner key fails on exactly that role; with its renounced key it passes.
 func TestVerifierFactoryOwner(t *testing.T) {
 	rec := &netcfg.Network{Factory: fScid, Templates: map[string]netcfg.Template{}}
 	code := canonOf(t, "factory")
 
-	r := runVerifier(t, map[string]fakeSC{fScid: {code: code, vars: factoryVars(true)}}, rec, nil, nil)
+	r := runVerifier(t, map[string]fakeSC{fScid: {code: code, vars: factoryVars("v2")}}, rec, nil, nil)
+	if r.failed() {
+		t.Fatalf("a v2 factory failed: %v", failures(r))
+	}
+	for _, x := range r.Roles {
+		if x.ID == "factory.owner" {
+			t.Fatalf("a v2 factory shows an owner role: %+v", x)
+		}
+	}
+	if r.Checks[len(r.Checks)-1].Section != "tela" { // sanity: every section ran
+		t.Fatalf("unexpected last check %+v", r.Checks[len(r.Checks)-1])
+	}
+
+	r = runVerifier(t, map[string]fakeSC{fScid: {code: code, vars: factoryVars("owner")}}, rec, nil, nil)
 	fs := failures(r)
 	if !r.failed() || len(fs) != 1 || !strings.Contains(fs[0], "role factory.owner") {
 		t.Fatalf("live owner: want exactly the owner to fail, got %v", fs)
 	}
 
-	r = runVerifier(t, map[string]fakeSC{fScid: {code: code, vars: factoryVars(false)}}, rec, nil, nil)
+	r = runVerifier(t, map[string]fakeSC{fScid: {code: code, vars: factoryVars("renounced")}}, rec, nil, nil)
 	if r.failed() {
 		t.Fatalf("renounced factory failed: %v", failures(r))
-	}
-	if r.Checks[len(r.Checks)-1].Section != "tela" { // sanity: every section ran
-		t.Fatalf("unexpected last check %+v", r.Checks[len(r.Checks)-1])
 	}
 }
 
@@ -134,7 +148,7 @@ func TestVerifierFactoryOwner(t *testing.T) {
 func TestVerifierOneCharacter(t *testing.T) {
 	rec := &netcfg.Network{Factory: fScid, Templates: map[string]netcfg.Template{}}
 	code := strings.Replace(canonOf(t, "factory"), `STORE("kind", "factory")`, `STORE("kind", "factorY")`, 1)
-	r := runVerifier(t, map[string]fakeSC{fScid: {code: code, vars: factoryVars(false)}}, rec, nil, nil)
+	r := runVerifier(t, map[string]fakeSC{fScid: {code: code, vars: factoryVars("v2")}}, rec, nil, nil)
 	var msg string
 	for _, c := range r.Checks {
 		if c.Section == "identity" && c.Status == sFail {
@@ -156,7 +170,7 @@ func TestVerifierRegistry(t *testing.T) {
 	pool := canonOf(t, "pool")
 	good := "a000000000000000000000000000000000000000000000000000000000000001"
 	bad := "b000000000000000000000000000000000000000000000000000000000000002"
-	fv := factoryVars(false)
+	fv := factoryVars("v2")
 	fv["pc"] = nv(2)
 	fv["pool_0"] = ss(good)
 	fv["pool_1"] = ss(bad)

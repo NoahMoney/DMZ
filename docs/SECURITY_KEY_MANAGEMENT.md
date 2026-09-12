@@ -15,8 +15,10 @@ user's coins, and after deployment no key holds a privileged role in any contrac
   ledger, a watchlist, a mute list and a per-session XSWD id (`app/app.js:17, 20`; `app/feed.js:216, 221, 440`;
   `app/stats.js:158`; `app/chat.js:26`; `app/xswd.js:13`).
 - **Each person holds their own keys.** The companions run on the person's own machine.
-- **After deployment, no privileged key survives.** The factory's owner key is ended by `Renounce`. The TELA INDEX's
-  key is dealt with as `MAINNET_DEPLOYMENT.md` states. `tools/verifydeploy` checks both.
+- **After deployment, no privileged key survives.** `factory.bas` v2 has no owner: its treasury and registration fee
+  are fixed at install and no function changes them (MT-J15(b), 2026-09-11), so no key holds a role in it at any
+  time and there is nothing to revoke. The TELA INDEX's key is dealt with as `MAINNET_DEPLOYMENT.md` states.
+  `tools/verifydeploy` checks both, and still fails an older factory that has an owner.
 
 ---
 
@@ -24,8 +26,8 @@ user's coins, and after deployment no key holds a privileged role in any contrac
 
 | Key | Held by | Can do | Lifetime | Kept | After deployment |
 |---|---|---|---|---|---|
-| **Deployer / owner wallet** (DERO) | the operator | installs the contracts and the app's TELA documents; is the factory's `owner` until `Renounce`; receives the Founders Pass reserve editions | the deployment | `netwallet -create` on a machine used for nothing else; the seed is printed once, and `-write-seed` is refused on mainnet (`deploy/README.md`) | **no role**: `Renounce` deletes `owner`. The wallet then holds only any reserve passes and leftover DERO |
-| **Treasury wallet** (DERO) | the operator, or whoever the operator names | receives protocol fees; runs `treasurybot`, which claims fees and deposits the pass share | for ever: the treasury address is fixed in the factory after `Renounce` and in each market at its install | a separate wallet, never the deployer, backed up off the machine | a **fee recipient, not a privilege**. It cannot change any rule. Losing it strands the fees that reach it; a compromise gives the attacker those fees and nothing else |
+| **Deployer wallet** (DERO) | the operator | installs the contracts and the app's TELA documents; receives the Founders Pass reserve editions. It holds no role in the factory, which stores no owner (`factory.bas` v2) | the deployment | `netwallet -create` on a machine used for nothing else; the seed is printed once, and `-write-seed` is refused on mainnet (`deploy/README.md`) | **no role, and nothing to revoke**: no contract stores the deployer as an owner. The wallet then holds only any reserve passes and leftover DERO |
+| **Treasury wallet** (DERO) | the operator, or whoever the operator names | receives protocol fees; runs `treasurybot`, which claims fees and deposits the pass share | for ever: the treasury address is fixed in the factory at its install and in each market at its install | a separate wallet, never the deployer, backed up off the machine | a **fee recipient, not a privilege**. It cannot change any rule. Losing it strands the fees that reach it; a compromise gives the attacker those fees and nothing else |
 | **TELA INDEX key** | the account that installed the INDEX | update the app's document list (`UpdateCode`), if the INDEX was installed at ring 2 (`vendor/tela/TELA-INDEX-1/TELA-INDEX-1.bas:57`) | until the INDEX's final state is reached | the deployer wallet | **must hold no power**: the INDEX is installed or finalised as `MAINNET_DEPLOYMENT.md` prescribes, and `verifydeploy` checks it |
 | **Founders Pass installer** | the deployer | sets every pass parameter once, at install; there is no setter | install only | — | none |
 | **Vault signers** | **none on mainnet** | — | — | — | — |
@@ -50,7 +52,8 @@ user's coins, and after deployment no key holds a privileged role in any contrac
    - no wallet that mines or receives block rewards ever sits in a transaction path.
 3. **Never point `xswdwallet` at a wallet with real funds.** It approves everything automatically, and it refuses any
    daemon that is not a loopback test network.
-4. **Install, verify and renounce** in one session (`MAINNET_DEPLOYMENT.md`), then take the deployer wallet offline.
+4. **Install and verify** in one session (`MAINNET_DEPLOYMENT.md`), then take the deployer wallet offline. There is
+   no renounce step: the factory has no owner, so the treasury and the registration fee passed at install are final.
 5. **Hardware-backed signing.** DERO has no hardware-wallet support that this project knows of, and a DERO wallet needs
    its node to build ring transactions. So the deployer key's protection is short life plus an isolated machine, not
    hardware. The treasury key lives for ever and carries only fees, so protect it by offline backup.

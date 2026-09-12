@@ -56,15 +56,21 @@ type State struct {
 	// for from here in either party's wallet history.
 	DeroHeight uint64 `json:"deroHeight,omitempty"`
 
-	Lock    LockRecord    `json:"lock"`
-	Stipend StipendRecord `json:"stipend"`
-	Xmr     XmrRecord     `json:"xmr"`
-	Sweep   SweepRecord   `json:"sweep"`
+	// Contract is the htlc.bas install this swap runs on, as this companion read it before anything of its party's went
+	// into it (checkDeployment): v3's install arguments, from which the Lock's cutoff, the Punish deadline and the
+	// Reclaim height are counted.
+	Contract ContractRecord `json:"contract"`
+	Lock     LockRecord     `json:"lock"`
+	Stipend  StipendRecord  `json:"stipend"`
+	Xmr      XmrRecord      `json:"xmr"`
+	Sweep    SweepRecord    `json:"sweep"`
 
-	ClaimTx  string `json:"claimTx,omitempty"`
-	RefundTx string `json:"refundTx,omitempty"`
-	PunishTx string `json:"punishTx,omitempty"`
-	// Revealed is the peer's share as read from the chain: s_a for Bob after a Claim, s_b for Alice after a Refund.
+	ClaimTx   string `json:"claimTx,omitempty"`
+	RefundTx  string `json:"refundTx,omitempty"`
+	PunishTx  string `json:"punishTx,omitempty"`
+	ReclaimTx string `json:"reclaimTx,omitempty"` // Bob: his Reclaim, from t2 + g2 (htlc.bas v3)
+	// Revealed is the peer's share as read from the chain: s_a for Bob after a Claim, s_b for Alice after a Refund or
+	// a Reclaim.
 	Revealed string `json:"revealed,omitempty"`
 
 	// Consumed records message kinds already acted on, so a repeated delivery is dropped. LastSent is the
@@ -136,9 +142,23 @@ type LockRecord struct {
 	// and Alice stops watching (U3) only once this height is at or below the daemon's stable height: from then on
 	// DERO cannot replace the Claim's block.
 	ClaimSeenHeight uint64 `json:"claimSeenHeight,omitempty"`
-	T1              uint64 `json:"t1"`
-	T2              uint64 `json:"t2"`
-	Amount          uint64 `json:"amount"`
+	// PunishSeenHeight is ClaimSeenHeight's twin for the taker's Punish (htlc.bas v3): she counts it as done only once
+	// this height is stable, because a Punish undone by a replaced block and re-mined at or after t2 + g2 is refused.
+	PunishSeenHeight uint64 `json:"punishSeenHeight,omitempty"`
+	// ReclaimSeenHeight is the same for the maker's Reclaim (htlc.bas v3): he counts it as done only once this height is
+	// stable, because a Reclaim undone by a replaced block and not mined again leaves the lock open, and from t2 + g2
+	// only he can move it.
+	ReclaimSeenHeight uint64 `json:"reclaimSeenHeight,omitempty"`
+	T1                uint64 `json:"t1"`
+	T2                uint64 `json:"t2"`
+	Amount            uint64 `json:"amount"`
+}
+
+// ContractRecord is an htlc.bas v3 install's arguments as this party read them (MT-A03(a), MT-J13).
+type ContractRecord struct {
+	W1Min uint64 `json:"w1min,omitempty"`
+	W2Min uint64 `json:"w2min,omitempty"`
+	G2    uint64 `json:"g2,omitempty"`
 }
 
 // settleFrom is the height a wait for a possibly in-flight transaction is measured from: the last attempt if

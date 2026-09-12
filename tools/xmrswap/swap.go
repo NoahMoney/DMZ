@@ -63,12 +63,13 @@ const (
 	// suppression that costs him. 100 is the study's assumed value (operator decision 5), not a measurement; an
 	// honest gate arrives near block 150 of the default 420.
 	DefaultGateDeadline uint64 = profileGateDeadline
-	// DefaultFixedFee is what Refund and Punish are sent at (NewDeroRPC's FixedFee): the daemon's estimator runs
-	// a contract at height 0, where both are refused, so neither can be estimated.
+	// DefaultFixedFee is what Refund, Punish and Reclaim are sent at (NewDeroRPC's FixedFee): the daemon's estimator
+	// runs a contract at height 0, where all three are refused, so none can be estimated.
 	DefaultFixedFee uint64 = 3000
-	// DefaultClaimFee is what one htlc.bas v2 Claim is sent at: its storage gas, 304 measured on the DVM
-	// (tests/htlc_test.go TestHtlcClaim), plus the 200 exit() adds. The wallet pays a fee it is given exactly —
-	// walletapi/transaction_build.go computes one only when it is zero.
+	// DefaultClaimFee is what one htlc.bas Claim is sent at: its storage gas, 304 measured on the DVM
+	// (tests/htlc_test.go TestHtlcClaim), plus the 200 exit() adds. v3's Claim is v2's byte for byte, so the figure
+	// holds. The wallet pays a fee it is given exactly — walletapi/transaction_build.go computes one only when it is
+	// zero.
 	DefaultClaimFee uint64 = 504
 	// DefaultStipend is the DERO the maker gives the taker (Path 0, §2.0.1): her worst case, a Claim mined and
 	// refused at its last re-send followed by Punish at its last re-send, each doubled twice (Resends = 2):
@@ -84,11 +85,10 @@ const (
 	// Refund at its last re-send (3,000 × 4) and about a thousand for the Lock itself (859 measured,
 	// docs/audit/FINDINGS_2026-09-10.md XMR-01).
 	DefaultFeeReserve uint64 = DefaultFixedFee<<2 + 1000
-	// DefaultCloseAfter is how many blocks past t2 the maker's companion leaves an open lock to the taker's own
-	// Punish before sending it itself. htlc.bas v2 pays the taker whoever sends it (LIV-07), so the maker gains
-	// nothing but a closed lock and a finished companion for his fee; waiting first spares him the fee whenever
-	// the taker is there to do it.
-	DefaultCloseAfter uint64 = 20
+	// DefaultG2Min is the taker's floor on the deployment's g2, the length of her Punish window [t2, t2 + g2)
+	// (htlc.bas v3, MT-J13): she refuses an install whose g2 is shorter. It is the profile's g2, pending the
+	// operator's decision.
+	DefaultG2Min uint64 = profileG2
 )
 
 // Config is one companion's parameters. The minimums are policy the contract leaves to the client (§1); a
@@ -124,7 +124,9 @@ type Config struct {
 	ResumeCommand string
 	Wake          WakeFunc
 
-	T1Min, T2Min     uint64 // policy floors (Alice refuses a lock below them; Bob refuses to choose below them)
+	// T1Min, T2Min are policy floors: Alice refuses a lock below them; Bob refuses to choose below them, and below the
+	// install's own w1min + DeroTxValidity and w2min, which htlc.bas v3 enforces at the Lock's execution height.
+	T1Min, T2Min     uint64
 	T1Max, T2Max     uint64 // policy ceilings: Alice refuses an offer, and a lock, whose windows are wider
 	T1Delta, T2Delta uint64 // Bob's widths: t1 = lock height + T1Delta, t2 = t1 + T2Delta
 	Confirmations    uint64 // Monero confirmations before Bob releases k_b
@@ -155,8 +157,8 @@ type Config struct {
 	// GateDeadline is G (U2): Alice treats a gate reaching her at or after t1 − G as never received. Bob's
 	// GateMargin is raised to at least G + 2, so an honest maker never sends a gate she would ignore.
 	GateDeadline uint64
-	// CloseAfter: blocks past t2 after which the maker's companion sends Punish itself on a lock still open.
-	CloseAfter uint64
+	// G2Min is the taker's floor on the install's g2, her Punish window (MT-J13): she refuses a deployment with less.
+	G2Min uint64
 
 	Poll        time.Duration // how long one Step waits on the channel when a message is expected
 	ResendAfter time.Duration // how often the last message is repeated while the protocol has not moved on
@@ -168,7 +170,7 @@ type Config struct {
 type LockReader interface {
 	Height(ctx context.Context) (uint64, error)
 	ReadLock(ctx context.Context, id uint64) (Lock, error)
-	CodeSHA256(ctx context.Context) (string, error)
+	Deployment(ctx context.Context) (Deployment, error)
 }
 
 func (c Config) withDefaults() Config {
@@ -200,7 +202,7 @@ func (c Config) withDefaults() Config {
 	def(&c.Stipend, DefaultStipend)
 	def(&c.StipendMin, DefaultStipend)
 	def(&c.StipendSettleBlocks, DefaultStipendSettleBlocks)
-	def(&c.CloseAfter, DefaultCloseAfter)
+	def(&c.G2Min, DefaultG2Min)
 	if c.Poll <= 0 {
 		c.Poll = 2 * time.Second
 	}
@@ -252,10 +254,25 @@ type Swap struct {
 
 var errCrashed = errors.New("crashed by the test hook")
 
+// v2Phases are the phases only an htlc.bas v2 companion saved, with what each was. A swap begun on v2 cannot be resumed
+// by this companion: its contract's code is v2's, which the command line refuses at start (U4), and the phase has no
+// counterpart here, so it is refused by name rather than as an unknown phase. v2 was installed only on the simulator.
+var v2Phases = map[string]string{
+	"closing": "the maker closing a lock nobody punished with a Punish of his own, LIV-07 under v2; v3 gives such a lock back to him by Reclaim instead",
+}
+
+// v2PhaseError is the refusal of a state file in one of v2Phases.
+func v2PhaseError(role, phase string) error {
+	return fmt.Errorf("%s: this state file is in phase %q, which only an htlc.bas v2 companion saves (%s): this companion runs htlc.bas v3 swaps only, so it cannot resume it; finish that swap with the v2 build that started it (docs/XMR_SWAP_BUILD.md §3.D)", role, phase, v2Phases[phase])
+}
+
 func newSwap(role string, cfg Config, st *State, dero Dero, xmr Wallet, prover Prover, ch Channel) (*Swap, error) {
 	cfg = cfg.withDefaults()
 	if st.Role != role {
 		return nil, fmt.Errorf("state is for %s, this is %s", st.Role, role)
+	}
+	if _, old := v2Phases[st.Phase]; old && !st.Done {
+		return nil, v2PhaseError(role, st.Phase)
 	}
 	if cfg.HTLC == "" || cfg.MyDero == "" || cfg.AmountDero == 0 || cfg.AmountXmr == 0 {
 		return nil, errors.New("config needs HTLC, MyDero, AmountDero and AmountXmr")
@@ -282,6 +299,9 @@ func newSwap(role string, cfg Config, st *State, dero Dero, xmr Wallet, prover P
 	}
 	if role == "bob" && cfg.T1Delta <= cfg.GateMargin {
 		return nil, fmt.Errorf("a t1 width of %d leaves no block in which the gate may go out (gate margin %d, from the gate deadline %d)", cfg.T1Delta, cfg.GateMargin, cfg.GateDeadline)
+	}
+	if role == "alice" && punishCutoff(0, cfg.G2Min, cfg.ClaimMargin) == 0 {
+		return nil, fmt.Errorf("a g2 floor of %d leaves no block in which a Punish can go out and be stable before t2 + g2 (it needs more than %d + %d + the claim margin %d)", cfg.G2Min, DeroTxValidity, DefaultStableBlocks, cfg.ClaimMargin)
 	}
 	// U1: the asset is compared byte for byte with what the contract stores, which DERO.GetSC hands back as lower
 	// case hex; a SCID typed in capitals is the same asset and is written the one way
@@ -524,21 +544,78 @@ func deroNet(addr string) string {
 // DeroNetwork is deroNet for the command line's network check.
 func DeroNetwork(addr string) string { return deroNet(addr) }
 
-// checkCode is U4: before the first thing either party puts into the contract, its code must be the htlc.bas this
-// companion was built for. Read once per process; the SCID does not change underneath a swap.
-func (s *Swap) checkCode(ctx context.Context) (bool, error) {
+// checkDeployment is U4 with MT-A03(a) and MT-J13: before the first thing either party puts into the contract, its
+// code must be the htlc.bas this companion was built for and its install arguments inside this party's policy. v3's
+// code hashes the same whatever it was installed with, so the three values are read with it, in one DERO.GetSC, and
+// kept in the state: the Lock's cutoff, the Punish deadline and the Reclaim height are all counted from them. Read
+// once per process; the SCID does not change underneath a swap.
+func (s *Swap) checkDeployment(ctx context.Context) (bool, error) {
 	if s.codeChecked {
 		return true, nil
 	}
-	code, err := s.dero.CodeSHA256(ctx)
+	d, err := s.dero.Deployment(ctx)
 	if err != nil {
 		return false, err
 	}
-	if code != HTLCCodeSHA256 {
-		return false, s.finish("refused", "the contract at "+s.cfg.HTLC+" is not htlc.bas v2: its code hashes to "+code+", and this companion was built for "+HTLCCodeSHA256+"; nothing of this party's was locked in it")
+	if d.CodeSHA256 != HTLCCodeSHA256 {
+		return false, s.finish("refused", "the contract at "+s.cfg.HTLC+" is not htlc.bas v3: its code hashes to "+d.CodeSHA256+", and this companion was built for "+HTLCCodeSHA256+"; nothing of this party's was locked in it")
 	}
+	if why := s.deploymentRefusal(d); why != "" {
+		return false, s.finish("refused", fmt.Sprintf("the htlc.bas v3 at %s was installed with w1min %d, w2min %d and g2 %d: %s; nothing of this party's was locked in it", s.cfg.HTLC, d.W1Min, d.W2Min, d.G2, why))
+	}
+	s.st.Contract = ContractRecord{W1Min: d.W1Min, W2Min: d.W2Min, G2: d.G2}
 	s.codeChecked = true
 	return true, nil
+}
+
+// deploymentRefusal is this party's policy on an install's arguments: "" inside it, otherwise why not.
+//
+//   - Both: an install stores all three; one that stores none is not v3's, whatever its code.
+//   - Bob: htlc.bas v3 refuses a Lock executing at a height h with t1 < h + w1min or t2 < t1 + w2min (line 26), and a
+//     Lock built at the height t1 was decided at executes at most DeroTxValidity − 1 blocks later; the companion allows
+//     DeroTxValidity, one block conservative. His agreed widths must
+//     therefore be at least max(T1Min, w1min + DeroTxValidity) and w2min, or his Lock is refused on chain and its fee
+//     lost; the daemon's estimate, run at height 0, would not say so.
+//   - Alice: g2 is her Punish window, and she refuses one shorter than G2Min. w1min and w2min only add refusals to the
+//     contract that her own checks of the lock already make; a lock that exists met them.
+func (s *Swap) deploymentRefusal(d Deployment) string {
+	if d.W1Min == 0 || d.W2Min == 0 || d.G2 == 0 {
+		return "it stores no w1min, w2min or g2, as every htlc.bas v3 install does"
+	}
+	if s.st.Role == "bob" {
+		floor := s.cfg.T1Min
+		if f := d.W1Min + DeroTxValidity; f > floor {
+			floor = f
+		}
+		if s.st.Terms.T1Delta < floor {
+			return fmt.Sprintf("the agreed t1 width %d is below %d, the least that lets a Lock built now execute %d blocks later and still meet w1min (max(T1Min %d, w1min + %d))", s.st.Terms.T1Delta, floor, DeroTxValidity, s.cfg.T1Min, DeroTxValidity)
+		}
+		if s.st.Terms.T2Delta < d.W2Min {
+			return fmt.Sprintf("the agreed t2 − t1 of %d is below w2min, and the contract would refuse the Lock", s.st.Terms.T2Delta)
+		}
+		return ""
+	}
+	if d.G2 < s.cfg.G2Min {
+		return fmt.Sprintf("g2 %d is below the %d this taker's policy requires: her window to Punish a maker who missed his refund would be shorter than that", d.G2, s.cfg.G2Min)
+	}
+	return ""
+}
+
+// contract is the install this swap runs on, from the state. A state saved before htlc.bas v3 holds none; then it is
+// read now, and only a v3 install of the pinned code is taken, since every window after t2 is counted from its g2.
+func (s *Swap) contract(ctx context.Context) (ContractRecord, error) {
+	if s.st.Contract.G2 != 0 {
+		return s.st.Contract, nil
+	}
+	d, err := s.dero.Deployment(ctx)
+	if err != nil {
+		return ContractRecord{}, err
+	}
+	if d.CodeSHA256 != HTLCCodeSHA256 || d.W1Min == 0 || d.W2Min == 0 || d.G2 == 0 {
+		return ContractRecord{}, fmt.Errorf("this state records no htlc.bas v3 install, and the contract at %s is not one (code %s, w1min %d, w2min %d, g2 %d): the windows after t2 cannot be counted", s.cfg.HTLC, d.CodeSHA256, d.W1Min, d.W2Min, d.G2)
+	}
+	s.st.Contract = ContractRecord{W1Min: d.W1Min, W2Min: d.W2Min, G2: d.G2}
+	return s.st.Contract, s.st.Save()
 }
 
 func (s *Swap) random() io.Reader {
@@ -1085,8 +1162,9 @@ func (s *Swap) stepBob(ctx context.Context) error {
 		return s.save("verified_pi_a")
 
 	case "verified_pi_a":
-		// U4: the contract must be the htlc.bas this companion was built for before anything goes into it
-		if ok, err := s.checkCode(ctx); !ok {
+		// U4, MT-A03(a): the contract must be the htlc.bas this companion was built for, installed with windows his
+		// agreed widths can meet, before anything goes into it
+		if ok, err := s.checkDeployment(ctx); !ok {
 			return err
 		}
 		// Path 0: the stipend is paid to the taker's address, and a transfer to one that never registered is refused
@@ -1119,12 +1197,26 @@ func (s *Swap) stepBob(ctx context.Context) error {
 		// the client gave up waiting for inclusion, so the wait covers both; without it a second Lock goes out
 		// carrying the same hashes, the same taker and the same windows, both mine as separate ids, and the
 		// taker claims both with one s_a and one k_b.
-		if s.resumedPhase == "dero_locking" || st.Lock.AttemptHeight > 0 {
-			if h < st.Lock.settleFrom()+s.cfg.LockSettleBlocks {
+		inFlight := s.resumedPhase == "dero_locking" || st.Lock.AttemptHeight > 0
+		if inFlight && h < st.Lock.settleFrom()+s.cfg.LockSettleBlocks {
+			return nil
+		}
+		c, err := s.contract(ctx)
+		if err != nil {
+			return err
+		}
+		cutoff := lockCutoff(st.Lock.T1, c.W1Min)
+		txid, id, err := s.dero.Lock(ctx, st.Peer.H, st.HK, st.Own.H, st.PeerDero, st.Lock.T1, st.Lock.T2, st.Terms.Asset, st.Lock.Amount, cutoff)
+		if errors.Is(err, ErrLockTooLate) {
+			// MT-A03(a): no lock of this swap's is on the chain, and one built now could execute less than w1min before
+			// t1, where htlc.bas v3 refuses it and keeps the fee. A Lock an earlier attempt sent was built before the
+			// cutoff, so it executes by cutoff + DeroTxValidity or never: until then the lookup may still find it, and
+			// after it "none" is final and nothing of this party's was locked
+			if inFlight && h < cutoff+DeroTxValidity {
 				return nil
 			}
+			return s.finish("refused", fmt.Sprintf("the Lock could no longer be built in time: from height %d a Lock with t1 %d could execute less than the contract's w1min %d before t1, and htlc.bas v3 would refuse it on chain; nothing was locked", cutoff, st.Lock.T1, c.W1Min))
 		}
-		txid, id, err := s.dero.Lock(ctx, st.Peer.H, st.HK, st.Own.H, st.PeerDero, st.Lock.T1, st.Lock.T2, st.Terms.Asset, st.Lock.Amount)
 		if err != nil {
 			// the transaction may be in the pool: record it, and the height it went out at, so the next pass
 			// waits for it to land instead of sending another
@@ -1311,13 +1403,16 @@ func (s *Swap) stepBob(ctx context.Context) error {
 			return s.finish("refunded", "refunded: the DERO is back; s_b is on the chain so alice can recover any XMR she locked")
 		case LockPunished:
 			return s.finish("punished", "punished: alice took the DERO after t2; the refund window was missed")
+		case LockReclaimed:
+			// only this party can Reclaim: his own, sent by another process or by hand, watched to stable depth
+			return s.reclaimSeen(ctx)
 		}
 		h, err := s.dero.Height(ctx)
 		if err != nil {
 			return err
 		}
 		if h >= st.Lock.T2 {
-			s.cfg.Log("bob: past t2 (%d) with the lock still open: only Punish can move it now, and it pays alice whoever sends it", st.Lock.T2)
+			s.cfg.Log("bob: past t2 (%d) with the lock still open: until t2 + g2 only Punish, which pays alice, can move it; from then it is this party's to Reclaim", st.Lock.T2)
 			return s.save("punish_window")
 		}
 		if h < st.Lock.T1 {
@@ -1337,45 +1432,67 @@ func (s *Swap) stepBob(ctx context.Context) error {
 		_ = s.queue(KindDone, doneBody{Outcome: "refunded"})
 		return s.finish("refunded", "refunded: tx "+txid+"; s_b is on the chain so alice can recover any XMR she locked")
 
-	case "punish_window", "closing":
+	case "punish_window", "reclaiming":
 		l, err := s.dero.ReadLock(ctx, st.Lock.ID)
 		if err != nil {
 			return err
 		}
 		switch l.State {
 		case LockPunished:
-			if st.PunishTx != "" {
-				return s.finish("punished", "punished: this companion closed the abandoned lock (tx "+st.PunishTx+"), and htlc.bas v2 paid the DERO to alice, the taker")
-			}
-			return s.finish("punished", "punished: the DERO went to alice after t2; the refund window was missed")
+			return s.finish("punished", "punished: the DERO went to alice in [t2, t2 + g2); the refund window was missed")
 		case LockRefunded:
 			return s.finish("refunded", "refunded")
+		case LockReclaimed:
+			// his own Reclaim, from a pass that did not live to record it (or whose call returned an error after the
+			// transaction went out): watched to stable depth like any other
+			return s.reclaimSeen(ctx)
 		case LockClaimed:
 			return s.claimSeen(ctx, l)
 		}
-		// LIV-07: in v1 a lock the taker never punished stayed open for ever, and this companion waited on it for
-		// ever. v2 pays the taker whoever sends Punish, so after CloseAfter blocks of her silence the maker closes
-		// it himself: it costs him the fee, the DERO was lost to him at t2 either way, and no state is left
-		// waiting on a person.
+		// MT-J13 (htlc.bas v3): past t2 an open lock has two exits left, one after the other. In [t2, t2 + g2) only
+		// Punish, which pays alice: the maker loses the lock only to a timely one, and his companion sends none — under
+		// v2 it closed the lock this way itself (LIV-07), because the DERO was lost to him at t2 either way; under v3 it
+		// is not, and a Punish of his own would pay it away for nothing. From t2 + g2 the lock is his to Reclaim with
+		// s_b, which the contract stores as Refund does, so alice recovers any XMR she locked once he sends it; from then
+		// the lock, and her XMR with it, waits only on him, which is why this companion sends it unattended and watches it
+		// to stable depth. Invariant 9 holds for Reclaim as for Refund: the lock is open, so s_a has not been read.
+		c, err := s.contract(ctx)
+		if err != nil {
+			return err
+		}
 		h, err := s.dero.Height(ctx)
 		if err != nil {
 			return err
 		}
-		if h < st.Lock.T2+s.cfg.CloseAfter {
+		if h < st.Lock.T2+c.G2 {
 			return nil
 		}
-		if st.Phase != "closing" {
-			if err := s.save("closing"); err != nil {
+		// A process that dies after the Reclaim went out and before the next save, or whose call returns an error after
+		// the transaction was sent, finds the lock still open here while that transaction is in the mempool, and sends a
+		// second: one executes, the other is mined and refused, and its fee (FixedFee) is the whole cost
+		// (docs/XMR_SWAP_BUILD.md §3.D).
+		if st.Phase != "reclaiming" {
+			if err := s.save("reclaiming"); err != nil {
 				return err
 			}
 		}
-		txid, err := s.dero.Punish(ctx, st.Lock.ID)
+		txid, err := s.dero.Reclaim(ctx, st.Lock.ID, st.Own.Secret)
 		if err != nil {
 			return err
 		}
-		st.PunishTx = txid
-		s.cfg.Log("bob: closed the abandoned lock with Punish: tx %s; it paid alice, the taker", txid)
-		return s.finish("punished", "punished: this companion closed the abandoned lock (tx "+txid+") at t2 + "+strconv.FormatUint(s.cfg.CloseAfter, 10)+", and htlc.bas v2 paid the DERO to alice, the taker")
+		st.ReclaimTx = txid
+		// U3 for the maker's Reclaim: it is his once DERO can no longer replace its block, and he watches until then
+		if hr, herr := s.dero.Height(ctx); herr == nil {
+			st.Lock.ReclaimSeenHeight = hr
+		}
+		s.cfg.Log("bob: reclaimed the lock nobody punished: tx %s at height %d (t2 + g2 = %d); watching it until it is stable", txid, h, st.Lock.T2+c.G2)
+		return s.save("reclaim_confirming")
+
+	case "reclaim_confirming":
+		return s.confirmReclaim(ctx)
+	}
+	if _, old := v2Phases[st.Phase]; old {
+		return v2PhaseError("bob", st.Phase)
 	}
 	return fmt.Errorf("bob: unknown phase %q", st.Phase)
 }
@@ -1648,12 +1765,17 @@ type LockExpect struct {
 func (s *Swap) witnessCheck(ctx context.Context, l Lock, e LockExpect) (refusal string, wait bool) {
 	for i, w := range s.cfg.Witnesses {
 		name := fmt.Sprintf("DERO node %d of %d", i+2, len(s.cfg.Witnesses)+1)
-		code, err := w.CodeSHA256(ctx)
+		d, err := w.Deployment(ctx)
 		if err != nil {
 			return "", s.witnessWait(name + " cannot be read (" + err.Error() + ")")
 		}
-		if code != HTLCCodeSHA256 {
-			return fmt.Sprintf("%s shows contract code %s, not the pinned htlc.bas v2", name, code), false
+		if d.CodeSHA256 != HTLCCodeSHA256 {
+			return fmt.Sprintf("%s shows contract code %s, not the pinned htlc.bas v3", name, d.CodeSHA256), false
+		}
+		// the install arguments her own node showed, and her policy took, must be every node's (htlc.bas v3's code is
+		// the same for every install, so the code alone does not say which one this is)
+		if got := (ContractRecord{W1Min: d.W1Min, W2Min: d.W2Min, G2: d.G2}); got != s.st.Contract {
+			return fmt.Sprintf("%s shows the contract installed with w1min %d, w2min %d, g2 %d, not the %d, %d, %d her own node shows", name, got.W1Min, got.W2Min, got.G2, s.st.Contract.W1Min, s.st.Contract.W2Min, s.st.Contract.G2), false
 		}
 		wl, err := w.ReadLock(ctx, l.ID)
 		if errors.Is(err, ErrNoSuchLock) {
@@ -1862,8 +1984,9 @@ func (s *Swap) stepAlice(ctx context.Context) error {
 		return s.save("lock_announced")
 
 	case "lock_announced":
-		// U4: the contract must be the htlc.bas this companion was built for, or nothing it stores means anything
-		if ok, err := s.checkCode(ctx); !ok {
+		// U4, MT-J13: the contract must be the htlc.bas this companion was built for, or nothing it stores means
+		// anything, and its g2 at least her policy's, or her Punish window is shorter than she agreed to
+		if ok, err := s.checkDeployment(ctx); !ok {
 			return err
 		}
 		// Invariant 3, first sight: every field of the lock as the chain has it
@@ -2126,21 +2249,154 @@ func (s *Swap) stepAlice(ctx context.Context) error {
 		if h < st.Lock.T2 {
 			return nil
 		}
+		// MT-J13 (htlc.bas v3): Punish has a deadline, t2 + g2. She sends it at once from t2, and none from the cutoff,
+		// after which one could execute, or be stable, only at or past t2 + g2, where the contract refuses it and keeps
+		// the fee. A restart that finds the lock open past the cutoff sends nothing: the lock is bob's to Reclaim from
+		// t2 + g2, and a Reclaim of his puts s_b on the chain, from which she recovers any XMR she locked. Nothing makes
+		// him send one: without it her XMR and his DERO stay locked for ever, which is v3's cost to her, and the reason
+		// her recovery card asks for a Punish in time, from her or from anyone she trusts to send it.
+		c, err := s.contract(ctx)
+		if err != nil {
+			return err
+		}
+		cutoff := punishCutoff(st.Lock.T2, c.G2, s.cfg.ClaimMargin)
+		if h >= cutoff {
+			s.cfg.Log("alice: height %d is past the punish cutoff %d (t2 %d + g2 %d − %d validity − %d stable − %d margin): not punishing; waiting for bob's Reclaim, which puts s_b on the chain (if he never sends one, the XMR locked here and his DERO stay locked for ever)", h, cutoff, st.Lock.T2, c.G2, DeroTxValidity, DefaultStableBlocks, s.cfg.ClaimMargin)
+			return s.save("await_reclaim")
+		}
+		// A process that dies after the Punish went out and before the next save, or whose call returns an error after
+		// the transaction was sent, finds the lock still open here while that transaction is in the mempool, and sends a
+		// second: one executes, the other is mined and refused, and its fee (FixedFee) is the whole cost. Waiting for the
+		// first to settle instead, as the Lock does after a restart, would spend blocks of a window with a deadline
+		// (docs/XMR_SWAP_BUILD.md §3.D).
 		if st.Phase != "punishing" {
 			if err := s.save("punishing"); err != nil {
 				return err
 			}
 		}
-		txid, err := s.dero.Punish(ctx, st.Lock.ID)
+		txid, err := s.dero.Punish(ctx, st.Lock.ID, cutoff)
 		if err != nil {
 			return err
 		}
 		st.PunishTx = txid
-		s.cfg.Log("alice: punished: tx %s", txid)
-		_ = s.queue(KindDone, doneBody{Outcome: "punished"})
-		return s.finish("punished", "punished: took the DERO, tx "+txid+"; any XMR locked stays under the joint key")
+		if hp, herr := s.dero.Height(ctx); herr == nil {
+			st.Lock.PunishSeenHeight = hp
+		}
+		s.cfg.Log("alice: punished: tx %s; watching it until it is stable", txid)
+		return s.save("punish_confirming")
+
+	case "punish_confirming":
+		return s.confirmPunish(ctx)
+
+	case "await_reclaim":
+		// past her Punish cutoff with the lock open: the lock is bob's to Reclaim from t2 + g2, with no deadline, and a
+		// Punish someone else sent in time still pays her. Either way the chain says which, and afterLockMoved acts on it
+		l, err := s.dero.ReadLock(ctx, st.Lock.ID)
+		if err != nil {
+			return err
+		}
+		if l.State != LockOpen {
+			return s.afterLockMoved(ctx, l)
+		}
+		return nil
 	}
 	return fmt.Errorf("alice: unknown phase %q", st.Phase)
+}
+
+// confirmPunish is U3's rule for the taker's Punish (htlc.bas v3): it counts as done only once DERO can no longer
+// replace the block it is in. A Punish undone by a replaced block and re-mined at or after t2 + g2 is refused, and the
+// lock is then bob's to Reclaim; a Punish whose block was replaced before the cutoff is sent again.
+func (s *Swap) confirmPunish(ctx context.Context) error {
+	st := s.st
+	h, err := s.dero.Height(ctx)
+	if err != nil {
+		return err
+	}
+	if st.Lock.PunishSeenHeight == 0 {
+		st.Lock.PunishSeenHeight = h // the Punish's block is at or below the height it is first known at
+		return st.Save()
+	}
+	stable, err := s.dero.StableHeight(ctx)
+	if err != nil {
+		return err
+	}
+	if stable < st.Lock.PunishSeenHeight {
+		return nil
+	}
+	l, err := s.dero.ReadLock(ctx, st.Lock.ID)
+	if err != nil {
+		return err
+	}
+	switch l.State {
+	case LockPunished:
+		_ = s.queue(KindDone, doneBody{Outcome: "punished"})
+		how := "the DERO was paid to this party by a Punish in [t2, t2 + g2)"
+		if st.PunishTx != "" {
+			how = "took the DERO, tx " + st.PunishTx
+		}
+		return s.finish("punished", fmt.Sprintf("punished: %s, stable (stable height %d); any XMR locked stays under the joint key", how, stable))
+	case LockOpen:
+		s.cfg.Log("alice: the punish read at height %d is not on the chain any more: its block was replaced and the lock is open again", st.Lock.PunishSeenHeight)
+		st.Lock.PunishSeenHeight, st.PunishTx = 0, ""
+		return s.save("punish_window")
+	}
+	return s.afterLockMoved(ctx, l)
+}
+
+// reclaimSeen is Bob's move on reading st == 4 from a phase that did not record sending the Reclaim: only the maker may
+// Reclaim, so it is his own, from a pass that died after it went out, or whose call returned an error after the
+// transaction was sent. It is watched to stable depth from the height it was first read at (confirmReclaim).
+func (s *Swap) reclaimSeen(ctx context.Context) error {
+	if s.st.Lock.ReclaimSeenHeight == 0 {
+		h, err := s.dero.Height(ctx)
+		if err != nil {
+			return err
+		}
+		s.st.Lock.ReclaimSeenHeight = h // the Reclaim's block is at or below the height it is first known at
+	}
+	if s.st.ReclaimTx == "" {
+		s.st.ReclaimTx = "(reclaimed; txid not recorded)"
+	}
+	return s.save("reclaim_confirming")
+}
+
+// confirmReclaim is U3's rule for the maker's Reclaim, as confirmPunish is for the taker's Punish: he counts it as done
+// only once DERO can no longer replace the block it is in. A Reclaim undone by a replaced block and not mined again
+// leaves the lock open, and from t2 + g2 nobody but him can move it — Punish has closed, and Reclaim is the maker's — so
+// a companion that had already said "reclaimed" would leave his DERO in the contract, and a taker who had not yet read
+// s_b waiting on him, until someone ran it again. It sends the Reclaim again instead.
+func (s *Swap) confirmReclaim(ctx context.Context) error {
+	st := s.st
+	h, err := s.dero.Height(ctx)
+	if err != nil {
+		return err
+	}
+	if st.Lock.ReclaimSeenHeight == 0 {
+		st.Lock.ReclaimSeenHeight = h
+		return st.Save()
+	}
+	stable, err := s.dero.StableHeight(ctx)
+	if err != nil {
+		return err
+	}
+	if stable < st.Lock.ReclaimSeenHeight {
+		return nil
+	}
+	l, err := s.dero.ReadLock(ctx, st.Lock.ID)
+	if err != nil {
+		return err
+	}
+	switch l.State {
+	case LockReclaimed:
+		_ = s.queue(KindDone, doneBody{Outcome: "reclaimed"})
+		return s.finish("reclaimed", fmt.Sprintf("reclaimed: tx %s after t2 + g2, stable (stable height %d); s_b is on the chain so alice can recover any XMR she locked", st.ReclaimTx, stable))
+	case LockOpen:
+		s.cfg.Log("bob: the reclaim read at height %d is not on the chain any more: its block was replaced and the lock is open again, and only this party can move it now; sending the Reclaim again", st.Lock.ReclaimSeenHeight)
+	}
+	// open again, or — a replaced block having let another exit in first — moved some other way: the window's own
+	// phase sends the Reclaim again, or routes the state the chain now shows
+	st.Lock.ReclaimSeenHeight, st.ReclaimTx = 0, ""
+	return s.save("punish_window")
 }
 
 // refusedBeforeSending are the monero-wallet-rpc codes that mean the wallet turned the request down before it
@@ -2186,17 +2442,31 @@ func (s *Swap) afterLockMoved(ctx context.Context, l Lock) error {
 			s.st.Lock.ClaimSeenHeight = h
 		}
 		return s.save("claim_confirming")
-	case LockRefunded:
-		if err := s.checkRevealed(l.XB); err != nil {
-			return fmt.Errorf("refunded lock: %w", err)
+	case LockRefunded, LockReclaimed:
+		// htlc.bas v3's Reclaim stores s_b in xb_<id> exactly as Refund does, with the same check (sha256(xb) == hb):
+		// for her, st 4 is st 2, and her XMR comes back with no deadline
+		how := "refunded"
+		if l.State == LockReclaimed {
+			how = "reclaimed the lock after t2 + g2"
 		}
-		s.cfg.Log("alice: bob refunded; s_b read from the chain")
+		if err := s.checkRevealed(l.XB); err != nil {
+			return fmt.Errorf("%s lock: %w", lockStateName(l.State), err)
+		}
+		s.cfg.Log("alice: bob %s; s_b read from the chain", how)
 		if s.st.Xmr.LockTx == "" && !s.st.Xmr.LockUnknown {
-			return s.finish("aborted", "bob refunded before any XMR was locked: nothing to recover")
+			return s.finish("aborted", "bob "+how+" before any XMR was locked: nothing to recover")
 		}
 		return s.save("refund_seen")
 	case LockPunished:
-		return s.finish("punished", "punished: took the DERO; any XMR locked stays under the joint key")
+		// whoever sent it, it paid her; it is watched to stable depth as her own Punish is (confirmPunish)
+		if s.st.Lock.PunishSeenHeight == 0 {
+			h, err := s.dero.Height(ctx)
+			if err != nil {
+				return err
+			}
+			s.st.Lock.PunishSeenHeight = h
+		}
+		return s.save("punish_confirming")
 	}
 	return nil
 }

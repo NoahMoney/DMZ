@@ -190,51 +190,77 @@ func TestAStrangerCannotStrandAnAuctionWinnersPayment(t *testing.T) {
 	t.Logf("SETTLED: the stranger's call handed alice the unit for her 5000000 and paid the seller; no bid is held")
 }
 
-// L4, inverted for htlc.bas v2 (LIV-07; this was TestHtlcPastT2NeedsTheTakerOrTheFundsNeverMove). In v1, past t2
-// the only exit was Punish by the named taker and the Refund window had closed, so a taker who stopped answering
-// left the maker's DERO in the contract with no permissionless exit: reproduced with 100,000 DERO still held ten
-// million blocks past t2. v2's Punish may be sent by anyone and still pays only the stored taker, so the same
-// abandoned lock is closed by a stranger with no human on either side, and nothing stays in the contract.
-func TestHtlcPastT2AnyoneClosesTheLockForTheTaker(t *testing.T) {
+// L4, inverted twice (this was TestHtlcPastT2NeedsTheTakerOrTheFundsNeverMove, then
+// TestHtlcPastT2AnyoneClosesTheLockForTheTaker). In v1, past t2 the only exit was Punish by the named taker and the
+// Refund window had closed, so a taker who stopped answering left the maker's DERO in the contract with no
+// permissionless exit: reproduced with 100,000 DERO still held ten million blocks past t2 (LIV-07). v2 let anyone
+// send Punish, for ever. v3 (MT-J13(b), the study's decision 17 (a)) keeps Punish open to anyone, still paying only
+// the taker, for g2 blocks from t2, and from t2 + g2 gives the lock back to its maker when he reveals s_b. So an
+// abandoned lock is closed by a stranger in the taker's window with no human on either side, and one nobody closed
+// then is the maker's to take back, ten million blocks later as at t2 + g2, with s_b left on chain for the taker.
+func TestHtlcPastT2TheLockAlwaysHasAnExit(t *testing.T) {
 	c := harness.New()
 	maker, taker, stranger := c.NewAccount(), c.NewAccount(), c.NewAccount()
-	scid, res := c.Install(readContract(t, "htlc.bas"), nil, nil, maker, harness.MaxStorageGas)
+	scid, res := c.Install(readContract(t, "htlc.bas"), nil, htlcInitArgs(htlcW1min, htlcW2min, htlcG2), maker, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatal(res.Err)
 	}
 	h := "0000000000000000000000000000000000000000000000000000000000000000"
+	sb, hb := preimage(7)
 	t2 := c.Height + 20
-	mustOK(t, c.Call(scid, "Lock", rpc.Arguments{harness.S("ha", h), harness.S("hk", h), harness.S("hb", h),
-		harness.S("taker", taker.String()), harness.U("t1", c.Height+10), harness.U("t2", t2), harness.S("asset", "")},
-		map[crypto.Hash]uint64{zero: 100000}, maker), "lock")
+	for i := 0; i < 2; i++ {
+		mustOK(t, c.Call(scid, "Lock", rpc.Arguments{harness.S("ha", h), harness.S("hk", h), harness.S("hb", hb),
+			harness.S("taker", taker.String()), harness.U("t1", c.Height+10), harness.U("t2", t2), harness.S("asset", "")},
+			map[crypto.Hash]uint64{zero: 100000}, maker), "lock")
+	}
+	punish := func(id uint64, who *rpc.Address) harness.Result {
+		return c.Call(scid, "Punish", rpc.Arguments{harness.U("id", id)}, nil, who)
+	}
 
 	// before t2 a stranger's Punish is refused: the lock is still the taker's to claim or the maker's to refund
 	c.Height = t2 - 1
-	if r := c.Call(scid, "Punish", rpc.Arguments{harness.U("id", 0)}, nil, stranger); r.OK() {
+	if r := punish(0, stranger); r.OK() {
 		t.Fatal("a stranger's Punish before t2 was accepted")
 	}
-	c.Height += 10000000 // abandoned: nobody has touched it for ten million blocks past t2
-	for _, who := range []*rpc.Address{maker, stranger} {
-		if r := c.Call(scid, "Refund", rpc.Arguments{harness.U("id", 0), harness.S("sb", h)}, nil, who); r.OK() {
+	// the last block of the taker's window: a stranger closes lock 0 for her, and is paid nothing
+	c.Height = t2 + htlcG2 - 1
+	r := punish(0, stranger)
+	if !r.OK() || r.Sent(zero, taker) != 100000 || r.Sent(zero, stranger) != 0 || r.Sent(zero, maker) != 0 {
+		t.Fatalf("a stranger's Punish at t2 + g2 - 1: %v; paid taker %d, stranger %d, maker %d", r.Err, r.Sent(zero, taker), r.Sent(zero, stranger), r.Sent(zero, maker))
+	}
+	c.Height = t2 + 10000000 // lock 1 abandoned: nobody has touched it for ten million blocks past t2
+	for _, who := range []*rpc.Address{maker, stranger, taker} {
+		if r := c.Call(scid, "Refund", rpc.Arguments{harness.U("id", 1), harness.S("sb", sb)}, nil, who); r.OK() {
 			t.Fatal("Refund worked past t2")
 		}
-	}
-	if c.U(scid, "st_0") != 0 || c.SCBalance(scid, zero) != 100000 {
-		t.Fatalf("before the close: st %d balance %d", c.U(scid, "st_0"), c.SCBalance(scid, zero))
-	}
-	r := c.Call(scid, "Punish", rpc.Arguments{harness.U("id", 0)}, nil, stranger)
-	if !r.OK() || r.Sent(zero, taker) != 100000 || r.Sent(zero, stranger) != 0 || r.Sent(zero, maker) != 0 {
-		t.Fatalf("a stranger's Punish ten million blocks past t2: %v; paid taker %d, stranger %d, maker %d", r.Err, r.Sent(zero, taker), r.Sent(zero, stranger), r.Sent(zero, maker))
-	}
-	if c.U(scid, "st_0") != 3 || c.SCBalance(scid, zero) != 0 {
-		t.Fatalf("after the close: st %d balance %d", c.U(scid, "st_0"), c.SCBalance(scid, zero))
-	}
-	for _, who := range []*rpc.Address{stranger, maker, taker} {
-		if r := c.Call(scid, "Punish", rpc.Arguments{harness.U("id", 0)}, nil, who); r.OK() {
-			t.Fatal("a second Punish was accepted")
+		if r := punish(1, who); r.OK() {
+			t.Fatal("Punish worked past t2 + g2")
 		}
 	}
-	t.Logf("CLOSED: a stranger's Punish at height %d paid the taker 100000 and left the contract empty; no human on either side acted", c.Height)
+	for _, who := range []*rpc.Address{stranger, taker, nil} {
+		if r := c.Call(scid, "Reclaim", rpc.Arguments{harness.U("id", 1), harness.S("sb", sb)}, nil, who); r.OK() {
+			t.Fatal("Reclaim by someone other than the maker was accepted, with the right s_b")
+		}
+	}
+	if c.U(scid, "st_1") != 0 || c.SCBalance(scid, zero) != 100000 {
+		t.Fatalf("before the maker's reclaim: st %d balance %d", c.U(scid, "st_1"), c.SCBalance(scid, zero))
+	}
+	r = c.Call(scid, "Reclaim", rpc.Arguments{harness.U("id", 1), harness.S("sb", sb)}, nil, maker)
+	if !r.OK() || r.Sent(zero, maker) != 100000 || r.Sent(zero, taker) != 0 || c.S(scid, "xb_1") != sb {
+		t.Fatalf("the maker's Reclaim ten million blocks past t2: %v; paid maker %d, taker %d", r.Err, r.Sent(zero, maker), r.Sent(zero, taker))
+	}
+	if c.U(scid, "st_0") != 3 || c.U(scid, "st_1") != 4 || c.SCBalance(scid, zero) != 0 {
+		t.Fatalf("after both exits: st %d / %d balance %d", c.U(scid, "st_0"), c.U(scid, "st_1"), c.SCBalance(scid, zero))
+	}
+	for _, who := range []*rpc.Address{stranger, maker, taker} {
+		if r := punish(0, who); r.OK() {
+			t.Fatal("a second Punish was accepted")
+		}
+		if r := c.Call(scid, "Reclaim", rpc.Arguments{harness.U("id", 1), harness.S("sb", sb)}, nil, who); r.OK() {
+			t.Fatal("a second Reclaim was accepted")
+		}
+	}
+	t.Logf("CLOSED: a stranger's Punish at t2 + g2 - 1 paid the taker; the maker's Reclaim at height %d took the other lock back and left s_b on chain; the contract is empty", c.Height)
 }
 
 // L6. The same half-application, with an address the creator can never change and never chose: nfa.bas init

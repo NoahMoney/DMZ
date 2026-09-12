@@ -23,6 +23,9 @@ func Reconcile(ctx context.Context, st *State, d Dero, w Wallet) Report {
 	bad := func(f string, a ...interface{}) { r.Diverged = append(r.Diverged, fmt.Sprintf(f, a...)) }
 
 	add("%s, phase %q, done %v, swap %s", st.Role, st.Phase, st.Done, or0(st.SwapID))
+	if why, old := v2Phases[st.Phase]; old && !st.Done {
+		bad("phase %q is htlc.bas v2's (%s): this companion runs htlc.bas v3 swaps only and cannot resume it", st.Phase, why)
+	}
 	if st.Outcome != "" {
 		add("outcome: %s", st.Outcome)
 	}
@@ -145,10 +148,18 @@ func lockStatesFor(st *State) (map[uint64]bool, bool) {
 			return set(LockOpen, LockRefunded), true
 		case "refunded":
 			return set(LockRefunded), true
-		case "punish_window", "closing":
+		case "punish_window", "reclaiming":
+			return set(LockOpen, LockPunished, LockReclaimed), true
+		case "reclaim_confirming":
+			// open again if a replaced block undid his Reclaim, which he then sends again
+			return set(LockOpen, LockReclaimed), true
+		case "closing":
+			// htlc.bas v2's maker closing an abandoned lock with his own Punish: what v2 could reach from there
 			return set(LockOpen, LockPunished), true
 		case "punished":
 			return set(LockPunished), true
+		case "reclaimed":
+			return set(LockReclaimed), true
 		}
 		return nil, false
 	}
@@ -160,9 +171,11 @@ func lockStatesFor(st *State) (map[uint64]bool, bool) {
 	case "claim_confirming", "claimed":
 		return set(LockClaimed), true
 	case "refund_seen", "sweep_ready", "sweeping", "swept", "sweep_unknown", "aborted":
-		return set(LockRefunded), true
-	case "punish_window", "punishing":
+		return set(LockRefunded, LockReclaimed), true
+	case "punish_window", "punishing", "punish_confirming":
 		return set(LockOpen, LockPunished), true
+	case "await_reclaim":
+		return set(LockOpen, LockPunished, LockReclaimed), true
 	case "punished":
 		return set(LockPunished), true
 	}
@@ -234,6 +247,8 @@ func lockStateName(s uint64) string {
 		return "refunded"
 	case LockPunished:
 		return "punished"
+	case LockReclaimed:
+		return "reclaimed"
 	}
 	return fmt.Sprintf("in state %d", s)
 }

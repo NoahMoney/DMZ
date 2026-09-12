@@ -122,16 +122,18 @@ func TestHtlcPunishByAnyonePaysTheTaker(t *testing.T) {
 	}
 	e.empty(t, zero)
 
-	// The audit's reproduction, inverted: a lock abandoned by both sides and ten million blocks past t2 is closed by
-	// a stranger, in the taker's favour, and the contract is empty afterwards.
+	// The audit's reproduction, inverted: a lock abandoned by both sides is closed by a stranger, in the taker's
+	// favour, at the last block of the Punish window, and the contract is empty afterwards. v3 closes the window at
+	// t2 + g2; ten million blocks past t2 the lock is its maker's to Reclaim (htlc_v3_test.go,
+	// TestHtlcPastT2TheLockAlwaysHasAnExit).
 	t1b, t2b := c.Height+10, c.Height+20
 	mustOK(t, e.lock(t1b, t2b, "", dero, e.bob), "lock 3")
-	c.Height += 10000000
+	c.Height = t2b + htlcG2 - 1
 	if r := e.refund(3, e.sb, nil, e.bob); r.OK() {
-		t.Fatal("the maker refunded ten million blocks past t2")
+		t.Fatal("the maker refunded past t2")
 	}
 	if r := e.punish(3, nil, e.carol); !r.OK() || r.Sent(zero, e.alice) != 100000 || r.Sent(zero, e.carol) != 0 {
-		t.Fatalf("stranger's punish ten million blocks past t2: %v", r.Err)
+		t.Fatalf("stranger's punish at the last block of the window: %v", r.Err)
 	}
 	e.empty(t, zero)
 

@@ -250,14 +250,19 @@ cd tools
 go run ./simdeploy -network mainnet -yes -daemon 127.0.0.1:10102 -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
   -pass-name "DMZ Founders Pass" ^
   -pass-descr "Register a pass for a fixed share of the DERO trading fees the treasury claims from DMZ markets. The treasury's bot makes each deposit; no contract forces it. Fees in any asset other than DERO do not reach holders." ^
-  -pass-image https://<your host>/pass.png -pass-price 500000 -pass-max 500 -pass-reserve 50 -pass-share 5000 -pass-mfee 250
+  -pass-image https://<your host>/pass.png -pass-price 500000 -pass-max 500 -pass-reserve 50 -pass-share 5000 -pass-mfee 250 ^
+  -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 <G2, operator decision MT-J13>
 ```
-This installs `factory.bas`, `social.bas`, `founders.bas`, writes `app/config.js` and records the mainnet block
-in `deploy/networks.json`. Verify each SCID on a block explorer before continuing: code hash, treasury, owner.
-Measured on the simulator: factory ≈ 3.0k, social ≈ 2.2k, founders ≈ 12.8k atomic units of storage gas.
-After install, set the factory's treasury (`SetTreasury`) and registration fee (`SetRegFee`) if they need changing,
-then call `Renounce` on `factory.bas` and verify with `DERO.GetSC` that `owner` is absent — at step 5 of "After
-install", once the published app has been checked against those values.
+This installs `factory.bas`, `social.bas`, `founders.bas`, `chat.bas` and the three swap contracts, writes
+`app/config.js` and records the mainnet block in `deploy/networks.json`. Verify each SCID on a block explorer before
+continuing: code hash, treasury, registration fee. Measured on the simulator: factory ≈ 3.0k (v1; v2 is smaller),
+social ≈ 2.2k, founders ≈ 12.8k atomic units of storage gas.
+The factory's treasury and registration fee are the `-w2` address and the `-regfee` of this command, for the life of
+the factory: `factory.bas` v2 has no owner, no setter and no `Renounce` (MT-J15(b), 2026-09-11). Check both before
+the app is published against the factory. A wrong one is answered by installing a new factory and moving the
+listings to it (`simdeploy -migrate-from <old factory>`), never by a call to the old one.
+`htlc.bas` v3 takes `-htlc-w1min`, `-htlc-w2min` and `-htlc-g2`, none with a default; the command refuses to install
+without them.
 
 `-pass-name` and `-pass-descr` are written into `founders.bas` at install and there is no setter and no update
 path: whatever this command line says is on chain for the life of the contract, and `app/nfts.js` renders the
@@ -319,11 +324,10 @@ new SCID, published the same way. Users open an INDEX they have checked with `to
    which a mainnet vault can be signed for today**, and the federation gate above cannot pass. Sealing a mainnet
    vault before a backend exists is what this refusal is there to stop.
 4. Publish: INDEX SCID, factory SCID, template hashes, signer set, caps and viewing keys in one signed post.
-5. Renounce the factory once the treasury and the registration fee are final and the published app has been checked
-   against them: the owner wallet calls `Renounce` on `factory.bas` (no arguments, ring size 2). Read back with
-   `DERO.GetSC` that `owner` is absent and `renounced` holds the height it ran at; the app's message from the dev then
-   reads "Renounced at block N". It cannot be undone and there is no transfer of ownership: from then on nobody can
-   change the treasury or the registration fee, and a wrong treasury can only be answered by a new factory.
+5. Nothing to renounce. `factory.bas` v2 has no owner: the treasury and the registration fee were fixed at install and
+   no function changes them, so the step that used to call `Renounce` here is gone (MT-J15(b)). Read back with
+   `DERO.GetSC` that the factory holds no `owner` key and that `tstr` and `regfee` are the intended values; the app's
+   message from the dev reads "No owner: the treasury and the registration fee were fixed when it was installed".
 6. Start `tools/treasurybot` with `-yes` only after a dry run has printed what it would claim, deposit and pay out.
    It now also calls `PayOwed` for the treasury on every listed NFA running the shipped template: `nfa.bas` owes its
    protocol fee instead of sending it, and nothing else ever moves that balance out of the contract.
@@ -472,8 +476,8 @@ go run ./release -verify <published manifest.json> -binaries <the binaries you d
 
 - every contract the record names is, byte for byte, `reference.Canon` of its source;
 - every market in the factory registry runs a template the record accepts;
-- no deployer role survives: not the factory owner after `Renounce`, not a vault owner after `Seal`, and not the TELA
-  INDEX owner;
+- no deployer role survives: the factory has no owner (`factory.bas` v2 stores none), there is no vault owner after
+  `Seal`, and there is no TELA INDEX owner;
 - the INDEX serves exactly the app's files.
 
 An INDEX passes only if it was installed above ring 2 (`telainstall -ringsize 16`, stored owner "anon"). A ring-2

@@ -41,13 +41,14 @@ holds it until a reveal.
 5. Bob reads `s_a`, forms `s_a + s_b`, imports the joint wallet with that spend key and **sweeps** the XMR to
    his own address.
 
-### The three exits, and who ends with what
+### The four exits, and who ends with what
 
 | Path | Condition | Who calls | Reveals | Result |
 |---|---|---|---|---|
 | **Claim** | height < T1, `SHA256(s_a)=H_a`, `SHA256(k_b)=H_k`, caller is the taker | Alice | `s_a` | Alice: DERO. Bob: XMR (via `s_a+s_b`). The swap. |
 | **Refund** | T1 ≤ height < T2, `SHA256(s_b)=H_b`, caller is the maker | Bob | `s_b` | Bob: DERO back. Alice, if she locked: XMR back (via `s_a+s_b`). |
-| **Punish** | height ≥ T2; anyone may send it, and it pays the taker (v2) | Alice, or anyone | nothing | Alice: the DERO. Bob: nothing — he had [T1,T2) to refund and did not. Any XMR Alice locked stays locked to the joint key forever (she is compensated in DERO; Bob cannot take it without `s_a`). |
+| **Punish** | T2 ≤ height < T2 + g2; anyone may send it, and it pays the taker (v2, LIV-07); refused from T2 + g2 (v3) | Alice, or anyone | nothing | Alice: the DERO. Bob: nothing — he had [T1,T2) to refund and did not. Any XMR Alice locked stays locked to the joint key forever (she is compensated in DERO; Bob cannot take it without `s_a`). |
+| **Reclaim** | height ≥ T2 + g2, no end; `SHA256(s_b)=H_b`, caller is the maker (v3) | Bob | `s_b`, in `xb_<id>` as Refund stores it | Bob: DERO back, late. Alice, if she locked: XMR back (via `s_a+s_b`), with no deadline. Nobody punished in time. |
 
 Why the gate secret: without `k_b`, Alice could claim DERO the moment Bob locked, never having locked XMR. Bob
 hands over `k_b` only after Monero has confirmed her lock. A claim delay instead of a gate secret was reviewed
@@ -59,6 +60,16 @@ to recover her XMR. `s_b` on chain gives her `s_a + s_b`.
 Why Punish exists: if Bob neither sends `k_b` nor refunds, Alice would otherwise be stuck with locked XMR and no
 DERO. Punish makes doing nothing cost Bob the DERO, so he refunds (revealing `s_b`) instead.
 
+Why Punish ends and Reclaim follows (v3, MT-J13(b), `docs/ATOMIC_SWAP_STUDY.md` §5 decision 17 (a)): in v2 a lock
+nobody punished was closed by anyone's Punish, for ever. In v3 Punish is open for `g2` blocks from T2 (an install
+argument; 4,800 proposed, pending the operator), and from T2 + g2 the lock is the maker's to Reclaim with `s_b`. Bob
+loses the lock only to a timely Punish; a Reclaim reveals `s_b` exactly as a Refund does, so an Alice who was away for
+the whole window recovers her XMR once Bob reclaims. **What v3 costs the taker is that her Punish has a deadline, and
+that past it her XMR depends on Bob.** Her companion sends it at once from T2 and none from T2 + g2 − (11 + 8 +
+margin); anyone may send it for her; the recovery card prints the window's last block and wakes her machine before T2.
+If nobody punishes by T2 + g2 and Bob never reclaims — hostile, or having lost his state or `s_b` — her XMR and his DERO
+stay locked for ever; under v2 she could Punish at any time after T2 (`docs/XMR_SWAP.md` §2, §10).
+
 ### Timelocks (DERO blocks, 18 s)
 
 | Constant | Value | Reason |
@@ -67,8 +78,19 @@ DERO. Punish makes doing nothing cost Bob the DERO, so he refunds (revealing `s_
 | `T2_MIN` | T1 + 400 blocks (~2 h more), at most T1 + 1,200 | Bob's refund window |
 | Monero confirmations before `k_b` | 20 by default (`DefaultConfirmations`); refused below 10, the `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE` | below ten the output cannot be spent anyway; above it, a reorganisation deeper than the depth Bob chose could still unwind Alice's lock after he has released the gate, and Monero has no bound on that depth (invariant 10) |
 
-The companion refuses to participate in a lock whose T1/T2 are below these; the contract enforces ordering
-(`t1 > now + 1`, `t2 > t1`, both ≤ now + 1,000,000) and leaves the minimums to the client — they are policy.
+The companion refuses to participate in a lock whose T1/T2 are below these. The contract enforces ordering
+(`t1 > now + 1`, `t2 > t1`, both ≤ now + 1,000,000) and, since v3 (MT-A03(a)), the minimum widths too: a Lock is
+refused when `t1 < height + w1min` or `t2 < t1 + w2min`, with `w1min` and `w2min` fixed at install (the profile's 400
+and 400) and `height` the block the Lock *executes* in. DERO mines a transaction at most 10 blocks after it is built
+(`vendor/derohe/blockchain/blockchain.go:748`, `miner_block.go:275`: a block takes one only while its height minus the
+transaction's is below `TX_VALIDITY_HEIGHT` = 11); the companion counts 11, one block conservative. The daemon's
+estimator runs the contract at height 0 and cannot see a narrow Lock. So Bob's companion accepts no t1 width below
+max(T1_MIN, w1min + 11) — 411 at the profile — and builds no Lock at all from `t1 − w1min − 10`. 411 is the contract's
+least with no slack: at exactly 411 the Lock can be built only at the height the windows were decided at, so one block
+arriving before the Lock reads the height makes his companion refuse (`ErrLockTooLate`, nothing sent), and Alice's
+first-sight check (`t1 − now ≥ T1_MIN`) leaves the Lock 11 blocks to be mined and read. The profile's default of 420 is
+what leaves room: 10 heights to build at, 20 blocks for her check. The companion's own floors still apply on top of the
+contract's.
 
 ---
 
@@ -96,12 +118,15 @@ Extend `contracts/swap.bas` (read it first; keep its conventions: `Initialize`, 
 `HEXDECODE` of a 64-hex secret to 32 raw bytes, `HEX(SHA256(raw))` compared to the stored hex hash).
 
 ```
-Initialize()                                   kind = "htlc", v = 2, n = 0
+Initialize(w1min Uint64, w2min Uint64, g2 Uint64)   kind = "htlc", v = 3, n = 0, and the three stored (v3)
+    each 1..1000000 and w1min + w2min <= 999999, or nothing is installed. The same code with other values hashes
+    the same, so each companion reads all three with the code and refuses an install outside its policy.
 Lock(ha String, hk String, hb String, taker String, t1 Uint64, t2 Uint64, asset String) Uint64
     ha, hk, hb: 64 LOWER-CASE hex chars each (v2: HEX(HEXDECODE(x)) == x, as swap.bas and board.bas).
     taker: REQUIRED (an address; "" is refused — Punish pays it).
-    now + 1 < t1 < t2 <= now + 1000000. asset: "" = the DERO sent, else 64-hex SCID and ASSETVALUE(a) > 0 with
-    DEROVALUE() == 0. Stores m_<id> t_<id> ha_<id> hk_<id> hb_<id> a_<id> v_<id> t1_<id> t2_<id> st_<id>=0; n++.
+    now + 1 < t1 < t2 <= now + 1000000, and (v3) t1 >= now + w1min, t2 >= t1 + w2min, "now" being the height the
+    Lock executes at. asset: "" = the DERO sent, else 64-hex SCID and ASSETVALUE(a) > 0 with DEROVALUE() == 0.
+    Stores m_<id> t_<id> ha_<id> hk_<id> hb_<id> a_<id> v_<id> t1_<id> t2_<id> st_<id>=0; n++.
 Claim(id Uint64, sa String, kb String) Uint64
     st == 0, height < t1, SIGNER() == taker, both 64-hex, HEX(SHA256(HEXDECODE(sa))) == ha, same for kb/hk,
     no DERO and none of the lock's asset attached. st = 1, xa_<id> = sa, then pay taker.
@@ -109,9 +134,18 @@ Refund(id Uint64, sb String) Uint64
     st == 0, t1 <= height < t2, SIGNER() == maker, HEX(SHA256(HEXDECODE(sb))) == hb, nothing attached.
     st = 2, xb_<id> = sb, pay maker.
 Punish(id Uint64) Uint64
-    st == 0, height >= t2, a valid ring-2 signer — ANY signer (v2, LIV-07) — nothing attached.
+    st == 0, t2 <= height < t2 + g2 (v3), a valid ring-2 signer — ANY signer (v2, LIV-07) — nothing attached.
     st = 3, pay the stored taker t_<id>.
+Reclaim(id Uint64, sb String) Uint64                (v3)
+    st == 0, height >= t2 + g2 with no end, SIGNER() == maker, HEX(SHA256(HEXDECODE(sb))) == hb, nothing attached.
+    st = 4, xb_<id> = sb (where Refund stores it), pay maker.
 ```
+
+v3 (2026-09-12; MT-J13(b), MT-A03(a)) adds the install arguments, the Lock width refusal, Punish's end at t2 + g2 and
+Reclaim, and nothing else: Claim and Refund are v2's byte for byte, so their gas and the stipend are unchanged. Install
+storage gas is 5,177 at 400/400/2,400; a Reclaim is 231 storage gas, the size of a Refund (`tests/htlc_v3_test.go`).
+The companion pins v3's canonical hash `b785028d…` and, with it, reads `w1min`, `w2min` and `g2` from every configured
+node (`Deployment`, `checkDeployment`).
 
 v2 (2026-09-11) changes three rules and nothing else. **Punish pays `t_<id>` whoever sends it** (LIV-07: in v1 only
 the taker could, and a lock she never punished was frozen for ever). **Lock refuses a hash that is not lower-case**
@@ -126,7 +160,7 @@ uint64 wraps silently, `LOAD` of a missing key panics (guard with `EXISTS`), `SI
 install gas is charged on source bytes against 20,000 (comments are stripped by `reference.Canon` at install; the
 harness measures the canonical form). **Every `SEND_*` must come after the last `GOTO 900` on its path** —
 `tests/sendorder_test.go` fails the suite otherwise, and that ordering was a reproduced fund drain elsewhere.
-`DEROVALUE() != 0`, and `ASSETVALUE` of the lock's asset, are refused on Claim/Refund/Punish so nothing is stranded; an
+`DEROVALUE() != 0`, and `ASSETVALUE` of the lock's asset, are refused on Claim/Refund/Punish/Reclaim so nothing is stranded; an
 asset of any other SCID cannot be seen by the DVM, so the companion never attaches one.
 
 ### 3.B `poc/proof-xmr` as a tool
@@ -211,12 +245,13 @@ documented example addresses) — not from your own encoder. Use `filippo.io/edw
 type Dero interface {
     Height(ctx) (uint64, error)
     StableHeight(ctx) (uint64, error)
-    Lock(ctx, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount uint64) (txid string, id uint64, err error) // asset "" = DERO (U1)
+    Lock(ctx, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount, cutoff uint64) (txid string, id uint64, err error) // asset "" = DERO (U1); no new Lock at h >= cutoff = t1 − w1min − 10 (MT-A03(a))
     Claim(ctx, id uint64, sa, kb string, cutoff uint64) (string, error) // nothing sent at h + 1 >= cutoff (XMR-06)
     Refund(ctx, id uint64, sb string) (string, error)
-    Punish(ctx, id uint64) (string, error)
+    Punish(ctx, id uint64, cutoff uint64) (string, error) // nothing sent at h >= cutoff = t2 + g2 − (11 + 8 + margin) (MT-J13)
+    Reclaim(ctx, id uint64, sb string) (string, error)    // v3: the maker, from t2 + g2, at FixedFee
     ReadLock(ctx, id uint64) (Lock, error)   // every field, including xa/xb when revealed and st
-    CodeSHA256(ctx) (string, error)           // U4: the contract's code, hashed
+    Deployment(ctx) (Deployment, error)       // U4 + MT-A03(a): the code's hash and w1min, w2min, g2, in one DERO.GetSC
     Registered(ctx, addr string) (bool, error)
     Balance(ctx, asset string) (uint64, error)
     Pay(ctx, to string, amount, port uint64) (string, error)                            // the stipend, port-tagged
@@ -227,13 +262,38 @@ type Channel interface { Send(ctx, to string, msg Message) error; Recv(ctx) (Mes
 type Message struct { Kind string; Body json.RawMessage }   // kinds: offer, alice_setup, bob_setup, dero_locked, xmr_locked, gate, done
 // state.go — durable, fsync+rename, loaded strictly (mirror tools/vaultsigner's memory/intents)
 // swap.go — two state machines
-//   Bob:   setup → verified_pi_a(code pin, taker registered, funds) → dero_locking → dero_locked → stipend_sending → watching_xmr → xmr_confirmed(≥20)
+//   Bob:   setup → verified_pi_a(code pin + install policy, taker registered, funds) → dero_locking(no Lock past its cutoff) → dero_locked → stipend_sending → watching_xmr → xmr_confirmed(≥20)
 //          → gate_sending → gate_sent → claimed(read s_a, stable) → sweep_ready → swept | refund_window → refunding → refunded
-//          | punish_window → closing(Punish himself after t2 + 20) → punished
-//   Alice: setup(registered) → offer_checked → verified_pi_b → lock_announced(code pin) → saw_dero_lock(stable, stipend stable) → xmr_locking
+//          | punish_window(sends no Punish of his own) → reclaiming(from t2 + g2) → reclaim_confirming(until stable) → reclaimed | punished
+//   Alice: setup(registered) → offer_checked → verified_pi_b → lock_announced(code pin + g2 floor) → saw_dero_lock(stable, stipend stable) → xmr_locking
 //          → xmr_locked → gate_received(before t1 − G) → claiming → claim_confirming(until stable) → claimed
-//          | await_refund → refund_seen(read s_b) → sweep_ready → swept | punish_window → punishing → punished
+//          | await_refund → refund_seen(read s_b; st 2 or st 4) → sweep_ready → swept
+//          | punish_window(at once from t2) → punishing → punish_confirming(until stable) → punished | await_reclaim(past the punish cutoff) → refund_seen
 ```
+
+**Exits watched to stable depth.** Alice counts her Claim and her Punish, and Bob his Reclaim, only once the block
+holding it is 8 deep (`claim_confirming`, `punish_confirming`, `reclaim_confirming`). One undone by a replaced block and
+not mined again is sent again while its window allows: a Claim before the claim cutoff, a Punish before the punish
+cutoff, a Reclaim at any time, since from t2 + g2 only the maker can move the lock (`TestTakerWatchesHerClaimUntilStable`,
+`TestTakerWatchesHerPunishUntilStable`, `TestMakerWatchesHisReclaimUntilStable`). Bob's Refund is not watched so.
+
+**A crash between a sent Punish or Reclaim and its record costs a fee, not coins.** `punishing` and `reclaiming` are
+saved before the call and its result after it. A companion killed in between, or whose call returned an error after the
+transaction went out, finds the lock still open on its next pass while that transaction is in the mempool, and sends
+the call again: one executes, the other is mined and refused (st is no longer 0), and its fee, 3,000 atomic units
+(`FixedFee`), is lost. The Lock's guard does not fit these two. Its `pending` memory lives in the process and does not
+survive a crash; what protects the Lock across a restart — a settle wait (`LockSettleBlocks`), then the idempotent
+lookup — would spend blocks of Alice's Punish window, which has a deadline, so that a Punish which never went out could
+miss it. The exits' fee re-send already puts a second transaction out while the first may be pending (§4, R24), and
+those re-sends are made inside the client with no durable record, so no restart could know when the last of them might
+still be mined; for Bob's Reclaim, which has no deadline, a wait would cost only time, but it would need that record.
+Nothing but the fee is at stake: every exit requires st 0, so at most one executes.
+
+**A swap begun on htlc.bas v2 is not resumed by this build.** The command line refuses at start any contract whose code
+is not v3's (U4), and a state file in `closing` — v2's maker closing an abandoned lock with his own Punish, a phase v3
+does not have — is refused by name (`v2Phases`, `TestAV2SwapInFlightIsRefusedByName`), and `xmrswap status` reports it
+as a divergence. v2 was installed only on the simulator (`deploy/networks.json` never recorded a testnet or mainnet
+htlc), so this strands no testnet or mainnet swap; finish a simulator swap begun on v2 with the build that started it.
 
 Invariants (§4) are asserted in tests, not assumed. `cmd/xmrswap` runs one side: `VEIL_RPC_LOGIN=<u>:<p>
 XMRSWAP_MONERO_LOGIN=<u>:<p> xmrswap bob|alice -state <file> -net <network> -daemon <rpc> -dero <wallet-rpc>
@@ -354,26 +414,43 @@ Added 2026-09-11 from `docs/ATOMIC_SWAP_STUDY.md` and the mainnet gap analysis:
     from any error a server makes of the request (`redact.go`; `TestNoSecretReachesTheCompanionsOutput`,
     `TestTheClientsWithholdSecretsFromTheirErrors`).
 23. **The taker gets a recovery card before her XMR moves, and a wake** (U9, MT-B15). The card names the state file as
-    a secret, prints the resume command, and gives every height — the claim cutoff, t1 − G, t1, t2 — as a clock time
-    at 18 s a block. The companion then asks the OS to wake the machine ten minutes before the first window closes:
-    a Windows Task Scheduler task with WakeToRun (run here, `TestRegisterWakeOnThisOS`), a systemd user timer with
-    WakeSystem on Linux (not run here), and on macOS nothing, because only root can schedule a wake there.
+    a secret, prints the resume command, and gives every height — the claim cutoff, t1 − G, t1, t2, the last height
+    her companion sends Punish at and the Punish window's last block (t2 + g2 − 1) — as a clock time at 18 s a block,
+    and says that past t2 + g2, with no Punish on the chain, her XMR comes back only if the maker Reclaims, and that
+    anyone she trusts may send the Punish for her. The companion then asks the OS to wake the machine ten minutes before the first window closes and again ten
+    minutes before t2, when her Punish window opens (MT-J13): a Windows Task Scheduler task with WakeToRun (run here,
+    `TestRegisterWakeOnThisOS`), a systemd user timer with WakeSystem on Linux (not run here), and on macOS nothing,
+    because only root can schedule a wake there. A finished swap removes both.
 24. **`-htlc` defaults to the record, never past the pin** (MT-A18). Omitted, it is the scid deploy/networks.json
     records for the daemon's DERO network (compiled in by `go generate ./xmrswap`, checked against the file by
     `TestRecordedHTLCIsTheDeployRecord`); given or recorded, the companion refuses it at start unless its code is the
-    pinned htlc.bas v2.
+    pinned htlc.bas v3 and every `-daemon` shows the same code and install arguments.
 25. **The mainnet policy is one file** (MT-B16, BL-27). `tools/xmrswap/mainnet_profile.json` holds T1Min, the default
-    t1, T1Max, T2Min, the default T2 − T1, T2Max, the confirmation floor and tiers, G, k and the stipend floor; the
-    companion's defaults are generated from it (`go generate ./xmrswap` writes `profile_gen.go`), and
-    `profile_test.go` fails when the file, the generated constants and the defaults disagree, and checks the t1 rule
-    at every tier. Each value an operator decision still holds open is marked there with its MT-J number.
+    t1, T1Max, T2Min, the default T2 − T1, T2Max, the confirmation floor and tiers, G, k, the stipend floor, and
+    htlc.bas v3's install arguments w1min, w2min and g2; the companion's defaults are generated from it
+    (`go generate ./xmrswap` writes `profile_gen.go`), and `profile_test.go` fails when the file, the generated
+    constants and the defaults disagree, checks the t1 rule at every tier, and checks that every tier's t1 meets
+    max(T1Min, w1min + 11). Each value an operator decision still holds open is marked there with its MT-J number (g2:
+    MT-J13).
+26. **htlc.bas v3's install is read and held to policy, and its windows are kept** (MT-A03(a), MT-J13). Each party
+    reads the code's hash and `w1min`, `w2min`, `g2` in one `DERO.GetSC` (`Deployment`), from every configured node,
+    before anything of its own goes in (`checkDeployment`). Bob refuses an install his agreed widths cannot meet
+    (T1Delta below max(T1Min, w1min + 11), or T2Delta below w2min) and builds no Lock from `t1 − w1min − 10`, since the
+    height-0 estimator would pass one the chain refuses (`TestMakerRefusesAnInstallHisWidthsCannotMeet`,
+    `TestBobBuildsNoLockPastTheCutoff`). Alice refuses a `g2` below her floor (`TestTakerRefusesAShortPunishWindow`),
+    punishes at once from t2, sends none from t2 + g2 − (11 + 8 + margin), and counts it only once stable
+    (`TestTakerPastHerPunishCutoffWaitsForTheReclaim`, `TestTakerWatchesHerPunishUntilStable`). Bob sends no Punish of
+    his own, Reclaims from t2 + g2 and counts it only once stable (`TestMakerReclaimsALockNobodyPunished`,
+    `TestMakerWatchesHisReclaimUntilStable`); Alice treats st 4 exactly as st 2, which returns her XMR only if Bob
+    reclaims: past t2 + g2 with no Punish, a Bob who never does leaves it, and his DERO, locked for ever.
 
 Policy the companion states rather than proves (review R18, R19, R24): it warns loudly when `-daemon` or
 `-monero` is not loopback, because a lying node is the one loss the protocol cannot see; it converts remaining
 DERO blocks to minutes at the rate it has actually observed since the lock and refuses to lock XMR when the
 remaining budget is below what its own path needs; and a height-gated call whose fixed fee does not mine is
 re-sent with a higher fee — a Claim while `now + 1 < t1 − 8 − margin`, the claim cutoff itself (XMR-06), a Refund
-while `now < t2` — then abandoned for the exit that remains.
+while `now < t2`, a Punish while `now < t2 + g2 − (11 + 8 + margin)` (MT-J13) — then abandoned for the exit that
+remains. A Reclaim has no end and is re-sent until Resends is spent.
 
 ---
 

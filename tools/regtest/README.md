@@ -257,6 +257,100 @@ tools/regtest/stagenet-down.sh [--wipe]
   - Run `stagenet-up.sh` again for a fresh reading. It computes the rate over the last five readings, so the estimate
     follows the current speed, and appends to `.sim/stagenet/progress.tsv`.
 
+### The stagenet swap run (MT-B19) — prepared, waiting for the sync
+
+The three exits (happy, refund, punish) of the DERO ↔ Monero swap, with the Monero side on stagenet and the DERO side
+on the simulator (wallets 30006 bob and 30007 alice; check nothing else is using them first). Nothing here runs
+against a node that is still syncing: the wallet script creates no wallet, monerod's `start_mining` answers `BUSY`
+(`core_rpc_server.cpp` `on_start_mining` → `CHECK_CORE_READY`, which is `is_synchronized()`, v0.18.5.1), and
+`simhtlc -stagenet` refuses before it touches the DERO side.
+
+```sh
+tools/regtest/stagenet-wallets-up.sh            # two monero-wallet-rpc: alice 127.0.0.1:38088, bob 127.0.0.1:38087
+tools/regtest/stagenet-wallets-up.sh --create   # once synced: create xmrswap-stagenet-alice and -bob at the tip, print both addresses
+tools/regtest/stagenet-wallets-down.sh          # stop both; the wallet files stay in WSL at $HOME/.dmz-regtest/stagenet-wallets
+```
+
+- **The wallets.** The pinned monero-wallet-rpc 0.18.5.1, checked against `MONERO_WALLET_RPC_SHA256` before it starts;
+  `--stagenet`, so it refuses a daemon on any other network; `--daemon-address 127.0.0.1:38081 --trusted-daemon` (our
+  own node); RPC bound to 127.0.0.1 with no login, as in the regtest harness (the companion warns about it off mainnet).
+  The script starts nothing unless a daemon answers `nettype: stagenet`, and creates the wallets only once it answers
+  `synchronized: true`, so they start at the tip and never scan the chain from an old height. Ports:
+  `STAGENET_WALLET_RPC_PORT` and `STAGENET_WALLET_RPC_PORT2`. A port already taken is used only if what holds it is
+  shown to be exactly this: its command line inside WSL (`pgrep -af`) names the pinned binary with `--stagenet`,
+  `--rpc-bind-ip 127.0.0.1` and that port, and its running image (`/proc/<pid>/exe`) hashes to the pin; anything else
+  is refused. `stagenet-wallets-down.sh` stops only such a process, found by the pid file the launcher wrote (or, when
+  that is gone, by its command line), and leaves anything else on those ports alone.
+- **What alice needs.** Each exit locks 0.05 XMR (`simhtlc -stagenet`'s default `-amount-xmr`, 50,000,000,000
+  piconero), and the driver sets aside 0.001 XMR a exit for the fee: 0.153 XMR she can spend, in at least three
+  outputs of 0.051 XMR or more. With fewer, a later exit waits up to 10 blocks (20 min) for an earlier one's change
+  to unlock; the driver says so before it starts, and refuses outright when the spendable total is short.
+
+**Where the stagenet XMR comes from** — the operator's choice; neither has been used.
+
+1. **Mining on our own node** (no outside service). Once synced:
+   ```sh
+   curl -s http://127.0.0.1:38081/start_mining -d '{"miner_address":"<alice address>","threads_count":8,"do_background_mining":false,"ignore_battery":true}'
+   curl -s http://127.0.0.1:38081/mining_status   # speed (H/s) and the difficulty being mined at
+   curl -s http://127.0.0.1:38081/stop_mining -d '{}'
+   ```
+   - *Reward.* At least 0.6 XMR a block: the tail subsidy, `FINAL_SUBSIDY_PER_MINUTE` 3·10¹¹ piconero × 2 minutes
+     (`cryptonote_config.h:56`; `cryptonote_basic_impl.cpp:88-91`). One block pays for the whole run. A coinbase is
+     spendable only 60 blocks later (`CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW`, `cryptonote_config.h:44`): about 2 h.
+   - *Difficulty.* The node read 104,846 at height 635,167 (2026-09-12 04:01Z, still syncing). The tip's difficulty
+     is known only once synced (`get_info` `difficulty`); it is what stagenet's hash rate makes it, about network
+     H/s × 120 (`DIFFICULTY_TARGET_V2`, window 720 blocks).
+   - *This CPU.* An AMD Ryzen 7 5700X, 8 cores / 16 threads, 31.9 GB. It is not in tevador's RandomX table (fast
+     mode, 2,080 MiB): a Ryzen 7 1700, also 8 cores, does 4,100 H/s, an i9-9900K 5,770. Its own speed is what
+     `mining_status` reports. Expected time to one block is difficulty ÷ H/s: 26 s at the difficulty above and 4,100
+     H/s; 4 min if the tip is ten times harder; 43 min at a hundred times. Whether a CPU is practical is decided by
+     those two numbers read after the sync.
+   - *Time.* Time to a block, then 60 blocks (≈ 2 h) to unlock, then the split below (≈ 20 min).
+2. **A public faucet** (an outside service, paying to alice's address). The two in the Monero docs
+   (docs.getmonero.org/infrastructure/networks): XMR-TW, https://stagenet-faucet.xmr-tw.org/ — its page, fetched
+   2026-09-12, states no amount, limit or captcha; CypherFaucet, https://cypherfaucet.com/xmr-stagenet — unreachable
+   when tried on 2026-09-12 (a timeout, then HTTP 522). *Time:* a payout is an ordinary transfer, spendable after 10
+   blocks (≈ 20 min), plus the faucet's own queue, which neither states.
+
+**Split alice's funds** into separate outputs, then wait 10 blocks (≈ 20 min):
+```sh
+curl -s http://127.0.0.1:38088/json_rpc -d '{"jsonrpc":"2.0","id":"0","method":"open_wallet","params":{"filename":"xmrswap-stagenet-alice","password":""}}'
+curl -s http://127.0.0.1:38088/json_rpc -d '{"jsonrpc":"2.0","id":"0","method":"transfer","params":{"destinations":[
+  {"amount":60000000000,"address":"<alice address>"},{"amount":60000000000,"address":"<alice address>"},
+  {"amount":60000000000,"address":"<alice address>"},{"amount":60000000000,"address":"<alice address>"}]}}'
+```
+
+**The run** (one process; it runs the exits one after the other, and logs every DERO and Monero txid with where the
+simulator and the stagenet node have it):
+```sh
+cd tools && go run ./simhtlc -stagenet -htlc <the simulator's recorded htlc.bas> -prover "<proof-xmr command>" 2>&1 | tee <tmp>/stagenet-run.log
+```
+`-stagenet` defaults to the mainnet profile's numbers: 20 real confirmations, t1 420 and t2 400 DERO blocks, G 100,
+stable depth and claim margin 8; 0.05 XMR an exit, a 5 s round, 6 h per exit. The simulator's recorded `htlc.bas` v3
+was installed with the profile's w1min 400, w2min 400 and g2 4,800, so t1 420 clears its floor of max(400, 400 + 11).
+`-paths reorg-before,reorg-after,unlock` are regtest-only and refused.
+
+| exit | what bounds it | wall clock |
+|---|---|---|
+| happy | the DERO lock and the stipend, each stable (about 20 DERO blocks, 6 min); alice's lock mined plus 20 confirmations, 21 stagenet blocks, mean 42 min, σ ≈ 9 min under the exponential model the profile's t1 rule uses; the gate, the Claim stable (3 min), bob's sweep | about 50–60 min. The gate must go out before t1 − G, lock + 320 DERO blocks (about 96 min) |
+| refund | bob away until t1, lock + 420 DERO blocks (2 h 6 min at 18 s); his Refund; alice's recovery sweep of an output long unlocked | about 2 h 15 min |
+| punish | t2 = t1 + 400 (4 h 6 min from the lock); alice's Punish at once from t2, watched to stable depth; her 0.05 XMR stays at the joint address | about 4 h 15 min |
+
+About 7.5 h for the three in sequence; they share wallets 30006 and 30007, so they cannot overlap. The simulator mines
+a block at once when a transaction waits, so the DERO-bounded times are upper estimates.
+
+**Done, for MT-B19:**
+- all three exits end as they should: happy with alice claimed and bob swept; refund with bob refunded and alice's
+  recovery swept; punish with alice punished and the lock at st 3;
+- the contract holds 0 after each exit;
+- every Monero txid (alice's locks, bob's sweep, alice's recovery) is found on the stagenet node and every DERO txid
+  on the simulator, as the run prints;
+- `set_daemon` accepted and never refused;
+- the run is written to `research/regtest/xmrswap-stagenet.log` with `<repo>` and `<tmp>` for machine paths, and
+  `go test ./hygiene` passes;
+- nothing is left behind: no simhtlc or xmrswap process, no `xmrswap-*` scheduled task, and
+  `stagenet-wallets-down.sh` run.
+
 ### Zcash testnet (zebrad 6.3.0) — syncing
 
 ```sh

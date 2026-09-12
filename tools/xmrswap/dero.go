@@ -28,17 +28,27 @@ type Dero interface {
 	// carries them is this swap's lock, and the client returns it instead of locking the DERO a second time.
 	// That is the same rule vaultsigner holds its backends to (look the payment up before paying). txid is ""
 	// when the lock was found rather than sent. asset is "" for DERO or the 64-hex SCID of the asset the lock
-	// holds instead (U1); amount is in that asset's atomic units.
-	Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount uint64) (txid string, id uint64, err error)
+	// holds instead (U1); amount is in that asset's atomic units. cutoff is the first height at which no new Lock
+	// transaction is built (lockCutoff): htlc.bas v3 measures t1 − w1min against the height the Lock executes at, up
+	// to DeroTxValidity blocks after it was built, and the estimator cannot see that (it runs at height 0), so a
+	// Lock built later could be refused on chain and its fee lost. The lookup for this swap's lock is made at any
+	// height; at or past the cutoff with none found, nothing is sent and the error wraps ErrLockTooLate.
+	Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount, cutoff uint64) (txid string, id uint64, err error)
 	// Claim sends nothing, first time or re-send, at a height h with h + 1 >= cutoff: cutoff is the caller's
 	// claimCutoff(t1, margin), so the client's re-send policy and the state machine's cutoff are one rule (XMR-06).
 	Claim(ctx context.Context, id uint64, sa, kb string, cutoff uint64) (string, error)
 	Refund(ctx context.Context, id uint64, sb string) (string, error)
-	Punish(ctx context.Context, id uint64) (string, error)
+	// Punish sends nothing, first time or re-send, at a height h >= cutoff: cutoff is the caller's punishCutoff(t2,
+	// g2, margin), so that nothing it sends can execute at or after t2 + g2, where htlc.bas v3 refuses it.
+	Punish(ctx context.Context, id uint64, cutoff uint64) (string, error)
+	// Reclaim is htlc.bas v3's maker exit from t2 + g2, with Refund's arguments: it pays the maker and stores s_b in
+	// xb_<id>, as Refund does.
+	Reclaim(ctx context.Context, id uint64, sb string) (string, error)
 	ReadLock(ctx context.Context, id uint64) (Lock, error) // every field, including xa/xb when revealed and st
-	// CodeSHA256 is the SHA-256 of the contract's code exactly as the daemon stores it: what U4 compares with the
-	// htlc.bas this companion was built for (HTLCCodeSHA256), so a look-alike contract is refused before any lock.
-	CodeSHA256(ctx context.Context) (string, error)
+	// Deployment is the contract's code hash and its three install arguments, read in one DERO.GetSC: what U4 and
+	// checkDeployment compare with the htlc.bas this companion was built for and with its own policy, so a look-alike
+	// contract, or the right code installed with windows outside the policy, is refused before any lock.
+	Deployment(ctx context.Context) (Deployment, error)
 	// Registered says whether addr has an account on this chain. A transfer to an unregistered address is refused,
 	// so a maker cannot pay the stipend to one (Path 0).
 	Registered(ctx context.Context, addr string) (bool, error)
@@ -74,9 +84,9 @@ type Lock struct {
 	Amount uint64
 	T1     uint64
 	T2     uint64
-	State  uint64 // 0 open, 1 claimed, 2 refunded, 3 punished
+	State  uint64 // 0 open, 1 claimed, 2 refunded, 3 punished, 4 reclaimed
 	XA     string // s_a, present once claimed
-	XB     string // s_b, present once refunded
+	XB     string // s_b, present once refunded or reclaimed
 }
 
 // Lock states as htlc.bas stores them in st_<id>.
@@ -85,7 +95,56 @@ const (
 	LockClaimed  uint64 = 1
 	LockRefunded uint64 = 2
 	LockPunished uint64 = 3
+	// LockReclaimed is htlc.bas v3's fourth exit: nobody punished in [t2, t2 + g2), and the maker took the lock back
+	// with s_b, which the contract stores in xb_<id> exactly as a Refund does. For the taker it is a refund.
+	LockReclaimed uint64 = 4
 )
+
+// DeroTxValidity is TX_VALIDITY_HEIGHT (vendor/derohe/blockchain/miner_block.go:43). A block takes a transaction only
+// while the block's height minus the transaction's height — the wallet's tip when it built it — is below it
+// (blockchain.go:748, miner_block.go:275), so a DERO transaction built at height h is mined by h + 10 or never. The
+// companion counts 11, one block conservative: htlc.bas v3 measures a Lock's width and a Punish's deadline at the height
+// the call executes, so it builds each only while its last possible execution height is inside the rule with a block
+// to spare.
+const DeroTxValidity uint64 = 11
+
+// ErrLockTooLate is Lock's answer when no lock of this swap's was found and the height is at or past the cutoff: no
+// transaction was sent.
+var ErrLockTooLate = errors.New("too late to build the Lock: nothing was sent")
+
+// lockCutoff is the first height at which the maker builds no Lock: one built at h executes by h + DeroTxValidity,
+// and htlc.bas v3 refuses it unless t1 ≥ its execution height + w1min (line 26). So it goes out only while
+// h + DeroTxValidity + w1min ≤ t1, and a maker who decides t1 = h + T1Delta needs T1Delta ≥ w1min + DeroTxValidity.
+func lockCutoff(t1, w1min uint64) uint64 {
+	if t1+1 <= DeroTxValidity+w1min {
+		return 0
+	}
+	return t1 + 1 - DeroTxValidity - w1min
+}
+
+// punishCutoff is the first height at which the taker sends no Punish (MT-J13): htlc.bas v3 refuses one executing at
+// or after t2 + g2, a transaction built at h executes by h + DeroTxValidity, and hers counts only once it is stable, 8
+// blocks deep, with margin on top. From here she waits for the maker's Reclaim, which reveals s_b.
+func punishCutoff(t2, g2, margin uint64) uint64 {
+	if t2+g2 <= DeroTxValidity+DefaultStableBlocks+margin {
+		return 0
+	}
+	return t2 + g2 - DeroTxValidity - DefaultStableBlocks - margin
+}
+
+// Deployment is what identifies an htlc.bas install (MT-A03(a), MT-J13): the code, hashed as stored, and the three
+// values it was installed with. A value the contract does not store reads as 0, which no v3 install has.
+type Deployment struct {
+	CodeSHA256 string
+	W1Min      uint64 // the least t1 − the Lock's execution height the contract accepts
+	W2Min      uint64 // the least t2 − t1
+	G2         uint64 // the Punish window: Punish in [t2, t2 + g2), Reclaim from t2 + g2
+}
+
+// HTLCInstallArgs are htlc.bas v3's Initialize arguments, for a driver that installs it.
+func HTLCInstallArgs(w1min, w2min, g2 uint64) []Arg {
+	return []Arg{argU("w1min", w1min), argU("w2min", w2min), argU("g2", g2)}
+}
 
 // ErrNoSuchLock is returned by ReadLock for an id the contract has not allocated.
 var ErrNoSuchLock = errors.New("no such lock")
@@ -449,6 +508,34 @@ func (c *DeroRPC) CodeSHA256(ctx context.Context) (string, error) {
 	return SHA256Hex([]byte(r.Code)), nil
 }
 
+// Deployment reads the contract's code and its install arguments in one DERO.GetSC (code:true and keysstring; derod
+// answers both in one reply, rpc_dero_getsc.go), so the hash and the values describe the same state. A key the
+// contract does not store — a v2 install has none of the three — reads as 0.
+func (c *DeroRPC) Deployment(ctx context.Context) (Deployment, error) {
+	keys := []string{"w1min", "w2min", "g2"}
+	var r struct {
+		Code   string   `json:"code"`
+		Values []string `json:"valuesstring"`
+	}
+	params := map[string]interface{}{"scid": c.SCID, "code": true, "variables": false, "keysstring": keys}
+	if err := c.call(ctx, c.Daemon, "DERO.GetSC", params, &r); err != nil {
+		return Deployment{}, err
+	}
+	if r.Code == "" {
+		return Deployment{}, fmt.Errorf("DERO.GetSC: no code at %s", c.SCID)
+	}
+	if len(r.Values) != len(keys) {
+		return Deployment{}, fmt.Errorf("DERO.GetSC: %d keys asked for, %d values answered", len(keys), len(r.Values))
+	}
+	d := Deployment{CodeSHA256: SHA256Hex([]byte(r.Code))}
+	for i, dst := range []*uint64{&d.W1Min, &d.W2Min, &d.G2} {
+		if v, err := strconv.ParseUint(r.Values[i], 10, 64); err == nil {
+			*dst = v
+		}
+	}
+	return d, nil
+}
+
 func (c *DeroRPC) randomAddress(ctx context.Context) (string, error) {
 	var r struct {
 		Address []string `json:"address"`
@@ -582,18 +669,19 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// Install puts htlc.bas (already passed through reference.Canon by the caller) on the chain and returns its
-// scid, verifying the code landed. The estimator refuses some code with a graviton bucket panic (simrpc R-16);
-// storage gas for an install is the code size plus a few hundred units, so that case is fee'd by size.
-func (c *DeroRPC) Install(ctx context.Context, signer, code string) (scid string, storageGas uint64, err error) {
-	g, err := c.estimate(ctx, signer, code, nil, nil)
+// Install puts htlc.bas (already passed through reference.Canon by the caller) on the chain with its Initialize
+// arguments (HTLCInstallArgs; htlc.bas v3 refuses an install without them) and returns its scid, verifying the code
+// landed. The estimator refuses some code with a graviton bucket panic (simrpc R-16); storage gas for an install is
+// the code size plus a few hundred units, so that case is fee'd by size.
+func (c *DeroRPC) Install(ctx context.Context, signer, code string, args ...Arg) (scid string, storageGas uint64, err error) {
+	g, err := c.estimate(ctx, signer, code, nil, args)
 	if err != nil && strings.Contains(err.Error(), "Bucket cannot start") {
 		g, err = gas{GasStorage: uint64(len(code)) + 512}, nil
 	}
 	if err != nil {
 		return "", 0, err
 	}
-	txid, err := c.submit(ctx, code, nil, nil, g.GasStorage+200)
+	txid, err := c.submit(ctx, code, nil, args, g.GasStorage+200)
 	if err != nil {
 		return "", 0, err
 	}
@@ -860,7 +948,7 @@ func (c *DeroRPC) FindLock(ctx context.Context, makerRaw, ha, hk, hb string) (Lo
 	return Lock{}, false, nil
 }
 
-func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount uint64) (string, uint64, error) {
+func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount, cutoff uint64) (string, uint64, error) {
 	if asset != "" && !isHash(asset) {
 		return "", 0, fmt.Errorf("asset %q is not a 64 lower-case hex SCID", asset)
 	}
@@ -890,6 +978,15 @@ func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uin
 		return "", 0, err
 	} else if found {
 		return "", l.ID, nil
+	}
+	// MT-A03(a): the daemon's estimate below runs at height 0 and passes a Lock the chain will refuse for its width, so
+	// this is the only check before the fee is spent
+	h, err := c.Height(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	if h >= cutoff {
+		return "", 0, fmt.Errorf("%w: at height %d a Lock with t1 %d could execute less than w1min before t1 (lock cutoff %d)", ErrLockTooLate, h, t1, cutoff)
 	}
 	dest, err := c.randomAddress(ctx)
 	if err != nil {
@@ -924,27 +1021,30 @@ func (c *DeroRPC) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uin
 	return txid, l.ID, nil
 }
 
-// exit sends one of the three exits and proves it executed by reading st_<id> back: a call the contract refuses
+// exit sends one of the four exits and proves it executed by reading st_<id> back: a call the contract refuses
 // is still mined, so inclusion alone would be a lie. A transaction that does not mine within Timeout is sent
 // again at double the fee, Resends times at most, while its window is open (canResend). A Claim is not sent at
-// all, first time included, once height + 1 >= cutoff.
+// all, first time included, once height + 1 >= cutoff, and a Punish once height >= cutoff.
 func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg, want uint64, estimated bool, cutoff uint64) (string, error) {
 	all := append([]Arg{argS("entrypoint", entry), argU("id", id)}, args...)
 	fee := c.FixedFee
 	if fee == 0 {
 		fee = 3000
 	}
-	if entry == "Claim" {
+	if entry == "Claim" || entry == "Punish" {
 		h, err := c.Height(ctx)
 		if err != nil {
 			return "", err
 		}
-		if h+1 >= cutoff {
+		if entry == "Claim" && h+1 >= cutoff {
 			return "", fmt.Errorf("Claim not sent: at height %d it could be mined inside the last blocks before t1 (claim cutoff %d)", h, cutoff)
+		}
+		if entry == "Punish" && h >= cutoff {
+			return "", fmt.Errorf("Punish not sent: at height %d it could execute, or become stable, at or after t2 + g2, where htlc.bas v3 refuses it (punish cutoff %d)", h, cutoff)
 		}
 	}
 	if !estimated {
-		// Refund and Punish cannot be estimated, so a call on a lock that has already moved would be mined, refused
+		// Refund, Punish and Reclaim cannot be estimated, so a call on a lock that has already moved would be mined, refused
 		// and paid for. One read first saves that fee. A read that fails does not stop the send: a maker who cannot
 		// read must still refund (refundBlind), and the contract refuses the call harmlessly if it is late.
 		if l, err := c.ReadLock(ctx, id); err == nil && l.State != LockOpen {
@@ -1010,7 +1110,8 @@ func (c *DeroRPC) exit(ctx context.Context, id uint64, entry string, args []Arg,
 
 // canResend is the policy of §4: a height-gated call is re-sent only while it can still be mined and be stable
 // inside its window — a Claim while h + 1 < cutoff, which is claimCutoff(t1, margin), the very height the state
-// machine stops sending Claims at; a Refund while h < t2; Punish has no end. XMR-06: the Claim rule was once
+// machine stops sending Claims at; a Refund while h < t2; a Punish while h < cutoff, which is punishCutoff(t2, g2,
+// margin), since htlc.bas v3 refuses it from t2 + g2; Reclaim has no end. XMR-06: the Claim rule was once
 // h + 8 + 1 < t1, which with the default margin let a re-send out at eight heights inside the band [t1 − 16, t1)
 // that the margin exists to keep empty.
 func canResend(entry string, h uint64, l Lock, cutoff uint64) bool {
@@ -1019,6 +1120,8 @@ func canResend(entry string, h uint64, l Lock, cutoff uint64) bool {
 		return h+1 < cutoff
 	case "Refund":
 		return h < l.T2
+	case "Punish":
+		return h < cutoff
 	}
 	return true
 }
@@ -1033,9 +1136,16 @@ func (c *DeroRPC) Refund(ctx context.Context, id uint64, sb string) (string, err
 	return c.exit(ctx, id, "Refund", []Arg{argS("sb", sb)}, LockRefunded, false, 0)
 }
 
-// Punish is the same call from whoever sends it: htlc.bas v2 pays the stored taker whatever the signer (LIV-07).
-func (c *DeroRPC) Punish(ctx context.Context, id uint64) (string, error) {
-	return c.exit(ctx, id, "Punish", nil, LockPunished, false, 0)
+// Punish is the same call from whoever sends it: htlc.bas pays the stored taker whatever the signer (LIV-07), in
+// [t2, t2 + g2) only since v3. Nothing is sent at or past cutoff.
+func (c *DeroRPC) Punish(ctx context.Context, id uint64, cutoff uint64) (string, error) {
+	return c.exit(ctx, id, "Punish", nil, LockPunished, false, cutoff)
+}
+
+// Reclaim is the maker's exit from t2 + g2 (htlc.bas v3), with Refund's arguments. The estimator runs at height 0,
+// where it is always refused (0 < t2 + g2), so it goes out at FixedFee as Refund and Punish do.
+func (c *DeroRPC) Reclaim(ctx context.Context, id uint64, sb string) (string, error) {
+	return c.exit(ctx, id, "Reclaim", []Arg{argS("sb", sb)}, LockReclaimed, false, 0)
 }
 
 // --- DERO addresses ---

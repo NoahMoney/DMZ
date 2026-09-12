@@ -20,7 +20,7 @@ Read this table before anything else. "Runs" means it has been driven end to end
 | Token markets (AMM and bonding curve) | **Runs on the simulator** | `pool.bas`, `launch.bas`, priced in DERO or in a wrapped asset |
 | Assets (NFA, ART-NFA-MS1) | **Runs on the simulator** | `nfa.bas`: one contract per asset, its own marketplace, priced in any quote |
 | Founders Pass | **Runs on the simulator** | `founders.bas`: mint, register, rewards, its own marketplace — **DERO fees only**, see §6 |
-| DERO ↔ XMR atomic swap | **Runs on real Monero node software, in regtest** | `htlc.bas` v2 and `tools/xmrswap`: all three exits, run twice against monerod and monero-wallet-rpc 0.18.5.1 (regtest) and the DERO simulator; a real reorganisation before and after the gate; and a whole swap from the command line as two separate processes. **No public Monero network yet**, and the proof is unaudited |
+| DERO ↔ XMR atomic swap | **Runs on real Monero node software, in regtest** | `htlc.bas` v3 and `tools/xmrswap`, against monerod and monero-wallet-rpc 0.18.5.1 (regtest) and the DERO simulator. On v3 (2026-09-12), all three exits and a whole swap from the command line as two separate processes. On v2 before it, the three exits twice and a real reorganisation before and after the gate. v3's fourth exit, the maker's Reclaim, has run only in the DVM and unit tests. **No public Monero network yet**, and the proof is unaudited |
 | Transparent-Zcash swap market | **Runs on real Zcash node software, in regtest** | `swap.bas` v2 and `board.bas` v3 run on the simulator. `tools/zecswap` completed three swaps against zebrad 6.3.0 (regtest) and the DERO simulator, handled three real reorganisations, and ran a full swap and a refund from the command line as separate processes. **No public Zcash network yet** |
 | Wrapped XMR / ZEC (the federation) | **Simulator only; not deployed on mainnet** | `vault.bas` is fully tested. The only backend that exists is a JSON file, and the mainnet build offers no wrapped asset (§4) |
 | Chat, profiles, follows | **Runs on the simulator** | `chat.bas`, `social.bas` |
@@ -211,7 +211,7 @@ application decides what is verified by hashing the code against the templates i
 | An atomic swap | Your own nodes' answers, your own companion, and being online (or having a machine online) at your window | Miss your window and the other side's exit opens. A node that lies to you **and** works with your counterparty can cost you your whole side of the swap, so run your own (`docs/CROSS_CHAIN_TRUST_MODEL.md` §5). Nobody else can take your coins, and no lock is ever frozen: after its last deadline anyone may close it, and it pays the taker |
 | Your first transaction on DERO | Whoever sells you DERO for its fee | DERO takes every fee from a DERO payload, so a holder who arrives with only XMR or ZEC must get a little DERO first — today, from an exchange |
 | An NFA staying what you bought | Its creator, for ever — and its owner too while `ownerCanUpdate` is set | They can rewrite its file, file-signature, cover, icon and tag URLs at any time (`contracts/nfa.bas`, `Update`); its name, its hashes and its collection cannot change |
-| The registry's settings | The factory's owner key, until it calls `Renounce` | `SetTreasury` and `SetRegFee`. `Renounce` deletes the owner for good, and after it nobody can change either. The app shows which state the factory is in |
+| The registry's settings | Nobody | `factory.bas` v2 fixes the treasury and the registration fee at install, and has no owner and no setter. A different treasury or fee would take a new factory. The app shows which factory it reads |
 | The application itself | Whoever publishes the TELA index | A republished application could lie about anything on screen |
 
 The last row is the one with no cryptographic answer today: the publisher key can republish for ever, and the
@@ -301,8 +301,8 @@ the Monero swap's three exits, `simswap` for the Zcash market's DERO leg, `simnf
 rebuilds that config and the distributable bundle; `telainstall` publishes the bundle as TELA documents. The
 runbook and its go/no-go gates are in `deploy/README.md`.
 
-The factory's owner key ends with `Renounce`, which the runbook calls once the treasury and the registration fee
-have been read back. The federation is not part of a mainnet deployment. The gates that are still unmet are listed
+The factory has no owner key: its treasury and registration fee are fixed when it is installed, and the runbook
+reads them back before the app is published against it. The federation is not part of a mainnet deployment. The gates that are still unmet are listed
 in `docs/MAINNET_SECURITY_GATE.md`.
 
 ## 11. House rules

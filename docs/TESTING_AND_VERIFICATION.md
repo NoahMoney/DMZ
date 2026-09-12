@@ -11,7 +11,7 @@ when this page was written.*
 
 | Suite | What it covers | Command | Result |
 |---|---|---|---|
-| **DVM contract suite** | every contract, run by derohe's own DVM. It covers unit tests, adversarial and liveness cases, randomized conservation, the static send-order and payee-order checks, the install-gas cap, entrypoint lists and the shipped templates | `tools/withlock.sh dvm bash tests/run.sh -v` | **169 runs, 0 failures**, `ok … 71.6s` (`.sim/dvm-final2-0911.log`), including the `htlc.bas` conservation test |
+| **DVM contract suite** | every contract, run by derohe's own DVM. It covers unit tests, adversarial and liveness cases, randomized conservation, the static send-order and payee-order checks, the install-gas cap, entrypoint lists and the shipped templates | `tools/withlock.sh dvm bash tests/run.sh -v` | **175 runs, 0 failures**, `ok … 82.3s` on go1.26.8 (`.sim/dvm-v3-0912.log`, 2026-09-12), on `factory.bas` v2 and `htlc.bas` v3, including the `htlc.bas` conservation test |
 | **Browser arithmetic and sanitisers** | the app's AMM and launch maths against the Go reference; name sanitising; impersonation marks; the copy pinned to `app/notice.js` | `node --test tests/js` | **44 of 44** |
 | `tools/treasurybot` | fee claims, pass deposits, `PayOwed` only for NFAs running the shipped template | `go test -v ./treasurybot` | **18 passed** |
 | `tools/vaultsigner` | the federation daemon (simulator only): refusal of the file backend off the simulator, exactly-once payouts | `go test -v ./vaultsigner` | **18 passed** |
@@ -24,8 +24,8 @@ when this page was written.*
 | **UI pass, normal** | every screen at 390, 768 and 1024 px on the final simulator record | `tools/withlock.sh ui env PW_DIR=<playwright> node tools/uitest/ui.mjs <url> .sim/ui-final-0911` | **UI TEST OK**; no horizontal overflow |
 | **UI pass, mainnet-shaped** | the same app under a config with network "mainnet" and no vault | the same, with `--mainnet` | **UI TEST OK (mainnet-shaped)**; "requests that left this device: none" |
 | **UI pass, wallet flows** | signing through a real XSWD wallet; the network gate; every outcome check | `ui.mjs --wallet` | **UI TEST OK** (`.sim/ui-wallet-2`). It found one real defect, fixed in this pass: a successful factory registration was reported as "did not execute" |
-| **Deployment verification** | the final simulator record against this source | `go run ./verifydeploy -network simulator -app ../app -allow factory.owner=…` | **31 PASS, 13 WARN, 1 ALLOWED, no failure** (`research/release/verifydeploy-final-sim.log`) |
-| **Factory Renounce, live** | a stranger refused; the owner ends ownership; a second run is a no-op | `research/release/simdeploy-renounce-sim.log` | as described; `owner` absent and `renounced` = 552 |
+| **Deployment verification** | the final simulator record against this source: `factory.bas` v2 and `htlc.bas` v3 (installed with w1min 400, w2min 400, g2 4800) | `go run ./verifydeploy -network simulator -app ../app`, with no `-allow`: the v2 factory has no owner | **31 PASS, 13 WARN, no failure**, 2026-09-12 (`research/release/verifydeploy-final-sim.log`). The WARNs are 11 legacy template hashes the app still accepts and the vault's signers (k = 2 of 3, by design) |
+| **Factory v2, no owner** | no function but `Initialize` writes the treasury or the fee; every former owner entrypoint is gone; the simulator's markets moved onto a v2 factory with `-migrate-from` | `TestFactoryFixedAtInstall`, `TestFactoryOldEntrypointsAreGone`, `TestFactoryHasNoOwnerToTransferOrRenounce`; the simulator record | green; all 6 listings migrated (2 pools, 3 launches, 1 NFA) |
 | **An immutable TELA INDEX, live** | an INDEX at ring 16: owner `"anon"`; `UpdateCode` from the installer mined and without effect | `research/release/tela-anon-index.log` | as described |
 | **Reproducible builds** | xmrswap and zecswap for five platforms | `go run ./release -out …`; `-verify` | two build paths **byte-identical**; `-verify` **68 of 68** (`research/release/reproducible-build.log`, go1.26.2). **Re-run on go1.26.8, 2026-09-12**, from a clean commit with the bundle regenerated: 10 binaries, `dirty=false`, `-verify` **62 of 62** (`research/release/reproducible-build-go1268.log`) |
 | **Zcash swap, live on the simulator** | `swap.bas` v2 and `board.bas` v3 on the final code: a Claim sent by a third wallet pays the taker; a narrow lock refused on chain; a refund; the acceptance deadline; the escrow empty at the end | `tools/simswap` | **exit 0**; every txid in the contracts agent's report, summarised in `MAINNET_TODO.md` MT-A04 and MT-A05 |
@@ -37,6 +37,12 @@ when this page was written.*
 - **Punish:** the maker's asset paid to the taker; her XMR stays under the joint key, by design.
 
 0 DERO was left in the contract after every exit, and the balance changes match the wallets' own records. Run 2 named the monerod after every wallet open: 55 `set_daemon` calls accepted. Every txid is in `research/regtest/xmrswap-e2e.log` |
+| **Monero swap on real regtest, `htlc.bas` v3** | the same three exits on v3, whose Punish is accepted only in [t2, t2 + g2) and whose fourth exit is the maker's Reclaim | `tools/simhtlc -regtest`, which installs its own v3 at w1min 10, w2min 6, g2 30 | **all three exits**, 2026-09-12, 46 min:
+- **Happy:** Alice's claim was stable at 965; Bob's sweep is in monerod block 7128.
+- **Refund:** Alice's recovery sweep is in block 7824.
+- **Punish:** stable at 1086. Her XMR stays under the joint key, by design.
+
+0 DERO was left after each exit. The run was made before the review's fixes, which changed the Reclaim path and the wording, not these three exits. **Reclaim has not run live**: only the DVM suite and the unit tests cover it. Every txid is in `research/regtest/xmrswap-e2e.log`, run 3 |
 | **Zcash swap on real regtest** | fund, claim (v5 and v6), the DERO Claim, a refund, the pre-signed refund | `ZECSWAP_REGTEST=1 go test -run TestRegtestEndToEnd ./zecswap` | **three swaps as intended** on zebrad 6.3.0 and the DERO simulator:
 - A: a v5 claim, with the maker's companion sending the away taker's DERO Claim;
 - B: a v6 claim, whose secret the taker's own watcher read;
@@ -65,7 +71,7 @@ Every txid is in `research/regtest/zecswap-e2e.log`. Swap C was rerun after a fi
 | Contract invariants | the conservation suite; the send-order and payee-order static checks; the gas-cap test | green |
 | Cryptographic vectors | RFC 7693 BLAKE2b; ZIP 244; Monero's published reference keys; the proof's own run (`research/crosschain/poc/proof-xmr/run.log`) | green. The proof is **unaudited** |
 | Cross-chain settlement | the regtest runs of both swaps | in progress |
-| Adversarial (directive §26) | the `zz*` suites, among them anonymous callers, stray value, forged callers against every owner path (`TestFactoryRenounce`), rounding and boundaries (`zzsplitpay`, `zzdvmarith`, `zzextreme`, `uint128`), griefing (`zzadv_market`), and the data-source attacks (`TestOneLyingZcashNodeBlocksTheReveal`, `TestOneLyingDeroNodeBlocksTheFunding`). "Mint without a deposit" does not apply: nothing mints against a deposit on mainnet | green |
+| Adversarial (directive §26) | the `zz*` suites, among them anonymous callers, stray value, forged callers against every former owner path (`TestFactoryOldEntrypointsAreGone`, `TestFactoryHasNoOwnerToTransferOrRenounce`), rounding and boundaries (`zzsplitpay`, `zzdvmarith`, `zzextreme`, `uint128`), griefing (`zzadv_market`), and the data-source attacks (`TestOneLyingZcashNodeBlocksTheReveal`, `TestOneLyingDeroNodeBlocksTheFunding`). "Mint without a deposit" does not apply: nothing mints against a deposit on mainnet | green |
 
 ---
 

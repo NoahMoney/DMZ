@@ -26,19 +26,27 @@ type fakePayment struct {
 	height         uint64
 }
 
-// fakeChain is htlc.bas v2's rules in memory: the same checks, in the same order, at a height the test moves. It
+// fakeChain is htlc.bas v3's rules in memory: the same checks, in the same order, at a height the test moves. It
 // backs both the in-process Dero used by the state-machine tests and the HTTP daemon used by the client test.
 type fakeChain struct {
 	mu     sync.Mutex
 	height uint64
 	locks  []Lock
-	txSeq  uint64
+	// w1min, w2min and g2 are the install's arguments (htlc.bas v3 lines 13-15): Lock refuses t1 < its execution
+	// height + w1min or t2 < t1 + w2min, Punish is open in [t2, t2 + g2), Reclaim from t2 + g2
+	w1min, w2min, g2 uint64
+	txSeq            uint64
 	// mined maps a txid to the height it was included at, for DERO.GetTransaction
 	mined map[string]uint64
 	// claimedAt is the height each lock's Claim was mined at, the fact Invariant 9's test compares the sweep against
 	claimedAt map[uint64]uint64
 	// flaky, when non-nil, decides whether a call fails after taking effect (a timeout after the send)
 	flaky func() bool
+	// execDelay, when non-nil, is how many blocks after its build height memDero executes a contract call (a Lock or
+	// an exit): DERO mines a transaction at most 10 blocks after the height it was built at (blockchain.go:748), and
+	// htlc.bas v3 checks a Lock's width and a Punish's deadline at the height the call executes. The chain moves on by
+	// that many blocks before the call runs. Called under mu.
+	execDelay func() uint64
 	// stuckBelowFee, when set, makes the HTTP daemon hold any transfer with a lower fee in its pool for ever
 	// (DERO.GetTransaction reports in_pool): the fee re-send's trigger
 	stuckBelowFee uint64
@@ -58,9 +66,14 @@ type fakeChain struct {
 // testStableDepth is DERO's STABLE_LIMIT, which the fakes mirror: stable height = height − 8.
 const testStableDepth = 8
 
+// noCutoff is a Lock or Punish cutoff no height reaches, for a client test about something else; the cutoffs have
+// tests of their own.
+const noCutoff = ^uint64(0)
+
 func newFakeChain(height uint64) *fakeChain {
 	return &fakeChain{height: height, mined: map[string]uint64{}, claimedAt: map[uint64]uint64{}, pool: map[string]bool{},
-		codeHash: HTLCCodeSHA256, codeText: "Function Initialize() Uint64\n10 RETURN 0\nEnd Function\n",
+		w1min: testW1Min, w2min: testW2Min, g2: testG2,
+		codeHash: HTLCCodeSHA256, codeText: "Function Initialize(w1min Uint64, w2min Uint64, g2 Uint64) Uint64\n10 RETURN 0\nEnd Function\n",
 		unregistered: map[string]bool{}, balances: map[string]uint64{}}
 }
 
@@ -140,6 +153,9 @@ func (c *fakeChain) lock(h uint64, makerRaw, ha, hk, hb, taker string, t1, t2 ui
 	if t1 <= h+1 || t2 <= t1 || t2 > h+1000000 {
 		return Lock{}, errors.New("timelocks")
 	}
+	if t1 < h+c.w1min || t2 < t1+c.w2min {
+		return Lock{}, errors.New("widths below w1min/w2min")
+	}
 	if taker == "" {
 		return Lock{}, errors.New("taker required")
 	}
@@ -192,17 +208,61 @@ func (c *fakeChain) refund(h uint64, signerRaw string, id uint64, sb string) err
 	return nil
 }
 
-// punish is htlc.bas v2: from t2 anyone with a signer may send it, and it pays the stored taker (LIV-07).
+// punish is htlc.bas v3: in [t2, t2 + g2) anyone with a signer may send it, and it pays the stored taker (LIV-07);
+// from t2 + g2 it is refused (line 25).
 func (c *fakeChain) punish(h uint64, signerRaw string, id uint64) error {
 	if id >= uint64(len(c.locks)) {
 		return errors.New("no such lock")
 	}
 	l := &c.locks[id]
-	if l.State != LockOpen || h < l.T2 || signerRaw == "" {
+	if l.State != LockOpen || h < l.T2 || h >= l.T2+c.g2 || signerRaw == "" {
 		return errors.New("punish refused")
 	}
 	l.State = LockPunished
 	return nil
+}
+
+// reclaim is htlc.bas v3's Reclaim: the maker, from t2 + g2 with no end, with s_b, stored in xb_<id> as Refund does.
+func (c *fakeChain) reclaim(h uint64, signerRaw string, id uint64, sb string) error {
+	if id >= uint64(len(c.locks)) {
+		return errors.New("no such lock")
+	}
+	l := &c.locks[id]
+	if l.State != LockOpen || h < l.T2+c.g2 || signerRaw != l.Maker {
+		return errors.New("reclaim refused")
+	}
+	if hsb, ok := sha256hexOf(sb); !ok || hsb != l.HB {
+		return errors.New("sb")
+	}
+	l.State, l.XB = LockReclaimed, sb
+	return nil
+}
+
+// unpunish is a replaced block: the Punish it held is not in the chain now, and the lock is open again.
+func (c *fakeChain) unpunish(id uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.locks[id].State = LockOpen
+}
+
+// unreclaim is a replaced block: the Reclaim it held is not in the chain now, and the lock is open again.
+func (c *fakeChain) unreclaim(id uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	l := &c.locks[id]
+	l.State, l.XB = LockOpen, ""
+}
+
+// delay is how far the chain moves on before a contract call executes (execDelay); called under c.mu.
+func (c *fakeChain) delay() {
+	if c.execDelay != nil {
+		c.height += c.execDelay()
+	}
+}
+
+// deployment is the install as DERO.GetSC shows it; called under c.mu.
+func (c *fakeChain) deployment() Deployment {
+	return Deployment{CodeSHA256: c.codeHash, W1Min: c.w1min, W2Min: c.w2min, G2: c.g2}
 }
 
 // pay is a plain DERO transfer mined at the current height; it is called under c.mu.
@@ -287,7 +347,7 @@ func (d *memDero) StableHeight(ctx context.Context) (uint64, error) {
 	return d.chain.StableHeight(), nil
 }
 
-func (d *memDero) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount uint64) (string, uint64, error) {
+func (d *memDero) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uint64, asset string, amount, cutoff uint64) (string, uint64, error) {
 	c := d.chain
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -298,6 +358,12 @@ func (d *memDero) Lock(ctx context.Context, ha, hk, hb, taker string, t1, t2 uin
 			return "", l.ID, nil
 		}
 	}
+	// DeroRPC's rule: past the cutoff with no lock found, nothing is sent
+	if c.height >= cutoff {
+		return "", 0, fmt.Errorf("%w: height %d, lock cutoff %d", ErrLockTooLate, c.height, cutoff)
+	}
+	d.calls["LockSent"]++
+	c.delay() // built at the height above, executed up to 10 blocks later
 	l, err := c.lock(c.height, d.meRaw, ha, hk, hb, taker, t1, t2, asset, amount)
 	if err != nil {
 		return "", 0, err
@@ -314,6 +380,7 @@ func (d *memDero) exit(name string, f func(h uint64) error) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	d.calls[name]++
+	c.delay() // built at the height the caller read, executed up to 10 blocks later
 	if err := f(c.height); err != nil {
 		return "", err
 	}
@@ -334,21 +401,31 @@ func (d *memDero) Claim(ctx context.Context, id uint64, sa, kb string, cutoff ui
 func (d *memDero) Refund(ctx context.Context, id uint64, sb string) (string, error) {
 	return d.exit("Refund", func(h uint64) error { return d.chain.refund(h, d.meRaw, id, sb) })
 }
-func (d *memDero) Punish(ctx context.Context, id uint64) (string, error) {
+
+// Punish holds DeroRPC's rule: nothing is sent at a height at or past the cutoff.
+func (d *memDero) Punish(ctx context.Context, id uint64, cutoff uint64) (string, error) {
+	if h := d.chain.Height(); h >= cutoff {
+		return "", fmt.Errorf("Punish not sent: at height %d (punish cutoff %d)", h, cutoff)
+	}
 	return d.exit("Punish", func(h uint64) error { return d.chain.punish(h, d.meRaw, id) })
+}
+func (d *memDero) Reclaim(ctx context.Context, id uint64, sb string) (string, error) {
+	return d.exit("Reclaim", func(h uint64) error { return d.chain.reclaim(h, d.meRaw, id, sb) })
 }
 func (d *memDero) ReadLock(ctx context.Context, id uint64) (Lock, error) {
 	d.calls["ReadLock"]++
 	return d.chain.read(id)
 }
 
-func (d *memDero) CodeSHA256(ctx context.Context) (string, error) {
-	if d.code != "" {
-		return d.code, nil
-	}
+// Deployment is the chain's install, with this party's daemon's own answer for the code hash when a test gave one.
+func (d *memDero) Deployment(ctx context.Context) (Deployment, error) {
 	d.chain.mu.Lock()
 	defer d.chain.mu.Unlock()
-	return d.chain.codeHash, nil
+	dep := d.chain.deployment()
+	if d.code != "" {
+		dep.CodeSHA256 = d.code
+	}
+	return dep, nil
 }
 
 func (d *memDero) Registered(ctx context.Context, addr string) (bool, error) {

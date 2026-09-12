@@ -8,7 +8,7 @@ import "fmt"
 // "simulator"), which the command line uses when -htlc is omitted. The record is compiled in — record_gen.go, which
 // `go generate ./xmrswap` writes from deploy/networks.json — and TestRecordedHTLCIsTheDeployRecord fails the moment the
 // two differ. It is a convenience, not a trust decision: whichever scid is used, given or recorded, the companion
-// refuses it unless its code hashes to the pinned htlc.bas v2 (HTLCCodeSHA256), so a stale or wrong record fails
+// refuses it unless its code hashes to the pinned htlc.bas v3 (HTLCCodeSHA256), so a stale or wrong record fails
 // closed.
 func RecordedHTLC(deroNet string) (string, error) {
 	scid, ok := recordedHTLC[deroNet]

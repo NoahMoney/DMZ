@@ -9,11 +9,14 @@ import (
 )
 
 // A contract's install entrypoint must not be callable again after installation: `Initialize` is an ordinary
-// exported function to the DVM, and a second call would reset counters (swap.bas `n`, board.bas `n`) or ownership
-// (factory.bas `owner`). Every contract must reject the call, from a stranger and from the deployer alike.
+// exported function to the DVM, and a second call would reset counters (swap.bas `n`, board.bas `n`) or move what
+// install fixed (factory.bas `treasury`, which v2 fixes for the factory's life with no setter). Every contract must
+// reject the call, from a stranger and from the deployer alike. htlc.bas has its own (TestHtlcInitializeNotCallable).
 func TestInitializeNotCallable(t *testing.T) {
 	c := harness.New()
 	owner, treasury, stranger := c.NewAccount(), c.NewAccount(), c.NewAccount()
+	// the second call's arguments, where they must differ from the install's for a change to be visible
+	again := map[string]rpc.Arguments{"factory.bas": {harness.S("treasury", stranger.String()), harness.U("regfee", 0)}}
 	cases := []struct {
 		file  string
 		entry string
@@ -23,7 +26,7 @@ func TestInitializeNotCallable(t *testing.T) {
 		{"swap.bas", "Initialize", rpc.Arguments{harness.U("wmin", 20)}, "n"},
 		{"board.bas", "Initialize", nil, "n"},
 		{"social.bas", "Initialize", nil, "kind"},
-		{"factory.bas", "Initialize", rpc.Arguments{harness.S("treasury", treasury.String()), harness.U("regfee", 10000)}, "owner"},
+		{"factory.bas", "Initialize", rpc.Arguments{harness.S("treasury", treasury.String()), harness.U("regfee", 10000)}, "treasury"},
 		// the zero-allocation / zero-reserve paths used to jump over the initd store (review 2026-09-06): every
 		// InitializePrivate contract is covered with the parameters that took that branch
 		{"launch.bas", "InitializePrivate", launchArgs(launchParams{supply: 1000000 * 100000, grad: 20 * 100000, cbps: 0, tax: 0, tmode: 0, fee: 50, pfee: 5000}, treasury.String()), "creator"},
@@ -63,8 +66,12 @@ func TestInitializeNotCallable(t *testing.T) {
 		if hasN {
 			beforeN = c.U(scid, "n")
 		}
+		args := tc.args
+		if a, ok := again[tc.file]; ok {
+			args = a
+		}
 		for _, who := range []*rpc.Address{stranger, owner} {
-			if r := c.Call(scid, tc.entry, tc.args, nil, who); r.OK() {
+			if r := c.Call(scid, tc.entry, args, nil, who); r.OK() {
 				t.Errorf("%s: %s callable after install by %s", tc.file, tc.entry, who.String()[:12])
 			}
 		}

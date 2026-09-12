@@ -140,7 +140,7 @@ func main() {
 		deroNet = "simulator"
 	}
 	// MT-A18: an omitted -htlc is the contract the record names for this daemon's DERO network; given or recorded, it
-	// must be the pinned htlc.bas v2 (U4) before anything else is read from it
+	// must be the pinned htlc.bas v3 (U4) before anything else is read from it
 	if o.htlc == "" {
 		scid, err := xmrswap.RecordedHTLC(deroNet)
 		if err != nil {
@@ -150,9 +150,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "-htlc not given: using %s, the htlc.bas deploy/networks.json records for %s\n", scid, deroNet)
 	}
 	dero.SCID = o.htlc
-	if h, err := dero.CodeSHA256(ctx); err != nil || h != xmrswap.HTLCCodeSHA256 {
-		log.Fatalf("the contract %s is not the pinned htlc.bas v2 (code sha256 %q, %v): refused before anything is read from it (U4)", o.htlc, h, err)
+	deploy, err := dero.Deployment(ctx)
+	if err != nil || deploy.CodeSHA256 != xmrswap.HTLCCodeSHA256 {
+		log.Fatalf("the contract %s is not the pinned htlc.bas v3 (code sha256 %q, %v): refused before anything is read from it (U4); a swap begun on htlc.bas v2 cannot be resumed with this build (docs/XMR_SWAP_BUILD.md §3.D)", o.htlc, deploy.CodeSHA256, err)
 	}
+	if deploy.W1Min == 0 || deploy.W2Min == 0 || deploy.G2 == 0 {
+		log.Fatalf("the contract %s stores no w1min, w2min or g2 (%d, %d, %d): not an htlc.bas v3 install", o.htlc, deploy.W1Min, deploy.W2Min, deploy.G2)
+	}
+	fmt.Fprintf(os.Stderr, "htlc.bas v3 at %s, installed with w1min %d, w2min %d, g2 %d (Punish in [t2, t2 + %d), Reclaim from t2 + %d)\n", o.htlc, deploy.W1Min, deploy.W2Min, deploy.G2, deploy.G2, deploy.G2)
 	// MT-B09: every further -daemon is a node the taker's lock check must agree with before she locks XMR. Each is
 	// only read, and each must be on this party's DERO network.
 	var witnesses []xmrswap.LockReader
@@ -166,15 +171,25 @@ func main() {
 		if err := sameDeroNetwork(o.daemon, testnet, name, addr, wt, wn); err != nil {
 			log.Fatal(err)
 		}
+		// MT-B09 for the install: every node must show the same code and the same three install arguments, since
+		// v3's code alone does not say which install this is
+		wd, err := w.Deployment(ctx)
+		if err != nil {
+			log.Fatalf("DERO node %s: reading %s: %v", addr, o.htlc, err)
+		}
+		if wd != deploy {
+			log.Fatalf("DERO node %s shows %s as code %s with w1min %d, w2min %d, g2 %d; %s shows code %s with %d, %d, %d: refused before anything is locked (MT-B09)",
+				addr, o.htlc, wd.CodeSHA256, wd.W1Min, wd.W2Min, wd.G2, o.daemon, deploy.CodeSHA256, deploy.W1Min, deploy.W2Min, deploy.G2)
+		}
 		witnesses = append(witnesses, w)
 	}
 	// The minimums are what keep the free option and the reorg risk inside §1's numbers, the gate deadline what
 	// prices a suppressed Claim, the stipend what lets the taker pay for her own exits. They may be lowered to run
 	// a swap in minutes on the simulator, and nowhere else.
 	if (o.t1Min < xmrswap.DefaultT1Min || o.t2Min < xmrswap.DefaultT2Min || o.gateDeadline < xmrswap.DefaultGateDeadline ||
-		o.stipend < xmrswap.DefaultStipend || o.stipendMin < xmrswap.DefaultStipend) && !simulator {
-		log.Fatalf("-t1-min/-t2-min below %d/%d, -gate-deadline below %d and -stipend/-stipend-min below %d are only allowed on the simulator; this daemon is %q",
-			xmrswap.DefaultT1Min, xmrswap.DefaultT2Min, xmrswap.DefaultGateDeadline, xmrswap.DefaultStipend, name)
+		o.stipend < xmrswap.DefaultStipend || o.stipendMin < xmrswap.DefaultStipend || o.g2Min < xmrswap.DefaultG2Min) && !simulator {
+		log.Fatalf("-t1-min/-t2-min below %d/%d, -gate-deadline below %d, -stipend/-stipend-min below %d and -g2-min below %d are only allowed on the simulator; this daemon is %q",
+			xmrswap.DefaultT1Min, xmrswap.DefaultT2Min, xmrswap.DefaultGateDeadline, xmrswap.DefaultStipend, xmrswap.DefaultG2Min, name)
 	}
 	myDero, err := dero.Address(ctx)
 	if err != nil {
@@ -269,7 +284,7 @@ func main() {
 	cfg := xmrswap.Config{HTLC: o.htlc, AmountDero: o.amountDero, AmountXmr: o.amountXmr, Asset: o.asset, AssetDecimals: o.assetDecimals,
 		Net: network, DeroNet: deroNet, MyDero: myDero, MoneroWalletName: o.moneroName, MoneroWalletPassword: o.moneroWalletPass, MoneroWalletDir: o.moneroWalletDir, Monerod: o.monerod,
 		T1Min: o.t1Min, T2Min: o.t2Min, T1Max: o.t1Max, T2Max: o.t2Max, T1Delta: o.t1, T2Delta: o.t2, Confirmations: o.confs, StableBlocks: o.stable, ClaimMargin: o.margin,
-		GateDeadline: o.gateDeadline, Stipend: o.stipend, StipendMin: o.stipendMin, CloseAfter: o.closeAfter, Witnesses: witnesses,
+		GateDeadline: o.gateDeadline, Stipend: o.stipend, StipendMin: o.stipendMin, G2Min: o.g2Min, Witnesses: witnesses,
 		ResumeCommand: resumeCommand(exe, os.Args[1:]), Wake: xmrswap.RegisterWake, Log: logf}
 	var sw *xmrswap.Swap
 	if role == "bob" {
@@ -307,13 +322,14 @@ func main() {
 // removeWake removes a swap's wake task; tests replace it.
 var removeWake = xmrswap.UnregisterWake
 
-// endSwap prints how the swap ended and removes the wake the recovery card registered (MT-B15): a finished swap leaves
-// no task behind to open a console at a window that no longer matters.
+// endSwap prints how the swap ended and removes both wakes the recovery card registered (MT-B15, MT-J13): a finished
+// swap leaves no task behind to open a console at a window that no longer matters.
 func endSwap(role string, st *xmrswap.State, logf func(string, ...interface{})) {
 	fmt.Printf("%s: %s\n", role, st.Outcome)
-	name := xmrswap.WakeTaskName(st.SwapID)
-	if err := removeWake(name); err != nil {
-		logf("the wake task %s was not removed (%v): delete it from the task scheduler", name, err)
+	for _, name := range xmrswap.WakeTaskNames(st.SwapID) {
+		if err := removeWake(name); err != nil {
+			logf("the wake task %s was not removed (%v): delete it from the task scheduler", name, err)
+		}
 	}
 }
 
@@ -326,7 +342,7 @@ type options struct {
 	daemons                                                           []string // every -daemon, in order; the first is this party's own node
 	mainnet                                                           bool
 	amountDero, amountXmr, assetDecimals, stipend, stipendMin         uint64
-	t1, t2, t1Min, t2Min, t1Max, t2Max, gateDeadline, closeAfter      uint64
+	t1, t2, t1Min, t2Min, t1Max, t2Max, gateDeadline, g2Min           uint64
 	confs, stable, margin, fee                                        uint64
 	interval                                                          time.Duration
 }
@@ -396,7 +412,7 @@ func parseOptions(role string, args []string, getenv func(string) string) (*opti
 	fs.StringVar(&o.moneroPass, "monero-pass", "", "monero-wallet-rpc --rpc-login password; refused on mainnet, where the command line is readable by every local process")
 	fs.StringVar(&o.moneroName, "monero-name", "", "the open wallet's file name, so it can be reopened after the joint wallets are made on the same rpc (its password: XMRSWAP_MONERO_WALLET_PASSWORD)")
 	fs.StringVar(&o.moneroWalletDir, "monero-wallet-dir", "", "the wallet-rpc's --wallet-dir on this machine: the joint wallets' files are deleted there after the sweep. Required on mainnet")
-	fs.StringVar(&o.htlc, "htlc", "", "htlc.bas scid (default: the one deploy/networks.json records for the daemon's DERO network, MT-A18); either way its code must hash to the pinned htlc.bas v2")
+	fs.StringVar(&o.htlc, "htlc", "", "htlc.bas scid (default: the one deploy/networks.json records for the daemon's DERO network, MT-A18); either way its code must hash to the pinned htlc.bas v3, installed with w1min, w2min and g2 inside this party's policy")
 	fs.StringVar(&o.prover, "prover", "", "the absolute path of the proof-xmr binary; it must hash to the pinned build")
 	fs.StringVar(&o.proverSHA, "prover-sha256", "", "off mainnet only: run a proof-xmr build with this sha256 instead of the pinned one")
 	fs.StringVar(&o.channel, "channel", "./swap-channel", "directory both parties can reach (the rendezvous)")
@@ -413,7 +429,7 @@ func parseOptions(role string, args []string, getenv func(string) string) (*opti
 	fs.Uint64Var(&o.t1Max, "t1-max", xmrswap.DefaultT1Max, "policy: the most t1 - now the taker accepts; until t1 her XMR has no exit of its own")
 	fs.Uint64Var(&o.t2Max, "t2-max", xmrswap.DefaultT2Max, "policy: the most t2 - t1 the taker accepts")
 	fs.Uint64Var(&o.gateDeadline, "gate-deadline", xmrswap.DefaultGateDeadline, "G: alice ignores a gate reaching her at or after t1 − G, and bob releases none that late (lowering it is refused off the simulator)")
-	fs.Uint64Var(&o.closeAfter, "close-after", xmrswap.DefaultCloseAfter, "bob: blocks past t2 after which he closes a lock the taker never punished (it pays her)")
+	fs.Uint64Var(&o.g2Min, "g2-min", xmrswap.DefaultG2Min, "alice: the least g2 (the Punish window [t2, t2 + g2) of htlc.bas v3) she accepts in the install (lowering it is refused off the simulator; MT-J13)")
 	fs.Uint64Var(&o.confs, "confs", xmrswap.DefaultConfirmations, "bob: Monero confirmations before the gate secret goes out (policy; lowering it is bob's own risk and must be typed)")
 	fs.Uint64Var(&o.stable, "stable", xmrswap.DefaultStableBlocks, "alice: DERO blocks the lock must age before XMR is locked")
 	fs.Uint64Var(&o.margin, "claim-margin", xmrswap.DefaultClaimMargin, "alice: blocks of slack under t1 − 8 after which she no longer sends a Claim")

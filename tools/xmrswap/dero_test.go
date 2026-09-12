@@ -114,6 +114,10 @@ func (d *fakeDaemon) run(h uint64, p map[string]interface{}) (Lock, string) {
 		if err := c.punish(h, raw, u64(a["id"])); err != nil {
 			return Lock{}, "Punish: " + err.Error()
 		}
+	case "Reclaim":
+		if err := c.reclaim(h, raw, u64(a["id"]), str(a["sb"])); err != nil {
+			return Lock{}, "Reclaim: " + err.Error()
+		}
 	default:
 		return Lock{}, "unknown entrypoint"
 	}
@@ -301,7 +305,13 @@ func (c *fakeChain) scKey(k string) (interface{}, bool) {
 	case "kind":
 		return strings.ToUpper(hex.EncodeToString([]byte("htlc"))), true
 	case "v":
-		return 1, true
+		return 3, true
+	case "w1min": // a v3 install stores all three; 0 stands for an install that stores none (v2)
+		return c.w1min, c.w1min != 0
+	case "w2min":
+		return c.w2min, c.w2min != 0
+	case "g2":
+		return c.g2, c.g2 != 0
 	}
 	cut := strings.LastIndex(k, "_")
 	if cut < 0 {
@@ -406,7 +416,7 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 	if err != nil || h != 1000 {
 		t.Fatalf("height %d %v", h, err)
 	}
-	txid, id, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, "", 5000)
+	txid, id, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, "", 5000, noCutoff)
 	if err != nil || id != 0 || len(txid) != 64 {
 		t.Fatalf("lock: %s %d %v", txid, id, err)
 	}
@@ -428,7 +438,7 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 	}
 	// the same lock again is found, not sent
 	before := bob.count("transfer")
-	txid2, id2, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, "", 5000)
+	txid2, id2, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, "", 5000, noCutoff)
 	if err != nil || id2 != 0 || txid2 != "" || bob.count("transfer") != before {
 		t.Fatalf("second lock: %q %d %v, transfers %d -> %d", txid2, id2, err, before, bob.count("transfer"))
 	}
@@ -478,11 +488,12 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 
 	// second lock: refund in the window, with the fixed fee and no estimate
 	h, _ = cb.Height(ctx)
-	_, id, err = cb.Lock(ctx, hb, hk, ha, aliceAddr, h+5, h+10, "", 700)
+	// t1 at least w1min + DeroTxValidity ahead, or the client's own cutoff holds the Lock back
+	_, id, err = cb.Lock(ctx, hb, hk, ha, aliceAddr, h+21, h+30, "", 700, lockCutoff(h+21, chain.w1min))
 	if err != nil || id != 1 {
 		t.Fatalf("lock 2: %d %v", id, err)
 	}
-	chain.Advance(5)
+	chain.Advance(21)
 	estBefore = bob.count("DERO.GetGasEstimate")
 	if _, err := cb.Refund(ctx, 1, sa); err != nil || bob.count("DERO.GetGasEstimate") != estBefore {
 		t.Fatalf("refund: %v (estimates %d -> %d)", err, estBefore, bob.count("DERO.GetGasEstimate"))
@@ -492,31 +503,117 @@ func TestDeroClientShapesAndExits(t *testing.T) {
 		t.Fatalf("after refund: %+v", l)
 	}
 
-	// third lock: punish after t2. htlc.bas v2 pays the taker whoever sends it (LIV-07), so the maker's own client
-	// can close it; a second Punish is refused because the lock is no longer open
+	// third lock: punish in [t2, t2 + g2). htlc.bas pays the taker whoever sends it (LIV-07), so any client can send
+	// it; a second Punish is refused because the lock is no longer open
 	h, _ = cb.Height(ctx)
-	_, id, err = cb.Lock(ctx, hk, hb, ha, aliceAddr, h+5, h+8, "", 900)
+	_, id, err = cb.Lock(ctx, hk, hb, ha, aliceAddr, h+21, h+27, "", 900, lockCutoff(h+21, chain.w1min))
 	if err != nil || id != 2 {
 		t.Fatalf("lock 3: %d %v", id, err)
 	}
-	if _, err := ca.Punish(ctx, 2); err == nil {
+	if _, err := ca.Punish(ctx, 2, noCutoff); err == nil {
 		t.Fatal("punish before t2 accepted")
 	}
-	chain.Advance(20)
-	if _, err := cb.Punish(ctx, 2); err != nil {
+	chain.Advance(30)
+	if _, err := cb.Punish(ctx, 2, punishCutoff(h+27, chain.g2, 0)); err != nil {
 		t.Fatalf("punish by the maker: %v", err)
 	}
 	// a Punish on a lock that has moved is not even sent: it could only be mined, refused and paid for
 	before = alice.count("transfer")
-	if _, err := ca.Punish(ctx, 2); err == nil || !strings.Contains(err.Error(), "already moved") || alice.count("transfer") != before {
+	if _, err := ca.Punish(ctx, 2, noCutoff); err == nil || !strings.Contains(err.Error(), "already moved") || alice.count("transfer") != before {
 		t.Fatalf("a second punish: %v, transfers %d -> %d", err, before, alice.count("transfer"))
 	}
 	l, _ = ca.ReadLock(ctx, 2)
 	if l.State != LockPunished {
 		t.Fatalf("after punish: %+v", l)
 	}
+
+	// fourth lock (htlc.bas v3, MT-J13): nobody punishes in [t2, t2 + g2). From t2 + g2 the taker's client sends no
+	// Punish, one sent anyway is mined and refused, and the maker Reclaims with s_b, stored in xb_ as a Refund stores
+	// it, at the fixed fee and with no estimate (at the estimator's height 0 a Reclaim is always refused)
+	h, _ = cb.Height(ctx)
+	t1, t2 := h+21, h+26
+	_, id, err = cb.Lock(ctx, hk, ha, hb, aliceAddr, t1, t2, "", 800, lockCutoff(t1, chain.w1min))
+	if err != nil || id != 3 {
+		t.Fatalf("lock 4: %d %v", id, err)
+	}
+	if _, err := cb.Reclaim(ctx, 3, sb); err == nil || !strings.Contains(err.Error(), "refused") {
+		t.Fatalf("a Reclaim before t2 + g2: %v", err)
+	}
+	for chain.Height() < t2+chain.g2 {
+		chain.Advance(1)
+	}
+	before = alice.count("transfer")
+	if _, err := ca.Punish(ctx, 3, punishCutoff(t2, chain.g2, 0)); err == nil || !strings.Contains(err.Error(), "not sent") || alice.count("transfer") != before {
+		t.Fatalf("a Punish past its cutoff: %v, transfers %d -> %d", err, before, alice.count("transfer"))
+	}
+	if _, err := ca.Punish(ctx, 3, noCutoff); err == nil || !strings.Contains(err.Error(), "refused") || alice.count("transfer") != before+1 {
+		t.Fatalf("a Punish sent past t2 + g2: %v, transfers %d -> %d", err, before, alice.count("transfer"))
+	}
+	if _, err := ca.Reclaim(ctx, 3, sb); err == nil || !strings.Contains(err.Error(), "refused") {
+		t.Fatalf("the taker's Reclaim: %v", err)
+	}
+	estBefore = bob.count("DERO.GetGasEstimate")
+	if _, err := cb.Reclaim(ctx, 3, sb); err != nil || bob.count("DERO.GetGasEstimate") != estBefore || u64(bob.last("transfer")["fees"]) != cb.FixedFee {
+		t.Fatalf("reclaim: %v (estimates %d -> %d, fee %v)", err, estBefore, bob.count("DERO.GetGasEstimate"), bob.last("transfer")["fees"])
+	}
+	if a := args(bob.last("transfer")); str(a["entrypoint"]) != "Reclaim" || u64(a["id"]) != 3 || str(a["sb"]) != sb {
+		t.Fatalf("reclaim args: %v", a)
+	}
+	l, _ = ca.ReadLock(ctx, 3)
+	if l.State != LockReclaimed || l.XB != sb {
+		t.Fatalf("after reclaim: %+v", l)
+	}
 	if bal, _ := ca.ContractBalance(ctx); bal != 0 {
 		t.Fatalf("contract still holds %d", bal)
+	}
+
+	// MT-A03(a): a Lock narrower than w1min passes the daemon's estimate, which runs the contract at height 0, and is
+	// refused on chain with its fee spent (seen live, docs/HTLC_V3_COMPANION_NOTES.md §8). The client's cutoff is the
+	// only check that keeps it from being sent.
+	h, _ = cb.Height(ctx)
+	narrow := h + chain.w1min - 1
+	before = bob.count("transfer")
+	if _, _, err := cb.Lock(ctx, hb, ha, hk, aliceAddr, narrow, narrow+10, "", 600, noCutoff); err == nil || !strings.Contains(err.Error(), "recorded no lock") || bob.count("transfer") != before+1 {
+		t.Fatalf("a narrow Lock with no cutoff: %v, transfers %d -> %d", err, before, bob.count("transfer"))
+	}
+	before = bob.count("transfer")
+	if _, _, err := cb.Lock(ctx, hb, ha, hk, aliceAddr, narrow, narrow+10, "", 600, lockCutoff(narrow, chain.w1min)); !errors.Is(err, ErrLockTooLate) || bob.count("transfer") != before {
+		t.Fatalf("a narrow Lock past its cutoff: %v, transfers %d -> %d", err, before, bob.count("transfer"))
+	}
+}
+
+// TestTheCutoffsAreTheContractsWindows (MT-A03(a), MT-J13): a Lock built at the last height before lockCutoff and
+// executed DeroTxValidity blocks later still meets w1min, and one built at the cutoff might not; a Punish built at the
+// last height before punishCutoff executes, and is stable with the margin to spare, before t2 + g2.
+func TestTheCutoffsAreTheContractsWindows(t *testing.T) {
+	for _, w1min := range []uint64{1, 10, 400} {
+		for _, t1 := range []uint64{w1min + 11, w1min + 12, 5000} {
+			cut := lockCutoff(t1, w1min)
+			if last := cut - 1; last+DeroTxValidity+w1min > t1 {
+				t.Fatalf("w1min %d, t1 %d: a Lock built at %d may execute at %d, less than w1min before t1", w1min, t1, last, last+DeroTxValidity)
+			}
+			if cut+DeroTxValidity+w1min <= t1 {
+				t.Fatalf("w1min %d, t1 %d: the cutoff %d holds back a Lock that could not have been refused", w1min, t1, cut)
+			}
+		}
+		if lockCutoff(w1min+10, w1min) != 0 {
+			t.Fatalf("w1min %d: a t1 only w1min + 10 ahead of height 0 left a height to build at", w1min)
+		}
+	}
+	for _, g2 := range []uint64{22, 30, 400, 4800} {
+		for _, margin := range []uint64{0, 2, 8} {
+			const t2 = 10000
+			cut := punishCutoff(t2, g2, margin)
+			if cut == 0 {
+				if g2 > DeroTxValidity+DefaultStableBlocks+margin {
+					t.Fatalf("g2 %d margin %d: no height to punish at", g2, margin)
+				}
+				continue
+			}
+			if last := cut - 1; last+DeroTxValidity+DefaultStableBlocks+margin >= t2+g2 {
+				t.Fatalf("g2 %d margin %d: a Punish built at %d is stable only at %d, past t2 + g2 = %d", g2, margin, last, last+DeroTxValidity+DefaultStableBlocks, t2+g2)
+			}
+		}
 	}
 }
 
@@ -535,10 +632,10 @@ func TestDeroClientAssetLockAndStipendShapes(t *testing.T) {
 	hk, hb := SHA256Hex(mustHex(strings.Repeat("11", 32))), SHA256Hex(mustHex(strings.Repeat("22", 32)))
 
 	h, _ := cb.Height(ctx)
-	if _, _, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, strings.ToUpper(asset), 5000); err == nil {
+	if _, _, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, strings.ToUpper(asset), 5000, noCutoff); err == nil {
 		t.Fatal("an asset id in capitals was sent")
 	}
-	txid, id, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, asset, 5000)
+	txid, id, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+50, h+100, asset, 5000, noCutoff)
 	if err != nil || len(txid) != 64 {
 		t.Fatalf("asset lock: %v", err)
 	}
@@ -603,6 +700,22 @@ func TestDeroClientAssetLockAndStipendShapes(t *testing.T) {
 	if got, err := cb.CodeSHA256(ctx); err != nil || got != SHA256Hex([]byte(chain.codeText)) {
 		t.Fatalf("code hash %s %v", got, err)
 	}
+	// MT-A03(a): the install's three arguments come back with the code, in one DERO.GetSC, so both describe one state
+	before := bob.count("DERO.GetSC")
+	d, err := cb.Deployment(ctx)
+	if err != nil || d.CodeSHA256 != SHA256Hex([]byte(chain.codeText)) || d.W1Min != chain.w1min || d.W2Min != chain.w2min || d.G2 != chain.g2 || bob.count("DERO.GetSC") != before+1 {
+		t.Fatalf("deployment %+v %v, %d reads", d, err, bob.count("DERO.GetSC")-before)
+	}
+	if p := bob.last("DERO.GetSC"); p["code"] != true || fmt.Sprint(p["keysstring"]) != "[w1min w2min g2]" {
+		t.Fatalf("deployment read shape: %v", p)
+	}
+	// an install that stores none of them (htlc.bas v2's shape) reads as zeros, which checkDeployment refuses
+	chain.mu.Lock()
+	chain.w1min, chain.w2min, chain.g2 = 0, 0, 0
+	chain.mu.Unlock()
+	if d, err := cb.Deployment(ctx); err != nil || d.W1Min != 0 || d.W2Min != 0 || d.G2 != 0 {
+		t.Fatalf("a v2-shaped install: %+v %v", d, err)
+	}
 }
 
 // TestCanResendStopsAtTheClaimCutoff is XMR-06's regression. The client's Claim re-send rule and the state
@@ -629,13 +742,105 @@ func TestCanResendStopsAtTheClaimCutoff(t *testing.T) {
 	kb, hk := strings.Repeat("11", 32), SHA256Hex(mustHex(strings.Repeat("11", 32)))
 	hb := SHA256Hex(mustHex(strings.Repeat("22", 32)))
 	h, _ := cb.Height(ctx)
-	if _, _, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+40, h+80, "", 5000); err != nil {
+	if _, _, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+40, h+80, "", 5000, noCutoff); err != nil {
 		t.Fatal(err)
 	}
 	now, _ := ca.Height(ctx)
 	before := alice.count("transfer")
 	if _, err := ca.Claim(ctx, 0, sa, kb, now+1); err == nil || !strings.Contains(err.Error(), "cutoff") || alice.count("transfer") != before {
 		t.Fatalf("a Claim at the cutoff: %v, transfers %d -> %d", err, before, alice.count("transfer"))
+	}
+}
+
+// TestCanResendPunishStopsAtThePunishCutoff (MT-J13): the client's Punish re-send rule and the state machine's punish
+// cutoff are one rule, as XMR-06 made them for the Claim: a re-send at cutoff − 1, none at the cutoff or after it, for
+// every g2 and margin. A Refund is re-sent while height < t2; a Reclaim has no end.
+func TestCanResendPunishStopsAtThePunishCutoff(t *testing.T) {
+	l := Lock{T1: 1000, T2: 1400}
+	for _, g2 := range []uint64{30, 400, 4800} {
+		for _, margin := range []uint64{0, 2, 8} {
+			cut := punishCutoff(l.T2, g2, margin)
+			if !canResend("Punish", cut-1, l, cut) || canResend("Punish", cut, l, cut) || canResend("Punish", l.T2+g2, l, cut) {
+				t.Fatalf("g2 %d margin %d: canResend at cutoff − 1 %v, at the cutoff %d %v, at t2 + g2 %v", g2, margin, canResend("Punish", cut-1, l, cut), cut, canResend("Punish", cut, l, cut), canResend("Punish", l.T2+g2, l, cut))
+			}
+			for h := l.T2; h < l.T2+g2+2; h++ {
+				if got, want := canResend("Punish", h, l, cut), h < cut; got != want {
+					t.Fatalf("g2 %d margin %d, height %d: canResend %v, the cutoff %d says %v", g2, margin, h, got, cut, want)
+				}
+			}
+		}
+	}
+	if !canResend("Refund", l.T2-1, l, 0) || canResend("Refund", l.T2, l, 0) {
+		t.Fatal("a Refund's re-send does not stop at t2")
+	}
+	for _, h := range []uint64{l.T2, l.T2 + 4800, 1 << 40} {
+		if !canResend("Reclaim", h, l, 0) {
+			t.Fatalf("a Reclaim's re-send stopped at height %d", h)
+		}
+	}
+}
+
+// TestDeroClientPunishStopsAtItsCutoff (MT-J13): DeroRPC's own Punish check (exit, h >= cutoff) with the cutoff
+// punishCutoff gives. At cutoff − 1 the Punish is sent and executes inside [t2, t2 + g2); at the cutoff nothing is sent;
+// and a Punish sent at cutoff − 1 that sits in the pool is not re-sent once the height has reached the cutoff.
+func TestDeroClientPunishStopsAtItsCutoff(t *testing.T) {
+	ctx := context.Background()
+	chain := newFakeChain(1000)
+	bob := &fakeDaemon{chain: chain, addr: bobAddr}
+	alice := &fakeDaemon{chain: chain, addr: aliceAddr}
+	cb, ca := newClient(t, bob), newClient(t, alice)
+	ca.Timeout = 20 * time.Millisecond
+	// a fresh lock for each case (fresh hashes, or the idempotent Lock finds the last one), and its punish cutoff
+	lock := func(n int) (id, t2, cut uint64) {
+		h, _ := cb.Height(ctx)
+		t1 := h + 21
+		t2 = t1 + 6
+		hash := func(s string) string { return SHA256Hex([]byte(fmt.Sprintf("%s %d", s, n))) }
+		_, id, err := cb.Lock(ctx, hash("ha"), hash("hk"), hash("hb"), aliceAddr, t1, t2, "", 900, lockCutoff(t1, chain.w1min))
+		if err != nil {
+			t.Fatalf("lock %d: %v", n, err)
+		}
+		return id, t2, punishCutoff(t2, chain.g2, testClaimMargin)
+	}
+
+	id, t2, cut := lock(0)
+	for chain.Height() < cut-1 {
+		chain.Advance(1)
+	}
+	before := alice.count("transfer")
+	if _, err := ca.Punish(ctx, id, cut); err != nil || alice.count("transfer") != before+1 {
+		t.Fatalf("a Punish at cutoff − 1 = %d: %v, transfers %d -> %d", cut-1, err, before, alice.count("transfer"))
+	}
+	if l, _ := ca.ReadLock(ctx, id); l.State != LockPunished || cut-1 < t2 || cut-1 >= t2+chain.g2 {
+		t.Fatalf("the Punish at %d (t2 %d, g2 %d) left the lock in state %d", cut-1, t2, chain.g2, l.State)
+	}
+
+	id, _, cut = lock(1)
+	for chain.Height() < cut {
+		chain.Advance(1)
+	}
+	before = alice.count("transfer")
+	if _, err := ca.Punish(ctx, id, cut); err == nil || !strings.Contains(err.Error(), "not sent") || alice.count("transfer") != before {
+		t.Fatalf("a Punish at the cutoff %d: %v, transfers %d -> %d", cut, err, before, alice.count("transfer"))
+	}
+	if l, _ := ca.ReadLock(ctx, id); l.State != LockOpen {
+		t.Fatalf("a Punish refused by the client moved the lock to %d", l.State)
+	}
+
+	id, _, cut = lock(2)
+	for chain.Height() < cut-1 {
+		chain.Advance(1)
+	}
+	chain.stuckBelowFee = 1 << 40
+	before = alice.count("transfer")
+	go func() { // the chain reaches the cutoff while the first send sits in the pool
+		time.Sleep(5 * time.Millisecond)
+		chain.Advance(1)
+	}()
+	_, err := ca.Punish(ctx, id, cut)
+	chain.stuckBelowFee = 0
+	if err == nil || !strings.Contains(err.Error(), "window") || alice.count("transfer") != before+1 {
+		t.Fatalf("a stuck Punish past the cutoff: %v, transfers %d -> %d", err, before, alice.count("transfer"))
 	}
 }
 
@@ -656,7 +861,7 @@ func TestDeroClientResendsWithHigherFee(t *testing.T) {
 	sb, hb := strings.Repeat("22", 32), SHA256Hex(mustHex(strings.Repeat("22", 32)))
 
 	h, _ := cb.Height(ctx)
-	if _, _, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+40, h+80, "", 5000); err != nil {
+	if _, _, err := cb.Lock(ctx, ha, hk, hb, aliceAddr, h+40, h+80, "", 5000, noCutoff); err != nil {
 		t.Fatal(err)
 	}
 	// the estimator prices the Claim at 583; the miners take nothing under 1000: the first send sits in the
@@ -684,7 +889,7 @@ func TestDeroClientResendsWithHigherFee(t *testing.T) {
 	// names the window (the cutoff here is the current height + 1, reached by the time the re-send is weighed)
 	chain.stuckBelowFee = 0
 	h, _ = cb.Height(ctx)
-	if _, _, err := cb.Lock(ctx, hb, hk, ha, aliceAddr, h+12, h+80, "", 700); err != nil {
+	if _, _, err := cb.Lock(ctx, hb, hk, ha, aliceAddr, h+12, h+80, "", 700, noCutoff); err != nil {
 		t.Fatal(err)
 	}
 	chain.stuckBelowFee = 1 << 40
@@ -717,7 +922,7 @@ func TestDeroClientResendsWithHigherFee(t *testing.T) {
 	// Punish keeps re-sending: the fee climbs past what the miners take and the lock is punished
 	chain.stuckBelowFee = 3*cb.FixedFee + 1
 	before = alice.count("transfer")
-	if _, err := ca.Punish(ctx, 1); err != nil || alice.count("transfer") != before+3 {
+	if _, err := ca.Punish(ctx, 1, noCutoff); err != nil || alice.count("transfer") != before+3 {
 		t.Fatalf("punish: %v, transfers %d -> %d", err, before, alice.count("transfer"))
 	}
 	if l, _ := ca.ReadLock(ctx, 1); l.State != LockPunished {

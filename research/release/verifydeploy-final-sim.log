@@ -1,6 +1,6 @@
 DMZ deployment verification (tools/verifydeploy)
-network simulator · daemon 127.0.0.1:20000 (Simulator, height 746, stable 738)
-source  ../contracts · git 0fba2c6cb927…, contracts/ has uncommitted changes
+network simulator · daemon 127.0.0.1:20000 (Simulator, height 923, stable 915)
+source  ../contracts · git 70fbba9d0932…, contracts/ has uncommitted changes
 
 == Deployment record against this repository
 PASS    templates.founders: sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas))
@@ -33,45 +33,41 @@ INFO    templates.pool.legacy: 832908cfd03bec9699528b78f993c9c629eec255e33a0670d
 INFO    templates.pool.legacy: 33a126a8da585b38ada886d1c62b67dde05d87335a925ebdc3f52b205327f5b0 = contracts/pool.bas as of commit d890667b7278… (2026-09-08), canonical (reference.Canon)
 
 == Code identity: installed code against reference.Canon(contracts/<kind>.bas)
-PASS    factory d1ebd6f418e2…: installed code sha256 5ba105fdda839f17dd69b98b60f0d00dccda4b2eafdec53777b918f5064a7b2a = sha256(reference.Canon(contracts/factory.bas)), 82 lines
-PASS    social f218801dbdbd…: installed code sha256 da7ef3f09fccf468c9c03605e0de14a4b129b8cfbb29ced6efad8bf9b5b617ad = sha256(reference.Canon(contracts/social.bas)), 57 lines
-PASS    founders d55302c80bdb…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
-PASS    chat a7badd542df0…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
-PASS    htlc b01a9e7c5165…: installed code sha256 44864ec3cddac871286b9cfd18d18e0b1d2ef0e31960436cee3bacc3025fef06 = sha256(reference.Canon(contracts/htlc.bas)), 118 lines
-PASS    swap c121966fbf4b…: installed code sha256 b9830de831dbaf34f61ea15b484c8f25105e41dc790aa06412db421a990fd6e3 = sha256(reference.Canon(contracts/swap.bas)), 88 lines
-PASS    board d95568f49e70…: installed code sha256 162f8d46ad400b1fef981d029ba99f61c9646d6453c3bf9f0cc4bd9e63bc5ab1 = sha256(reference.Canon(contracts/board.bas)), 71 lines
-PASS    vault XMR ca83fbc37720…: installed code sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d = sha256(reference.Canon(contracts/vault.bas)), 485 lines
-PASS    vault ZEC bd0fe89c8e00…: installed code sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d = sha256(reference.Canon(contracts/vault.bas)), 485 lines
+PASS    factory 8e70572e6277…: installed code sha256 73f281df0258863d46930452624d95fdc566b8cb8c6c11b618ece324c9174ac1 = sha256(reference.Canon(contracts/factory.bas)), 53 lines
+PASS    social dca7c31bf5ac…: installed code sha256 da7ef3f09fccf468c9c03605e0de14a4b129b8cfbb29ced6efad8bf9b5b617ad = sha256(reference.Canon(contracts/social.bas)), 57 lines
+PASS    founders c0664f3e8cad…: installed code sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a = sha256(reference.Canon(contracts/founders.bas)), 362 lines
+PASS    chat e4e9890aa67b…: installed code sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4 = sha256(reference.Canon(contracts/chat.bas)), 35 lines
+PASS    htlc ef576fce2eda…: installed code sha256 b785028da4a2554521d47f989f1011ec1f0a26be491e6a7eb2786c1f50834c36 = sha256(reference.Canon(contracts/htlc.bas)), 150 lines
+PASS    swap 8d951df3decb…: installed code sha256 b9830de831dbaf34f61ea15b484c8f25105e41dc790aa06412db421a990fd6e3 = sha256(reference.Canon(contracts/swap.bas)), 88 lines
+PASS    board 894af60be95f…: installed code sha256 162f8d46ad400b1fef981d029ba99f61c9646d6453c3bf9f0cc4bd9e63bc5ab1 = sha256(reference.Canon(contracts/board.bas)), 71 lines
+PASS    vault XMR e136e851f106…: installed code sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d = sha256(reference.Canon(contracts/vault.bas)), 485 lines
+PASS    vault ZEC 8480127c2499…: installed code sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d = sha256(reference.Canon(contracts/vault.bas)), 485 lines
 
 == Market templates: every contract in the factory registry
-INFO    registry d1ebd6f418e2…: pc=2 lc=2 nc=2: 6 registered contracts, checked against 28 accepted template hashes (current and legacy)
-PASS    pool_0 ce8fcff8db2e…: code sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = the record's current pool template
-PASS    pool_1 c3b0be95fe5e…: code sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = the record's current pool template
-PASS    launch_0 f1e75b6b3a22…: code sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = the record's current launch template
-PASS    launch_1 e71e10b84d86…: code sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = the record's current launch template
-PASS    nfa_0 82f939876acb…: code sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114 = the record's current nfa template
-PASS    nfa_1 deccedac0004…: code sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114 = the record's current nfa template
+INFO    registry 8e70572e6277…: pc=2 lc=3 nc=1: 6 registered contracts, checked against 28 accepted template hashes (current and legacy)
+PASS    pool_0 b08f9afdffc7…: code sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = the record's current pool template
+PASS    pool_1 99e7de1dcd02…: code sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580 = the record's current pool template
+PASS    launch_0 824227e6ae2c…: code sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = the record's current launch template
+PASS    launch_1 87866e31a35a…: code sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = the record's current launch template
+PASS    launch_2 9573e2cef946…: code sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4 = the record's current launch template
+PASS    nfa_0 feb9e16e7c7b…: code sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114 = the record's current nfa template
 
 == Roles
-factory d1ebd6f418e2… (factory)
-  ALLOWED owner          LIVE   must end  dero1qyvyeyzrcm2fzf6kyq7egkes2ufgny5xn77y6typhfx9s7w3mvyd5qq72lvjw
-          can call SetTreasury (moves every future registration fee), SetRegFee and Renounce; the ceremony ends it with Renounce
-          allowed on the command line: the simulator factory stays owned for development; Renounce is proven on a scratch factory in research/release/simdeploy-renounce-sim.log
-          reads: factory.bas:25,39-40,50-51,61-64
+factory 8e70572e6277… (factory)
   INFO    treasury       -      payee     dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd
-          receives every registration fee (reg, line 35); cannot act; the owner can still move it (SetTreasury)
-          reads: factory.bas:26,43,110
+          receives every registration fee (reg, line 35); cannot act; fixed for ever: only Initialize writes it, and Initialize refuses a second run
+          reads: factory.bas:23,75
   INFO    regfee         -      parameter regfee=10000
-          the owner can still change it (SetRegFee)
-          reads: factory.bas:28,52,108
+          fixed for ever: only Initialize writes it
+          reads: factory.bas:25,73
   PASS    initd          closed guard     initd = 1
           Initialize refuses a second run (initd exists)
-          reads: factory.bas:17,32
-social f218801dbdbd… (social)
+          reads: factory.bas:17,29
+social dca7c31bf5ac… (social)
   PASS    initd          closed guard     initd = 1
           Initialize refuses a second run (initd exists)
           reads: social.bas:9,12
-founders d55302c80bdb… (founders)
+founders c0664f3e8cad… (founders)
   INFO    creator        -      inert     dero1qyvyeyzrcm2fzf6kyq7egkes2ufgny5xn77y6typhfx9s7w3mvyd5qq72lvjw
           the installer, recorded at install; no function reads it (TestRoleReaders)
           reads: founders.bas:29
@@ -84,7 +80,7 @@ founders d55302c80bdb… (founders)
   PASS    initd          closed guard     initd = 1
           InitializePrivate refuses a second run (initd exists)
           reads: founders.bas:13,50
-chat a7badd542df0… (chat)
+chat e4e9890aa67b… (chat)
   INFO    treasury       -      payee     dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd
           receives each post's fee (Post, line 51); cannot act; fixed for ever
           reads: chat.bas:22,49
@@ -94,25 +90,28 @@ chat a7badd542df0… (chat)
   PASS    initd          closed guard     initd = 1
           InitializePrivate refuses a second run (initd exists)
           reads: chat.bas:15,26
-htlc b01a9e7c5165… (htlc)
+htlc ef576fce2eda… (htlc)
+  INFO    windows        -      parameter w1min=400 w2min=400 g2=4800
+          the least t1 - lock height, the least t2 - t1 and the Punish window, written only at install: the same code with other values has the same code hash, so a companion must read them
+          reads: htlc.bas:37,41-43,66,173,197
   PASS    initd          closed guard     initd = 1
           Initialize refuses a second run (initd exists)
-          reads: htlc.bas:17,21
-swap c121966fbf4b… (swap)
+          reads: htlc.bas:35,44
+swap 8d951df3decb… (swap)
   INFO    wmin           -      parameter wmin=1600
           the minimum lock width, written only at install: the same code with another wmin has the same code hash, so a companion must read it
           reads: swap.bas:18,22,45
   PASS    initd          closed guard     initd = 1
           Initialize refuses a second run (initd exists)
           reads: swap.bas:17,23
-board d95568f49e70… (board)
+board 894af60be95f… (board)
   INFO    aw             -      parameter aw=200
           written only at install
           reads: board.bas:27,88
   PASS    initd          closed guard     initd = 1
           Initialize refuses a second run (initd exists)
           reads: board.bas:23,28
-vault XMR ca83fbc37720… (vault)
+vault XMR e136e851f106… (vault)
   PASS    owner          ended  must end  dero1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqc503a3
           sealed = 1: SetLimits, AddSigner and Seal refuse the owner; the key stays stored and has no power
           reads: vault.bas:73,75,104,157,246,257
@@ -140,7 +139,7 @@ vault XMR ca83fbc37720… (vault)
   PASS    initd          closed guard     initd = 1
           InitializePrivate refuses a second run (initd exists)
           reads: vault.bas:54,94
-vault ZEC bd0fe89c8e00… (vault)
+vault ZEC 8480127c2499… (vault)
   PASS    owner          ended  must end  dero1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqc503a3
           sealed = 1: SetLimits, AddSigner and Seal refuse the owner; the key stays stored and has no power
           reads: vault.bas:73,75,104,157,246,257
@@ -172,4 +171,4 @@ vault ZEC bd0fe89c8e00… (vault)
 == TELA: the app's INDEX and DOCs
 INFO    index: the record names no TELA INDEX on simulator (tela.index is empty)
 
-summary: 1 ALLOWED, 13 WARN, 31 PASS, 35 INFO — no failure
+summary: 13 WARN, 31 PASS, 36 INFO — no failure

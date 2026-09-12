@@ -2,12 +2,15 @@ package tests
 
 // MT-A13 for htlc.bas, beside tests/zzconservation_test.go and in the same style: per asset, the contract holds
 // exactly the value of its open locks after every call, accepted or refused, over a seeded random sequence of Lock,
-// Claim, Refund and Punish from several wallets. The sequence mixes:
+// Claim, Refund, Punish and Reclaim from several wallets. The sequence mixes:
 // - right and wrong secrets;
 // - the right caller and a stranger;
-// - calls inside and outside each window (Claim before t1, Refund in [t1, t2), Punish from t2);
+// - calls inside and outside each window (Claim before t1, Refund in [t1, t2), Punish in [t2, t2 + g2), Reclaim
+//   from t2 + g2: htlc.bas v3);
+// - locks inside and outside the install's minimum widths (w1min 5, w2min 3: MT-A03(a));
 // - DERO, or the lock's own asset, attached to an exit that takes none (GAP-027).
 // A lock may be refused or may exit at most once; a call that kept stray value would break the equality this checks.
+// Every one of the four exits must have happened by the end, so each is covered by the equality.
 
 import (
 	"crypto/sha256"
@@ -33,7 +36,7 @@ func TestConservationHtlc(t *testing.T) {
 			t.Fatal(r.Err)
 		}
 	}
-	scid, res := c.Install(readContract(t, "htlc.bas"), nil, nil, users[0], harness.MaxStorageGas)
+	scid, res := c.Install(readContract(t, "htlc.bas"), nil, htlcInitArgs(5, 3, 12), users[0], harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}
@@ -102,13 +105,13 @@ func TestConservationHtlc(t *testing.T) {
 	check("install")
 	for step = 0; step < consSteps(); step++ {
 		who := consPick(rng, users)
-		switch rng.Intn(10) {
+		switch rng.Intn(11) {
 		case 0, 1, 2:
 			sa, ha := secret()
 			kb, hk := secret()
 			sb, hb := secret()
-			t1 := c.Height + 2 + uint64(rng.Intn(20))
-			t2 := t1 + 1 + uint64(rng.Intn(20))
+			t1 := c.Height + 2 + uint64(rng.Intn(20)) // refused below height + 5 (w1min)
+			t2 := t1 + 1 + uint64(rng.Intn(20))       // refused below t1 + 3 (w2min)
 			if rng.Intn(10) == 0 {
 				t2 = t1 // refused: t2 must be after t1
 			}
@@ -147,6 +150,13 @@ func TestConservationHtlc(t *testing.T) {
 			call("punish", "Punish", rpc.Arguments{harness.U("id", id)}, stray(id), who) // anyone may send it (LIV-07)
 		case 7:
 			call("punish of no lock", "Punish", rpc.Arguments{harness.U("id", c.U(scid, "n")+5)}, nil, who)
+		case 8:
+			id := idOf()
+			sb := secrets[id].sb
+			if rng.Intn(5) == 0 {
+				sb = strings.Repeat("33", 32) // refused: a wrong key share
+			}
+			call("reclaim", "Reclaim", rpc.Arguments{harness.U("id", id), harness.S("sb", sb)}, stray(id), party("m_", id, who))
 		default:
 			for i := rng.Intn(10); i >= 0; i-- {
 				c.NextBlock()
@@ -154,14 +164,15 @@ func TestConservationHtlc(t *testing.T) {
 		}
 	}
 	y.require(t, "htlc.bas")
-	var ended uint64
+	byState := map[uint64]uint64{}
 	for i := uint64(0); i < c.U(scid, "n"); i++ {
-		if c.U(scid, "st_"+itoa(i)) != 0 {
-			ended++
+		byState[c.U(scid, "st_"+itoa(i))]++
+	}
+	for st, exit := range map[uint64]string{1: "Claim", 2: "Refund", 3: "Punish", 4: "Reclaim"} {
+		if byState[st] == 0 {
+			t.Fatalf("no lock exited by %s, so that exit's conservation was not exercised", exit)
 		}
 	}
-	if ended == 0 {
-		t.Fatal("no lock ever exited, so the exits' conservation was not exercised")
-	}
-	t.Logf("htlc.bas: %d locks made, %d exited", c.U(scid, "n"), ended)
+	t.Logf("htlc.bas: %d locks made; %d open, %d claimed, %d refunded, %d punished, %d reclaimed", c.U(scid, "n"),
+		byState[0], byState[1], byState[2], byState[3], byState[4])
 }

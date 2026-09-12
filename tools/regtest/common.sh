@@ -93,6 +93,34 @@ stop_winpid() {
 	rm -f "$f"
 }
 
+# stagenet_wallet_rpc_pid <binary> <port> [pid]: the pid, inside WSL, of the one process that is the pinned
+# monero-wallet-rpc as tools/regtest/stagenet-wallets-up.sh runs it: <binary> exactly as its program name; --stagenet,
+# --rpc-bind-ip 127.0.0.1 and --rpc-bind-port <port> each whole arguments of its command line (pgrep -af); and its
+# running image, /proc/<pid>/exe, which stays the image the process started from even if the file is replaced, hashing
+# to MONERO_WALLET_RPC_SHA256. Given a pid, only that process is considered. Prints nothing when no process qualifies,
+# or more than one does, and never fails: the caller decides what nothing means.
+stagenet_wallet_rpc_pid() {
+	local bin="$1" port="$2" want="${3:-}" pids got
+	pids="$(wsl_exec pgrep -af monero-wallet-rpc 2>/dev/null | tr -d '\r' | awk -v bin="$bin" -v port="$port" -v want="$want" '
+		want != "" && $1 != want { next }
+		$2 != bin { next }
+		{
+			sn = 0; ip = 0; pt = 0
+			for (i = 3; i <= NF; i++) {
+				if ($i == "--stagenet") sn = 1
+				else if ($i == "--rpc-bind-ip" && $(i + 1) == "127.0.0.1") ip = 1
+				else if ($i == "--rpc-bind-port" && $(i + 1) == port) pt = 1
+			}
+			if (sn && ip && pt) print $1
+		}')" || true
+	case "$pids" in
+	"" | *[!0-9]*) return 0 ;; # none, or more than one (the newline between two is not a digit)
+	esac
+	got="$(wsl_exec sha256sum "/proc/$pids/exe" 2>/dev/null | tr -d '\r' | awk '{print $1}')" || true
+	[ "$got" = "$MONERO_WALLET_RPC_SHA256" ] || return 0
+	printf '%s\n' "$pids"
+}
+
 # wait_for <seconds> <description> <command...>: polls once a second until the command succeeds.
 wait_for() {
 	local secs="$1" what="$2" i

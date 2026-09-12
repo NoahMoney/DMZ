@@ -12,11 +12,11 @@ steps come from, with the reasons behind each.*
 
 | Component | Where | Parameters | Final state |
 |---|---|---|---|
-| `factory.bas` | one contract | treasury address, registration fee | **`Renounce` has run**: no `owner`, `renounced` = the height it ran at |
+| `factory.bas` | one contract (v2) | treasury address, registration fee, both fixed by `Initialize` for the factory's life | **no owner exists**: v2 stores none and has no setter, so nothing can change the treasury or the fee, and there is nothing to renounce (MT-J15(b), 2026-09-11) |
 | `social.bas` | one contract | none | no role exists |
 | `founders.bas` | one contract | name, description, image, price, supply, reserve, share, market fee, treasury (operator decision MT-J16) | no function changes any of them after install |
 | `chat.bas` | one contract | treasury, fee per message, maximum length | fixed at install |
-| `htlc.bas` | one contract, the Monero swap's DERO leg | none | no owner, admin, fee or update path |
+| `htlc.bas` | one contract (v3), the Monero swap's DERO leg | `w1min` and `w2min`, the least t1 − lock height and t2 − t1 (400 each, from the Monero profile), and `g2`, the Punish window (**not chosen yet**: MT-J13) | fixed at install; no owner, admin, fee or update path |
 | `swap.bas` | one contract, the Zcash swap's DERO leg | `wmin` = 1,600 blocks | fixed at install |
 | `board.bas` | one contract, the Zcash market's offers | `aw` = 200 (in code) | fixed |
 | Market templates `pool`, `launch`, `nft`, `nfa` | installed later by users, from `app/templates/` | per market | each market is checked by the app against the template hashes in the record |
@@ -31,7 +31,7 @@ steps come from, with the reasons behind each.*
 | Item | Pinned to | Checked by |
 |---|---|---|
 | Go toolchain | **go1.26.8** since 2026-09-12: both go.mod files name `toolchain go1.26.8`, and `binaries.lock` records it for every binary. It replaced go1.26.2, whose standard library had 10 reachable vulnerabilities fixed in 1.26.3–1.26.6 (GAP-015). govulncheck now finds none reachable (`research/release/govulncheck-2026-09-12.log`). Build with `GOTOOLCHAIN=local` and go1.26.8 on PATH, so the go command does not fetch a toolchain on its own | `go env GOVERSION`; the release manifest's `go` |
-| `tools/go.mod` | `filippo.io/edwards25519` v1.1.1, `golang.org/x/crypto` v0.33.0, `github.com/decred/dcrd/dcrec/secp256k1/v4` v4.3.0 | `tools/go.sum` |
+| `tools/go.mod` | `filippo.io/edwards25519` v1.1.1, `golang.org/x/crypto` v0.57.0 (and `golang.org/x/sys` v0.48.0, indirect), `github.com/decred/dcrd/dcrec/secp256k1/v4` v4.3.0 | `tools/go.sum` |
 | `vendor/derohe` | `e9df1205b6603c62f0651d0e18e5e77a2584b15e` plus one patch (`deploy/patches/derod-private-genesis.patch`, guarded off mainnet) | `tools/verifyvendor` |
 | `vendor/derohe-civilware` (XSWD wallet) | `433c45590f6792117ff81a2eb3e45513bb856ff5` | `tools/verifyvendor` |
 | `vendor/tela` | `aa892d2ff8d4deb9c519dd19c135e36ff9eac12b` | `tools/verifyvendor` |
@@ -91,10 +91,12 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
 | Daemon | the operator's own synced `derod`; `127.0.0.1:10102` in the record | `deploy/networks.json` |
 | Trade fee | 50 bps (`feeBps`) | each pool's and launch's install |
 | Protocol share | 5,000 bps of the trade fee (`pfeeBps`, `launchPfeeBps`) | same |
-| Registration fee | 10,000 atomic units by default (`-regfee`) | the factory, until `Renounce`; then fixed |
+| Registration fee | 10,000 atomic units by default (`-regfee`) | the factory's `Initialize`, for its life: v2 has no setter |
+| Factory treasury | the `-w2` wallet's address | the factory's `Initialize`, for its life: v2 has no setter |
 | Chat | a fee of 10,000 per message; 280 characters at most | `chat.bas` install |
 | Founders Pass | the operator's numbers (MT-J16); the description must be at most 240 bytes, checked before anything is installed | `founders.bas` install |
 | Zcash escrow width | `wmin` = 1,600 blocks (`-swap-wmin`) | `swap.bas` install |
+| Monero escrow widths | `w1min` = 400 and `w2min` = 400 blocks (`-htlc-w1min`, `-htlc-w2min`); `g2`, the Punish window, the operator's G2 (`-htlc-g2`). None has a default | `htlc.bas` install |
 | Board acceptance window | 200 blocks | `board.bas` code |
 | Confirmation policy | DERO 8 (`STABLE_LIMIT`, consensus); Monero 20 by default, never below 10; Zcash 10. The companions enforce them, not the contracts | `CROSS_CHAIN_TRUST_MODEL.md` §4 |
 | Verifier configuration | **none**: no verifier, relayer, oracle or signer set exists | — |
@@ -125,17 +127,24 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
    cd tools
    go run ./simdeploy -network mainnet -yes -daemon 127.0.0.1:10102 -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
      -pass-name "<name>" -pass-descr "<at most 240 bytes>" -pass-image <url> -pass-price <p> -pass-max <n> ^
-     -pass-reserve <r> -pass-share <bps> -pass-mfee <bps> -swap-wmin 1600
+     -pass-reserve <r> -pass-share <bps> -pass-mfee <bps> -swap-wmin 1600 ^
+     -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 <G2>
    ```
    This installs factory, social, founders, chat, htlc, swap and board, and records them in the `mainnet` block. It
-   refuses before paying for anything if a Founders Pass parameter or `wmin` would be refused by its contract.
+   refuses before paying for anything if a Founders Pass parameter, `wmin` or an `htlc.bas` width would be refused by
+   its contract, and if any of the three `htlc.bas` widths is missing: G2 has no default because the operator has not
+   chosen it (MT-J13).
+
+   **The treasury (`-w2`) and the registration fee (`-regfee`) are final at this step.** `factory.bas` v2 has no owner
+   and no setter (MT-J15(b)), so a wrong value can only be answered by a new factory, installed with
+   `simdeploy -migrate-from <this factory>` before the app is published against either.
 
 5. **Read the contracts back:**
    ```
    go run ./verifydeploy -network mainnet -daemon 127.0.0.1:10102
    ```
-   Every contract's code must match its source. At this point the only acceptable FAILs are the factory owner (not
-   yet renounced) and the missing INDEX.
+   Every contract's code must match its source. At this point the only acceptable FAIL is the missing INDEX. The
+   factory has no owner, so the report shows no owner role for it; its treasury and fee are printed under roles.
 
 6. **The app:**
    ```
@@ -152,30 +161,27 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
    ```
    The INDEX must read owner `"anon"`, commit 0, and hash equal to its SCID, and every DOC must equal its file.
 
-8. **Renounce the factory**, once the treasury and the registration fee read back as intended and the app shows them:
-   ```
-   go run ./simdeploy -network mainnet -yes -renounce -factory <scid> -daemon 127.0.0.1:10102 -w0 127.0.0.1:10103
-   ```
-   It calls `Renounce` from the owner wallet at ring size 2, then reads the factory back: `owner` must be absent and
-   `renounced` set. **It cannot be undone.** A wrong treasury can only be answered by a new factory.
+   There is no Renounce step. Until 2026-09-11 the factory had an owner who ended its powers here; `factory.bas` v2
+   has no owner at all (MT-J15(b)), so the deployer key holds no role in any contract from step 4 on, and the owner
+   key this runbook used to revoke does not exist. `simdeploy -renounce` now only says so and exits.
 
-9. **The final check:**
+8. **The final check:**
    ```
    go run ./verifydeploy -network mainnet -daemon 127.0.0.1:10102 -dist ../dist/mainnet -tela-record ../deploy/tela-mainnet.json
    ```
    It must exit 0 with no `-allow`. This is the state of §6.
 
-10. **Publish:**
+9. **Publish:**
     - commit the `mainnet` block of `deploy/networks.json`, `deploy/tela-mainnet.json` and the release manifest;
     - post the INDEX SCID, the contract SCIDs, the template hashes and the manifest's hash;
     - who signs the post, and later releases, is operator decision MT-J10.
 
-11. **Retire the deployer key.** After step 9 it holds no role, only any reserve passes and leftover DERO. Move those,
-    and destroy it or put it offline. Keep the treasury key backed up offline: it receives fees for ever.
+10. **Retire the deployer key.** It never held a role in any contract, only any reserve passes and leftover DERO.
+    Move those, and destroy it or put it offline. Keep the treasury key backed up offline: it receives fees for ever.
 
-12. **Start `treasurybot`** from the treasury wallet: a dry run first, then `-yes`.
+11. **Start `treasurybot`** from the treasury wallet: a dry run first, then `-yes`.
 
-13. **Run the mainnet stage of `docs/MAINNET_TEST_PLAN.md`** at the smallest amounts, reconciled four ways.
+12. **Run the mainnet stage of `docs/MAINNET_TEST_PLAN.md`** at the smallest amounts, reconciled four ways.
 
 ---
 
@@ -183,7 +189,7 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
 
 | Component | State | Check |
 |---|---|---|
-| factory | no `owner` key, `renounced` set; code = `Canon(contracts/factory.bas)` | `verifydeploy` roles and identity |
+| factory | no `owner` key (v2 never stores one); treasury and fee as installed; code = `Canon(contracts/factory.bas)` | `verifydeploy` roles and identity |
 | social, founders, chat, htlc, swap, board | code = canonical source; no role key a function can still act on | `verifydeploy` identity and roles |
 | every registered market | code = a template hash the record accepts | `verifydeploy` templates |
 | the app INDEX | owner `"anon"`, commit 0, hash = its SCID, code = TELA-INDEX-1 | `verifydeploy` tela |

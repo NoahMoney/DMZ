@@ -50,13 +50,32 @@ type htlcEnv struct {
 	htlcSecrets
 }
 
+// The install arguments of the shared environment. w1min 2 and w2min 1 are the smallest widths htlc.bas v3 takes, and
+// they make Lock's width check (line 26) admit exactly what v2's Lock admitted (t1 > height + 1, t2 > t1), so the
+// v1 and v2 tests below keep their meaning. htlcG2 is the Punish window: every test here punishes at most a few
+// blocks past t2. htlc_v3_test.go covers the widths at the companions' values and every edge of the window.
+const (
+	htlcW1min = 2
+	htlcW2min = 1
+	htlcG2    = 50
+)
+
+func htlcInitArgs(w1min, w2min, g2 uint64) rpc.Arguments {
+	return rpc.Arguments{harness.U("w1min", w1min), harness.U("w2min", w2min), harness.U("g2", g2)}
+}
+
 func newHtlc(t *testing.T) *htlcEnv {
+	t.Helper()
+	return newHtlcWith(t, htlcW1min, htlcW2min, htlcG2)
+}
+
+func newHtlcWith(t *testing.T, w1min, w2min, g2 uint64) *htlcEnv {
 	t.Helper()
 	c := harness.New()
 	e := &htlcEnv{c: c, bob: c.NewAccount(), alice: c.NewAccount(), carol: c.NewAccount()}
 	code := readContract(t, "htlc.bas")
 	var res harness.Result
-	e.scid, res = c.Install(code, nil, nil, e.bob, harness.MaxStorageGas)
+	e.scid, res = c.Install(code, nil, htlcInitArgs(w1min, w2min, g2), e.bob, harness.MaxStorageGas)
 	if !res.OK() {
 		t.Fatalf("install: %v", res.Err)
 	}
@@ -66,8 +85,9 @@ func newHtlc(t *testing.T) *htlcEnv {
 	if res.GasStorage >= 20000 {
 		t.Fatalf("install storage gas %d does not fit the 20,000 cap", res.GasStorage)
 	}
-	if c.S(e.scid, "kind") != "htlc" || c.U(e.scid, "v") != 2 || c.U(e.scid, "n") != 0 {
-		t.Fatal("Initialize did not write kind/v/n")
+	if c.S(e.scid, "kind") != "htlc" || c.U(e.scid, "v") != 3 || c.U(e.scid, "n") != 0 ||
+		c.U(e.scid, "w1min") != w1min || c.U(e.scid, "w2min") != w2min || c.U(e.scid, "g2") != g2 {
+		t.Fatal("Initialize did not write kind/v/n/w1min/w2min/g2")
 	}
 	e.sa, e.ha = preimage(3)
 	e.kb, e.hk = preimage(5)
@@ -91,6 +111,10 @@ func (e *htlcEnv) refund(id uint64, sb string, in map[crypto.Hash]uint64, who *r
 
 func (e *htlcEnv) punish(id uint64, in map[crypto.Hash]uint64, who *rpc.Address) harness.Result {
 	return e.c.Call(e.scid, "Punish", rpc.Arguments{harness.U("id", id)}, in, who)
+}
+
+func (e *htlcEnv) reclaim(id uint64, sb string, in map[crypto.Hash]uint64, who *rpc.Address) harness.Result {
+	return e.c.Call(e.scid, "Reclaim", rpc.Arguments{harness.U("id", id), harness.S("sb", sb)}, in, who)
 }
 
 // open asserts a refused call changed nothing about lock id: still state 0, nothing revealed, the value still held.
@@ -262,7 +286,8 @@ func TestHtlcRefund(t *testing.T) {
 
 // From t2 Alice takes the DERO with no secret: Bob had [t1, t2) to refund and did not. Not a block earlier, and
 // never once the lock has already been claimed or refunded (those are asserted where they happen). Who may send
-// it is v2's change and has its own test (htlc_v2_test.go): anyone, and it still pays only the taker.
+// it is v2's change and has its own test (htlc_v2_test.go): anyone, and it still pays only the taker. That the window
+// closes at t2 + g2 is v3's, tested in htlc_v3_test.go.
 func TestHtlcPunish(t *testing.T) {
 	e := newHtlc(t)
 	c := e.c
@@ -378,19 +403,23 @@ func TestHtlcLockRefusals(t *testing.T) {
 }
 
 // Initialize is an ordinary exported function to the DVM, and a second call would reset n so the next lock
-// overwrites an open one. tests/reentry_test.go asserts the guard for the contracts it names, and this is not one
-// of them, so it is asserted here: nobody, the deployer included, can call it again.
+// overwrites an open one, or move the widths and the Punish window under open locks. tests/reentry_test.go asserts the
+// guard for the contracts it names, and this is not one of them, so it is asserted here: nobody, the deployer
+// included, can call it again, with well-formed arguments or none.
 func TestHtlcInitializeNotCallable(t *testing.T) {
 	e := newHtlc(t)
 	c := e.c
 	t2 := c.Height + 100
 	mustOK(t, e.lock(c.Height+50, t2, "", map[crypto.Hash]uint64{zero: 100000}, e.bob), "lock")
 	for _, who := range []*rpc.Address{e.carol, e.bob, nil} {
-		if r := c.Call(e.scid, "Initialize", nil, nil, who); r.OK() {
-			t.Fatal("Initialize callable after install")
+		for _, args := range []rpc.Arguments{nil, htlcInitArgs(400, 400, 1)} {
+			if r := c.Call(e.scid, "Initialize", args, nil, who); r.OK() {
+				t.Fatal("Initialize callable after install")
+			}
 		}
 	}
-	if c.U(e.scid, "n") != 1 || c.U(e.scid, "st_0") != 0 || c.U(e.scid, "v_0") != 100000 {
+	if c.U(e.scid, "n") != 1 || c.U(e.scid, "st_0") != 0 || c.U(e.scid, "v_0") != 100000 ||
+		c.U(e.scid, "w1min") != htlcW1min || c.U(e.scid, "w2min") != htlcW2min || c.U(e.scid, "g2") != htlcG2 {
 		t.Fatal("a second Initialize changed the state")
 	}
 	c.Height = t2

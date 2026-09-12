@@ -7,7 +7,8 @@ import (
 )
 
 // GAP-005: a market's treasury is fixed at its install, but the app verified it against the factory's live tstr
-// pointer, which the owner can move until Renounce, delisting every market in every client with one call. The
+// pointer, which a v1 factory's owner could move until Renounce, delisting every market in every client with one
+// call (factory.bas v2 fixes it at install). The
 // record now carries the published treasury set, config.js renders it as `treasuries`, and app/feed.js checks
 // markets against it. A record without the field renders exactly as before, so the app falls back to tstr.
 func TestConfigJSCarriesTheTreasuries(t *testing.T) {
