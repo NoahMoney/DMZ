@@ -255,8 +255,9 @@ func (s *Swap) onceLogf(format string, a ...interface{}) {
 
 func (s *Swap) attempt(name string) uint64 { return s.st.Attempts[name] }
 
-// failedCall records a DERO call whose outcome is unknown — it may be in the pool — so the next pass waits
-// SettleBlocks before looking for its effect. A call refused at estimate sent nothing and is not recorded.
+// failedCall records a DERO call whose outcome is unknown — it may be in the pool — so the next pass waits its
+// settle window (settleWindow) before looking for its effect. A call refused at estimate sent nothing and is not
+// recorded.
 func (s *Swap) failedCall(name string, h uint64, err error) error {
 	if errors.Is(err, ErrEstimate) {
 		return err
@@ -273,7 +274,19 @@ func (s *Swap) failedCall(name string, h uint64, err error) error {
 
 func (s *Swap) settling(name string, h uint64) bool {
 	a := s.attempt(name)
-	return a > 0 && h < a+s.cfg.Policy.SettleBlocks
+	return a > 0 && h < a+s.settleWindow(name)
+}
+
+// settleWindow is how many blocks an unseen call is given to land before its effect is looked for and it may go
+// again. A second copy of most calls is refused by its contract and costs a fee. A second Lock is not: it is a second
+// escrow under the same hash, for the same taker, which the one secret opens as well. So a Lock is given the whole
+// span in which DERO could still mine it, DeroTxValidity blocks from the height it was sent at.
+func (s *Swap) settleWindow(name string) uint64 {
+	w := s.cfg.Policy.SettleBlocks
+	if name == "lock" && w < DeroTxValidity {
+		w = DeroTxValidity
+	}
+	return w
 }
 
 func (s *Swap) noteTx(name, txid string) {
@@ -412,6 +425,21 @@ func lockDeadline(acceptHeight uint64, p Policy, o Offer) uint64 {
 	return d
 }
 
+// lockOpen says whether the maker may still send his Lock at DERO height h. It executes by h + DeroTxValidity, and
+// the taker funds nothing against a lock she first reads at or after the deadline, so it goes out only while it would
+// execute with SettleBlocks to spare for her to read it.
+func lockOpen(h, deadline uint64, p Policy) bool {
+	return h+DeroTxValidity+p.SettleBlocks < deadline
+}
+
+// takerLockDeadline is the height from which the taker walks. board.bas v3 stamps ad_<i> from the height her Accept
+// executes at, up to DeroTxValidity blocks after the height she sent it at (AcceptHeight), and the maker counts P_lock
+// from when he first reads it, so she counts P_lock from the last height her Accept could have executed at. Counted
+// from the height she sent it at, she would walk while the maker could still lock in time.
+func takerLockDeadline(acceptHeight uint64, p Policy, o Offer) uint64 {
+	return lockDeadline(acceptHeight+DeroTxValidity, p, o)
+}
+
 // ---- the maker ----
 
 func (s *Swap) stepMaker(ctx context.Context) error {
@@ -429,8 +457,9 @@ func (s *Swap) stepMaker(ctx context.Context) error {
 			return nil
 		}
 		// nothing is on the board as far as this companion has seen: an expiry that ran out while it was stopped
-		// may still move (Post is found by its hash, not its expiry)
-		if st.OfferExpiry <= h+1 {
+		// may still move (Post is found by its hash, not its expiry). board.bas refuses an expiry at or below the
+		// height the Post executes at, which may be DeroTxValidity blocks from now.
+		if st.OfferExpiry <= h+DeroTxValidity {
 			st.OfferExpiry = h + p.OfferLife
 		}
 		txid, id, err := s.dero.Post(ctx, PostArgs{Chain: ZcashChainLabel, GiveAsset: st.GiveAsset, GiveAmount: st.GiveAmount, WantAmount: st.WantAmount, WantAddr: st.WantAddr, Hash: st.Hash, Expiry: st.OfferExpiry})
@@ -490,8 +519,8 @@ func (s *Swap) stepMaker(ctx context.Context) error {
 			return decline(err.Error())
 		}
 		deadline := lockDeadline(st.AcceptHeight, p, o)
-		if h+p.SettleBlocks >= deadline {
-			return decline(fmt.Sprintf("DERO height %d is too close to the lock deadline %d: the taker funds nothing against a lock mined at or after it", h, deadline))
+		if !lockOpen(h, deadline, p) {
+			return decline(fmt.Sprintf("DERO height %d is too close to the lock deadline %d: a Lock sent now may execute up to %d blocks later, and the taker funds nothing against a lock mined at or after the deadline", h, deadline, DeroTxValidity-1))
 		}
 		st.CLTV, st.RefundPkh, st.TakerRaw, st.TDero, st.LockDeadline = cltv, rp, o.Taker, h+p.TDeroWindow, deadline
 		return s.save("locking")
@@ -515,7 +544,7 @@ func (s *Swap) stepMaker(ctx context.Context) error {
 		if deadline == 0 {
 			deadline = st.AcceptHeight + p.PLock
 		}
-		if h+p.SettleBlocks >= deadline {
+		if !lockOpen(h, deadline, p) {
 			st.Note = "the lock did not land before the lock deadline"
 			return s.save("cancel_wait")
 		}
@@ -532,9 +561,10 @@ func (s *Swap) stepMaker(ctx context.Context) error {
 			s.logf("not locking: %s", st.Note)
 			return s.save("cancel_wait")
 		}
-		// T_dero: the escrow refuses an expiry below height + wmin at the height the Lock executes, so it is set a
-		// settle window above now, from the wider of this policy's window and the escrow's wmin, and written down
-		// before the call; a later attempt sets it again (the Lock is found by maker, taker and hash, never expiry)
+		// T_dero: the escrow refuses an expiry below height + wmin at the height the Lock EXECUTES, which DERO allows up
+		// to DeroTxValidity blocks after the height it is built at, now. So T_dero is the wider of this policy's window
+		// and wmin + DeroTxValidity above now (TDeroWidth), written down before the call; a later attempt sets it again
+		// (the Lock is found by maker, taker and hash, never expiry).
 		wmin, err := s.dero.EscrowWMin(ctx)
 		if err != nil {
 			return err
@@ -543,11 +573,31 @@ func (s *Swap) stepMaker(ctx context.Context) error {
 			st.Note = fmt.Sprintf("the escrow's wmin %d is wider than this maker's T_dero window %d", wmin, p.TDeroWindow)
 			return s.save("cancel_wait")
 		}
-		st.TDero = h + p.TDeroWindow + p.SettleBlocks
+		width, err := p.TDeroWidth(wmin)
+		if err != nil {
+			st.Note = err.Error()
+			return s.save("cancel_wait")
+		}
+		st.TDero = h + width
+		// The attempt is on disk before the Lock leaves. A companion that dies while its Lock waits in the pool finds it
+		// on restart and gives that Lock its whole span to land (settleWindow) before it looks for it, instead of sending
+		// a second, which swap.bas would take as a second escrow.
+		if st.Attempts == nil {
+			st.Attempts = map[string]uint64{}
+		}
+		st.Attempts["lock"] = h
 		if err := st.Save(); err != nil {
 			return err
 		}
 		txid, id, err := s.dero.Lock(ctx, st.Hash, taker, st.TDero, st.GiveAsset, st.GiveAmount)
+		if errors.Is(err, ErrEstimate) {
+			// refused at estimate: nothing was sent, so there is nothing to wait for
+			delete(st.Attempts, "lock")
+			if serr := st.Save(); serr != nil {
+				return serr
+			}
+			return err
+		}
 		if err != nil {
 			return s.failedCall("lock", h, err)
 		}
@@ -581,6 +631,8 @@ func (s *Swap) stepMaker(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		// no execution-delay margin: swap.bas refuses a Refund only before T_dero, so executing later than it was
+		// sent can only help it
 		if h < st.TDero {
 			return nil
 		}
@@ -602,7 +654,12 @@ func (s *Swap) stepMaker(ctx context.Context) error {
 		return nil
 
 	case "cancel_wait":
-		// a Lock sent before the move here may have landed since; its DERO then needs this companion's Refund
+		h, err := s.dero.Height(ctx)
+		if err != nil {
+			return err
+		}
+		// a Lock sent before the move here may have landed since, or may still: DERO mines it up to DeroTxValidity
+		// blocks after it was sent. Its DERO then needs this companion's Refund, so nothing ends before that span has.
 		if !st.HaveEscrow && s.attempt("lock") > 0 && st.TakerRaw != "" {
 			if e, ok, err := s.dero.FindEscrow(ctx, st.MakerRaw, st.TakerRaw, st.Hash); err != nil {
 				return err
@@ -611,6 +668,9 @@ func (s *Swap) stepMaker(ctx context.Context) error {
 				s.logf("a lock sent earlier landed as escrow %d: it will be refunded after T_dero %d", e.ID, e.Expiry)
 				return s.save("refund_wait")
 			}
+			if s.settling("lock", h) {
+				return nil
+			}
 		}
 		o, err := s.dero.ReadOffer(ctx, st.OfferID)
 		if err != nil {
@@ -618,10 +678,6 @@ func (s *Swap) stepMaker(ctx context.Context) error {
 		}
 		if o.State == OfferCancelled {
 			return s.finish("cancelled", "the offer is cancelled: "+st.Note)
-		}
-		h, err := s.dero.Height(ctx)
-		if err != nil {
-			return err
 		}
 		// board.bas v3 lets the maker cancel an accepted offer from its acceptance deadline or its expiry
 		if o.State == OfferAccepted && h < o.Expiry && (o.AcceptDeadline == 0 || h < o.AcceptDeadline) {
@@ -1034,7 +1090,8 @@ func (s *Swap) makerClaimed(ctx context.Context) error {
 	// swap.bas v2 pays the named taker whoever sends Claim (docs/ATOMIC_SWAP_STUDY.md §2.2, Z-C). With this claim C_zec
 	// deep the ZEC is the maker's, so he sends hers for her: a taker away when the secret appeared still gets the
 	// DERO before T_dero. The contract pays her and nobody else; this costs the maker one fee and changes nothing
-	// he holds.
+	// he holds. Like her own Claim it goes while h + 1 < T_dero, with no execution-delay margin: sent too late, it is
+	// refused and costs him one fee.
 	if h+1 < st.TDero && !s.settling("relay", h) {
 		txid, err := s.dero.Claim(ctx, st.EscrowID, st.Secret)
 		if err != nil {
@@ -1197,6 +1254,13 @@ func (s *Swap) stepTaker(ctx context.Context) error {
 		case h >= o.Expiry:
 			return s.finish("declined", "the offer expired before the accept landed")
 		}
+		// board.bas refuses an Accept that executes at or after the offer's expiry, which one sent now may do up to
+		// DeroTxValidity blocks from now: none is sent that could, and an earlier one is left to land, or the offer to
+		// expire
+		if h+DeroTxValidity >= o.Expiry {
+			s.sayOnce("acceptlate", "not sending an Accept at DERO height %d: it could execute at or after the offer's expiry %d", h, o.Expiry)
+			return nil
+		}
 		if s.settling("accept", h) {
 			return nil
 		}
@@ -1231,7 +1295,7 @@ func (s *Swap) stepTaker(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		deadline := lockDeadline(st.AcceptHeight, p, o)
+		deadline := takerLockDeadline(st.AcceptHeight, p, o)
 		e, ok, err := s.dero.FindEscrow(ctx, st.MakerRaw, st.MyRaw, st.Hash)
 		if err != nil {
 			return err
@@ -1326,6 +1390,9 @@ func (s *Swap) stepTaker(ctx context.Context) error {
 		if s.settling("claim", h) {
 			return nil
 		}
+		// No execution-delay margin here, unlike the calls whose heights the companion sets: a Claim that executes at
+		// or after T_dero is refused and costs one fee, and a Claim not sent costs her the whole leg. It goes while
+		// low + 1 < T_dero (above), the last height from which it can still land in the next block.
 		txid, err := s.dero.Claim(ctx, st.EscrowID, st.SecretSeen)
 		if err != nil {
 			return s.failedCall("claim", h, err)
@@ -1339,7 +1406,9 @@ func (s *Swap) stepTaker(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if stable < st.DeroClaimHeight {
+		// the Claim executes up to DeroTxValidity blocks after the height it was sent at: until that last block is
+		// stable it may not be mined yet, or be mined in a block DERO can still replace
+		if stable < st.DeroClaimHeight+DeroTxValidity {
 			return nil
 		}
 		e, err := EscrowAgreed(ctx, s.dsrc, st.EscrowID)
@@ -1454,8 +1523,8 @@ func (s *Swap) takerSetup(ctx context.Context) error {
 		return decline("it gives nothing")
 	case o.GiveAsset != "" && !isHex(o.GiveAsset, 32):
 		return decline(fmt.Sprintf("its asset %q is not a SCID", o.GiveAsset))
-	case o.State == OfferOpen && o.Expiry <= h+p.SettleBlocks+1:
-		return decline("it expires before an accept can land")
+	case o.State == OfferOpen && o.Expiry <= h+DeroTxValidity:
+		return decline("it expires before an Accept sent now could execute")
 	}
 	// Z8: a hash on two rows is a secret that opens two swaps
 	rows, err := s.dero.HashRows(ctx, o.Hash)

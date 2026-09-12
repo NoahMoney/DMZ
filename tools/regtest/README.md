@@ -146,7 +146,7 @@ Change goes back to the key's own address; the fee is ZIP 317's. From Git Bash, 
 calling `wsl.exe` with Linux paths, or Git Bash rewrites them.
 
 **Point zecswap at it:** `-network regtest -zcash http://127.0.0.1:28232 -zcash-cookie <repo>/.sim/regtest/zcash/.cookie`.
-Today zecswap refuses this node (difference 1 below).
+zecswap accepts this node: zebrad reports `chain` as `test` here (below), and zecswap recognises regtest by its genesis block instead (MT-C17).
 
 **The chain's rules.** Every upgrade through NU6.3 is active: Overwinter–Canopy at height 1, NU5 2, NU6 3, NU6.1 4,
 NU6.2 5, NU6.3 6. `consensus.chaintip` and `consensus.nextblock` both report **`37a5165b`** (NU6.3, ZIP 258). Canopy

@@ -73,7 +73,7 @@ blocks (§5).
 |---|---|---|---|
 | 1 | maker | `board.bas` `Post(chain, giveAsset, giveAmount, wantAmount, wantAddr, hash, expiry)` | `chain = "zcash-t"`; `giveAsset` empty for DERO or a 64-hex SCID (a token, or a wrapped asset); `wantAmount` in zatoshi; `wantAddr` the maker's transparent P2PKH address, whose key hash is the script's claim key; `hash = H`; `expiry` the height after which the offer dies by itself. Ring 2; the signer is the maker. Nothing is locked yet. |
 | 2 | taker | `board.bas` `Accept(id, refundPkh, cltv)` | Binds the offer to the signer (the DERO address that will receive the escrow) and publishes the two things the maker needs to compute the Zcash script: the taker's refund key hash and the absolute Zcash height after which the taker may refund. `cltv` must lie inside policy relative to the current Zcash height, or the maker will not lock (§5); the board itself refuses a `cltv` of 500,000,000 or more, which a Zcash script reads as a Unix time. v3 stores the acceptance deadline `ad_<id>`, the accept height + `aw` (200 blocks, `P_lock`). One `Accept` per offer; the maker can `Cancel` before it, and after it from `ad_<id>` or the offer's expiry, whichever comes first. |
-| 3 | maker | `swap.bas` `Lock(H, taker, T_dero, giveAsset)` with the asset attached | Before the board's `ad_<id>`, `P_lock` DERO blocks after the accept. `taker` is the accepting address — required: `swap.bas` refuses a lock that names none — and must be registered on DERO (a Claim's transfer to an unregistered one is refused and reverted: nothing is lost, and nothing is paid until she registers); `T_dero` per policy, and `swap.bas` refuses one fewer than its `wmin` blocks ahead. The maker's companion refuses to lock unless `cltv` and `T_dero` satisfy the margin in §5; the taker's funds nothing against a lock mined at or after `ad_<id>`. |
+| 3 | maker | `swap.bas` `Lock(H, taker, T_dero, giveAsset)` with the asset attached | Before the board's `ad_<id>`, `P_lock` DERO blocks after the accept. `taker` is the accepting address — required: `swap.bas` refuses a lock that names none — and must be registered on DERO (a Claim's transfer to an unregistered one is refused and reverted: nothing is lost, and nothing is paid until she registers); `T_dero` per policy, and `swap.bas` refuses one fewer than its `wmin` blocks ahead of the height the Lock *executes* at, which DERO allows up to 10 blocks after the wallet built it (§5). The maker's companion refuses to lock unless `cltv` and `T_dero` satisfy the margin in §5; the taker's funds nothing against a lock mined at or after `ad_<id>`. |
 | 4 | taker | Zcash | Waits until the DERO lock is `STABLE_LIMIT` = 8 blocks deep (DERO can replace a shallower block), checks every field — `H`, the taker address, `T_dero`, the asset and amount against the offer — then funds the P2SH script `IF SIZE <32> EQUALVERIFY SHA256 <H> EQUALVERIFY DUP HASH160 <makerPkh> EQUALVERIFY CHECKSIG ELSE <cltv> CHECKLOCKTIMEVERIFY DROP DUP HASH160 <refundPkh> EQUALVERIFY CHECKSIG ENDIF` (98 bytes) with exactly `wantAmount`. The maker can compute this script and its address from `Post` and `Accept` alone, so no message is needed. |
 | 5 | maker | Zcash | Watches the script's address. When the funding output has `C_zec` confirmations (§5) and at least `wantAmount`, claims it with `s` before `cltv`. **`s` is now public on Zcash.** |
 | 6 | anyone | `swap.bas` `Claim(id, s)` | Reads `s` from the maker's claim transaction and sends the Claim before `T_dero`. Ring 2, no value attached. v2 pays the taker `Lock` named whoever signs it, so the maker's companion can send it straight after its Zcash claim (`docs/ATOMIC_SWAP_STUDY.md` §2.2, Z-C), and so can the taker, her second device or anyone who reads `s`: the sender pays the fee and receives nothing. The contract stores `s` as `x_<id>`, so it is public on DERO too. |
@@ -184,12 +184,40 @@ escrow is complete, and `swap.bas` is the smaller contract of the two.
 | Zcash block | 75 s | mainnet target since Blossom |
 | `STABLE_LIMIT` (DERO) | 8 blocks | DERO may replace a shallower block; the taker locks ZEC only against a lock this deep |
 | `C_zec` | 10 confirmations (12.5 min) | the maker claims only a funding this deep; Zcash has no finality rule, and ten is the common exchange policy |
-| `T_dero − lock height` | 1,600 blocks (8 h) | the maker's exposure if the taker walks (§6); long enough to contain the whole Zcash leg plus the taker's DERO claim. `swap.bas` v2 refuses a lock narrower than its `wmin`, which a deployment for this market sets to 1,600 |
+| `T_dero − lock height` | 1,600 blocks (8 h), or the escrow's `wmin` + 11 when that is wider: 1,611 with the `wmin` of 1,600 a mainnet deployment installs | the maker's exposure if the taker walks (§6); long enough to contain the whole Zcash leg plus the taker's DERO claim. `swap.bas` v2 refuses a lock narrower than its `wmin` at the height the Lock executes, up to 10 blocks after the height it was built at, so the companion sets `T_dero` = the build height + max(1,600, `wmin` + 11) (`Policy.TDeroWidth`; the paragraph below) |
 | `cltv − Zcash height at lock` | 96 blocks (2 h) | the maker's window to claim; short, so a maker who walks costs the taker two hours, not eight |
 | taker's precondition to lock ZEC | `T_dero − now ≥ 1,200` DERO blocks (6 h) | so that after a claim at the last Zcash block (≤ 2 h + reorg slack) the taker still has ≥ 3.5 h on DERO |
 | `P_lock` | 200 DERO blocks (1 h) after `Accept` | the maker's deadline to lock. `board.bas` v3 carries it: `aw` = 200, and each accept's `ad_<id>` = the accept height + `aw`. From it the maker may cancel the row, and the taker's companion funds nothing against a lock mined at or after it |
 | secret | 32 bytes | `swap.bas` line 25–27 refuses any other length, and the redeem script says the same in `SIZE <32> EQUALVERIFY`, so the two legs accept the same set of secrets and the companion is not the only guard |
 | `cltv` tolerance | ± 32 blocks (40 min) around the 96 | the two parties read the tip at different moments and the accept is written before the lock. Below 64 blocks there is no window at all — the maker still needs `C_zec` = 10 confirmations (12.5 min) and time to broadcast; above 128 blocks the taker’s precondition `T_dero − now ≥ 1,200` stops holding. `zecswap.CheckCLTV` enforces it; nothing on DERO can, because the DVM cannot see the Zcash height |
+
+**Every height is judged when the call executes, not when it was sent.** DERO mines a transaction only while the
+block's height minus the transaction's height (the wallet's tip when it built it) is below 11
+(`vendor/derohe/blockchain/blockchain.go:748`), so a call built at height `h` executes by `h + 10` or never. `swap.bas`
+and `board.bas` read `BLOCK_HEIGHT()` as it executes. The companion counts 11 (`zecswap.DeroTxValidity`), one block
+conservative, as the Monero companion does, and holds each call to it:
+
+- `Lock`: `T_dero` ≥ the build height + `wmin` + 11 (above). The earlier `T_dero` = the build height + 1,603 was refused
+  on chain, and its fee lost, by any Lock mined 4 or more blocks late against a `wmin` of 1,600.
+- The lock deadline (`P_lock`, `ad_<id>`): the maker sends his Lock only while the build height + 11 + `SettleBlocks` is
+  below it, so the Lock executes, and the taker can read it, before the deadline. The taker counts `P_lock` from the
+  last height her own `Accept` could execute at, because `board.bas` stamps `ad_<id>` from that height, and she walks
+  only then. Counted from the height she built it at, she could walk while the maker could still lock in time.
+- `Accept`: the taker sends it only while the build height + 11 is below the offer's expiry. `Post`: the expiry the
+  maker writes is more than 11 blocks above the build height.
+- `Claim`: no margin. A Claim that executes too late costs one fee, and a Claim not sent costs the taker the whole leg, so
+  she and the maker's relay send it while `h + 1 < T_dero`. The taker calls her Claim settled only once the last block
+  it could execute in, its build height + 11, is `STABLE_LIMIT` deep.
+- `Refund`, and `Cancel` of an accepted offer: no margin. Each is refused before a height, never after one, so a late
+  execution only helps.
+- A second `Lock` is not refused. It is a second escrow under the same hash, for the same taker, and the one secret opens
+  both. So the maker writes the attempt to disk before he sends a Lock. After a restart, he waits 11 blocks from that
+  height before he looks for the Lock and decides whether to send another; the other calls wait `SettleBlocks`.
+
+`Policy.Validate` holds the numbers to this rule: `TakerMinDeroLeft` + 11 + 8 ≤ the `T_dero` window, so a lock that
+executed as late as DERO allows, then waited to its stable depth, can still be funded; `P_lock` > 11 + `SettleBlocks`;
+an offer lives more than 22 blocks; and the wall-clock relation leaves the taker's Claim two stable depths plus 11
+blocks after `cltv`.
 
 The margins are argued from block times, as the Monero swap's are. Measuring them against real reorg statistics
 on both chains is BL-30, and the numbers above are simulator policy until then. On the simulator the driver uses
@@ -489,8 +517,13 @@ Mainnet, never from this repository.
 `TestRegtestCLI` does, as separate maker, taker and `status` processes. The differences:
 - It runs with `-network testnet`, through the harness's rpcgate (`http://127.0.0.1:18232`).
 - It runs under the policy the command line ships for testnet (§5): `C_zec` 10, `cltv` 96 ± 32 Zcash blocks, and
-  `T_dero` 1,600 DERO blocks after the lock. The taker funds only while 1,200 DERO blocks are left, and `swap.bas` is
-  installed with `wmin` 1,200.
+  `T_dero` 1,600 DERO blocks after the height the lock is built at (the policy's window, wider than `wmin` + 11). The
+  taker funds only while 1,200 DERO blocks are left, and `swap.bas` is installed with `wmin` 1,200.
+- Its waits follow the chains. The taker's process gets 10 h, since everything it waits for is on Zcash or a few
+  DERO blocks. The maker's process may have to wait for `T_dero`, so its wait lasts until the DERO chain reaches the
+  maker's `T_dero`, however slow that chain is, and then 10 h more. If the DERO chain stops moving for 30 minutes,
+  the wait stops following it and the 10 h run from there. `ZECSWAP_TESTNET_WAIT` (a Go duration, such as `14h`)
+  replaces the 10 h.
 - It runs one whole swap and one refund, both with `-verify-headers`. On testnet the gate checks the plumbing only:
   the minimum-difficulty rule makes forged headers nearly free.
 - It mines nothing. The taker funds from a key file the operator has filled, and the maker's claim pays another.
@@ -575,6 +608,9 @@ at the taker's address; 0.01 TAZ leaves room for a retry.
    ZECSWAP_TESTNET_SWAP=1 ZECSWAP_TESTNET_MAKER_KEY=<keys-dir>/maker.key ZECSWAP_TESTNET_TAKER_KEY=<keys-dir>/taker.key \
      PATH="$HOME/sdk/go1.26.8/bin:$PATH" GOTOOLCHAIN=local go test -count=1 -run '^TestTestnetSwap$' -timeout 12h -v ./zecswap
    ```
+   `-timeout 12h` covers the simulator, where `T_dero` passes about 6 h after the lock. On the private DERO testnet,
+   `T_dero` alone takes 22–27 h at that chain's pace, so give `-timeout 40h`. Go's own timeout is the one bound the
+   driver cannot stretch to follow the chain.
 
 **Wall clock**, at testnet's 75 s blocks and the simulator's ~14 s:
 
@@ -588,7 +624,7 @@ at the taker's address; 0.01 TAZ leaves room for a retry.
 | **Whole swap, total** | **~35–40 min** (Zcash block times vary; an unlucky run doubles it) |
 | Refund: post, accept, lock, lock deep, funding | ~6 min |
 | Refund: `cltv` (96 blocks after the accept), then the taker's refund 10 deep; she ends refunded | ~2 h 15 min |
-| Refund: `T_dero` (1,603 DERO blocks after the lock), then the maker's Refund; he ends refunded | ~6 h 15 min after the lock |
+| Refund: `T_dero` (1,600 DERO blocks after the lock is built), then the maker's Refund; he ends refunded | ~6 h 15 min after the lock (22–27 h on the private DERO testnet) |
 | **Total** | **about 7 h** |
 
 **Done, for MT-C15:**

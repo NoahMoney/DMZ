@@ -88,6 +88,13 @@ func TestPolicyValidate(t *testing.T) {
 		"taker minimum above T_dero":    func(p *Policy) { p.TakerMinDeroLeft = p.TDeroWindow },
 		"T_dero before cltv in seconds": func(p *Policy) { p.TakerMinDeroLeft, p.TDeroWindow = 100, 200 },
 		"a zero":                        func(p *Policy) { p.SettleBlocks = 0 },
+		// a Lock may execute 11 blocks after T_dero is counted from, and is funded only 8 deep
+		"a late lock never fundable":              func(p *Policy) { p.TakerMinDeroLeft = p.TDeroWindow - DeroTxValidity - DeroStableDepth + 1 },
+		"no height a Lock lands before P_lock":    func(p *Policy) { p.PLock = DeroTxValidity + p.SettleBlocks },
+		"an offer dead before an Accept executes": func(p *Policy) { p.OfferLife = 2 * DeroTxValidity },
+		"T_dero past swap.bas's ceiling":          func(p *Policy) { p.TDeroWindow = MaxEscrowWidth + 1 },
+		// 555 × 18 s outlasts cltv by two stable depths, and not by those and a Claim's execution delay
+		"a Claim's execution past the margin": func(p *Policy) { p.TakerMinDeroLeft = 555 },
 	} {
 		p := DefaultPolicy()
 		mut(&p)

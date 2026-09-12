@@ -51,9 +51,20 @@ func TestTestnetSwap(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.cookie = cookie
+	// The taker's process waits on Zcash and a few DERO blocks: 10 h covers it. The maker's may wait for T_dero, whose
+	// wall-clock length is the DERO chain's pace (about 6 h on the simulator, 22–27 h on the private DERO testnet), so
+	// its wait follows the chain (waitMaker) and its 10 h run from T_dero. ZECSWAP_TESTNET_WAIT replaces the 10 h.
+	wait := 10 * time.Hour
+	if v := os.Getenv("ZECSWAP_TESTNET_WAIT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			t.Fatalf("ZECSWAP_TESTNET_WAIT=%q is not a positive Go duration, such as 14h", v)
+		}
+		wait = d
+	}
 	p := DefaultPolicy()
 	e.cn = &cliNet{network: "testnet", zcash: testnetGate, wmin: p.TakerMinDeroLeft, wantZat: p.MinAmount, interval: "10s",
-		wait: 10 * time.Hour, verifyAll: true, makerKey: makerKey, takerKey: takerKey}
+		wait: wait, followTDero: true, stall: 30 * time.Minute, verifyAll: true, makerKey: makerKey, takerKey: takerKey}
 	// the DERO side: the simulator unless all four of the private DERO testnet's endpoints are given
 	if d := os.Getenv("ZECSWAP_TESTNET_DERO_DAEMON"); d != "" {
 		mw, tw, iw := os.Getenv("ZECSWAP_TESTNET_DERO_MAKER"), os.Getenv("ZECSWAP_TESTNET_DERO_TAKER"), os.Getenv("ZECSWAP_TESTNET_DERO_INSTALLER")
@@ -67,6 +78,7 @@ func TestTestnetSwap(t *testing.T) {
 	e.logf("== MT-C15: the zecswap command line on the ZCASH TESTNET through rpcgate %s; the DERO leg on %s (maker %s, taker %s, installer %s)", testnetGate, w.dero, w.makerWallet, w.takerWallet, w.installWallet)
 	e.logf("== policy: DefaultPolicy (docs/ZEC_SWAP.md §5): C_zec %d, cltv %d ± %d Zcash blocks, T_dero %d DERO blocks after the lock, the taker funds with at least %d left; escrow wmin %d",
 		p.ConfZec, p.CLTVWindow, p.CLTVTolerance, p.TDeroWindow, p.TakerMinDeroLeft, w.wmin)
+	e.logf("== waits: the taker's process %s; the maker's until the DERO chain reaches its T_dero, however slow, then %s", wait, wait)
 	e.logf("== -verify-headers on both swaps. TESTNET CAVEAT: it checks the plumbing only; the minimum-difficulty rule makes testnet headers nearly free to forge, so a lie would cost almost nothing")
 
 	// preflight, DERO: a testnet daemon (the simulator reports testnet too)

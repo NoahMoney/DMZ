@@ -25,8 +25,12 @@ type cliNet struct {
 	wmin      uint64        // swap.bas's wmin at install: the taker refuses one below her policy's minimum
 	wantZat   uint64        // the offer's price in zatoshi
 	interval  string        // the companions' -interval
-	wait      time.Duration // how long one process may run
+	wait      time.Duration // how long one process may run; with followTDero, the maker's from T_dero on
 	verifyAll bool          // -verify-headers on both swaps, not only the whole one
+	// followTDero stretches the maker's wait to the DERO chain's pace (waitMaker), and stall is how long that chain may
+	// stand still before the wait stops following it.
+	followTDero bool
+	stall       time.Duration
 	// dero is the DERO daemon, and the three wallets are the maker's, the taker's and the one that installs the
 	// contracts: the simulator's by default, the private DERO testnet's when TestTestnetSwap is pointed at it.
 	dero, makerWallet, takerWallet, installWallet string
@@ -150,6 +154,38 @@ func (p *proc) waitFor(d time.Duration) bool {
 	case <-time.After(d):
 		p.stop()
 		return false
+	}
+}
+
+// waitMaker waits for the maker's process: waitFor(w.wait), unless the network follows T_dero. A maker whose lock is
+// open may have to wait for T_dero, 1,600 DERO blocks after the lock: about 6 h on the simulator, 22–27 h on the
+// private DERO testnet. With followTDero the wait lasts while the DERO chain, moving, is below the maker's T_dero,
+// however long that takes, and w.wait runs from the last moment it was; a maker that never locked gets w.wait from its
+// start. A chain that has stood still for w.stall is no longer followed.
+func (e *e2e) waitMaker(p *proc, dir string, w *cliNet) bool {
+	if !w.followTDero {
+		return p.waitFor(w.wait)
+	}
+	d := NewDeroRPC(w.dero, "", "", "")
+	var top uint64
+	moved, from := time.Now(), time.Now()
+	for {
+		select {
+		case <-p.done:
+			p.cmd.Wait()
+			return true
+		case <-time.After(time.Minute):
+		}
+		if h, err := d.Height(e.ctx); err == nil && h > top {
+			top, moved = h, time.Now()
+		}
+		if st := e.cliState(dir, RoleMaker); st != nil && !st.Done && top < st.TDero && time.Since(moved) < w.stall {
+			from = time.Now()
+		}
+		if time.Since(from) >= w.wait {
+			p.stop()
+			return false
+		}
 	}
 }
 
@@ -335,8 +371,8 @@ func (e *e2e) cliSwap(tag string, refund bool) {
 		e.logf("%s: the maker process is started again to refund the DERO after T_dero %d", tag, e.cliState(dir, RoleMaker).TDero)
 		maker = e.spawn(tag, RoleMaker, dir, w.makerWallet, makerKeyPath, makerArgs...)
 	}
-	if !maker.waitFor(w.wait) {
-		abort("the maker process did not end within %s (phase %s)", w.wait, e.cliState(dir, RoleMaker).Phase)
+	if !e.waitMaker(maker, dir, w) {
+		abort("the maker process did not end within %s (from T_dero, when the wait follows the chain; phase %s)", w.wait, e.cliState(dir, RoleMaker).Phase)
 	}
 	endMining()
 

@@ -12,6 +12,15 @@ const (
 	ZecBlockSeconds  = 75 // Zcash's target since Blossom
 	// DeroStableDepth is DERO's STABLE_LIMIT: a block this deep is never replaced.
 	DeroStableDepth = 8
+	// DeroTxValidity is TX_VALIDITY_HEIGHT (vendor/derohe/blockchain/miner_block.go:43). A block takes a transaction
+	// only while the block's height minus the transaction's height — the wallet's tip when it built it — is below it
+	// (blockchain.go:748), so a DERO call built at height h executes by h + 10 or never. swap.bas and board.bas read
+	// BLOCK_HEIGHT() as the call executes, so every height the companion sends them is judged up to 10 blocks after
+	// the height it was decided at. The companion counts 11, one block conservative, as tools/xmrswap does.
+	DeroTxValidity = 11
+	// MaxEscrowWidth is swap.bas Lock's ceiling: it refuses an expiry more than this far above the height it executes
+	// at (line 24).
+	MaxEscrowWidth = 1_000_000
 )
 
 // Policy is one companion's timing and size rules. DefaultPolicy is §5's and is what the command line uses on
@@ -30,7 +39,8 @@ type Policy struct {
 	// script are live, and a claim still in a mempool there is a race he can lose with the secret already public
 	// (docs/ATOMIC_SWAP_STUDY.md §2.2, "the claim near cltv is a race"; the study assumes R ≥ 20).
 	ClaimCutoff uint32
-	// TDeroWindow is T_dero − the height the maker locks at.
+	// TDeroWindow is T_dero − the height the maker builds his Lock at, unless the escrow's wmin needs more
+	// (TDeroWidth).
 	TDeroWindow uint64
 	// TakerMinDeroLeft: the taker funds only while T_dero − now is at least this.
 	TakerMinDeroLeft uint64
@@ -80,17 +90,19 @@ func DefaultPolicy() Policy {
 
 // RegtestPolicy is for a regtest zebrad beside the DERO simulator (about 14 s a block, measured), with the operator
 // mining one Zcash block for each DERO block. The windows are §5's shape at a scale a person can watch: the swap is
-// minutes, the refund path about half an hour. It is never used on mainnet or testnet: the command line selects it
-// only when -network is regtest, and CheckNetworks accepts regtest only from a node whose genesis block is regtest's.
+// minutes, the refund path about half an hour, and each still holds a DERO call's execution delay (DeroTxValidity:
+// hence T_dero 120, the taker's minimum 100 and P_lock 30). It is never used on mainnet or testnet: the command line
+// selects it only when -network is regtest, and CheckNetworks accepts regtest only from a node whose genesis block is
+// regtest's.
 func RegtestPolicy() Policy {
 	return Policy{
 		ConfZec:          2,
 		CLTVWindow:       50,
 		CLTVTolerance:    20,
 		ClaimCutoff:      4,
-		TDeroWindow:      110,
-		TakerMinDeroLeft: 90,
-		PLock:            14,
+		TDeroWindow:      120,
+		TakerMinDeroLeft: 100,
+		PLock:            30,
 		FundingExpiry:    12,
 		RefundBump:       3,
 		MinAmount:        100_000,
@@ -123,6 +135,23 @@ func (p Policy) minWMin() uint64 {
 	return p.MinEscrowWMin
 }
 
+// TDeroWidth is T_dero − the height the maker builds his Lock at: this policy's window, or the escrow's wmin plus
+// DeroTxValidity where that is wider. swap.bas refuses a Lock whose expiry is below height + wmin at the height it
+// EXECUTES (line 24), up to DeroTxValidity blocks after the height it was built at. The companion's T_dero used to be
+// the build height + TDeroWindow + SettleBlocks, 1,603 blocks against the wmin of 1,600 that
+// docs/MAINNET_DEPLOYMENT.md installs, and was refused, its fee lost, by any Lock mined 4 or more blocks late. A width
+// swap.bas's ceiling would refuse even for a Lock mined in the next block is refused here.
+func (p Policy) TDeroWidth(wmin uint64) (uint64, error) {
+	w := p.TDeroWindow
+	if wmin+DeroTxValidity > w {
+		w = wmin + DeroTxValidity
+	}
+	if w > MaxEscrowWidth {
+		return 0, fmt.Errorf("zecswap: T_dero %d blocks above the Lock's build height is past swap.bas's ceiling of %d (wmin %d)", w, MaxEscrowWidth, wmin)
+	}
+	return w, nil
+}
+
 // Validate refuses a policy whose numbers contradict each other. Each rule is the reason a number exists.
 func (p Policy) Validate() error {
 	switch {
@@ -138,14 +167,25 @@ func (p Policy) Validate() error {
 	case p.FundingExpiry >= p.CLTVWindow-p.CLTVTolerance:
 		// a funding still mineable at cltv would give the maker a claim window nobody can see coming
 		return errors.New("zecswap: the funding must expire before the earliest cltv the policy allows")
-	case p.TakerMinDeroLeft >= p.TDeroWindow:
-		return errors.New("zecswap: the taker's minimum T_dero − now must be below the maker's T_dero window, or no lock is ever fundable")
+	case p.TDeroWindow > MaxEscrowWidth:
+		return fmt.Errorf("zecswap: a T_dero window of %d blocks is past swap.bas's ceiling of %d", p.TDeroWindow, MaxEscrowWidth)
+	case p.TakerMinDeroLeft+DeroTxValidity+DeroStableDepth > p.TDeroWindow:
+		// T_dero is counted from the height the Lock is built at; it may execute DeroTxValidity blocks later, and the
+		// taker funds only once it is DeroStableDepth deep. A lock that did both must still leave her minimum, or the
+		// maker locks for a taker who can never fund.
+		return fmt.Errorf("zecswap: the taker's minimum T_dero − now %d, plus a Lock's execution delay %d and DERO's stable depth %d, is wider than the maker's T_dero window %d: a lock that executes late is never fundable", p.TakerMinDeroLeft, DeroTxValidity, DeroStableDepth, p.TDeroWindow)
 	case p.minWMin() > p.TDeroWindow:
 		return errors.New("zecswap: the taker's minimum wmin is wider than the maker's T_dero window: no escrow suits both")
-	case p.TakerMinDeroLeft*p.dsec() <= uint64(p.CLTVWindow+p.CLTVTolerance)*p.zsec()+2*DeroStableDepth*p.dsec():
+	case p.PLock <= DeroTxValidity+p.SettleBlocks:
+		// the maker sends his Lock only while it would execute, and the taker could read it, before the deadline
+		return fmt.Errorf("zecswap: P_lock %d leaves no height at which a Lock executes (%d blocks) and settles (%d) before the deadline", p.PLock, DeroTxValidity, p.SettleBlocks)
+	case p.OfferLife <= 2*DeroTxValidity:
+		// the offer must outlive its own Post's execution and then an Accept's
+		return fmt.Errorf("zecswap: an offer life of %d blocks does not outlast a Post's and an Accept's execution (%d each)", p.OfferLife, DeroTxValidity)
+	case p.TakerMinDeroLeft*p.dsec() <= uint64(p.CLTVWindow+p.CLTVTolerance)*p.zsec()+(2*DeroStableDepth+DeroTxValidity)*p.dsec():
 		// the bad exit of §3: a maker who claims at the last Zcash block before cltv must still leave the taker
-		// time on DERO, beyond two stable depths, to send and settle her Claim
-		return errors.New("zecswap: T_dero − now at funding does not outlast cltv by two DERO stable depths")
+		// time on DERO, beyond two stable depths and her Claim's execution delay, to send and settle her Claim
+		return errors.New("zecswap: T_dero − now at funding does not outlast cltv by two DERO stable depths and a Claim's execution delay")
 	}
 	return nil
 }
@@ -171,13 +211,13 @@ func (p Policy) ClaimOpen(zcashTip, cltv uint32) bool {
 }
 
 // CheckTakerTimes is the relation the taker needs between the two deadlines before she funds: T_dero at least
-// TakerMinDeroLeft ahead, and T_dero's wall-clock time after cltv's by more than two DERO stable depths — so
-// that if the maker claims at the last moment he is allowed, she still has time to claim the DERO.
+// TakerMinDeroLeft ahead, and T_dero's wall-clock time after cltv's by more than two DERO stable depths and a Claim's
+// execution delay — so that if the maker claims at the last moment he is allowed, she still has time to claim the DERO.
 func (p Policy) CheckTakerTimes(deroLeft uint64, zecLeft uint32) error {
 	if deroLeft < p.TakerMinDeroLeft {
 		return fmt.Errorf("T_dero − now = %d DERO blocks is below the minimum %d (docs/ZEC_SWAP.md §5)", deroLeft, p.TakerMinDeroLeft)
 	}
-	if deroLeft*p.dsec() <= uint64(zecLeft)*p.zsec()+2*DeroStableDepth*p.dsec() {
+	if deroLeft*p.dsec() <= uint64(zecLeft)*p.zsec()+(2*DeroStableDepth+DeroTxValidity)*p.dsec() {
 		return fmt.Errorf("T_dero is %d s away and cltv %d s: a claim at cltv would leave no time to claim the DERO", deroLeft*p.dsec(), uint64(zecLeft)*p.zsec())
 	}
 	return nil

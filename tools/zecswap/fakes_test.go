@@ -66,7 +66,7 @@ func keySource(n byte) func(Network) (*Key, error) {
 
 // testPolicy is §5 shrunk so a swap runs in a few hundred simulated blocks; Validate still holds.
 func testPolicy() Policy {
-	return Policy{ConfZec: 3, CLTVWindow: 32, CLTVTolerance: 12, ClaimCutoff: 5, TDeroWindow: 280, TakerMinDeroLeft: 210,
+	return Policy{ConfZec: 3, CLTVWindow: 32, CLTVTolerance: 12, ClaimCutoff: 5, TDeroWindow: 280, TakerMinDeroLeft: 220,
 		PLock: 40, FundingExpiry: 10, RefundBump: 3, MinAmount: 100_000, OfferLife: 120, SettleBlocks: 2}
 }
 
@@ -783,6 +783,24 @@ type fakeDero struct {
 	escrows []Escrow
 	flaky   func() bool
 	txSeq   uint64
+	// execDelay, when non-nil, is how many blocks after the height a call is built at the contract executes it: DERO
+	// mines a transaction at most 10 blocks after its build height (blockchain.go:748), and board.bas and swap.bas read
+	// the height it executes at. The chain moves on by that many blocks before the call runs (tools/xmrswap's
+	// fakeChain.execDelay). Called under mu.
+	execDelay func() uint64
+	// refused counts, per call, the transactions mined and refused by the contract: each is a fee lost
+	refused map[string]int
+	// holdLock, when set, keeps the next Lock in the pool for that many blocks: it is sent, its answer is lost, and it
+	// executes when the chain reaches its height (later). onHold runs as it is sent.
+	holdLock uint64
+	onHold   func()
+	later    []pooled
+}
+
+// pooled is a call sent and not yet mined.
+type pooled struct {
+	at  uint64
+	run func(h uint64)
 }
 
 func newFakeDero(height uint64) *fakeDero { return &fakeDero{height: height} }
@@ -797,6 +815,43 @@ func (c *fakeDero) Advance(n uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.height += n
+	c.mine()
+}
+
+// mine executes every pooled call whose height the chain has reached, at that height; called under mu.
+func (c *fakeDero) mine() {
+	keep := c.later[:0]
+	for _, p := range c.later {
+		if p.at <= c.height {
+			p.run(p.at)
+		} else {
+			keep = append(keep, p)
+		}
+	}
+	c.later = keep
+}
+
+// delay is how far the chain moves on before a contract call executes (execDelay); called under mu.
+func (c *fakeDero) delay() {
+	if c.execDelay != nil {
+		c.height += c.execDelay()
+		c.mine()
+	}
+}
+
+// refuse counts a transaction mined and refused; called under mu.
+func (c *fakeDero) refuse(name string) {
+	if c.refused == nil {
+		c.refused = map[string]int{}
+	}
+	c.refused[name]++
+}
+
+// Refused is how many name transactions were mined and refused by the contract.
+func (c *fakeDero) Refused(name string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.refused[name]
 }
 
 func (c *fakeDero) Offer(id uint64) Offer {
@@ -992,8 +1047,9 @@ func (d *memDero) FindEscrow(ctx context.Context, makerRaw, takerRaw, hash strin
 	return Escrow{}, false, nil
 }
 
-// do runs one call at the current height. A call the estimator would refuse sends nothing (ErrEstimate); a
-// fee-fixed call the contract refuses is mined and refused; a flaky answer is lost after the call took effect.
+// do runs one call. A call the estimator would refuse at the height it is built at sends nothing (ErrEstimate). The
+// rest execute execDelay blocks later, where a refusal is a transaction mined and refused, its fee lost; a flaky
+// answer is lost after the call took effect.
 func (d *memDero) do(name string, estimated bool, f func(h uint64) error) (string, error) {
 	c := d.c
 	c.mu.Lock()
@@ -1002,10 +1058,18 @@ func (d *memDero) do(name string, estimated bool, f func(h uint64) error) (strin
 	c.txSeq++
 	sum := sha256.Sum256([]byte("fake dero tx " + strconv.FormatUint(c.txSeq, 10)))
 	txid := hex.EncodeToString(sum[:])
-	if err := f(c.height); err != nil {
-		if estimated {
+	if estimated {
+		// the estimator judges the call and changes nothing
+		offers, escrows := append([]Offer(nil), c.offers...), append([]Escrow(nil), c.escrows...)
+		err := f(c.height)
+		c.offers, c.escrows = offers, escrows
+		if err != nil {
 			return "", fmt.Errorf("%s %w: %v", name, ErrEstimate, err)
 		}
+	}
+	c.delay()
+	if err := f(c.height); err != nil {
+		c.refuse(name)
 		return txid, fmt.Errorf("%s %s was mined but the contract refused it: %v", name, txid, err)
 	}
 	if c.flaky != nil && c.flaky() {
@@ -1045,6 +1109,25 @@ func (d *memDero) Lock(ctx context.Context, hash, takerAddr string, expiry uint6
 	if e, ok, _ := d.FindEscrow(ctx, d.me, takerRaw, hash); ok {
 		return "", e.ID, nil
 	}
+	c := d.c
+	c.mu.Lock()
+	if hold := c.holdLock; hold > 0 {
+		c.holdLock = 0
+		d.calls["Lock"]++
+		me := d.me
+		c.later = append(c.later, pooled{at: c.height + hold, run: func(h uint64) {
+			if _, err := c.lock(h, me, hash, takerRaw, expiry, asset, amount); err != nil {
+				c.refuse("Lock")
+			}
+		}})
+		onHold := c.onHold
+		c.mu.Unlock()
+		if onHold != nil {
+			onHold()
+		}
+		return "", 0, errors.New("the Lock was sent and has not been seen mined")
+	}
+	c.mu.Unlock()
 	var id uint64
 	txid, err := d.do("Lock", expiry <= estimableExpiry, func(h uint64) error {
 		var err error

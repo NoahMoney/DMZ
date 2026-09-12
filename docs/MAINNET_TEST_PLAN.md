@@ -67,7 +67,7 @@ What that means today:
 | Stage | DERO | Monero | Zcash | Windows and floors |
 |---|---|---|---|---|
 | 1a | simulator | the fake wallet in `simhtlc`, or regtest | regtest zebrad | lowered. `simhtlc` defaults: `-t1 48 -t2 16 -t1-min 10 -t2-min 6 -stable 2 -confs 10 -gate-deadline 4 -claim-margin 2 -fee 2000`, and an htlc of its own at `-htlc-w1min 10 -htlc-w2min 6 -htlc-g2 30`. zecswap's regtest policy: C_zec 2, cltv 50 ± 20, T_dero 110 |
-| 1b | simulator | stagenet | testnet | the mainnet profile. `simhtlc -stagenet` sets `-t1 420 -t2 400 -confs 20 -gate-deadline 100 -stable 8 -claim-margin 8` on the recorded htlc (400 / 400 / 4,800). zecswap's testnet policy: C_zec 10, cltv 96 ± 32 Zcash blocks, T_dero the lock height + 1,603, and the taker funds only with 1,200 DERO blocks left |
+| 1b | simulator | stagenet | testnet | the mainnet profile. `simhtlc -stagenet` sets `-t1 420 -t2 400 -confs 20 -gate-deadline 100 -stable 8 -claim-margin 8` on the recorded htlc (400 / 400 / 4,800). zecswap's testnet policy: C_zec 10, cltv 96 ± 32 Zcash blocks, T_dero the Lock's build height + max(1,600, wmin + 11) (1,600 with the testnet escrow's wmin of 1,200, and 1,611 with the runbook's 1,600; X-16), and the taker funds only with 1,200 DERO blocks left |
 | 2 | private testnet | stagenet | testnet | the floors: `t1 − now ≥ 400` and `t2 − t1 ≥ 400` DERO blocks, Bob's t1 width at least max(400, `w1min` + 11) = 411 (420 by default); `g2` 4,800, **pending operator decision MT-J13 G2**; 20 Monero confirmations; zecswap's testnet policy |
 | 3 | mainnet | mainnet | mainnet | the same floors, with `g2` as the operator sets it |
 
@@ -525,10 +525,12 @@ ZECSWAP_TESTNET_DERO_TAKER=127.0.0.1:<port> ZECSWAP_TESTNET_DERO_INSTALLER=127.0
 
 - It installs its own board and escrow (`wmin` 1,200), and writes every txid to
   `research/regtest/zecswap-testnet.log`.
-- Its refund half waits for `T_dero`, 1,603 DERO blocks after the lock. That is about 6 h on the simulator, and about
+- Its refund half waits for `T_dero`, 1,600 DERO blocks after the Lock's build height (wmin 1,200). That is about 6 h on the simulator, and about
   22–27 h at the private testnet's pace.
-- The driver gives each process 10 h (`testnet_swap_test.go:56`). *To confirm*: on the private testnet the maker's
-  refund may outlast that. If it does, restart the maker by hand (below) and it refunds after `T_dero`.
+- The maker's wait follows `T_dero`: it lasts while the DERO chain is moving and below his `T_dero`, then 10 h more.
+  A chain that stands still for 30 minutes is no longer followed. `ZECSWAP_TESTNET_WAIT` overrides the 10 h, and on
+  the private DERO testnet the run needs `go test -timeout 40h` (`docs/ZEC_SWAP.md` §11.1; X-16). If the maker still
+  stops early, restart him by hand (below): he refunds after `T_dero`.
 
 **By hand**, for T9's restarts on every stage, and for stage 3:
 

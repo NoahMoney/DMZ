@@ -318,6 +318,17 @@ func (w *world) check(name string, makerWant, takerWant []string) {
 	if len(w.fundings) > 1 || len(w.claims) > 1 {
 		t.Fatalf("%s: %d fundings, %d claims", name, len(w.fundings), len(w.claims))
 	}
+	// swap.bas takes a second Lock under the same hash as a second escrow, which the one secret opens as well
+	if n := len(w.dero.Escrows()); n > 1 {
+		t.Fatalf("%s: the maker locked %d times\n%s", name, n, w.dump())
+	}
+	// board.bas and swap.bas judge a call at the height it executes; none whose heights the companions set may be
+	// refused there
+	for _, call := range []string{"Post", "Accept", "Lock"} {
+		if n := w.dero.Refused(call); n > 0 {
+			t.Fatalf("%s: %d %s transaction(s) mined and refused by the contract, each a fee lost\n%s", name, n, call, w.dump())
+		}
+	}
 	if mk.Secret != "" && strings.Contains(w.dump(), mk.Secret) {
 		t.Fatalf("%s: the secret appears in a log line", name)
 	}
@@ -892,8 +903,9 @@ func fuzzN(t *testing.T) int {
 }
 
 // TestCrashFuzz kills each side right after every durable write of every scenario — a phase save, a finish — and
-// restarts it from its state file, with the DERO answers flaky and the Zcash node losing the answer to one send in
-// five after taking it. At every broadcast it checks the invariants of checkSend (one funding, stored before it was
+// restarts it from its state file, with the DERO answers flaky, every DERO call executing up to 10 blocks after the
+// height it was built at, chosen at random per call, as DERO allows (fakeDero.execDelay), and the Zcash node losing
+// the answer to one send in five after taking it. At every broadcast it checks the invariants of checkSend (one funding, stored before it was
 // sent, with the refund file written, against a stable lock; one claim, stored, deep enough, before the cutoff; no
 // refund that was not pre-signed), and at the end that the scenario reached its outcome and nobody ended with both
 // legs while the other ended with neither.
@@ -927,6 +939,8 @@ func TestCrashFuzz(t *testing.T) {
 		w.randomCrash = random
 		drng := mrand.New(mrand.NewSource(seed * 7))
 		w.dero.flaky = func() bool { return drng.Float64() < 0.1 }
+		erng := mrand.New(mrand.NewSource(seed * 11))
+		w.dero.execDelay = func() uint64 { return uint64(erng.Intn(DeroTxValidity)) }
 		zrng := mrand.New(mrand.NewSource(seed * 13))
 		w.zc.dropReply = func(m string) bool { return m == "sendrawtransaction" && zrng.Float64() < 0.2 }
 		if !w.drive(500) {

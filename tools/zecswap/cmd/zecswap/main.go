@@ -66,6 +66,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -169,7 +170,7 @@ func run(role string, args []string) {
 	network := fs.String("network", "", "mainnet, testnet or regtest (required, no default)")
 	wallet := fs.String("wallet", "", "this party's DERO wallet RPC (it signs every DERO call, at ring size 2)")
 	deroLogin := fs.String("dero-login", "", "the DERO wallet RPC's --rpc-login user:password; refused on mainnet — use VEIL_RPC_LOGIN")
-	stateName := fs.String("state", role+".json", "the swap's state file, in -dir unless absolute (created 0600; for a maker it holds the secret)")
+	stateName := fs.String("state", role+".json", "the swap's state file, in -dir unless absolute (created 0600, and owner-only on Windows; for a maker it holds the secret)")
 	keyFile := fs.String("key", "", "the file holding this swap's Zcash key (64 hex or WIF)")
 	payout := fs.String("payout", "", "the transparent P2PKH address the claim (maker) or refund (taker) pays; default: the key's own")
 	fixedFee := fs.Uint64("fee", 5000, "the DERO fee for the calls the estimator cannot judge (Refund, Cancel, and Post/Lock above height 1,000,000)")
@@ -196,6 +197,11 @@ func run(role string, args []string) {
 	user, pass, err := zecswap.ResolveDeroLogin(*deroLogin, os.Getenv("VEIL_RPC_LOGIN"), mainnet)
 	if err != nil {
 		log.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		// the state, the pre-signed refund and the two registers, restricted to this account from before their first
+		// byte: Windows ignores the 0600 they are created with (zecswap.HardenFile)
+		zecswap.HardenFile = zecswap.OwnerOnlyACL
 	}
 	statePath := *stateName
 	if !filepath.IsAbs(statePath) {

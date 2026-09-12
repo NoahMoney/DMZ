@@ -235,3 +235,209 @@
 2026-09-11T08:02:36Z C: status     refund level 2 112d6eb6c22fe358e2e5cccb5872f270ade03be7f299e0e94364e23f33f9a0bb: unknown to this node
 2026-09-11T08:02:36Z C: status     refund level 3 5c4fe5c02e56845e3983ccaf306eba11449053c2b89474f767c8c772e3b2bb29: unknown to this node
 2026-09-11T08:02:36Z == done: swaps C; every id above is on the two chains
+2026-09-12T09:27:06Z == zecswap end to end on real nodes: zebrad 6.3.0 regtest http://127.0.0.1:28232/, DERO simulator 127.0.0.1:20000
+2026-09-12T09:27:06Z == note: rerun after the execution-delay fix (X-16): T_dero = build height + max(TDeroWindow, wmin + 11); RegtestPolicy TDeroWindow 120, TakerMinDeroLeft 100, PLock 30
+2026-09-12T09:27:06Z == swaps to run: ABC
+2026-09-12T09:27:06Z zcash: chain "regtest" (zebrad says "test"; block 0 is regtest's genesis), height 3333, nextblock 37a5165b, regtest true
+2026-09-12T09:27:45Z dero: installed board.bas v3 from 127.0.0.1:30013: scid d99b7b20302177ff11ef9aa266ce4575d8c71de8d9bb1721158dada0313d1bb6, fee 2852, code sha256 162f8d46ad400b1fef981d029ba99f61c9646d6453c3bf9f0cc4bd9e63bc5ab1 (the pin)
+2026-09-12T09:28:23Z dero: installed swap.bas v2 (wmin 20) from 127.0.0.1:30013: scid bec020b6a3c66c0a04e5e86bf8bc239cd2b259a05d8d2c1a36206acd1b6ceeeb, fee 3013, code sha256 b9830de831dbaf34f61ea15b484c8f25105e41dc790aa06412db421a990fd6e3 (the pin)
+2026-09-12T09:28:24Z zcash: taker key 1 is tmWzckFYAuvAYYGuN2XR735Y47hzoc6DxMt; a coinbase is mined to it
+2026-09-12T09:28:24Z zcash: taker key 2 is tmPCuL3z48yrfa9GfpNKwaNskxpTbz6bjVN; a coinbase is mined to it
+2026-09-12T09:28:25Z zcash: taker key 3 is tmQcUQZAF2As3upq4Lm2UAGEPrauVMjjxtR; a coinbase is mined to it
+2026-09-12T09:29:32Z zcash: taker key 1 holds coinbase fdb243e8d2f314a917b2cbe188746f272ad73346bfbbb9e559e332686ca54591:0, 305175 zatoshi, height 3334
+2026-09-12T09:29:32Z zcash: taker key 2 holds coinbase 4061070e91248c07ee4ffd98cc017e9302ef931738d263c83a1643d500737189:0, 305175 zatoshi, height 3335
+2026-09-12T09:29:32Z zcash: taker key 3 holds coinbase cf5251ee31d32e573af8282ea0e7bb7dd1c911dc0698b94334e16d7ca116ee54:0, 305175 zatoshi, height 3336
+2026-09-12T09:29:32Z A: maker 127.0.0.1:30011 (DERO deto1qyyjr5ehn0h5kcv5dgx6ke00p54rzsmuc0zgdwp3jerngdwq7a8v2qqtuqaz8), taker 127.0.0.1:30012 (DERO deto1qytj4zds5lz3quthjchazsetu9ygvk7qgwjga9tmuea0gxc0crfwvqqn239qm); claim version 5
+2026-09-12T09:29:33Z A: maker:  -> posting
+2026-09-12T09:30:08Z A: maker: offer 0 posted under hash adeac232d76a424a4bf0c51bd46715d230b6a0f8966bb5570dd3d829ee37aceb: 50000 of "" for 200000 zatoshi to tmDEASbwpgJZ74wWyjvD1JVG54XyphfS35g
+2026-09-12T09:30:08Z A: maker: posting -> posted
+2026-09-12T09:30:10Z A: taker:  -> accepting
+2026-09-12T09:30:37Z A: taker: accepted offer 0: refund key hash e96e2a2f44e2674cff291d77cb88bd743563dea8, cltv 3489
+2026-09-12T09:30:37Z A: taker: accepting -> accepted
+2026-09-12T09:30:39Z A: maker: offer 0 accepted by 172a89b0a7c5107177962fd1432be148865bc043a48e957be67af41b0fc0d2e600 at DERO height 1890
+2026-09-12T09:30:39Z A: maker: posted -> locking
+2026-09-12T09:30:39Z A: taker: waiting for the maker's lock (until DERO height 1929)
+2026-09-12T09:31:04Z A: maker: locked 50000 of "" in escrow 0 for the taker, until DERO height 2010
+2026-09-12T09:31:04Z A: maker: locking -> locked
+2026-09-12T09:31:04Z A: taker: escrow 0 checked at DERO height 1892: 50000 of "", T_dero 2010
+2026-09-12T09:31:04Z A: taker: accepted -> lock_seen
+2026-09-12T09:31:07Z A: maker: watching t2DTzwvtiRu6uxu4Vg6X3T4NKqdzASUuq2t for 200000 zatoshi (claim cutoff at Zcash height 3484)
+2026-09-12T09:33:37Z A: taker: dero confirms escrow 0: 50000 of "" for this taker under adeac232d76a424a4bf0c51bd46715d230b6a0f8966bb5570dd3d829ee37aceb until 2010, past the stable depth
+2026-09-12T09:33:38Z A: taker: lock_seen -> funding
+2026-09-12T09:33:38Z A: taker: the pre-signed refund is in <tmp>\A\taker.json.refund.txt: hand it to a second device or a person you trust now
+2026-09-12T09:33:38Z A: taker: funded the script: tx 0c6c17f82fd649d59e0e2d9e533235d87c304c842e7f63565aab737308d9b541, 200000 zatoshi to t2DTzwvtiRu6uxu4Vg6X3T4NKqdzASUuq2t
+2026-09-12T09:33:39Z A: taker: funding -> funded
+2026-09-12T09:33:44Z A: maker: zcash confirms the funding 0c6c17f82fd649d59e0e2d9e533235d87c304c842e7f63565aab737308d9b541:0, 200000 zatoshi to the script, in block ad703f9b456296026193903b6b289be3d887b94e424f385b5e35de1ef9514fbf at 3451, at least 2 deep
+2026-09-12T09:33:44Z A: maker: locked -> claiming
+2026-09-12T09:33:45Z A: maker: zcash confirms the funding 0c6c17f82fd649d59e0e2d9e533235d87c304c842e7f63565aab737308d9b541:0, 200000 zatoshi to the script, in block ad703f9b456296026193903b6b289be3d887b94e424f385b5e35de1ef9514fbf at 3451, at least 2 deep
+2026-09-12T09:33:45Z A: maker: claim a6c6d94059518518b8ed6718cd6fc2c13c195a167dfc88189215cdab6f9d9947 broadcast: the secret is now public on Zcash
+2026-09-12T09:33:45Z A: maker: claiming -> claimed
+2026-09-12T09:34:26Z A: maker: sent the taker's DERO Claim for her (swap.bas v2 pays her, whoever sends it)
+2026-09-12T09:34:27Z A: taker: zcash shows the maker's claim a6c6d94059518518b8ed6718cd6fc2c13c195a167dfc88189215cdab6f9d9947; the secret is read from it and checked against the hash
+2026-09-12T09:34:27Z A: taker: funded -> secret_seen
+2026-09-12T09:34:33Z A: maker: claimed -> swapped
+2026-09-12T09:34:33Z A: maker: done: swapped: 200000 zatoshi claimed in Zcash tx a6c6d94059518518b8ed6718cd6fc2c13c195a167dfc88189215cdab6f9d9947; the taker's DERO Claim landed
+2026-09-12T09:34:33Z A: taker: secret_seen -> dero_claimed
+2026-09-12T09:40:26Z A: taker: dero_claimed -> swapped
+2026-09-12T09:40:26Z A: taker: done: swapped: the escrow's 50000 of "" is claimed with the secret the maker revealed in Zcash tx a6c6d94059518518b8ed6718cd6fc2c13c195a167dfc88189215cdab6f9d9947
+2026-09-12T09:40:28Z A: RESULT maker swapped — swapped: 200000 zatoshi claimed in Zcash tx a6c6d94059518518b8ed6718cd6fc2c13c195a167dfc88189215cdab6f9d9947; the taker's DERO Claim landed
+2026-09-12T09:40:28Z A: RESULT taker swapped — swapped: the escrow's 50000 of "" is claimed with the secret the maker revealed in Zcash tx a6c6d94059518518b8ed6718cd6fc2c13c195a167dfc88189215cdab6f9d9947
+2026-09-12T09:40:28Z A: board d99b7b20302177ff11ef9aa266ce4575d8c71de8d9bb1721158dada0313d1bb6 offer 0; escrow bec020b6a3c66c0a04e5e86bf8bc239cd2b259a05d8d2c1a36206acd1b6ceeeb id 0, T_dero 2010; hash adeac232d76a424a4bf0c51bd46715d230b6a0f8966bb5570dd3d829ee37aceb; cltv 3489
+2026-09-12T09:40:28Z A: dero maker post tx 547967a856accb9fab313aeadc78f4d55dee4c40280c5b22ff26224d5b1eeb9a
+2026-09-12T09:40:28Z A: dero maker lock tx 3b9308ad8cdcd6953ccbe9c04323dbf0bf121a2c63d474de32eb8bb3c6071f2f
+2026-09-12T09:40:28Z A: dero maker relay tx ca6d3c6fd7d0f462fe0d6bdf4e65d0fe7422445a08df61cf7dc20440f5d5d096
+2026-09-12T09:40:28Z A: dero taker accept tx 4846529b6c7ccc20979fce8ea5af1135b70a261a3b9902fc9f474ccda43e3e80
+2026-09-12T09:40:28Z A: zcash funding 0c6c17f82fd649d59e0e2d9e533235d87c304c842e7f63565aab737308d9b541 (v5), 200000 zatoshi to t2DTzwvtiRu6uxu4Vg6X3T4NKqdzASUuq2t, mined at 3451
+2026-09-12T09:40:28Z A: zcash claim a6c6d94059518518b8ed6718cd6fc2c13c195a167dfc88189215cdab6f9d9947 (v5)
+2026-09-12T09:40:28Z A: status <tmp>\A\maker.json: the maker, phase "swapped"
+2026-09-12T09:40:28Z A: status   ended: swapped: 200000 zatoshi claimed in Zcash tx a6c6d94059518518b8ed6718cd6fc2c13c195a167dfc88189215cdab6f9d9947; the taker's DERO Claim landed
+2026-09-12T09:40:28Z A: status   board d99b7b20302177ff11ef9aa266ce4575d8c71de8d9bb1721158dada0313d1bb6 offer 0, escrow bec020b6a3c66c0a04e5e86bf8bc239cd2b259a05d8d2c1a36206acd1b6ceeeb id 0 (T_dero 2010); Zcash regtest, cltv 3489, hash adeac232d76a424a4bf0c51bd46715d230b6a0f8966bb5570dd3d829ee37aceb
+2026-09-12T09:40:28Z A: status   DERO 127.0.0.1:20000 (a trusted party): height 1922, 88 blocks to T_dero
+2026-09-12T09:40:28Z A: status     offer 0: state 1, expiry 1966
+2026-09-12T09:40:28Z A: status     escrow 0: state 1, 50000 of "", expiry 2010
+2026-09-12T09:40:28Z A: status   script address t2DTzwvtiRu6uxu4Vg6X3T4NKqdzASUuq2t
+2026-09-12T09:40:28Z A: status   Zcash http://127.0.0.1:28232/ (a trusted party): regtest height 3517, 28 blocks past cltv
+2026-09-12T09:40:28Z A: status     funding output 0c6c17f82fd649d59e0e2d9e533235d87c304c842e7f63565aab737308d9b541:0: spent (or not on this node's chain)
+2026-09-12T09:40:28Z A: status     claim a6c6d94059518518b8ed6718cd6fc2c13c195a167dfc88189215cdab6f9d9947: mined at 3454, 64 confirmations
+2026-09-12T09:40:28Z A: status <tmp>\A\taker.json: the taker, phase "swapped"
+2026-09-12T09:40:28Z A: status   ended: swapped: the escrow's 50000 of "" is claimed with the secret the maker revealed in Zcash tx a6c6d94059518518b8ed6718cd6fc2c13c195a167dfc88189215cdab6f9d9947
+2026-09-12T09:40:28Z A: status   board d99b7b20302177ff11ef9aa266ce4575d8c71de8d9bb1721158dada0313d1bb6 offer 0, escrow bec020b6a3c66c0a04e5e86bf8bc239cd2b259a05d8d2c1a36206acd1b6ceeeb id 0 (T_dero 2010); Zcash regtest, cltv 3489, hash adeac232d76a424a4bf0c51bd46715d230b6a0f8966bb5570dd3d829ee37aceb
+2026-09-12T09:40:28Z A: status   DERO 127.0.0.1:20000 (a trusted party): height 1922, 88 blocks to T_dero
+2026-09-12T09:40:28Z A: status     offer 0: state 1, expiry 1966
+2026-09-12T09:40:28Z A: status     escrow 0: state 1, 50000 of "", expiry 2010
+2026-09-12T09:40:28Z A: status   script address t2DTzwvtiRu6uxu4Vg6X3T4NKqdzASUuq2t
+2026-09-12T09:40:28Z A: status   Zcash http://127.0.0.1:28232/ (a trusted party): regtest height 3517, 28 blocks past cltv
+2026-09-12T09:40:28Z A: status     funding 0c6c17f82fd649d59e0e2d9e533235d87c304c842e7f63565aab737308d9b541: mined at 3451, 67 confirmations
+2026-09-12T09:40:28Z A: status     funding output 0c6c17f82fd649d59e0e2d9e533235d87c304c842e7f63565aab737308d9b541:0: spent (or not on this node's chain)
+2026-09-12T09:40:28Z A: status     refund level 1 c50f3323d434b6f4e0e52eed86cd29e33acbd845b474db6cf2a36ef72f3854e2: unknown to this node
+2026-09-12T09:40:28Z A: status     refund level 2 63a8efc8f59a49dca0635ea93e94173109d855630f224cb4f5bfd8288d189810: unknown to this node
+2026-09-12T09:40:28Z A: status     refund level 3 ccef5e96f8c61558796c65374639c34f6178907f498b4a8dbe611c74935283b7: unknown to this node
+2026-09-12T09:40:28Z A: the taker's DERO Claim was sent by the maker's companion (DERO tx ca6d3c6fd7d0f462fe0d6bdf4e65d0fe7422445a08df61cf7dc20440f5d5d096, from wallet 127.0.0.1:30011), while the taker was away
+2026-09-12T09:40:28Z B: maker 127.0.0.1:30011 (DERO deto1qyyjr5ehn0h5kcv5dgx6ke00p54rzsmuc0zgdwp3jerngdwq7a8v2qqtuqaz8), taker 127.0.0.1:30012 (DERO deto1qytj4zds5lz3quthjchazsetu9ygvk7qgwjga9tmuea0gxc0crfwvqqn239qm); claim version 6
+2026-09-12T09:40:28Z B: maker:  -> posting
+2026-09-12T09:40:54Z B: maker: offer 1 posted under hash 3b92fd2cd975f1d558dbd31e9ed0a37ce2d5de84bb81300ec71b6aba2e4407c6: 50000 of "" for 200000 zatoshi to tmDEASbwpgJZ74wWyjvD1JVG54XyphfS35g
+2026-09-12T09:40:54Z B: maker: posting -> posted
+2026-09-12T09:40:57Z B: taker:  -> accepting
+2026-09-12T09:41:23Z B: taker: accepted offer 1: refund key hash 93fffe1eb8f2d4d9506f526e95423ce6581c7875, cltv 3569
+2026-09-12T09:41:23Z B: taker: accepting -> accepted
+2026-09-12T09:41:25Z B: maker: offer 1 accepted by 172a89b0a7c5107177962fd1432be148865bc043a48e957be67af41b0fc0d2e600 at DERO height 1926
+2026-09-12T09:41:25Z B: maker: posted -> locking
+2026-09-12T09:41:25Z B: taker: waiting for the maker's lock (until DERO height 1965)
+2026-09-12T09:41:49Z B: maker: locked 50000 of "" in escrow 1 for the taker, until DERO height 2046
+2026-09-12T09:41:49Z B: maker: locking -> locked
+2026-09-12T09:41:49Z B: taker: escrow 1 checked at DERO height 1928: 50000 of "", T_dero 2046
+2026-09-12T09:41:49Z B: taker: accepted -> lock_seen
+2026-09-12T09:41:52Z B: maker: watching t2RaTkSMGXfsKGUrNB3kfzwju1G3YUhnHjP for 200000 zatoshi (claim cutoff at Zcash height 3564)
+2026-09-12T09:44:18Z B: taker: dero confirms escrow 1: 50000 of "" for this taker under 3b92fd2cd975f1d558dbd31e9ed0a37ce2d5de84bb81300ec71b6aba2e4407c6 until 2046, past the stable depth
+2026-09-12T09:44:19Z B: taker: lock_seen -> funding
+2026-09-12T09:44:19Z B: taker: the pre-signed refund is in <tmp>\B\taker.json.refund.txt: hand it to a second device or a person you trust now
+2026-09-12T09:44:19Z B: taker: funded the script: tx 67b0679b810285337a82f72b193e0703098b608549148f4a9f3ee7acc30a5474, 200000 zatoshi to t2RaTkSMGXfsKGUrNB3kfzwju1G3YUhnHjP
+2026-09-12T09:44:19Z B: taker: funding -> funded
+2026-09-12T09:44:23Z B: maker: zcash confirms the funding 67b0679b810285337a82f72b193e0703098b608549148f4a9f3ee7acc30a5474:0, 200000 zatoshi to the script, in block 887af9add0a4098a1a0b062d7b13a454fe89481269765d7d8f654eb17a6c1947 at 3531, at least 2 deep
+2026-09-12T09:44:23Z B: maker: locked -> claiming
+2026-09-12T09:44:23Z B: maker: zcash confirms the funding 67b0679b810285337a82f72b193e0703098b608549148f4a9f3ee7acc30a5474:0, 200000 zatoshi to the script, in block 887af9add0a4098a1a0b062d7b13a454fe89481269765d7d8f654eb17a6c1947 at 3531, at least 2 deep
+2026-09-12T09:44:24Z B: maker: claim 8c524791dd0d1f8fa39cde8744be18e4dc666242767e08bf98414d69e61e083f broadcast: the secret is now public on Zcash
+2026-09-12T09:44:24Z B: maker: claiming -> claimed
+2026-09-12T09:44:40Z B: taker: zcash shows the maker's claim 8c524791dd0d1f8fa39cde8744be18e4dc666242767e08bf98414d69e61e083f; the secret is read from it and checked against the hash
+2026-09-12T09:44:40Z B: taker: funded -> secret_seen
+2026-09-12T09:45:05Z B: taker: secret_seen -> dero_claimed
+2026-09-12T09:50:25Z B: taker: dero_claimed -> swapped
+2026-09-12T09:50:25Z B: taker: done: swapped: the escrow's 50000 of "" is claimed with the secret the maker revealed in Zcash tx 8c524791dd0d1f8fa39cde8744be18e4dc666242767e08bf98414d69e61e083f
+2026-09-12T09:50:27Z B: maker: claimed -> swapped
+2026-09-12T09:50:27Z B: maker: done: swapped: 200000 zatoshi claimed in Zcash tx 8c524791dd0d1f8fa39cde8744be18e4dc666242767e08bf98414d69e61e083f; the taker's DERO Claim landed
+2026-09-12T09:50:28Z B: RESULT maker swapped — swapped: 200000 zatoshi claimed in Zcash tx 8c524791dd0d1f8fa39cde8744be18e4dc666242767e08bf98414d69e61e083f; the taker's DERO Claim landed
+2026-09-12T09:50:28Z B: RESULT taker swapped — swapped: the escrow's 50000 of "" is claimed with the secret the maker revealed in Zcash tx 8c524791dd0d1f8fa39cde8744be18e4dc666242767e08bf98414d69e61e083f
+2026-09-12T09:50:28Z B: board d99b7b20302177ff11ef9aa266ce4575d8c71de8d9bb1721158dada0313d1bb6 offer 1; escrow bec020b6a3c66c0a04e5e86bf8bc239cd2b259a05d8d2c1a36206acd1b6ceeeb id 1, T_dero 2046; hash 3b92fd2cd975f1d558dbd31e9ed0a37ce2d5de84bb81300ec71b6aba2e4407c6; cltv 3569
+2026-09-12T09:50:28Z B: dero maker lock tx cad76868e265a6ecfa328762ad3c22ab6cda91197eb7c1b18cbe3a43c86e3c2a
+2026-09-12T09:50:28Z B: dero maker post tx 49a3845f42c59739c7861e1a383ad46cb7e1b8d25c37919d43de95bcfee236cc
+2026-09-12T09:50:28Z B: dero taker accept tx 91cde80735e33804e81735305f98e09e94507bdd6d3443b15ca2c7bd2c57ade1
+2026-09-12T09:50:28Z B: dero taker claim tx a3c93bea6b684b431a5fc06b8889e357a48598af8067ba929a1b94e8a7832e24
+2026-09-12T09:50:28Z B: zcash funding 67b0679b810285337a82f72b193e0703098b608549148f4a9f3ee7acc30a5474 (v5), 200000 zatoshi to t2RaTkSMGXfsKGUrNB3kfzwju1G3YUhnHjP, mined at 3531
+2026-09-12T09:50:28Z B: zcash claim 8c524791dd0d1f8fa39cde8744be18e4dc666242767e08bf98414d69e61e083f (v6)
+2026-09-12T09:50:29Z B: status <tmp>\B\maker.json: the maker, phase "swapped"
+2026-09-12T09:50:29Z B: status   ended: swapped: 200000 zatoshi claimed in Zcash tx 8c524791dd0d1f8fa39cde8744be18e4dc666242767e08bf98414d69e61e083f; the taker's DERO Claim landed
+2026-09-12T09:50:29Z B: status   board d99b7b20302177ff11ef9aa266ce4575d8c71de8d9bb1721158dada0313d1bb6 offer 1, escrow bec020b6a3c66c0a04e5e86bf8bc239cd2b259a05d8d2c1a36206acd1b6ceeeb id 1 (T_dero 2046); Zcash regtest, cltv 3569, hash 3b92fd2cd975f1d558dbd31e9ed0a37ce2d5de84bb81300ec71b6aba2e4407c6
+2026-09-12T09:50:29Z B: status   DERO 127.0.0.1:20000 (a trusted party): height 1956, 90 blocks to T_dero
+2026-09-12T09:50:29Z B: status     offer 1: state 1, expiry 2002
+2026-09-12T09:50:29Z B: status     escrow 1: state 1, 50000 of "", expiry 2046
+2026-09-12T09:50:29Z B: status   script address t2RaTkSMGXfsKGUrNB3kfzwju1G3YUhnHjP
+2026-09-12T09:50:29Z B: status   Zcash http://127.0.0.1:28232/ (a trusted party): regtest height 3591, 22 blocks past cltv
+2026-09-12T09:50:29Z B: status     funding output 67b0679b810285337a82f72b193e0703098b608549148f4a9f3ee7acc30a5474:0: spent (or not on this node's chain)
+2026-09-12T09:50:29Z B: status     claim 8c524791dd0d1f8fa39cde8744be18e4dc666242767e08bf98414d69e61e083f: mined at 3534, 58 confirmations
+2026-09-12T09:50:29Z B: status <tmp>\B\taker.json: the taker, phase "swapped"
+2026-09-12T09:50:29Z B: status   ended: swapped: the escrow's 50000 of "" is claimed with the secret the maker revealed in Zcash tx 8c524791dd0d1f8fa39cde8744be18e4dc666242767e08bf98414d69e61e083f
+2026-09-12T09:50:29Z B: status   board d99b7b20302177ff11ef9aa266ce4575d8c71de8d9bb1721158dada0313d1bb6 offer 1, escrow bec020b6a3c66c0a04e5e86bf8bc239cd2b259a05d8d2c1a36206acd1b6ceeeb id 1 (T_dero 2046); Zcash regtest, cltv 3569, hash 3b92fd2cd975f1d558dbd31e9ed0a37ce2d5de84bb81300ec71b6aba2e4407c6
+2026-09-12T09:50:29Z B: status   DERO 127.0.0.1:20000 (a trusted party): height 1956, 90 blocks to T_dero
+2026-09-12T09:50:29Z B: status     offer 1: state 1, expiry 2002
+2026-09-12T09:50:29Z B: status     escrow 1: state 1, 50000 of "", expiry 2046
+2026-09-12T09:50:29Z B: status   script address t2RaTkSMGXfsKGUrNB3kfzwju1G3YUhnHjP
+2026-09-12T09:50:29Z B: status   Zcash http://127.0.0.1:28232/ (a trusted party): regtest height 3591, 22 blocks past cltv
+2026-09-12T09:50:29Z B: status     funding 67b0679b810285337a82f72b193e0703098b608549148f4a9f3ee7acc30a5474: mined at 3531, 61 confirmations
+2026-09-12T09:50:29Z B: status     funding output 67b0679b810285337a82f72b193e0703098b608549148f4a9f3ee7acc30a5474:0: spent (or not on this node's chain)
+2026-09-12T09:50:29Z B: status     refund level 1 618c2ee8723b4df99cd1dbd064673ccd737d9a00eda3d5e11d31f850cdc909ee: unknown to this node
+2026-09-12T09:50:29Z B: status     refund level 2 3d1e7d29b6a0e4917807839fd2f7671ade537be41e7c68e6ddf5d2747a71fdaa: unknown to this node
+2026-09-12T09:50:29Z B: status     refund level 3 4937777f2af349d847d435b26725cb93b1ebeed2ad444288ccce2f9c5e2d7110: unknown to this node
+2026-09-12T09:50:29Z B: zebrad mined the v6 claim 8c524791dd0d1f8fa39cde8744be18e4dc666242767e08bf98414d69e61e083f at height 3534; the taker's watcher read the secret from it and sent her own DERO Claim a3c93bea6b684b431a5fc06b8889e357a48598af8067ba929a1b94e8a7832e24
+2026-09-12T09:50:29Z C: maker 127.0.0.1:30011 (DERO deto1qyyjr5ehn0h5kcv5dgx6ke00p54rzsmuc0zgdwp3jerngdwq7a8v2qqtuqaz8), taker 127.0.0.1:30012 (DERO deto1qytj4zds5lz3quthjchazsetu9ygvk7qgwjga9tmuea0gxc0crfwvqqn239qm); claim version 5
+2026-09-12T09:50:29Z C: maker:  -> posting
+2026-09-12T09:50:59Z C: maker: offer 2 posted under hash 39372a361109bd7d2a234c25b4ea93a4ab69206789a47565fd8dbacdfd9541e4: 50000 of "" for 200000 zatoshi to tmDEASbwpgJZ74wWyjvD1JVG54XyphfS35g
+2026-09-12T09:50:59Z C: maker: posting -> posted
+2026-09-12T09:51:01Z C: taker:  -> accepting
+2026-09-12T09:51:26Z C: taker: accepted offer 2: refund key hash a36d4c214f07fc7c9174ff895c3f65fb03ca686f, cltv 3643
+2026-09-12T09:51:26Z C: taker: accepting -> accepted
+2026-09-12T09:51:28Z C: maker: offer 2 accepted by 172a89b0a7c5107177962fd1432be148865bc043a48e957be67af41b0fc0d2e600 at DERO height 1960
+2026-09-12T09:51:29Z C: maker: posted -> locking
+2026-09-12T09:51:29Z C: taker: waiting for the maker's lock (until DERO height 1999)
+2026-09-12T09:51:54Z C: maker: locked 50000 of "" in escrow 2 for the taker, until DERO height 2080
+2026-09-12T09:51:54Z C: maker: locking -> locked
+2026-09-12T09:51:54Z C: taker: escrow 2 checked at DERO height 1962: 50000 of "", T_dero 2080
+2026-09-12T09:51:54Z C: taker: accepted -> lock_seen
+2026-09-12T09:54:24Z C: taker: dero confirms escrow 2: 50000 of "" for this taker under 39372a361109bd7d2a234c25b4ea93a4ab69206789a47565fd8dbacdfd9541e4 until 2080, past the stable depth
+2026-09-12T09:54:24Z C: taker: lock_seen -> funding
+2026-09-12T09:54:24Z C: taker: the pre-signed refund is in <tmp>\C\taker.json.refund.txt: hand it to a second device or a person you trust now
+2026-09-12T09:54:24Z C: taker: funded the script: tx c8fe0c7c16eadc34365d44ab1f25aa6f010626df77ffaa47ff8aee722b6cebe5, 200000 zatoshi to t2N39xWCvJPKY9bLZDUqNtfzsWtCLn3bPcK
+2026-09-12T09:54:24Z C: taker: funding -> funded
+2026-09-12T09:54:28Z C: third party: the pre-signed refund (level 1) sent at Zcash tip 3607, below cltv 3643, is refused by zebrad: zcash sendrawtransaction: rpc error -25: failed to validate tx: WtxId("private"), error: transaction did not pass consensus validation: transaction is locked until after block height 3643
+2026-09-12T09:58:12Z C: third party: the pre-signed refund ceb43c7c2f26e2cf58095dafee5daaac7e832e1b118e97366d067e7ac496f585 taken by zebrad at Zcash tip 3643 (cltv 3643); nobody holding the file could change where it pays
+2026-09-12T09:58:32Z C: maker: no funding of 200000 zatoshi was 2 blocks deep before the claim cutoff (Zcash height 3646, cltv 3643): the secret is never revealed; the DERO is refunded after T_dero 2080
+2026-09-12T09:58:32Z C: maker: locked -> refund_wait
+2026-09-12T09:58:32Z C: third party: the refund ceb43c7c2f26e2cf58095dafee5daaac7e832e1b118e97366d067e7ac496f585 is mined at height 3644 (cltv 3643), 3 confirmations
+2026-09-12T09:58:33Z C: taker: Zcash height 3646 has reached cltv 3643: refunding
+2026-09-12T09:58:33Z C: taker: funded -> refunding
+2026-09-12T09:58:34Z C: taker: refunding -> refunded
+2026-09-12T09:58:34Z C: taker: done: the ZEC is refunded: Zcash tx ceb43c7c2f26e2cf58095dafee5daaac7e832e1b118e97366d067e7ac496f585, at least 2 confirmations on every node
+2026-09-12T10:29:12Z C: maker: refund_wait -> dero_refunding
+2026-09-12T10:29:49Z C: maker: dero_refunding -> refunded
+2026-09-12T10:29:49Z C: maker: done: the DERO is refunded; no ZEC was claimed, and the secret was never revealed by this companion
+2026-09-12T10:29:50Z C: RESULT maker refunded — the DERO is refunded; no ZEC was claimed, and the secret was never revealed by this companion
+2026-09-12T10:29:50Z C: RESULT taker refunded — the ZEC is refunded: Zcash tx ceb43c7c2f26e2cf58095dafee5daaac7e832e1b118e97366d067e7ac496f585, at least 2 confirmations on every node
+2026-09-12T10:29:50Z C: board d99b7b20302177ff11ef9aa266ce4575d8c71de8d9bb1721158dada0313d1bb6 offer 2; escrow bec020b6a3c66c0a04e5e86bf8bc239cd2b259a05d8d2c1a36206acd1b6ceeeb id 2, T_dero 2080; hash 39372a361109bd7d2a234c25b4ea93a4ab69206789a47565fd8dbacdfd9541e4; cltv 3643
+2026-09-12T10:29:50Z C: dero maker post tx ef6a9ef2aa920604df0531594f92df1d47fe135daf1f8e72cc067bde4e7e12c4
+2026-09-12T10:29:50Z C: dero maker lock tx 7cfc4de8f42448738a5882d138b823e535aa2f35457032413724bf7da3093409
+2026-09-12T10:29:50Z C: dero maker refund tx e3c0b25f9cfb9eb88e5046812bd52deabcfccf5a4d3dca958d6a7a588a8476d8
+2026-09-12T10:29:50Z C: dero taker accept tx 2b782ce1c9198a1a6f7778c7ef2d61a81fe8d6dbacc294dba6e354241fa3699c
+2026-09-12T10:29:50Z C: zcash funding c8fe0c7c16eadc34365d44ab1f25aa6f010626df77ffaa47ff8aee722b6cebe5 (v5), 200000 zatoshi to t2N39xWCvJPKY9bLZDUqNtfzsWtCLn3bPcK, mined at 3605
+2026-09-12T10:29:50Z C: zcash refund ceb43c7c2f26e2cf58095dafee5daaac7e832e1b118e97366d067e7ac496f585 (v5)
+2026-09-12T10:29:50Z C: status <tmp>\C\maker.json: the maker, phase "refunded"
+2026-09-12T10:29:50Z C: status   ended: the DERO is refunded; no ZEC was claimed, and the secret was never revealed by this companion
+2026-09-12T10:29:50Z C: status   note: no funding of 200000 zatoshi was 2 blocks deep before the claim cutoff (Zcash height 3646, cltv 3643)
+2026-09-12T10:29:50Z C: status   board d99b7b20302177ff11ef9aa266ce4575d8c71de8d9bb1721158dada0313d1bb6 offer 2, escrow bec020b6a3c66c0a04e5e86bf8bc239cd2b259a05d8d2c1a36206acd1b6ceeeb id 2 (T_dero 2080); Zcash regtest, cltv 3643, hash 39372a361109bd7d2a234c25b4ea93a4ab69206789a47565fd8dbacdfd9541e4
+2026-09-12T10:29:50Z C: status   DERO 127.0.0.1:20000 (a trusted party): height 2082, 2 blocks past T_dero
+2026-09-12T10:29:50Z C: status     offer 2: state 1, expiry 2036
+2026-09-12T10:29:50Z C: status     escrow 2: state 2, 50000 of "", expiry 2080
+2026-09-12T10:29:50Z C: status   script address t2N39xWCvJPKY9bLZDUqNtfzsWtCLn3bPcK
+2026-09-12T10:29:50Z C: status   Zcash http://127.0.0.1:28232/ (a trusted party): regtest height 3745, 102 blocks past cltv
+2026-09-12T10:29:50Z C: status <tmp>\C\taker.json: the taker, phase "refunded"
+2026-09-12T10:29:50Z C: status   ended: the ZEC is refunded: Zcash tx ceb43c7c2f26e2cf58095dafee5daaac7e832e1b118e97366d067e7ac496f585, at least 2 confirmations on every node
+2026-09-12T10:29:50Z C: status   board d99b7b20302177ff11ef9aa266ce4575d8c71de8d9bb1721158dada0313d1bb6 offer 2, escrow bec020b6a3c66c0a04e5e86bf8bc239cd2b259a05d8d2c1a36206acd1b6ceeeb id 2 (T_dero 2080); Zcash regtest, cltv 3643, hash 39372a361109bd7d2a234c25b4ea93a4ab69206789a47565fd8dbacdfd9541e4
+2026-09-12T10:29:50Z C: status   DERO 127.0.0.1:20000 (a trusted party): height 2082, 2 blocks past T_dero
+2026-09-12T10:29:50Z C: status     offer 2: state 1, expiry 2036
+2026-09-12T10:29:50Z C: status     escrow 2: state 2, 50000 of "", expiry 2080
+2026-09-12T10:29:50Z C: status   script address t2N39xWCvJPKY9bLZDUqNtfzsWtCLn3bPcK
+2026-09-12T10:29:50Z C: status   Zcash http://127.0.0.1:28232/ (a trusted party): regtest height 3745, 102 blocks past cltv
+2026-09-12T10:29:50Z C: status     funding c8fe0c7c16eadc34365d44ab1f25aa6f010626df77ffaa47ff8aee722b6cebe5: mined at 3605, 141 confirmations
+2026-09-12T10:29:50Z C: status     funding output c8fe0c7c16eadc34365d44ab1f25aa6f010626df77ffaa47ff8aee722b6cebe5:0: spent (or not on this node's chain)
+2026-09-12T10:29:50Z C: status     refund level 1 ceb43c7c2f26e2cf58095dafee5daaac7e832e1b118e97366d067e7ac496f585: mined at 3644, 102 confirmations
+2026-09-12T10:29:50Z C: status     refund level 2 8d5337c01b8a9135b34b9da179f85b684275497c8089890285639e4716c903a4: unknown to this node
+2026-09-12T10:29:50Z C: status     refund level 3 861d9300fff93d3b0ee429e193d89f4ae5c5c3ea658cd76c387a7d6510e910ee: unknown to this node
+2026-09-12T10:29:50Z == done: swaps ABC; every id above is on the two chains

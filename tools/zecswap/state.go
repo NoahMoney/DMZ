@@ -24,8 +24,8 @@ const (
 // State is everything one companion knows about one swap, on disk. It is written before every irreversible
 // action — every broadcast, every DERO call — so a restart finds the intent and finishes it rather than doing it
 // differently: the funding, the claim and the refunds are built once, stored, and only ever re-sent as the same
-// bytes. It is written with fsync and rename, created 0600, and loaded strictly: a missing file is a fresh swap, an
-// unreadable one stops the companion.
+// bytes. It is written with fsync and rename, created 0600 (and owner-only on Windows, HardenFile), and loaded
+// strictly: a missing file is a fresh swap, an unreadable one stops the companion.
 //
 // The maker's secret lives here and only here until his claim makes it public. The Zcash keys never do: they are
 // read from the key file for each signature and zeroed after.
@@ -260,7 +260,14 @@ func (s *State) Save() error {
 	return writeAtomic(s.path, b)
 }
 
-// writeAtomic is the durable write every file here uses: a temporary file created 0600, fsync, rename.
+// HardenFile, when set, is applied to every file writeAtomic writes — the state, the taker's pre-signed refund and
+// the two registers — once its temporary exists and before a byte of it is written. The command line sets it on
+// Windows to OwnerOnlyACL, because there the 0600 a file is created with means nothing and it would inherit its
+// directory's ACL (tools/xmrswap's GAP-020, the same guard).
+var HardenFile func(path string) error
+
+// writeAtomic is the durable write every file here uses: a temporary file created 0600 (and HardenFile when set),
+// fsync, rename.
 func writeAtomic(path string, b []byte) error {
 	if path == "" {
 		return errors.New("zecswap: no path to write")
@@ -269,6 +276,13 @@ func writeAtomic(path string, b []byte) error {
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
+	}
+	if HardenFile != nil {
+		if err := HardenFile(tmp); err != nil {
+			f.Close()
+			os.Remove(tmp)
+			return fmt.Errorf("restricting %s to its owner: %w", tmp, err)
+		}
 	}
 	if _, err := f.Write(b); err != nil {
 		f.Close()
@@ -285,9 +299,10 @@ func writeAtomic(path string, b []byte) error {
 }
 
 // StateFileWarning is what the operator must be told about the file's protection on this platform, or "" when the
-// file's own mode is the protection. On Windows the 0600 is not enforced: the file inherits its directory's ACL.
+// file is protected: by its own 0600 elsewhere, and on Windows, where the 0600 is not enforced and the file would
+// inherit its directory's ACL, only by HardenFile.
 func StateFileWarning(path string) string {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != "windows" || HardenFile != nil {
 		return ""
 	}
 	return "the state file " + path + " (and, for a maker, the secret in it) is created 0600, which Windows does not enforce: it inherits the directory's ACL. Keep it in a directory only this account can read."
