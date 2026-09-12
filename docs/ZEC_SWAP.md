@@ -459,6 +459,12 @@ It is verified:
   - a reorganisation deeper than `C_zec` after both sides settled, with the taker's coin spent again: the maker ended
     `lost`, the Z5 loss;
   - the same reorganisation without the second spend: the maker's claim was mined again and he ended `swapped`;
+- by the `zecswap` command line itself: the built binary, run as separate maker, taker and status processes against
+  zebrad regtest and the DERO simulator, every txid in `research/regtest/zecswap-cli.log` (`TestRegtestCLI`):
+  - a whole swap that ended `swapped` on both sides. It ran with `-verify-headers`, which was skipped on regtest and
+    said so;
+  - a refund. The maker's process was stopped after it locked, and the taker's process refunded at `cltv`. The maker's
+    process, started again, refunded the DERO after `T_dero`;
 - by the header gate's reads, in `research/regtest/zecswap-headers.log`:
   - on regtest: the shapes and the Merkle branches; the gate itself is skipped there;
   - through the gate against the Zcash testnet node, on historical blocks, as plumbing only: Equihash, the difficulty
@@ -466,12 +472,10 @@ It is verified:
     node's tip.
 
 Not built, or not run, in this order, each its own cycle and each verified before the next:
-1. the `zecswap` command line itself against a node, as separate maker, taker and status processes. The driver
-   (`TestRegtestCLI`) is written and waits for the DERO simulator;
-2. the Zcash testnet run of a swap (BL-42), and `-verify-headers` on by default after it;
-3. zcashd, which is past end of support and never run here;
-4. the screens (§8);
-5. the measurement behind §5 (BL-30).
+1. the Zcash testnet run of a swap (BL-42), and `-verify-headers` on by default after it;
+2. zcashd, which is past end of support and never run here;
+3. the screens (§8);
+4. the measurement behind §5 (BL-30).
 
 Mainnet, never from this repository.
 

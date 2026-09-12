@@ -111,6 +111,18 @@ func (e *e2e) spawn(tag, role, dir, wallet string, keyHex [32]byte, extra ...str
 
 func (p *proc) wait() { <-p.done; p.cmd.Wait() }
 
+// waitFor waits for the process to end, at most d; one still running then is stopped, and false is returned.
+func (p *proc) waitFor(d time.Duration) bool {
+	select {
+	case <-p.done:
+		p.cmd.Wait()
+		return true
+	case <-time.After(d):
+		p.stop()
+		return false
+	}
+}
+
 // stop sends the process SIGINT-equivalent (context cancel) — what Ctrl+C does — and waits for it to go.
 func (p *proc) stop() {
 	p.cancel()
@@ -150,7 +162,18 @@ func (e *e2e) miner(dir string, stop <-chan struct{}) *sync.WaitGroup {
 			if tk, err := LoadState(filepath.Join(dir, RoleTaker+".json"), RoleTaker); err == nil && tk.FundingTxID != "" && !tk.Done {
 				n *= 3
 			}
-			e.mine(n)
+			// never t.Fatal from this goroutine: a failed generate is logged, and the next DERO block mines again
+			for n > 0 {
+				k := n
+				if k > 8 {
+					k = 8
+				}
+				if _, err := e.try("generate", k); err != nil {
+					e.logf("miner: generate %d: %v", k, err)
+					break
+				}
+				n -= k
+			}
 			last = h
 		}
 	}()
@@ -179,41 +202,54 @@ func (e *e2e) cliSwap(tag string, refund bool) {
 	e.mine(101)
 	e.logf("%s: taker's Zcash coin is a coinbase to %s; maker posts 50000 DERO for 200000 zatoshi", tag, tkKey.Address(Testnet))
 
-	maker := e.spawn(tag, RoleMaker, dir, e2eMaker, makerKey, "-give-amount", "50000", "-want-zat", "200000")
+	// the whole swap runs with -verify-headers, so its output shows the header gate skipped on regtest, as it must be
+	var hdr []string
+	if !refund {
+		hdr = []string{"-verify-headers"}
+	}
+	makerArgs := append(append([]string{}, hdr...), "-give-amount", "50000", "-want-zat", "200000")
+	maker := e.spawn(tag, RoleMaker, dir, e2eMaker, makerKey, makerArgs...)
+	var taker *proc
+	abort := func(format string, a ...interface{}) {
+		maker.stop()
+		if taker != nil {
+			taker.stop()
+		}
+		close(stop)
+		mining.Wait()
+		e.t.Fatalf("%s: %s", tag, fmt.Sprintf(format, a...))
+	}
 
 	// wait for the maker to post, then start the taker on that offer
 	offer := int64(-1)
-	for i := 0; i < 120 && offer < 0; i++ {
+	for i := 0; i < 180 && offer < 0; i++ {
 		if st := e.cliState(dir, RoleMaker); st != nil && st.HaveOffer {
 			offer = int64(st.OfferID)
 		}
 		time.Sleep(time.Second)
 	}
 	if offer < 0 {
-		maker.stop()
-		close(stop)
-		mining.Wait()
-		e.t.Fatalf("%s: the maker never posted an offer", tag)
+		abort("the maker never posted an offer")
 	}
 	e.logf("%s: the maker posted offer %d; the taker is started on it", tag, offer)
-	taker := e.spawn(tag, RoleTaker, dir, e2eTaker, takerKey, "-offer", fmt.Sprint(offer))
+	taker = e.spawn(tag, RoleTaker, dir, e2eTaker, takerKey, append(append([]string{}, hdr...), "-offer", fmt.Sprint(offer))...)
 
-	makerStopped := false
 	if refund {
 		// the maker is stopped once he has locked: he never claims, and the taker must refund
-		for i := 0; i < 600; i++ {
+		for i := 0; i < 900; i++ {
 			if st := e.cliState(dir, RoleMaker); st != nil && (st.Phase == "locked" || st.Done) {
 				break
 			}
 			time.Sleep(time.Second)
 		}
 		maker.stop()
-		makerStopped = true
 		e.logf("%s: the maker process is stopped after it locked (phase %s): it will not claim; the taker refunds at cltv", tag, e.cliState(dir, RoleMaker).Phase)
 	}
 
 	// the taker runs to its end
-	taker.wait()
+	if !taker.waitFor(75 * time.Minute) {
+		abort("the taker process did not end within 75 minutes (phase %s)", e.cliState(dir, RoleTaker).Phase)
+	}
 	tk := e.cliState(dir, RoleTaker)
 	e.logf("%s: the taker process exited in phase %s", tag, tk.Phase)
 
@@ -222,12 +258,10 @@ func (e *e2e) cliSwap(tag string, refund bool) {
 		// is the operator's recovery after a process died (it would otherwise clear on its own after the stale time).
 		os.Remove(filepath.Join(dir, RoleMaker+".json.lock"))
 		e.logf("%s: the maker process is started again to refund the DERO after T_dero %d", tag, e.cliState(dir, RoleMaker).TDero)
-		maker = e.spawn(tag, RoleMaker, dir, e2eMaker, makerKey, "-give-amount", "50000", "-want-zat", "200000")
-		makerStopped = false
+		maker = e.spawn(tag, RoleMaker, dir, e2eMaker, makerKey, makerArgs...)
 	}
-	maker.wait()
-	if makerStopped { // unreachable, but keep the variable honest
-		maker.wait()
+	if !maker.waitFor(75 * time.Minute) {
+		abort("the maker process did not end within 75 minutes (phase %s)", e.cliState(dir, RoleMaker).Phase)
 	}
 	close(stop)
 	mining.Wait()

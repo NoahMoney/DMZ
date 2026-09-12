@@ -20,8 +20,8 @@ Read this table before anything else. "Runs" means it has been driven end to end
 | Token markets (AMM and bonding curve) | **Runs on the simulator** | `pool.bas`, `launch.bas`, priced in DERO or in a wrapped asset |
 | Assets (NFA, ART-NFA-MS1) | **Runs on the simulator** | `nfa.bas`: one contract per asset, its own marketplace, priced in any quote |
 | Founders Pass | **Runs on the simulator** | `founders.bas`: mint, register, rewards, its own marketplace — **DERO fees only**, see §6 |
-| DERO ↔ XMR atomic swap | **Runs on real Monero node software, in regtest** | `htlc.bas` v2 and `tools/xmrswap`: all three exits, run twice against monerod and monero-wallet-rpc 0.18.5.1 (regtest) and the DERO simulator. **No public Monero network yet**, and the proof is unaudited |
-| Transparent-Zcash swap market | **Runs on real Zcash node software, in regtest** | `swap.bas` v2 and `board.bas` v3 run on the simulator. `tools/zecswap` completed three swaps against zebrad 6.3.0 (regtest) and the DERO simulator. **No public Zcash network yet** |
+| DERO ↔ XMR atomic swap | **Runs on real Monero node software, in regtest** | `htlc.bas` v2 and `tools/xmrswap`: all three exits, run twice against monerod and monero-wallet-rpc 0.18.5.1 (regtest) and the DERO simulator; a real reorganisation before and after the gate; and a whole swap from the command line as two separate processes. **No public Monero network yet**, and the proof is unaudited |
+| Transparent-Zcash swap market | **Runs on real Zcash node software, in regtest** | `swap.bas` v2 and `board.bas` v3 run on the simulator. `tools/zecswap` completed three swaps against zebrad 6.3.0 (regtest) and the DERO simulator, handled three real reorganisations, and ran a full swap and a refund from the command line as separate processes. **No public Zcash network yet** |
 | Wrapped XMR / ZEC (the federation) | **Simulator only; not deployed on mainnet** | `vault.bas` is fully tested. The only backend that exists is a JSON file, and the mainnet build offers no wrapped asset (§4) |
 | Chat, profiles, follows | **Runs on the simulator** | `chat.bas`, `social.bas` |
 

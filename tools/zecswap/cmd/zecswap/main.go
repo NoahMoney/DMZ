@@ -44,10 +44,11 @@
 // The Zcash node must be zebrad with its RPC enabled, or zcashd with txindex=1, experimentalfeatures=1 and
 // insightexplorer=1 (see tools/zecswap/node.go for each method and what it needs). A lightwalletd is not supported.
 //
-// WHAT HAS RUN. The Zcash side has run against one real node only: zebrad 6.3.0 on regtest, beside the DERO
-// simulator, through the same Swap machines and RPC clients this program drives (TestRegtestEndToEnd; every txid is
-// in research/regtest/zecswap-e2e.log). This command line itself has not been run against a node, and nothing has
-// run against zcashd, Zcash testnet or Zcash mainnet; the testnet run (BL-42) is still to be done.
+// WHAT HAS RUN. Swaps have run against one real Zcash node only: zebrad 6.3.0 on regtest, beside the DERO simulator —
+// through the Swap machines from tests (research/regtest/zecswap-e2e.log, zecswap-reorg.log) and through this command
+// line as separate maker, taker and status processes (TestRegtestCLI, research/regtest/zecswap-cli.log). No swap has
+// run on zcashd, Zcash testnet or Zcash mainnet; against the testnet node only the header gate's reads have been
+// tested (research/regtest/zecswap-headers.log). The testnet swap (BL-42) is still to be done.
 package main
 
 import (
@@ -272,7 +273,7 @@ func run(role string, args []string) {
 			fmt.Fprintf(os.Stderr, "WARNING: %s is inside a git work tree; a commit can carry it off. Keep secrets and keys outside any repository (the default -dir is).\n", p)
 		}
 	}
-	fmt.Fprintln(os.Stderr, "zecswap's Zcash side has run only against zebrad 6.3.0 on regtest (research/regtest/zecswap-e2e.log); never against zcashd, Zcash testnet or Zcash mainnet.")
+	fmt.Fprintln(os.Stderr, "zecswap has run swaps only on zebrad 6.3.0 regtest (research/regtest/zecswap-e2e.log, zecswap-cli.log); never a swap on zcashd, Zcash testnet or Zcash mainnet.")
 
 	st, err := zecswap.LoadState(statePath, role)
 	if err != nil {
