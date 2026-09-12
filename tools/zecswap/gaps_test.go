@@ -314,37 +314,92 @@ func TestBuildScheduleUpgradeBeforeTDeroDeclinesFunding(t *testing.T) {
 	}
 }
 
-// ---- GAP-039: a Sapling-bearing transaction is never credited where its id matters ----
+// ---- GAP-039: a funding's id is computed from its bytes, never taken on the node's word ----
 
-// This package does not implement ZIP 244's Sapling digest, so it cannot check the id of a v5 transaction with a
-// Sapling bundle. The one place the id matters is the funding the maker credits before he reveals the secret, and
-// there such a transaction is refused: the taker's own companion never builds one.
-func TestSaplingBearingFundingIsNotCredited(t *testing.T) {
+// ZIP 244's Sapling digest is implemented (sapling.go), so a v5 funding with Sapling parts — a counterparty's wallet
+// adding shielded change — is identified from its own bytes and credited like any other. A v6 transaction with
+// shielded parts is the one kind whose id this package cannot compute (no ZIP 229 vectors for them here), and it is
+// never credited.
+func TestSaplingFundingIsCreditedOnlyByItsComputedID(t *testing.T) {
 	ctx := context.Background()
-	f := newFakeZcash(t, "test", startZec)
 	h, _ := htlcFor(startZec + 500)
-	id := f.Pay(h.ScriptPubKey(), 200_000)
-	f.Mine(4)
-	f.mu.Lock()
-	raw := append([]byte(nil), f.txs[id].raw...)
-	height, _ := f.minedAtLocked(id)
-	bh := f.blocks[height-f.base].hash
-	tip := f.tipLocked()
-	f.mu.Unlock()
-	raw[len(raw)-3] = 1 // nSpendsSapling: 1
-	if _, err := ParseV5(raw); !errors.Is(err, ErrShielded) {
-		t.Fatalf("the crafted transaction does not read as Sapling-bearing: %v", err)
+	confirm := func(f *fakeZcash, id string) error {
+		f.Mine(4)
+		f.mu.Lock()
+		height, _ := f.minedAtLocked(id)
+		bh := f.blocks[height-f.base].hash
+		f.mu.Unlock()
+		return ConfirmFunding(ctx, []ZcashSource{{Name: "node", Node: f.client()}}, "test", h, Funding{TxID: id, Value: 200_000, Height: height, BlockHash: bh}, 3, func(string, ...interface{}) {})
 	}
-	f.override = func(method string) ([]byte, int, bool) {
-		if method != "getrawtransaction" {
-			return nil, 0, false
-		}
-		return []byte(fmt.Sprintf(`{"result":{"hex":"%x","txid":%q,"height":%d,"confirmations":%d,"blockhash":%q},"error":null,"id":1}`, raw, id, height, tip-height+1, bh)), 200, true
+	// a Sapling output: its bytes are digested, never validated, here
+	change := make([]byte, saplingOutputSize)
+	for i := range change {
+		change[i] = byte(i)
 	}
-	fund := Funding{TxID: id, Value: 200_000, Height: height, BlockHash: bh}
-	err := ConfirmFunding(ctx, []ZcashSource{{Name: "node", Node: f.client()}}, "test", h, fund, 3, func(string, ...interface{}) {})
-	if err == nil || !strings.Contains(err.Error(), "cannot be checked") {
-		t.Fatalf("a Sapling-bearing funding was credited: %v", err)
+	sap := &SaplingBundle{Outputs: [][]byte{change}, OutputProofs: [][]byte{make([]byte, saplingProofSize)}, ValueBalance: -1000}
+	pay := []TxOut{{Value: 200_000, ScriptPubKey: h.ScriptPubKey()}}
+
+	// v5 with Sapling change: its id is computed from its bytes, and it is credited
+	f := newFakeZcash(t, "test", startZec)
+	tx5 := &Tx{BranchID: f.branch, LockTime: 1, Sapling: sap, Out: pay}
+	back, err := ParseV5(tx5.Serialize())
+	if err != nil || back.Sapling == nil || back.TxID() != tx5.TxID() || !bytes.Equal(back.Serialize(), tx5.Serialize()) {
+		t.Fatalf("a v5 transaction with a Sapling bundle does not round-trip: %v", err)
+	}
+	id5 := f.MineTx(tx5)
+	if got, ok := ComputeTxID(tx5.Serialize()); !ok || got != id5 {
+		t.Fatalf("ComputeTxID %q %v, want %s", got, ok, id5)
+	}
+	if err := confirm(f, id5); err != nil {
+		t.Fatalf("a v5 funding with Sapling change, whose id is computed, was refused: %v", err)
+	}
+
+	// v6 with Sapling parts: its id cannot be computed here, and it is refused
+	g := newFakeZcash(t, "test", startZec)
+	tx6 := &Tx{Version: 6, BranchID: g.branch, LockTime: 2, Sapling: sap, Out: pay}
+	if _, err := ParseV6(tx6.Serialize()); !errors.Is(err, ErrShielded) {
+		t.Fatalf("ParseV6 on a Sapling-bearing v6 transaction: %v", err)
+	}
+	id6 := g.MineTx(tx6)
+	if err := confirm(g, id6); err == nil || !strings.Contains(err.Error(), "cannot be checked") {
+		t.Fatalf("a v6 funding with shielded parts was credited: %v", err)
+	}
+}
+
+// ---- MT-C08: the lock must be the board's ----
+
+// The lock must hold the board's asset and at least its amount. The taker funds nothing against one that does not:
+// a maker who locked less, or another asset, or a DERO node showing the lock changed after she first saw it.
+func TestTakerRefusesALockOfTheWrongAssetOrAmount(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		mutate func(e *Escrow)
+		want   string
+	}{
+		{"less than the board's amount", func(e *Escrow) { e.Amount = testGive - 1 }, "the lock holds"},
+		{"another asset", func(e *Escrow) { e.Asset = strings.Repeat("ab", 32) }, "the lock holds asset"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t, 61)
+			for i := 0; i < 200 && w.state(RoleTaker).Phase != "lock_seen"; i++ {
+				w.round()
+			}
+			tk := w.state(RoleTaker)
+			if tk.Phase != "lock_seen" {
+				t.Fatalf("taker %s\n%s", tk.Phase, w.dump())
+			}
+			w.dero.mu.Lock()
+			c.mutate(&w.dero.escrows[tk.EscrowID])
+			w.dero.mu.Unlock()
+			for i := 0; i < 40 && !w.done(RoleTaker); i++ {
+				w.step(RoleTaker)
+				w.dero.Advance(4)
+			}
+			tk = w.state(RoleTaker)
+			if tk.Phase != "declined" || !strings.Contains(tk.Outcome, c.want) || len(w.fundings) != 0 {
+				t.Fatalf("taker %s: %s; fundings %d", tk.Phase, tk.Outcome, len(w.fundings))
+			}
+		})
 	}
 }
 

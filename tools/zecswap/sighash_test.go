@@ -9,9 +9,9 @@ import (
 )
 
 // testdata/zip_0244.json is the Zcash project's own vector file (see testdata/README.txt). Each row: tx, txid,
-// auth_digest, amounts, script_pubkeys, transparent_input, sighash_shielded, sighash_all, ... Rows whose
-// transaction carries a Sapling bundle are skipped by name — this package reads transparent and Orchard parts
-// only — and the rest pin the transaction id and the SIGHASH_ALL digest of the named input to the byte.
+// auth_digest, amounts, script_pubkeys, transparent_input, sighash_shielded, sighash_all, ... Every row is read,
+// Sapling and Orchard bundles included (sapling.go, orchard.go; GAP-039), and each pins the transaction id and the
+// SIGHASH_ALL digest of the named input to the byte.
 func loadVectors(t *testing.T) [][]json.RawMessage {
 	t.Helper()
 	raw, err := os.ReadFile("testdata/zip_0244.json")
@@ -35,19 +35,30 @@ func str(t *testing.T, m json.RawMessage) string {
 
 func TestZIP244Vectors(t *testing.T) {
 	rows := loadVectors(t)
-	checked, skipped := 0, 0
+	checked, sapling, withSpends, withOutputs := 0, 0, 0, 0
 	for i, row := range rows {
 		raw, err := hex.DecodeString(str(t, row[0]))
 		if err != nil {
 			t.Fatal(err)
 		}
 		tx, err := ParseV5(raw)
-		if err == ErrShielded {
-			skipped++
-			continue
-		}
 		if err != nil {
 			t.Fatalf("vector %d: %v", i, err)
+		}
+		if tx.Sapling != nil {
+			sapling++
+			if len(tx.Sapling.Spends) > 0 {
+				withSpends++
+			}
+			if len(tx.Sapling.Outputs) > 0 {
+				withOutputs++
+			}
+		}
+		// the path RawTx takes to verify a node's answer agrees, in display order
+		if want, _ := hex.DecodeString(str(t, row[1])); len(want) == 32 {
+			if got, ok := ComputeTxID(raw); !ok || got != DisplayHex([32]byte(want)) {
+				t.Fatalf("vector %d: ComputeTxID %q %v", i, got, ok)
+			}
 		}
 		// the parser and the serializer are inverses on every vector they accept
 		if !bytes.Equal(tx.Serialize(), raw) {
@@ -83,9 +94,9 @@ func TestZIP244Vectors(t *testing.T) {
 		}
 		checked++
 	}
-	t.Logf("%d vectors checked (txid and, where given, SIGHASH_ALL), %d with a Sapling bundle skipped", checked, skipped)
-	if checked < 3 {
-		t.Fatalf("only %d vectors checked", checked)
+	t.Logf("%d of %d vectors checked (txid, ComputeTxID and, where given, SIGHASH_ALL); %d carry a Sapling bundle, %d with spends and %d with outputs", checked, len(rows), sapling, withSpends, withOutputs)
+	if checked != len(rows) || withSpends == 0 || withOutputs == 0 {
+		t.Fatalf("%d of %d vectors checked, %d with Sapling spends, %d with Sapling outputs: every row must be read, both kinds included", checked, len(rows), withSpends, withOutputs)
 	}
 }
 

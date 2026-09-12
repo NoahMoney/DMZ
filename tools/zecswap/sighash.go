@@ -196,9 +196,12 @@ type Tx struct {
 	BranchID     uint32
 	LockTime     uint32
 	ExpiryHeight uint32
-	In           []TxIn
-	Out          []TxOut
-	Orchard      *OrchardBundle
+	// Sapling is a v5 transaction's Sapling bundle as read (sapling.go): nil when empty, and always nil for what this
+	// package builds.
+	Sapling *SaplingBundle
+	In      []TxIn
+	Out     []TxOut
+	Orchard *OrchardBundle
 }
 
 func (t *Tx) v6() bool { return t.Version == 6 }
@@ -300,16 +303,16 @@ func saplingEmptyDigest() [32]byte { return blake256("ZTxIdSaplingHash", nil) }
 // Orchard digests, and for v6 the Ironwood one. A v6 transaction here has no shielded parts.
 func (t *Tx) shieldedTail() []byte {
 	var b bytes.Buffer
-	sa := saplingEmptyDigest()
-	b.Write(sa[:])
 	if t.v6() {
-		or := blake256("ZTxIdOrchardH_v6", nil)
-		iw := blake256("ZTxIdIronwd_H_v6", nil)
+		// ZIP 229: a v6 transaction is built and read here only without shielded parts, so all three are empty
+		sa, or, iw := saplingEmptyDigest(), blake256("ZTxIdOrchardH_v6", nil), blake256("ZTxIdIronwd_H_v6", nil)
+		b.Write(sa[:])
 		b.Write(or[:])
 		b.Write(iw[:])
 		return b.Bytes()
 	}
-	or := t.Orchard.digest()
+	sa, or := t.Sapling.digest(), t.Orchard.digest()
+	b.Write(sa[:])
 	b.Write(or[:])
 	return b.Bytes()
 }
@@ -386,9 +389,9 @@ func (t *Tx) SigDigest(i int, hashType byte) ([32]byte, error) {
 
 // ---- serialization (ZIP 225 / ZIP 229, no shielded bundle) ------------------------------------------------------
 
-// Serialize is the wire form: header, transparent inputs and outputs, then the empty Sapling bundle (zero spends,
-// zero outputs) and the Orchard bundle (zero actions, for anything this package builds) — and for v6 the empty
-// Ironwood bundle (zero actions).
+// Serialize is the wire form: header, transparent inputs and outputs, then the Sapling and Orchard bundles (empty
+// for anything this package builds, as read for a transaction it parsed) — and for v6 the empty Orchard and Ironwood
+// bundles.
 func (t *Tx) Serialize() []byte {
 	var b bytes.Buffer
 	b.Write(le32(t.header()))
@@ -408,8 +411,7 @@ func (t *Tx) Serialize() []byte {
 		b.Write(le64(out.Value))
 		b.Write(withLen(out.ScriptPubKey))
 	}
-	b.Write(CompactSize(0)) // nSpendsSapling
-	b.Write(CompactSize(0)) // nOutputsSapling
+	t.Sapling.serialize(&b) // two zero counts when there is no Sapling bundle
 	if t.v6() {
 		b.Write(CompactSize(0)) // nActionsOrchard
 		b.Write(CompactSize(0)) // nActionsIronwood
@@ -419,8 +421,9 @@ func (t *Tx) Serialize() []byte {
 	return b.Bytes()
 }
 
-// ErrShielded is returned by the parsers for a transaction that carries a Sapling bundle, or for a v6 one that
-// carries any shielded bundle: this package does not read those and says so rather than misreading them.
+// ErrShielded is returned by ParseV6 for a v6 transaction that carries any shielded bundle: ZIP 229's digests for
+// them have no test vectors here, so this package does not read them and says so rather than misreading them. A v5
+// transaction's Sapling and Orchard bundles are read (sapling.go, orchard.go).
 var ErrShielded = errors.New("zecswap: the transaction has a shielded bundle this package does not read")
 
 // ParseTx reads a serialized v5 or v6 transaction (ParseV5, ParseV6).
@@ -472,17 +475,15 @@ func parseCommon(raw []byte, version, group uint32) (*Tx, *reader, error) {
 	if r.err != nil {
 		return nil, nil, r.err
 	}
-	nSpends, nOutputs := r.compact(), r.compact() // nSpendsSapling, nOutputsSapling
-	if r.err != nil {
-		return nil, nil, r.err
+	sapling, err := parseSapling(r)
+	if err != nil {
+		return nil, nil, err
 	}
-	if nSpends != 0 || nOutputs != 0 {
-		return nil, nil, ErrShielded
-	}
+	t.Sapling = sapling
 	return t, r, nil
 }
 
-// ParseV5 reads a serialized v5 transaction with transparent parts and at most an Orchard bundle. Inputs come
+// ParseV5 reads a serialized v5 transaction: its transparent parts, and any Sapling and Orchard bundles. Inputs come
 // back without Value and ScriptPubKey (the wire form does not carry them); fill them in from the outputs being
 // spent before asking for a signature digest.
 func ParseV5(raw []byte) (*Tx, error) {
@@ -513,6 +514,9 @@ func ParseV6(raw []byte) (*Tx, error) {
 		return nil, err
 	}
 	t.Version = 6
+	if t.Sapling != nil {
+		return nil, ErrShielded
+	}
 	nOrchard, nIronwood := r.compact(), r.compact()
 	if r.err != nil {
 		return nil, r.err

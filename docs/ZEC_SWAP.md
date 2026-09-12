@@ -289,7 +289,9 @@ work.
 
 **What it checks and writes.**
 - It builds v5 or v6 transactions (ZIP 225, ZIP 229) and reads versions 1–6. It stops on any transaction at the script
-  address that it cannot read, and it refuses to credit a Sapling-bearing funding.
+  address that it cannot read. It computes the id of every v5 transaction from its bytes, Sapling and Orchard
+  bundles included, so a funding with shielded change is credited by its own id. It refuses to credit a v6
+  transaction with shielded parts, the one kind whose id it cannot compute (GAP-039).
 - On every DERO node it checks the code pins of `board.bas` v3 and `swap.bas` v2 (`pin.go`), the escrow's `wmin` against
   its own policy, and the taker's registration.
 - The maker's companion sends the taker's DERO Claim once its own Zcash claim is deep: swap v2 pays the named taker
@@ -334,9 +336,10 @@ provided, with the answer to "what does this provide that a smaller primitive ca
   2026-09-11 and checked against real zebrad 6.3.0 transactions, with no new dependency. Current Zcash wallets
   build v6 by default under NU6.3, so a claim that reveals `s` may be either. For v5: transparent parts built and read, an
   Orchard bundle read (a maker's wallet may add Orchard change to the claim that reveals the secret) but never
-  built, a Sapling bundle refused by name. The transaction id and the SIGHASH_ALL digest match Zcash's own test
-  vectors (`tools/zecswap/testdata/zip_0244.json`, four transactions with transparent inputs and Orchard
-  bundles). The consensus branch id is read from the node, never fixed at signing: `getblockchaininfo`’s
+  built, and a Sapling bundle read and digested (ZIP 244 T.3, added 2026-09-12) but never built. The transaction
+  id and the SIGHASH_ALL digest match every vector in Zcash's own test file (`tools/zecswap/testdata/zip_0244.json`),
+  including those carrying Sapling spends and outputs. A v6 transaction with shielded parts is refused: ZIP 229 has
+  no vectors here for its shielded digests. The consensus branch id is read from the node, never fixed at signing: `getblockchaininfo`’s
   `consensus.nextblock` — the epoch of the block the transaction will be **mined** in, not `consensus.chaintip`,
   which is the epoch of the block already at the tip. The two differ only across an activation boundary, which
   is the one moment the choice matters. `zecswap.CheckBranchID` takes the node’s answer and refuses to sign when

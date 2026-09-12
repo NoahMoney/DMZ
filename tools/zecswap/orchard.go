@@ -8,8 +8,8 @@ import (
 
 // The Orchard bundle, read and digested but never built. The companion never makes a shielded transaction; it
 // must still read one, because a maker's wallet may add an Orchard change output to the claim that reveals
-// the secret, and the txid and signature digests commit to the bundle (ZIP 244 T.4). A Sapling bundle is not
-// read here: ParseV5 says so rather than misreading it (ErrShielded).
+// the secret, and the txid and signature digests commit to the bundle (ZIP 244 T.4). The Sapling bundle is read
+// and digested the same way in sapling.go.
 
 const orchardActionSize = 32 + 32 + 32 + 32 + 32 + 580 + 80 // cv nullifier rk cmx ephemeralKey encCiphertext outCiphertext
 

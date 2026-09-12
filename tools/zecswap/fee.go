@@ -14,7 +14,8 @@ import (
 //	logical_actions  = max(⌈tx_in_total_size / 150⌉, ⌈tx_out_total_size / 34⌉) + nOrchardActions
 //	conventional_fee = 5,000 · max(2, logical_actions)
 //
-// (Sapling contributes max(spends, outputs); this package neither builds nor reads a Sapling bundle.) Every
+// (Sapling contributes max(spends, outputs), counted for a transaction read with a Sapling bundle; this package
+// never builds one.) Every
 // transaction here — the funding, the claim, the refund — is built, its fee computed from its own bytes, and
 // checked again after signing: the fee is at least the conventional fee of the transaction actually sent.
 const (
@@ -48,6 +49,9 @@ func (t *Tx) LogicalActions() uint64 {
 	if t.Orchard != nil {
 		n += uint64(len(t.Orchard.Actions))
 	}
+	if t.Sapling != nil {
+		n += uint64(max(len(t.Sapling.Spends), len(t.Sapling.Outputs)))
+	}
 	return n
 }
 
@@ -59,8 +63,8 @@ func (t *Tx) ConventionalFee() uint64 {
 // Fee is what the transaction pays: the inputs' values less the outputs'. Every input must carry the value of
 // the output it spends; a transaction with an Orchard bundle is not measured here.
 func (t *Tx) Fee() (uint64, error) {
-	if t.Orchard != nil {
-		return 0, errors.New("zecswap: the fee of a transaction with an Orchard bundle is not computed here")
+	if t.Orchard != nil || t.Sapling != nil {
+		return 0, errors.New("zecswap: the fee of a transaction with a shielded bundle is not computed here")
 	}
 	var in, out uint64
 	for _, i := range t.In {

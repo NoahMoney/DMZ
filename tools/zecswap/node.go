@@ -155,10 +155,10 @@ type RawTx struct {
 	Confirmations uint32
 	BlockHash     string
 	// Verified is true when this package computed the transaction's id from Raw and it matched: every version
-	// before 5, v5 without a Sapling bundle, and v6 without shielded parts. Anything else is taken on the node's
-	// word — which is why the one thing the companion reads out of a counterparty's transaction, the secret, is
-	// checked against the hash it must match rather than trusted, and why a funding the maker credits must be
-	// Verified (quorum.go).
+	// before 5, every v5 (its Sapling and Orchard bundles included, sapling.go and orchard.go), and v6 without
+	// shielded parts. Only a v6 transaction with shielded parts is taken on the node's word — which is why the one
+	// thing the companion reads out of a counterparty's transaction, the secret, is checked against the hash it must
+	// match rather than trusted, and why a funding the maker credits must be Verified (quorum.go, GAP-039).
 	Verified bool
 }
 
@@ -751,8 +751,8 @@ func (c *ZcashRPC) TxOut(ctx context.Context, txid string, index uint32) (*TxOut
 // ---- transaction ids ----
 
 // ComputeTxID is the id of a serialized transaction in display order, when this package can compute it: SHA256d
-// for every version before 5, ZIP 244 for a v5 transaction without a Sapling bundle, and ZIP 229's variant for a v6
-// transaction without shielded parts. ok is false otherwise.
+// for every version before 5, ZIP 244 for every v5 transaction (Sapling and Orchard bundles included), and ZIP 229's
+// variant for a v6 transaction without shielded parts. ok is false otherwise: a v6 transaction with shielded parts.
 func ComputeTxID(raw []byte) (string, bool) {
 	if len(raw) < 4 {
 		return "", false
