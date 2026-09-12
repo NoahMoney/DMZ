@@ -194,6 +194,30 @@ the block-time constant, and §9 R19 says why that conversion is an estimate.
 | close-after | T2 + 20 blocks | how long Bob's companion leaves an open lock to Alice's own Punish before sending it itself, which pays her | `tools/xmrswap/swap.go:90` |
 | contract bounds | `now + 1 < t1 < t2 ≤ now + 1,000,000` | ordering only; the contract cannot know Monero's state, so the minimums are policy in the companion, which refuses a lock below them | build spec §3.A |
 
+**The mainnet profile** (MT-B16, BL-27). Every policy number above lives in one file,
+`tools/xmrswap/mainnet_profile.json`: T1Min 400, the default t1 420, T1Max 1,200, T2Min 400, the default T2 − T1 400,
+T2Max 1,200, the confirmation floor 20 and its tiers, G 100, k 2 and the stipend floor 14,016. The companion's defaults
+are generated from it, and `profile_test.go` fails if the file, the generated constants and the defaults ever disagree.
+The same test checks the study's t1 rule at every tier: t1 − lock ≥ the waits before Alice's XMR lock + the expected
+Monero path at the tier ((c + 1) blocks of 120 s) + G + k·σ (σ = √(c + 1) × 120 s), capped at T1Max. The waits are
+18 DERO blocks as the companion runs: the lock mined and stable (1 + 8), then Bob's stipend mined and stable (1 + 8).
+The study counted only the lock's 9 (§2.1 U7), before Path 0 added the stipend's wait, so its figures are 9 blocks
+low:
+
+| Confirmations | The rule needs (G = 100, k = 2) | The study's figure | t1 a maker quotes |
+|---|---|---|---|
+| 20 | 319.1 | 310 | 420 (the default) |
+| 30 | 398.9 | 390 | 420 |
+| 40 | 476.7 | 467 | 477 |
+
+Three values wait on the operator, and the file marks each: G (MT-J04; the operator answered 30, and 100 is kept as
+recommended), the confirmation floor and the notional thresholds of the 30 and 40 tiers (MT-J03; 10 only after
+BL-30), and T1Max, T2Max and T2 − T1 (MT-J05). Answering one is a one-line edit to the file, then `go generate
+./xmrswap`. What each answer does: G = 30 brings every tier inside the default 420 (249, 329 and 407 blocks) and makes
+a suppressed Claim cost the maker 9 minutes instead of 30; a 10-confirmation tier needs 236 blocks at G = 100; T1Max
+can come down to 477 at G = 100 with tiers up to 40, or to 420 at G = 30, and no lower without dropping the 40 tier;
+T2 − T1 = 1,200 is already inside T2Max.
+
 **Alice's budget inside T1, at target rates.** Bob's lock reaches stable depth: 8 DERO blocks, 144 s. Her XMR
 transaction is mined: one Monero block expected, 120 s. Twenty confirmations, the default: 2,400 s. Bob's watcher notices and
 his companion sends `k_b`: a poll interval plus one channel delivery (over spore, one DERO transaction, about a
@@ -440,7 +464,24 @@ open, so it has to be closed before the build is called done. *Closed:* Bob's ga
 `unlock_time` is 0 as `get_transfers` reports it, and never more than the wallet's unlocked balance (invariant 8,
 `tools/xmrswap/swap.go` `confirmedAtJoint`). A current `monero-wallet-rpc` refuses to build such an output at all
 (0.18.5.1: -50 "Transaction cannot have non-zero unlock time", `research/regtest/monero-smoke.log`); the check on what
-arrives stays, because other software can build one and whether consensus still accepts it was not tested.
+arrives stays, because other software can build one, and a coinbase always carries one.
+
+*Measured* (MT-B14, `research/regtest/xmrswap-unlock.log`). The rule in monero 0.18.5.1's own words: an output is
+spendable only once both its `unlock_time` has passed (a height below `CRYPTONOTE_MAX_BLOCK_NUMBER` = 500,000,000, else a
+unix time) and it is `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE` = 10 blocks deep (`cryptonote_config.h:40, 49`;
+`wallet2.cpp:7308-7344`, `is_transfer_unlocked` and `is_tx_spendtime_unlocked`); `get_transfers` reports that as
+`locked`, beside the `unlock_time` itself, and lists a coinbase in `in` with type `block` (`wallet_rpc_server.cpp:498,
+501, 517`); and a 0.18.5.1 wallet builds no transaction with an `unlock_time` at all (`wallet2.cpp:7826`, the RPC's
+-50). So on regtest the locked output was made the one way it can be: a block mined to the joint address, whose coinbase
+carries `unlock_time` = its height + 60 (`CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW`, `cryptonote_config.h:44`). Bob's view
+wallet listed it, and he refused it from the first sight — "carries unlock_time 6649: it does not count towards the
+gate" — and kept refusing it for as long as he watched, past his 10 confirmations, until t1, while it was still locked;
+he never released `k_b` and refunded at t1, and Alice, after t1 − G, read `s_b` and swept the output once it unlocked. What does the work is counting only outputs
+the wallet reports unlocked, capped at the unlocked balance: that alone keeps out an output still locked when Bob counts.
+The explicit rule (`swap.go` `confirmedAtJoint`) also keeps out one whose lock has passed, and makes Bob say why; without
+it an already-expired lock would count (`TestAFarLockedOutputOpensNoGate`, which fails on the code without the rule). A
+non-coinbase transaction with a far-future `unlock_time` could not be made here, since the wallet refuses to build one;
+the fake wallet's test covers it, on the same code path.
 
 **R7. Bob's lock is wrong — smaller than agreed, the wrong asset, a T1 too close, a taker that is not Alice, a
 hash that is not hers.** *Outcome:* Alice's checks (invariant 3) fail and she does not lock; Bob refunds at T1.

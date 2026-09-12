@@ -362,6 +362,11 @@ Added 2026-09-11 from `docs/ATOMIC_SWAP_STUDY.md` and the mainnet gap analysis:
     records for the daemon's DERO network (compiled in by `go generate ./xmrswap`, checked against the file by
     `TestRecordedHTLCIsTheDeployRecord`); given or recorded, the companion refuses it at start unless its code is the
     pinned htlc.bas v2.
+25. **The mainnet policy is one file** (MT-B16, BL-27). `tools/xmrswap/mainnet_profile.json` holds T1Min, the default
+    t1, T1Max, T2Min, the default T2 − T1, T2Max, the confirmation floor and tiers, G, k and the stipend floor; the
+    companion's defaults are generated from it (`go generate ./xmrswap` writes `profile_gen.go`), and
+    `profile_test.go` fails when the file, the generated constants and the defaults disagree, and checks the t1 rule
+    at every tier. Each value an operator decision still holds open is marked there with its MT-J number.
 
 Policy the companion states rather than proves (review R18, R19, R24): it warns loudly when `-daemon` or
 `-monero` is not loopback, because a lying node is the one loss the protocol cannot see; it converts remaining

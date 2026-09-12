@@ -70,9 +70,8 @@ s_hygiene()      { cd tools && go test -count=1 -v ./hygiene; }
 s_verifyvendor() { cd tools && go run ./verifyvendor -root ..; }
 s_ui()           { : "${PW_DIR:?set PW_DIR to the directory with the pinned playwright}"; tools/withlock.sh ui env PW_DIR="$PW_DIR" node tools/uitest/ui.mjs "$UI_URL" .sim/check/ui-pass; }
 s_ui_mainnet()   { : "${PW_DIR:?set PW_DIR to the directory with the pinned playwright}"; tools/withlock.sh ui env PW_DIR="$PW_DIR" node tools/uitest/ui.mjs "$UI_URL" .sim/check/ui-mainnet --mainnet; }
-# the simulator factory stays owned for development; Renounce is proven on a scratch factory
-# (research/release/simdeploy-renounce-sim.log), so its live owner role is allowed here as in the final pass
-s_verifydeploy() { cd tools && go run ./verifydeploy -network simulator -app ../app -allow "factory.owner=the simulator factory stays owned for development; Renounce is proven on a scratch factory in research/release/simdeploy-renounce-sim.log"; }
+# factory.bas v2 has no owner (MT-J15(b)), so the simulator's factory needs no -allow: any live owner role is a failure
+s_verifydeploy() { cd tools && go run ./verifydeploy -network simulator -app ../app; }
 
 want dvm          && step dvm          s_dvm
 want gofmt        && step gofmt        s_gofmt

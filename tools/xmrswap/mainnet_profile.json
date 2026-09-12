@@ -1,0 +1,30 @@
+{
+  "_doc": "The Monero swap's mainnet policy in one place (MT-B16, BL-27). The companion's defaults are generated from this file (go generate ./xmrswap writes profile_gen.go), profile_test.go fails if the two ever differ, and it checks the t1 rule at every confirmation tier. The app's copy of these values, when it has one (today it quotes none), is to be checked against this file too. Heights and widths are DERO blocks of 18 s; confirmations are Monero blocks of 120 s. A value named in pending waits on the operator decision given there: answering it is a one-line edit here, then go generate.",
+  "dero_block_seconds": 18,
+  "monero_block_seconds": 120,
+  "stable_blocks": 8,
+  "claim_margin": 8,
+  "t1_min": 400,
+  "t1_default": 420,
+  "t1_max": 1200,
+  "t2_min": 400,
+  "t2_minus_t1": 400,
+  "t2_max": 1200,
+  "gate_deadline": 100,
+  "k": 2,
+  "stipend_floor": 14016,
+  "confirmations_floor": 20,
+  "confirmation_tiers": [
+    { "confirmations": 20, "from_piconero": 0 },
+    { "confirmations": 30, "from_piconero": null },
+    { "confirmations": 40, "from_piconero": null }
+  ],
+  "pending": {
+    "gate_deadline": "pending operator decision MT-J04 (decision 5): the operator answered 30; 100 is kept, as recommended, until the answer is confirmed",
+    "confirmations_floor": "pending operator decision MT-J03 (decision 4): 20 with tiers upward is recommended; allowing 10, disclosed, only after BL-30",
+    "confirmation_tiers": "pending operator decision MT-J03: the notional thresholds of the 30 and 40 tiers wait on the operator and on BL-30; while they are null every trade is at the lowest tier",
+    "t1_max": "pending operator decision MT-J05 (decision 6): the operator answered 'lower toward the default t1 plus slack'; 1,200 is kept until the value is set",
+    "t2_max": "pending operator decision MT-J05 (decision 6): 1,200 is kept",
+    "t2_minus_t1": "pending operator decision MT-J05 (decision 6): (a) 400, as today; (b) up to 1,200"
+  }
+}

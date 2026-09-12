@@ -1,0 +1,48 @@
+package xmrswap
+
+import "math"
+
+//go:generate go run gen_profile.go
+
+// ProfileTier is one confirmation tier of the mainnet profile (MT-B16, U7): trades from FromPiconero up wait for
+// Confirmations before the gate. A nil FromPiconero is a threshold the operator has not set (MT-J03); until it is,
+// every trade is at the lowest tier.
+type ProfileTier struct {
+	Confirmations uint64
+	FromPiconero  *uint64
+}
+
+func profileAmount(v uint64) *uint64 { return &v }
+
+// Tiers are the profile's confirmation tiers, lowest first.
+func Tiers() []ProfileTier { return append([]ProfileTier(nil), profileTiers...) }
+
+// companionWaitBlocks is how many DERO blocks the companion lets pass between the maker's lock and the taker's XMR
+// lock: the lock mined (1) and stable (the stable depth), then the maker's stipend mined (1) and stable (the stable
+// depth again) — Path 0 has her lock no XMR before it. The study's §2.1 U7 counted only the lock's 1 + 8, before the
+// stipend's wait was added.
+func companionWaitBlocks() uint64 { return 1 + profileStableBlocks + 1 + profileStableBlocks }
+
+// RequiredT1 is the study's t1 rule (docs/ATOMIC_SWAP_STUDY.md §2.1 U7) in DERO blocks: t1 − lock must cover the
+// waits before the taker's XMR lock, the Monero path at c confirmations — the lock mined and c more blocks, (c + 1)
+// blocks of 120 s — the gate deadline G, and k standard deviations of that path under an exponential model of Monero
+// blocks (σ = √(c + 1) × 120 s). DERO's own block variance is left out, as the study leaves it.
+func RequiredT1(confirmations, gate, k uint64) float64 {
+	return requiredT1(companionWaitBlocks(), confirmations, gate, k)
+}
+
+func requiredT1(waits, confirmations, gate, k uint64) float64 {
+	r := float64(profileMoneroBlockSeconds) / float64(profileDeroBlockSeconds)
+	n := float64(confirmations + 1)
+	return float64(waits) + n*r + float64(gate) + float64(k)*math.Sqrt(n)*r
+}
+
+// TierT1 is the t1 − lock a maker quotes at a tier: the default t1, raised to the rule's requirement where the tier
+// needs more. The profile test holds every tier's TierT1 at or under T1Max.
+func TierT1(confirmations uint64) uint64 {
+	need := uint64(math.Ceil(RequiredT1(confirmations, profileGateDeadline, profileK)))
+	if need < profileT1Default {
+		return profileT1Default
+	}
+	return need
+}

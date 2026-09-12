@@ -1,0 +1,220 @@
+MT-B14 (review R6): a Monero lock that cannot be spent until later opens no gate — real regtest monerod and
+monero-wallet-rpc 0.18.5.1, and the DERO simulator
+==============================================================================================================
+Run 2026-09-12 from 12:23 AEST: tools/simhtlc -regtest -paths unlock, built with go1.26.8 from the working tree. The
+raw driver output follows this header; machine paths are written <tmp>, <repo> and <user>.
+
+The rule, as monero 0.18.5.1 states it (the source at tag v0.18.5.1)
+- cryptonote_config.h:49  CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE 10: an output is spendable 10 blocks after the block it
+  is in.
+- cryptonote_config.h:40  CRYPTONOTE_MAX_BLOCK_NUMBER 500000000: an unlock_time below it is a block height, above it a
+  unix time.
+- cryptonote_config.h:44  CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW 60: a coinbase carries unlock_time = its height + 60.
+- cryptonote_config.h:90  CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_BLOCKS 1.
+- wallet2.cpp:7308-7317   is_transfer_unlocked: an output is unlocked only when is_tx_spendtime_unlocked passes AND
+  block_height + CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE <= the chain height.
+- wallet2.cpp:7319-7344   is_tx_spendtime_unlocked: a height unlock_time passes when chain height − 1 +
+  CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_BLOCKS >= unlock_time; a time one when the daemon's adjusted time plus a leeway
+  reaches it.
+- wallet_rpc_server.cpp:498, 517  get_transfers reports each transfer's "locked" = !is_transfer_unlocked(unlock_time,
+  block_height), and its "unlock_time"; wallet_rpc_server.cpp:501 marks a coinbase with type "block", in the same "in"
+  list as any other payment.
+- wallet2.cpp:7826        a 0.18.5.1 wallet refuses to build a transaction with any unlock_time
+  (error::nonzero_unlock_time); wallet_rpc_server.cpp:1250, 1310, 1763, 1829 turn that into the RPC's -50
+  "Transaction cannot have non-zero unlock time".
+
+Why the lock here is a coinbase
+  monero-wallet-rpc 0.18.5.1 will not build a transfer with an unlock_time, far future or near. Measured on this
+  regtest wallet-rpc (alice's, with do_not_relay, nothing broadcast), 2026-09-12:
+    transfer, unlock_time 1000000  ->  -50 "Transaction cannot have non-zero unlock time"
+    transfer, unlock_time 7000     ->  -50 "Transaction cannot have non-zero unlock time"
+  So no honest taker's companion can make such a lock, and none can be "crafted" through the wallet-rpc. The one
+  locked output that can reach an address on regtest is a coinbase: mining a block to the joint address gives it an
+  output of the whole block reward with unlock_time = the block's height + 60. The driver does that in place of
+  alice's transfer (tools/simhtlc coinbaseLock); everything else — bob's view wallet, the gate, the refund, alice's
+  recovery sweep — is the companions' own code against the real servers. On mainnet the same output arises when a
+  miner, or a pool acting for the taker, pays a coinbase to the joint address, or when another program builds a
+  transaction with an unlock_time.
+
+What the companion does with it (tools/xmrswap/swap.go confirmedAtJoint)
+  Bob's gate counts no transfer whose unlock_time is not 0, whatever its value, and never more than the wallet's
+  unlocked balance. The wallet's own "locked" flag and that cap already keep out an output that is still locked when
+  he counts; the explicit rule also keeps out one whose lock has passed, and makes him say why.
+
+Driver policy (not the companion's defaults): t1 = lock + 48 DERO blocks, t2 = t1 + 8, G = 4, bob's depth 10 Monero
+confirmations, one regtest block mined per driver round, a 60-minute limit on the path. The DERO side is the
+simulator; nothing here is testnet or mainnet.
+
+Command (from <repo>/tools, built to simhtlc_unlock.exe):
+  simhtlc -regtest -paths unlock -timeout 60m -prover "wsl.exe -e <path to the reproducible proof-xmr build>"
+          -state-dir <tmp>/e2estate_unlock
+Pre-run check (first line of the raw output): no transfer on DERO wallets 30006 or 30007 since height 338, no other
+simhtlc or xmrswap process, an empty monerod pool.
+
+What happened (exit 0; every txid below was looked up on its chain)
+  Contract   htlc.bas v2 installed by the driver at scid f6f864de212b29e3566d9477fb6c5e158ad39eaeb4d8f054bbff5d408de671b6
+             (pinned code 44864ec3...); the regtest monerod at height 6589 when the lock was made.
+  12:27:27  DERO lock     ab026fb746c13754e5539b3d3a740bb366ff0416decd50703fb70d9ed49c5ebe  (lock id 0, t1 530, t2 538)
+  12:30:11  DERO stipend  1765b9326268c170ca9b65e347ade342de49bc303506ab4c6312e975874c3da9  (alice saw it at stable depth,
+            height 493); alice printed her recovery card.
+  12:32:54  the "lock": in place of alice's transfer, block 6589's coinbase paid the joint address
+            46FqMh15MFeh3bjeDmpCcz7mbpiEFpTAS9iD28D8BYWrFQo8B5q5jX8giRAEARrbmb9VE7ExJByTmGkm7CYYzWjNEZN9dMx
+            34744991454518 piconero (the whole block reward, 34.7 XMR, above the 1 XMR agreed):
+            tx f615b747b8f19b45f9398c961b9a9ebcb0d6a9f706a8039d66b82d92f427dfcc, in monerod block 6589, unlock_time 6649 —
+            read back from the monerod's decoded copy of the transaction: block 6589 + 60, CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW.
+  12:33:08  bob's view-only wallet listed it (a coinbase comes in get_transfers "in", type "block"), and bob said:
+            "a transfer at the joint address carries unlock_time 6649: it does not count towards the gate, whatever its
+            confirmations". It stayed uncounted for as long as he watched, from that first sight to t1 (the driver mines
+            a block a round, so past his depth of 10); it was still locked when he stopped: alice's first recovery
+            attempt, at 12:42:43, after his refund, found nothing spendable.
+  bob never released k_b: alice received k_b: false, and no gate message was sent.
+  12:40:16  alice, at t1 − G (height 526) with no gate: "waiting for bob's refund, or t2".
+  12:41:56  DERO refund   cfd89afad456d6b86dbb6e988b5ec8c5ac5cf39144fc5daf6fc7396818d0bbb4  bob, at t1, with s_b.
+  alice read s_b from the chain, formed s_a + s_b, and swept the joint address once the coinbase could be spent:
+            XMR recovery  417a5e5d774bac0be9b6b77ace07b3c367fb74efa087a6b2cb5e863c78f913b4  in monerod block 6649, the
+            coinbase's unlock height, to her own address.
+  End      bob "refunded", alice "swept"; the contract holds 0 DERO; set_daemon was accepted 71 times and refused none.
+           Alice's own Monero wallet: 104264999393668 piconero before, 139008172848186 after (+34743173454518: the
+           coinbase less her sweep's fee). DERO: bob 397917 -> 380924, alice 779384 -> 789293 (the lock and its fee, the
+           stipend and its fee, the refund's fee and the lock returned for bob; the stipend in, less the install's fee,
+           for alice).
+  Nothing of this run is left running. No wake task was registered: simhtlc runs the companions without an OS wake
+  hook, and alice's card said so ("wake: none registered"); the Task Scheduler holds no xmrswap task.
+
+What it shows, and what it does not
+  - A lock that cannot be spent until later — here 60 blocks — opens no gate, on the real wallet-rpc: bob refused it
+    from the first sight until t1, the whole time it was still locked, and refunded at t1; alice ended with the output,
+    not with a loss. That is review R6's case: the gate is never released against coins neither side can move in time.
+  - A far-future unlock_time on a non-coinbase transaction was not made here, because monero-wallet-rpc 0.18.5.1
+    cannot build one (the -50 above). The fake-wallet test covers that case, a far-future height and a far-future time
+    (tools/xmrswap/unlock_test.go TestAFarLockedOutputOpensNoGate); the code path bob takes is the same, keyed on the
+    unlock_time get_transfers reports.
+
+-------------------------------------------------------------------------------------------------------------
+raw driver output (simhtlc -regtest -paths unlock)
+-------------------------------------------------------------------------------------------------------------
+[pre-run] 2026-09-12 12:23:58 wallets 30006 and 30007: no transfers since DERO height 338; no other simhtlc or xmrswap running; regtest monerod pool empty
+[   0.1s] simulator Simulator at height 472 (18 s blocks)
+[   0.1s] bob   deto1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgfywu80 (wallet 127.0.0.1:30006) has 397917 DERO atomic units; needs about 30016
+[   0.1s] alice deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce (wallet 127.0.0.1:30007) has 779384 DERO atomic units; needs about 6000
+[   0.1s] timelocks: t1 = lock + 48 blocks, t2 = t1 + 8; alice ignores a gate from t1 − 4 and sends no Claim from t1 − 8 − 2 = lock + 38 on
+[   0.1s] stipend (Path 0): 14016 DERO atomic units per swap, from bob to alice, before any XMR
+[  23.3s] INSTALL htlc.bas: scid f6f864de212b29e3566d9477fb6c5e158ad39eaeb4d8f054bbff5d408de671b6, 3870 canonical bytes, storage gas 3907 (cap 20000), code sha256 44864ec3cddac871286b9cfd18d18e0b1d2ef0e31960436cee3bacc3025fef06 (pinned 44864ec3cddac871286b9cfd18d18e0b1d2ef0e31960436cee3bacc3025fef06)
+[  82.4s] regtest monerod http://127.0.0.1:28081 (0.18.5.1-release, nettype fakechain) at height 6510: bob 42jtRXQmKEdGy3q1mSyrAQ318ejTiqzUQ3KzYQNrvwsKPxMiAbk6NSP3RyW1dQF5XLZYJHCdkswhKWMgEEoVZRPVLMFFsYu (xmrswap-e2e-1789179862-bob on http://127.0.0.1:28084), alice 487rQYi2Q1P4PymVJrdQBd9Ffz63hzz7yHB6EqnskH2FVnQcB8d2v3bWqtDtX4BzicUUUkrbLi4cu6YzMfmUSTJ8CS2797C (xmrswap-e2e-1789179862-alice on http://127.0.0.1:28083); alice mined 3 coinbases
+[ 108.1s] PROVER self-test: keygen+prove 20.5s, verify 5.30s, proof 1601 bytes
+[ 108.1s] state and channel under the -state-dir
+[ 108.1s] ===== UNLOCK =====
+[ 108.1s] unlock: the channel is sealed (AES-256-GCM) under a fresh swap key (GAP-019)
+[ 112.4s] unlock: alice's own Monero wallet holds 104264999393668 piconero before the swap
+           12:26:18 bob:  -> setup
+           12:26:18 bob: sent offer
+           12:26:42 alice:  -> setup
+           12:26:44 alice: setup -> offer_checked
+           12:26:44 alice: sent alice_setup
+           12:26:50 bob: π_a verified; joint address 46FqMh15MFeh3bjeDmpCcz7mbpiEFpTAS9iD28D8BYWrFQo8B5q5jX8giRAEARrbmb9VE7ExJByTmGkm7CYYzWjNEZN9dMx; taker deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce
+           12:26:50 bob: setup -> verified_pi_a
+           12:26:50 bob: sent bob_setup
+           12:26:55 alice: π_b verified; joint address 46FqMh15MFeh3bjeDmpCcz7mbpiEFpTAS9iD28D8BYWrFQo8B5q5jX8giRAEARrbmb9VE7ExJByTmGkm7CYYzWjNEZN9dMx
+           12:26:55 alice: offer_checked -> verified_pi_b
+           12:26:57 bob: verified_pi_a -> dero_locking
+           12:27:27 bob: DERO locked: id 0 tx ab026fb746c13754e5539b3d3a740bb366ff0416decd50703fb70d9ed49c5ebe t1 530 t2 538 amount 2000
+           12:27:27 bob: dero_locking -> dero_locked
+           12:27:28 bob: sent dero_locked
+           12:27:28 alice: verified_pi_b -> lock_announced
+           12:27:53 bob: dero_locked -> stipend_sending
+           12:27:53 alice: lock 0 checked at height 485: t1 530 t2 538 amount 2000
+           12:27:53 alice: lock_announced -> saw_dero_lock
+           12:27:59 bob: sent dero_locked
+           12:28:17 alice: waiting for the maker's stipend of 14016 DERO atomic units (Path 0); no XMR is locked until it is
+           12:28:31 bob: sent dero_locked
+           12:29:01 bob: sent dero_locked
+           12:29:32 bob: sent dero_locked
+           12:30:11 bob: sent the taker a stipend of 14016 DERO atomic units for her gas (Path 0): tx 1765b9326268c170ca9b65e347ade342de49bc303506ab4c6312e975874c3da9
+           12:30:11 bob: stipend_sending -> watching_xmr
+           12:30:11 bob: sent dero_locked
+           12:30:11 alice: the stipend (tx 1765b9326268c170ca9b65e347ade342de49bc303506ab4c6312e975874c3da9, height 493) is not at stable depth yet (stable height 486); no XMR is locked until it is
+           12:30:29 alice: the stipend (tx 1765b9326268c170ca9b65e347ade342de49bc303506ab4c6312e975874c3da9, height 493) is not at stable depth yet (stable height 487); no XMR is locked until it is
+           12:30:48 bob: sent dero_locked
+           12:30:48 alice: the stipend (tx 1765b9326268c170ca9b65e347ade342de49bc303506ab4c6312e975874c3da9, height 493) is not at stable depth yet (stable height 488); no XMR is locked until it is
+           12:31:13 alice: the stipend (tx 1765b9326268c170ca9b65e347ade342de49bc303506ab4c6312e975874c3da9, height 493) is not at stable depth yet (stable height 489); no XMR is locked until it is
+           12:31:35 bob: sent dero_locked
+           12:31:35 alice: the stipend (tx 1765b9326268c170ca9b65e347ade342de49bc303506ab4c6312e975874c3da9, height 493) is not at stable depth yet (stable height 490); no XMR is locked until it is
+           12:31:49 alice: the stipend (tx 1765b9326268c170ca9b65e347ade342de49bc303506ab4c6312e975874c3da9, height 493) is not at stable depth yet (stable height 491); no XMR is locked until it is
+           12:32:02 alice: the stipend (tx 1765b9326268c170ca9b65e347ade342de49bc303506ab4c6312e975874c3da9, height 493) is not at stable depth yet (stable height 492); no XMR is locked until it is
+           12:32:25 bob: sent dero_locked
+           12:32:26 alice: the maker's stipend of 14016 DERO atomic units is at stable depth (tx 1765b9326268c170ca9b65e347ade342de49bc303506ab4c6312e975874c3da9, height 493); this wallet can spend 789293
+           12:32:26 alice: locking 1000000000000 piconero against t1 530 and t2 538 — about 0 and 0 hours from height 501, and until t1 the XMR has no exit of its own
+           12:32:26 alice: RECOVERY CARD — read it before any XMR of yours moves
+           12:32:26 alice: SECRET: <tmp> holds your key share and the joint wallets' password. Back it up now, where only you can read it: without it, XMR locked now cannot be recovered after a refund, and whoever copies it can take that XMR once s_b is public.
+           12:32:26 alice: resume: the same companion command again, on the same state file
+           12:32:26 alice:         it reads VEIL_RPC_LOGIN, XMRSWAP_MONERO_LOGIN and XMRSWAP_CHANNEL_KEY from the environment; their values are written nowhere, the wake task included
+           12:32:26 alice: now            height 501  2026-09-12 12:32 AEST
+           12:32:26 alice: claim cutoff   height 520  about 2026-09-12 12:38 AEST  no Claim of yours is sent from here
+           12:32:26 alice: gate deadline  height 526  about 2026-09-12 12:39 AEST  a gate reaching you from here is not used (t1 − G)
+           12:32:26 alice: finish by      height 520  about 2026-09-12 12:38 AEST  be running before this to complete the swap
+           12:32:26 alice: t1             height 530  about 2026-09-12 12:41 AEST  bob may refund from here; his refund puts s_b on the chain, and your XMR comes back with it
+           12:32:26 alice: t2             height 538  about 2026-09-12 12:43 AEST  bob can no longer refund; Punish, which anyone may send, pays you the DERO
+           12:32:26 alice: none of these is a deadline for your coins: after a refund your XMR waits at the joint address for you alone, and after t2 the DERO can go only to you
+           12:32:26 alice: wake: none registered (this companion runs without an OS wake hook): be back by 2026-09-12 12:33 AEST yourself
+           12:32:26 alice: saw_dero_lock -> xmr_locking
+[ 536.0s] unlock: MT-B14: instead of alice's transfer, block 6589's coinbase pays the joint address 34744991454518 piconero: tx f615b747b8f19b45f9398c961b9a9ebcb0d6a9f706a8039d66b82d92f427dfcc, unlock_time 6649 (block 6589 + 60)
+           12:32:54 alice: XMR locked: tx f615b747b8f19b45f9398c961b9a9ebcb0d6a9f706a8039d66b82d92f427dfcc to 46FqMh15MFeh3bjeDmpCcz7mbpiEFpTAS9iD28D8BYWrFQo8B5q5jX8giRAEARrbmb9VE7ExJByTmGkm7CYYzWjNEZN9dMx
+           12:32:54 alice: xmr_locking -> xmr_locked
+           12:32:54 alice: sent xmr_locked
+           12:32:56 bob: sent dero_locked
+           12:32:56 bob: alice reports Monero tx f615b747b8f19b45f9398c961b9a9ebcb0d6a9f706a8039d66b82d92f427dfcc; watching the view wallet, not the message
+           12:33:08 bob: a transfer at the joint address carries unlock_time 6649: it does not count towards the gate, whatever its confirmations
+           12:33:34 alice: sent xmr_locked
+           12:34:07 alice: sent xmr_locked
+           12:34:40 alice: sent xmr_locked
+           12:35:30 alice: sent xmr_locked
+           12:36:06 alice: sent xmr_locked
+           12:36:41 alice: sent xmr_locked
+           12:37:22 alice: sent xmr_locked
+           12:37:55 alice: sent xmr_locked
+           12:38:43 alice: sent xmr_locked
+           12:39:21 alice: sent xmr_locked
+           12:39:58 alice: sent xmr_locked
+           12:40:16 alice: t1 − G (526) passed without the gate: waiting for bob's refund, or t2
+           12:40:16 alice: xmr_locked -> await_refund
+           12:40:38 alice: sent xmr_locked
+           12:41:11 alice: sent xmr_locked
+           12:41:34 bob: watching_xmr -> refund_window
+           12:41:35 bob: refund_window -> refunding
+           12:41:56 bob: refunded: tx cfd89afad456d6b86dbb6e988b5ec8c5ac5cf39144fc5daf6fc7396818d0bbb4
+           12:41:56 bob: done: refunded: tx cfd89afad456d6b86dbb6e988b5ec8c5ac5cf39144fc5daf6fc7396818d0bbb4; s_b is on the chain so alice can recover any XMR she locked
+           12:41:56 bob: refunding -> refunded
+           12:41:56 bob: sent done
+           12:41:56 alice: sent xmr_locked
+           12:41:56 alice: bob refunded; s_b read from the chain
+           12:41:56 alice: await_refund -> refund_seen
+           12:42:26 alice: refund_seen -> sweep_ready
+           12:42:43 alice: the joint wallet xmrswap-f6f864de-86cc7b4301f25c88-0-spend shows nothing spendable; waiting for the scan and for the ten-block spendable age, and trying again for up to 240 passes
+           12:47:13 alice: sweep_ready -> sweeping
+           12:47:14 alice: swept the joint wallet to 487rQYi2Q1P4PymVJrdQBd9Ffz63hzz7yHB6EqnskH2FVnQcB8d2v3bWqtDtX4BzicUUUkrbLi4cu6YzMfmUSTJ8CS2797C: [417a5e5d774bac0be9b6b77ace07b3c367fb74efa087a6b2cb5e863c78f913b4]
+           12:47:14 alice: the joint wallets xmrswap-f6f864de-86cc7b4301f25c88-0-spend and xmrswap-f6f864de-86cc7b4301f25c88-0-view stay in the wallet-rpc's wallet-dir, encrypted under this swap's password; delete them once the sweep is confirmed
+           12:47:14 alice: done: swept the XMR to 487rQYi2Q1P4PymVJrdQBd9Ffz63hzz7yHB6EqnskH2FVnQcB8d2v3bWqtDtX4BzicUUUkrbLi4cu6YzMfmUSTJ8CS2797C
+           12:47:14 alice: sweeping -> swept
+[1396.1s] unlock: bob ended "refunded": refunded: tx cfd89afad456d6b86dbb6e988b5ec8c5ac5cf39144fc5daf6fc7396818d0bbb4; s_b is on the chain so alice can recover any XMR she locked
+[1396.1s] unlock: alice ended "swept": swept the XMR to 487rQYi2Q1P4PymVJrdQBd9Ffz63hzz7yHB6EqnskH2FVnQcB8d2v3bWqtDtX4BzicUUUkrbLi4cu6YzMfmUSTJ8CS2797C
+[1396.1s] unlock: DERO txids: lock ab026fb746c13754e5539b3d3a740bb366ff0416decd50703fb70d9ed49c5ebe | stipend 1765b9326268c170ca9b65e347ade342de49bc303506ab4c6312e975874c3da9 (alice saw it at height 493) | claim - | refund cfd89afad456d6b86dbb6e988b5ec8c5ac5cf39144fc5daf6fc7396818d0bbb4 | punish -
+[1396.2s] unlock: Monero (regtest) lock f615b747b8f19b45f9398c961b9a9ebcb0d6a9f706a8039d66b82d92f427dfcc to the joint address 46FqMh15MFeh3bjeDmpCcz7mbpiEFpTAS9iD28D8BYWrFQo8B5q5jX8giRAEARrbmb9VE7ExJByTmGkm7CYYzWjNEZN9dMx: in monerod block 6589
+[1396.2s] unlock: Monero (regtest) alice's recovery sweep 417a5e5d774bac0be9b6b77ace07b3c367fb74efa087a6b2cb5e863c78f913b4 to 487rQYi2Q1P4PymVJrdQBd9Ffz63hzz7yHB6EqnskH2FVnQcB8d2v3bWqtDtX4BzicUUUkrbLi4cu6YzMfmUSTJ8CS2797C: in monerod block 6649
+[1396.2s] unlock: set_daemon 127.0.0.1:28081, sent to the real monero-wallet-rpc after every open and generate: 71 accepted, 0 refused so far
+           a_0      = 
+           ha_0     = 55e7ca7237f99c0b1bd6b0de5af96ae4927445661efca52f797d4390f5e58178
+           hb_0     = 1fe09d6925b9e83f2b331625220a166026af7ed88cebbc8b416ee2b6108cb597
+           hk_0     = fcc2d57f89e3fa279fb9348d88e9b5decc723c6741d911e453ef1fc696f53ce5
+           m_0      = 0da6f57058e06383fbc2d0133562cd567df15fa8f99d03ea2c3d9c5245bba6ca01
+           st_0     = 2
+           t1_0     = 530
+           t2_0     = 538
+           t_0      = 1f4e4d3ba7dfdc81b477aebd1168373ed14c9ad1c6ddf41447242dee7a881ca700
+           v_0      = 2000
+           xb_0     = 7c4f3f4305db6d5a97cbc85567936620062f96a3b4c7066df635203a4d94910b
+[1396.2s] unlock: the contract holds 0 DERO atomic units after this exit
+[1396.2s] alice read s_b from the chain and recovered with s_a + s_b; joint address 46FqMh15MFeh3bjeDmpCcz7mbpiEFpTAS9iD28D8BYWrFQo8B5q5jX8giRAEARrbmb9VE7ExJByTmGkm7CYYzWjNEZN9dMx
+[1396.2s] unlock: alice received k_b: false; bob's outcome: refunded: tx cfd89afad456d6b86dbb6e988b5ec8c5ac5cf39144fc5daf6fc7396818d0bbb4; s_b is on the chain so alice can recover any XMR she locked; alice's lock f615b747b8f19b45f9398c961b9a9ebcb0d6a9f706a8039d66b82d92f427dfcc is in monerod block 6589
+[1411.8s] unlock: alice's own Monero wallet: 104264999393668 piconero before the swap, 139008172848186 after (+34743173454518)
+[1416.9s] DERO balances: bob 397917 -> 380924, alice 779384 -> 789293; contract holds 0 (expect 0)
+exit 0

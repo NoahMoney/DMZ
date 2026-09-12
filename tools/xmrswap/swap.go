@@ -24,30 +24,31 @@ import (
 	"time"
 )
 
-// Policy defaults (§1, timelocks): DERO blocks are 18 s.
+// Policy defaults (§1, timelocks): DERO blocks are 18 s. The policy values come from the mainnet profile
+// (mainnet_profile.json, through the generated profile_gen.go, MT-B16); profile_test.go checks every one of them.
 const (
-	DefaultT1Min uint64 = 400 // Alice must lock, see the Monero confirmations, receive k_b and claim in this
-	DefaultT2Min uint64 = 400 // Bob's refund window
+	DefaultT1Min uint64 = profileT1Min // Alice must lock, see the Monero confirmations, receive k_b and claim in this
+	DefaultT2Min uint64 = profileT2Min // Bob's refund window
 	// DefaultConfirmations is the Monero depth before the gate (Invariant 10, review R3). Ten is
 	// CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE — below it nobody can spend the output, so ten buys Bob nothing but
 	// time — and Monero has no consensus bound on a reorganisation, with an 18-block one reported; twenty is the
 	// policy, and the one number in the protocol that is an assumption rather than a proof.
-	DefaultConfirmations uint64 = 20
+	DefaultConfirmations uint64 = profileConfirmationsFloor
 	// DefaultStableBlocks is DERO's STABLE_LIMIT: a block this deep is never replaced. Alice locks XMR only against
 	// a lock this old, and a Claim is only acted on once it is this deep.
 	DefaultStableBlocks uint64 = 8
 	// DefaultClaimMargin is Alice's slack on top of the stable depth (Invariant 9, review R2): she sends no Claim
 	// once height + 1 ≥ t1 − 8 − margin, because a Claim mined in the last eight blocks before t1 can be re-mined
 	// at or after t1 and refused, with s_a already read by Bob.
-	DefaultClaimMargin uint64 = 8
+	DefaultClaimMargin uint64 = profileClaimMargin
 	// DefaultT1Max and DefaultT2Max are the ceilings on the windows the maker chooses. htlc.bas admits a t2 up
 	// to a million blocks out and the floors above say nothing about the top, so without a ceiling the taker's
 	// XMR can be locked against a t1 months away with no exit of her own before it: she cannot claim without
 	// k_b, she cannot refund, and Punish is only at t2, so the maker holds a free option on her coins for as
 	// long as he named. Three times the floor is wide enough for every honest delay at 18 s blocks (about six
 	// hours) and short enough that the option is worth little.
-	DefaultT1Max uint64 = 1200
-	DefaultT2Max uint64 = 1200
+	DefaultT1Max uint64 = profileT1Max
+	DefaultT2Max uint64 = profileT2Max
 	// DefaultSweepWaits is how many passes the sweep gives a joint wallet that shows nothing spendable before
 	// it takes that answer at face value. A wallet made from keys has scanned nothing until it is refreshed,
 	// and the output it is waiting for needs ten blocks to become spendable, so the first answer is routinely a
@@ -61,7 +62,7 @@ const (
 	// Claim out of the chain until t1 can read s_a, sweep the XMR, and refund; G is how many blocks of
 	// suppression that costs him. 100 is the study's assumed value (operator decision 5), not a measurement; an
 	// honest gate arrives near block 150 of the default 420.
-	DefaultGateDeadline uint64 = 100
+	DefaultGateDeadline uint64 = profileGateDeadline
 	// DefaultFixedFee is what Refund and Punish are sent at (NewDeroRPC's FixedFee): the daemon's estimator runs
 	// a contract at height 0, where both are refused, so neither can be estimated.
 	DefaultFixedFee uint64 = 3000
@@ -180,8 +181,8 @@ func (c Config) withDefaults() Config {
 	def(&c.T2Min, DefaultT2Min)
 	// the taker sees the lock a couple of blocks after the maker decided t1, and measures t1 − now against the
 	// same floor, so the maker adds slack or his own lock is refused
-	def(&c.T1Delta, c.T1Min+20)
-	def(&c.T2Delta, c.T2Min)
+	def(&c.T1Delta, c.T1Min+(profileT1Default-profileT1Min))
+	def(&c.T2Delta, c.T2Min+(profileT2MinusT1-profileT2Min))
 	def(&c.T1Max, DefaultT1Max)
 	def(&c.T2Max, DefaultT2Max)
 	def(&c.Confirmations, DefaultConfirmations)
@@ -807,6 +808,12 @@ func (s *Swap) confirmedAtJoint(ctx context.Context) (sum, h uint64, counted []s
 		return 0, 0, nil, err
 	}
 	for _, t := range in {
+		// MT-B14, review R6: an output whose transaction carries an unlock_time never counts, whatever its value.
+		// monero 0.18.5.1 unlocks an output only past both its unlock_time and 10 blocks of depth (wallet2.cpp:7308-
+		// 7344), and a 0.18.5.1 wallet builds no transfer with one (wallet2.cpp:7826), so one here is another
+		// program's or a coinbase's (height + 60, cryptonote_config.h:44). The wallet's own "locked" flag and the
+		// unlocked-balance cap below keep a lock that has not expired out already; this line also keeps out one that
+		// expires before t1 − G, which no honest taker's companion makes.
 		if t.UnlockTime != 0 {
 			if !s.frozenWarned {
 				s.frozenWarned = true

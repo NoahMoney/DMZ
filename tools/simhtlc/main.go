@@ -187,7 +187,7 @@ func main() {
 	for _, p := range pathList {
 		switch p {
 		case "happy", "refund", "punish":
-		case "reorg-before", "reorg-after":
+		case "reorg-before", "reorg-after", "unlock":
 			if !*regtest {
 				log.Fatalf("-paths %s needs -regtest: the reorganisation is made on a real monerod", p)
 			}
@@ -412,6 +412,65 @@ func monerodWhere(txid string) string {
 		return fmt.Sprintf("in monerod block %d", r.Txs[0].BlockHeight)
 	}
 	return "NOT on the regtest chain"
+}
+
+// coinbaseLock is MT-B14's taker on regtest: where her companion would transfer the XMR, the driver mines a block
+// whose coinbase pays the joint address instead. A coinbase carries unlock_time = its height +
+// CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW (60, monero src/cryptonote_config.h:44), so the output at the joint address
+// confirms like any other and cannot be spent for 60 blocks. It is the one locked output that can reach an address on
+// regtest: monero-wallet-rpc 0.18.5.1 refuses to build a transfer with a non-zero unlock_time (-50,
+// wallet_rpc_server.cpp:1250). Every other call goes to her real wallet-rpc.
+type coinbaseLock struct {
+	xmrswap.Wallet
+	say  func(string, ...interface{})
+	path string
+}
+
+// SetDaemon passes set_daemon through, so the companion's -monerod pin works as on any wallet-rpc.
+func (c *coinbaseLock) SetDaemon(ctx context.Context, address string) error {
+	if ds, ok := c.Wallet.(xmrswap.DaemonSetter); ok {
+		return ds.SetDaemon(ctx, address)
+	}
+	return fmt.Errorf("this monero-wallet-rpc client cannot name a monerod")
+}
+
+func (c *coinbaseLock) Transfer(ctx context.Context, to string, amount uint64) (string, error) {
+	var gb struct {
+		Blocks []string `json:"blocks"`
+	}
+	if err := jsonRPC(*monerod, "generateblocks", map[string]interface{}{"amount_of_blocks": 1, "wallet_address": to}, &gb); err != nil || len(gb.Blocks) != 1 {
+		return "", fmt.Errorf("mining a coinbase to %s: %v", to, err)
+	}
+	var blk struct {
+		MinerTxHash string `json:"miner_tx_hash"`
+		BlockHeader struct {
+			Height uint64 `json:"height"`
+			Reward uint64 `json:"reward"`
+		} `json:"block_header"`
+	}
+	if err := jsonRPC(*monerod, "get_block", map[string]interface{}{"hash": gb.Blocks[0]}, &blk); err != nil || blk.MinerTxHash == "" {
+		return "", fmt.Errorf("the coinbase of block %s: %v", gb.Blocks[0], err)
+	}
+	if blk.BlockHeader.Reward < amount {
+		return "", fmt.Errorf("the coinbase pays %d, less than the %d agreed: the test would say nothing about unlock_time", blk.BlockHeader.Reward, amount)
+	}
+	// read the coinbase's unlock_time back from the monerod rather than assume the rule
+	var r struct {
+		Txs []struct {
+			AsJSON string `json:"as_json"`
+		} `json:"txs"`
+	}
+	unlock := "unread"
+	if err := monerodPost("/get_transactions", map[string]interface{}{"txs_hashes": []string{blk.MinerTxHash}, "decode_as_json": true}, &r); err == nil && len(r.Txs) == 1 {
+		var tx struct {
+			UnlockTime uint64 `json:"unlock_time"`
+		}
+		if json.Unmarshal([]byte(r.Txs[0].AsJSON), &tx) == nil {
+			unlock = fmt.Sprintf("%d (block %d + %d)", tx.UnlockTime, blk.BlockHeader.Height, int64(tx.UnlockTime)-int64(blk.BlockHeader.Height))
+		}
+	}
+	c.say("%s: MT-B14: instead of alice's transfer, block %d's coinbase pays the joint address %d piconero: tx %s, unlock_time %s", c.path, blk.BlockHeader.Height, blk.BlockHeader.Reward, blk.MinerTxHash, unlock)
+	return blk.MinerTxHash, nil
 }
 
 // monerodPost is one call to a monerod path outside JSON-RPC (/get_transactions, /pop_blocks).
@@ -647,6 +706,10 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 	}
 	chanKey, _ := xmrswap.ParseChannelKey(keyHex)
 	say("%s: the channel is sealed (AES-256-GCM) under a fresh swap key (GAP-019)", path)
+	aliceWallet := xm.alice
+	if path == "unlock" {
+		aliceWallet = &coinbaseLock{Wallet: xm.alice, say: say, path: path}
+	}
 	start := func(role string) *xmrswap.Swap {
 		st, err := xmrswap.LoadState(filepath.Join(pdir, role+".json"), role, scid)
 		if err != nil {
@@ -665,7 +728,7 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 		if role == "bob" {
 			sw, err = xmrswap.NewBob(cfg(role, bobAddr, xm.bobName), st, bobD, xm.bob, prov, ch)
 		} else {
-			sw, err = xmrswap.NewAlice(cfg(role, aliceAddr, xm.aliceName), st, aliceD, xm.alice, prov, ch)
+			sw, err = xmrswap.NewAlice(cfg(role, aliceAddr, xm.aliceName), st, aliceD, aliceWallet, prov, ch)
 		}
 		if err != nil {
 			log.Fatal(err)
@@ -677,7 +740,7 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 	bobGone, bobBack := false, false
 	reorged := false
 	var aliceXmrBefore uint64
-	if strings.HasPrefix(path, "reorg") {
+	if strings.HasPrefix(path, "reorg") || path == "unlock" {
 		b, err := walletBalance(*moneroAlice, xm.aliceName)
 		if err != nil {
 			log.Fatalf("%s: alice's own Monero wallet: %v", path, err)
@@ -786,8 +849,8 @@ func runPath(ctx context.Context, say func(string, ...interface{}), path, dir, s
 	if path == "punish" {
 		say("the XMR alice locked stays under the joint key %s: nobody holds s_a + s_b", as.Joint)
 	}
-	if strings.HasPrefix(path, "reorg") {
-		if !reorged {
+	if strings.HasPrefix(path, "reorg") || path == "unlock" {
+		if strings.HasPrefix(path, "reorg") && !reorged {
 			log.Fatalf("%s: the swap ended before the reorganisation was made (bob %s, alice %s)", path, bs.Phase, as.Phase)
 		}
 		say("%s: alice received k_b: %v; bob's outcome: %s; alice's lock %s is %s", path, as.Gate != "", bs.Outcome, as.Xmr.LockTx, monerodWhere(as.Xmr.LockTx))
