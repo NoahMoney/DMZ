@@ -9,11 +9,32 @@ import (
 	ref "github.com/deroproject/derohe/veil/reference"
 )
 
+// contractFiles lists every contract the suite reads for its static checks: contracts/*.bas, and one directory level
+// below it, where a new version waits until it is adopted (contracts/v2/founders.bas; docs/FOUNDERS_V2_NOTES.md). The
+// tools glob contracts/*.bas only (tools/verifydeploy roleTable, srchash, release), so a version kept in a subdirectory
+// is tested here without being taken for a deployed contract there.
+func contractFiles() ([]string, error) {
+	top, err := filepath.Glob("../contracts/*.bas")
+	if err != nil {
+		return nil, err
+	}
+	sub, err := filepath.Glob("../contracts/*/*.bas")
+	return append(top, sub...), err
+}
+
+// contractName is a contract's path under contracts/, with forward slashes: "founders.bas", "v2/founders.bas".
+func contractName(path string) string {
+	if rel, err := filepath.Rel("../contracts", path); err == nil {
+		return filepath.ToSlash(rel)
+	}
+	return filepath.Base(path)
+}
+
 // Canon decides what bytes reach the chain and what the shipped template hash covers, so it has to be provably
 // incapable of changing a contract. It may only drop whole-line comments and blank lines: every other line must
 // survive byte for byte, in order.
 func TestCanonOnlyDropsCommentsAndBlanks(t *testing.T) {
-	files, err := filepath.Glob("../contracts/*.bas")
+	files, err := contractFiles()
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no contracts: %v", err)
 	}
@@ -58,7 +79,7 @@ func TestCanonOnlyDropsCommentsAndBlanks(t *testing.T) {
 // are stripped. This records what that is worth, and fails if a contract ever grows past the cap in the form
 // that is actually installed.
 func TestEveryContractFitsTheInstallGasCapAsInstalled(t *testing.T) {
-	files, _ := filepath.Glob("../contracts/*.bas")
+	files, _ := contractFiles()
 	for _, f := range files {
 		b, _ := os.ReadFile(f)
 		raw, canon := len(b), len(ref.Canon(string(b)))

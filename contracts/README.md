@@ -17,6 +17,7 @@ transaction. It moves a little with the install arguments, so each figure names 
 | `chat.bas` | 2,401 | 1,146 | 1,315–1,320 (fee and `maxlen` vary) | — | `chat_test.go` |
 | `factory.bas` v2 | 3,452 | 1,443 | 1,680 (`regfee` 10,000) | — | `registry_test.go` |
 | `founders.bas` | 12,637 | 10,398 | 10,795–10,804 | — | `founders_test.go`, `founders_attack_test.go` |
+| `v2/founders.bas`, not yet adopted (2026-09-13) | 15,858 | 9,250 | 10,221 at the mainnet shape; 11,144 with every header at its maximum | 3,765,000 | `founders_v2_test.go` `TestFoundersV2InstallGas` |
 | `htlc.bas` v3 | 11,206 | 5,104 | 5,168–5,180: 5,169 at `w1min` 2, `w2min` 1, `g2` 50; 5,177 at 400, 400, 2,400 | — | `htlc_test.go`, `htlc_v3_test.go` |
 | `launch.bas` | 17,074 | 15,257 | 15,842–15,891; **16,915** with every metadata field at its maximum | 1,193,400–1,517,200 | `launch_test.go`; `zzquote_test.go` `TestLaunchMaxMetadataInstallGas` |
 | `nfa.bas` | 24,234 | 14,937 | 15,874–15,877 DERO-quoted; 15,940–15,942 wrapped | 1,045,800 DERO-quoted; 1,066,600 wrapped | `nfa_test.go` |
@@ -271,6 +272,155 @@ before a unit earns (which also closes the just-in-time case, P7-11) — N or L 
 and `settle` gas (`PayBatch` settles 15 holders at about 0.41 M compute each);
 (d) no contract change: the deployment keeps the treasury from depositing before a meaningful stake is registered —
 which makes the operator the party trusted to be fair.
+
+## founders.bas v2 — per-asset pools (`contracts/v2/founders.bas`, not yet adopted)
+
+Built 2026-09-13 on the operator's rulings of that day:
+- every fee is taken in the asset being traded, and the passes are paid in that asset, never converted to DERO;
+- the 0.5 % swap fees are taken in XMR and ZEC off the DERO chain, and the treasury's bot pays holders their share of
+  them directly;
+- the bot deposits with any number of registered passes (MT-J14);
+- 20 editions, 4 reserved.
+
+It closes MT-K01/MT-K04 (per-asset pools), and FEE-01 and FEE-02 with them.
+
+**Where it is.** The file sits in a subdirectory until it is adopted. `contracts/founders.bas` (v1) is pinned by
+`app/templates/founders.bas`, `app/config.js`, `tools/verifydeploy/roles.go` and `tools/simdeploy`, and every tool
+that globs `contracts/*.bas` would take a second top-level founders file for a deployed contract. The suite's static
+checks read `contracts/*/*.bas` too (`tests/canon_test.go` `contractFiles`). What adoption changes, in the tools, the
+app and the runbook: `docs/FOUNDERS_V2_NOTES.md`.
+
+**Canonical sha256:** `348f872ed49ec218f361c4a70a5f6cd96ada38c3d3d8a0b960fba473c02746d3` (`reference.Canon`, 9,250
+installed bytes; pinned by `TestFoundersV2CanonicalHash`).
+
+| Entry | Who | What |
+|---|---|---|
+| `InitializePrivate(name, descr, icon, file, price, maxsupply, start, reserve, share, mfee, treasury)` | installer, ring 2, once | v1's arguments and bounds exactly: `descr` ≤ 240 bytes, `maxsupply` 1..100,000, `reserve ≤ maxsupply / 5`, `share ≤ 10000`, `mfee ≤ 1000`. It also refuses DERO attached, and stores the base58 alphabet (58 keys `b<c>`) for the address check |
+| `Mint(n)` | ring 2 | v1's |
+| `Register()` | ring 2, the passes attached | opens a new **position** `p`: `po_` owner, `pu_` units, `pt_` the tick it opened at |
+| `Withdraw(p, u)` | the position's owner | closes `p` (`pc_` = tick) and returns `u` passes. If `u < pu_`, the rest is a new position opened at the same tick |
+| `Claim(p, i, ka, kb)` | **anyone**, any ring size, nothing attached | pays `p`'s owner what it earned in asset `i`, as the call's only transfer |
+| `Deposit(asset H)` | anyone | the asset named by its 32-byte id (zero = DERO) is split at once among the registered passes. Refused while none is registered, when a token deposit carries DERO, or when the pass is attached |
+| `List(price)` / `Unlist(id)` / `Buy(id, n)` | as v1 | `mfee` bps of a sale is deposited for the passes as DERO; with no pass registered the seller receives the whole price |
+| `SetXmr(addr)` / `SetZec(addr)` | a registered holder, ring 2; clearing: its owner | store, replace or (with `""`) clear the caller's Monero address (95 or 106 base58 characters) or Zcash transparent address (35 base58 characters starting with `t`) |
+
+`Distribute` and `PayBatch` are gone: there is no waiting pool to release, and no call loops over holders.
+
+**Maths: exact, unscaled, per asset.**
+- Asset `i` keeps `ac_<i>`, the reward per registered pass in atomic units of that asset.
+- A deposit `d` adds `inc = ⌊(au_<i> + d) / hst⌋` to it. `inc·hst` moves to `ap_<i>`, what the positions are owed.
+  The remainder `au_<i> < hst` waits for the next deposit of that asset (`credit`).
+- A position is paid `pu·(ac_b − ac_a)` with no division, where `ac_a` is the accumulator at its open or its last
+  claim, and `ac_b` the accumulator at its close or now. So nothing is ever rounded in a holder's favour. The dust is
+  `au_<i>`, below `hst` units per asset, and it stays in the contract.
+- No uint64 can wrap:
+  - `ad_<i>`, every unit ever credited to the asset, is refused past 2^64 − 1;
+  - `ac_<i> ≤ ap_<i> + aw_<i> ≤ ad_<i>`;
+  - `au + d ≤ ad`;
+  - a payout is at most the deposits of its window, because a registered position's units are at most `hst` at each
+    of them. `Claim` also checks `amt / u == ac_b − ac_a` and `amt ≤ ap_<i>`, and refuses otherwise.
+- No eras and no 128-bit helpers: v2 drops v1's `muldiv`, `mulhi`, `divlu`, `nlz`, `shl` and `shr`.
+
+**O(1) for any number of assets and holders.**
+- **Positions.** A position's units never change, so no call has to settle every asset before a registration moves.
+- **Ticks and records.** The tick `ev` counts `Register` and `Withdraw` calls. The first deposit of asset `i` in a
+  tick that moves `ac_<i>` writes a record: `rt_<i>_<k>` the tick, and `ra_<i>_<k>` the value of `ac_<i>` just before.
+  The accumulator as tick `t` began is `ra_<i>_<k>` for the first record with `rt ≥ t`, or `ac_<i>` when there is
+  none.
+- **Hints.** `Claim` is handed that `k` for the open (`ka`) and close (`kb`) ticks, found off chain by binary search.
+  It checks each in O(1): `rt_<k−1> < t ≤ rt_<k>`. The right `k` is unique; any other panics, and the call is refused
+  (`at`).
+- **Measured.** Every entrypoint's compute gas is identical on a pass with 7 holders, 3 assets and 9 positions and
+  on one with 103 holders, 43 assets, 144 positions and 84 records of one asset. Only the width of a stored number
+  moves storage gas, by at most 5 (`TestFoundersV2CostDoesNotGrowWithAssetsOrHolders`):
+
+| Call | Compute gas | Storage gas |
+|---|---|---|
+| `Deposit`, a new asset | 537,800 | 197 |
+| `Deposit`, writing a record | 389,600 | 153–154 |
+| `Deposit`, same tick | 332,400 | 144 |
+| `Register`, holder already registered | 364,800 | 128–131 |
+| `Withdraw`, part of a position | 518,000 | 143–148 |
+| `Claim`, closed position, two hints read | 492,200 | 127–131 |
+| `Claim`, open position | 414,400 | 123–126 |
+| `SetXmr`, 106 characters | 4,852,400 | 401 |
+| `Buy`, fee to the passes | 718,600 | 132–133 |
+
+`SetXmr`'s cost is the character check, 106 lookups at most. It is bounded by the address length, never by what a
+stranger can grow.
+
+**FEE-01, FEE-02 and "any number" (MT-A08, MT-J14).**
+- v1 parked a deposit made below its floor `minhst` in `und`, and let whoever crossed the floor share it.
+- v2 has no floor and no waiting pool:
+  - a `Deposit` while no pass is registered is refused (at ring 2 the depositor is refunded);
+  - a sale's fee with no pass registered stays with the seller;
+  - a pass registered after a deposit earns nothing of it.
+- So nothing can accumulate unowned, and nothing can be swept.
+- The ruling "any number" is the rule that follows from this: one registered pass or twenty take every deposit made
+  while they are registered, pro rata. The bot deposits whenever at least one pass is registered, and MT-K05's N is
+  not needed.
+- What the contract cannot decide is whether fees the treasury earned while no pass was registered are owed to the
+  passes at all. That is the bot's policy, and an operator question (`docs/FOUNDERS_V2_NOTES.md` §8).
+- FEE-07 (a pass registered just before a deposit takes a full share of it) is v1's, unchanged and still open.
+- Tests: `TestFoundersV2NothingWaitsUnowned`.
+
+**XMR and ZEC.**
+- A registered holder stores one Monero address (`xm_<addr>`) and one Zcash transparent address (`zc_<addr>`).
+- The check is what the DVM can do: length (95 or 106; 35 beginning with `t`) and every character in the base58
+  alphabet, one `EXISTS("b" + c)` per character.
+- Replacing is allowed. An empty string clears, and a holder who has withdrawn everything can still clear, but no
+  longer set.
+- **A stored address is public on chain for good, so a fresh subaddress is the one to store.**
+- The contract pays neither coin. It records where the treasury's bot should pay the holders' `share` of the XMR and
+  ZEC swap fees, proportional to registered passes (`hu_<addr>` over `hst`). The bot makes every such payment, and no
+  contract forces it.
+- Tests: `TestFoundersV2PayoutAddresses`.
+
+**No owner, no setter, no upgrade.**
+- Every number and text is written by `InitializePrivate` alone, no function reads `creator`, and nothing can
+  replace the code (`TestFoundersV2HasNoOwnerAndNoSetter`).
+- Liveness: no state needs a person to leave it.
+  - Anyone can push any position's rewards.
+  - The dust needs nobody.
+  - A registered or listed pass waits only on its own holder.
+- Stray value: every entrypoint refuses DERO and passes it does not take, and `Claim` refuses the asset it pays. An
+  asset a call does not name is kept, as everywhere (GAP-027; `TestFoundersV2StrayValue`).
+
+Keys:
+- globals: `nameHdr descrHdr iconURLHdr fileURL typeHdr kind v`=2 `creator treasury price maxsupply start reserve
+  share mfee minted hst ev pn an ln la mdep initd b<c>`;
+- per asset: `ah_<i>` (raw id), `ai_<hex id>` = i+1, `ac_ au_ ap_ ad_ aw_ ar_`, and the records `rt_<i>_<k>`
+  `ra_<i>_<k>`;
+- per position: `po_ pu_ pt_ pc_` and `pd_<i>_<p>`;
+- per holder: `hu_ xm_ zc_`;
+- market: `ls_ lp_ lu_`.
+
+Invariants, tested after every fuzz step:
+- per asset, balance = `ap_<i> + au_<i>`, and `ad_<i> = aw_<i> + ap_<i> + au_<i>`;
+- `ap_<i>` equals the sum of what every position can claim;
+- `hst` = the sum of the open positions' units;
+- pass units in wallets = `minted − hst − listed`.
+
+**Install.** Storage gas is 10,221 at the mainnet shape (the approved 227-byte description, no image) and 11,144 with
+every header at its maximum, against the 20,000 cap. Compute gas is 3,765,000 (`TestFoundersV2InstallGas`).
+
+**Tests:** `tests/founders_v2_test.go`:
+- `TestFoundersV2PerAssetShares`: DERO and two tokens, registrations and withdrawals between deposits, every payout
+  worked by hand;
+- `TestFoundersV2ConservationFuzz`: seeded; per asset, accepted = claimed + held after every accepted and refused
+  call, against a Go model of the whole contract;
+- `TestFoundersV2CostDoesNotGrowWithAssetsOrHolders`;
+- `TestFoundersV2PayoutAddresses`;
+- `TestFoundersV2KeptBehaviours`: mint, install and reserve bounds, marketplace, market fee, register;
+- `TestFoundersV2NothingWaitsUnowned`;
+- `TestFoundersV2HintsAreChecked`;
+- `TestFoundersV2StrayValue`;
+- `TestFoundersV2InstallGas`;
+- `TestFoundersV2CanonicalHash`;
+- `TestFoundersV2HasNoOwnerAndNoSetter`.
+
+`parse_test.go` pins the entrypoints. `canon_test.go` and `sendorder_test.go` hold v2 to the canon, send-order and
+payee rules.
 
 ## swap.bas — hash-time-locked escrow (atomic swaps)
 

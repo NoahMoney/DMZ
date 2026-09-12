@@ -3,7 +3,6 @@ package tests
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -27,7 +26,7 @@ func TestNoExternalSendBeforeAFailureExit(t *testing.T) {
 	allowed := map[string]string{
 		"factory.bas:reg": "returns 1 on success; callers test `reg(scid) == 0` for failure",
 	}
-	files, err := filepath.Glob("../contracts/*.bas")
+	files, err := contractFiles()
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no contracts: %v", err)
 	}
@@ -38,7 +37,7 @@ func TestNoExternalSendBeforeAFailureExit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		base := filepath.Base(file)
+		base := contractName(file)
 		fn, body := "", map[int]string{}
 		check := func() {
 			if fn == "" || len(body) == 0 {
@@ -139,7 +138,7 @@ func TestNoUnverifiedPayeeBeforeTheLastTransfer(t *testing.T) {
 	allowed := map[string]string{
 		"founders.bas:PayBatch:ADDRESS_RAW(a)": "a is h_<i>, written only by Register (35) as ADDRESS_STRING(SIGNER()) and moved only by remove (24) from another h_<j>: every holder the loop pays has signed Register",
 	}
-	files, err := filepath.Glob("../contracts/*.bas")
+	files, err := contractFiles()
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no contracts: %v", err)
 	}
@@ -148,7 +147,7 @@ func TestNoUnverifiedPayeeBeforeTheLastTransfer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, v := range newPayeeCheck(filepath.Base(file), string(b), allowed).violations() {
+		for _, v := range newPayeeCheck(contractName(file), string(b), allowed).violations() {
 			t.Error(v)
 		}
 	}
