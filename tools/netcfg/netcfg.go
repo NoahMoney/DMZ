@@ -153,7 +153,7 @@ func ConfigJS(name string, n *Network, generator string) string {
 		lines = append(lines, fmt.Sprintf("    %-9s %s", k+":", tpl(k)))
 	}
 	// One entry per wrapped asset, from `vaults` alone: a network wrapping Monero and Zcash has two. The single
-	// `vault` / `vaultAsset` pair the app's older readers (feed.js, wrap.js) fall back to is the first record,
+	// `vault` / `vaultAsset` pair the app's older readers (names.js allVaults, vault.js loadVault) fall back to is the first record,
 	// derived here rather than stored a second time.
 	recs := n.Vaults
 	vault := ""

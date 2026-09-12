@@ -18,7 +18,8 @@ import { ROOT, A, B } from "./harness.mjs";
 
 const src = (f) => readFileSync(join(ROOT, "app", f), "utf8");
 
-// app/feed.js the way the browser loads it: an IIFE over `window`, with the four V.ui helpers it reaches for.
+// app/feed.js and app/names.js the way the browser loads them, in index.html's order: IIFEs over `window`, with the
+// four V.ui helpers they reach for.
 // hasHomoglyph is the real fold's job (tests/js/sanitize.test.mjs covers that); here it only has to be able to
 // answer, so decorate()'s wiring is what is under test.
 function loadData() {
@@ -39,6 +40,7 @@ function loadData() {
   };
   window.addEventListener = () => {};
   run("feed.js");
+  run("names.js");
   return window.Veil;
 }
 
@@ -148,8 +150,9 @@ test("UX-06: the chain noun is short and whole for every vault this build ships"
   assert.equal(D.chainName({ name: "Monero (superseded simulator vault)", sym: "XMR-old" }), "Monero");
   assert.equal(D.chainName({}), "its own chain");
   // and the screens that used to splice the clause into a sentence take the noun instead. The clause itself
-  // survives in exactly one place on each screen, rendered whole rather than cut to fit.
-  const w = src("wrap.js");
+  // survives in exactly one place on each screen, rendered whole rather than cut to fit. The Wrap screen is three
+  // files (its data layer, its parts, the screen), read here as one.
+  const w = ["vault.js", "wrapui.js", "wrap.js"].map(src).join("\n");
   assert.match(w, /D\.chainName\(a\)/);
   assert.match(w, /D\.chainName\(w\.asset\)/);
   assert.equal((w.match(/U\.clean\(a\.chain, 120\)/g) || []).length, 1);
@@ -159,7 +162,7 @@ test("UX-06: the chain noun is short and whole for every vault this build ships"
 
 // ---- PRIV-01 ------------------------------------------------------------------------------------------------
 test("PRIV-01: no screen claims a trade is private, and both first-read screens say what is public", () => {
-  for (const f of ["app.js", "screens.js", "token.js", "wrap.js", "home.js", "markets.js", "feed.js", "notice.js"]) {
+  for (const f of ["app.js", "screens.js", "token.js", "wrap.js", "wrapui.js", "vault.js", "home.js", "markets.js", "feed.js", "names.js", "notice.js"]) {
     assert.doesNotMatch(src(f), /private by default/i, f);
     assert.doesNotMatch(src(f), /never individual unpublished trades/, f);
   }

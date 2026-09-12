@@ -297,9 +297,10 @@ named or the vault is not deployed.
   changes the state ("Wrap XMR to trade", "List an asset priced in XMR").
 - **BL-123 (B)** **Deep links.** `#token/<scid>`, `#nft/<scid>`, `#nfa/<scid>`, `#wrap/<vault>`, `#trade/<pool>`
   all load cold (registry not yet read) and warm; add `#swap/<id>` when BL-13 lands. A Playwright test per link.
-- **BL-124 (B)** **DOC cap headroom.** `feed.js` is at 16,144 of 18,432 after gzip+base64; the next feature that
-  touches it will not fit. Split it (registry / contract loading / cache) before that day, with the JS tests
-  proving the split is behaviour-neutral.
+- **BL-124 (B) — DONE 2026-09-12 (MT-E10).** **DOC cap headroom.** `feed.js` reached 18,128 of a cap now 18,250.
+  It was split along the naming seam rather than registry / contract loading / cache: `feed.js` keeps the reads
+  (13,440) and `names.js` takes the naming and marking (5,792), moved verbatim, with the JS tests green. `wrap.js`
+  was split the same day (`vault.js`, `wrapui.js`).
 - **BL-125 (B)** **Error copy.** Every `toast(..., "err")` string read as a holder would: "Refusing: contract is
   not a verified listing" tells a user nothing about what to do. Rewrite with the action.
 - **BL-126 (B)** **XSWD permission flow.** What the wallet asks the user to approve, per action, in the app's

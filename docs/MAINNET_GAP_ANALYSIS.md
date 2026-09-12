@@ -309,7 +309,7 @@ Read every item with `DERO.GetSC {scid, code: true, variables: true}`. String va
     (`feed.js:188-228`), the watchlist (`app/stats.js:155-158`), `dmz.chat.mute` (`app/chat.js:24-27`).
   - sessionStorage: `veil.endpointOk` (`app/app.js:16-17`) and `veil.xswd.id` (`app/xswd.js:12-13`), a random 32-byte
     session id for the wallet. It is not a key, but any same-origin script can read it.
-- No cookies, no IndexedDB. The `viewkey` read by `app/wrap.js:40-43` is one the vault publishes on purpose.
+- No cookies, no IndexedDB. The `viewkey` read by `app/vault.js:27-30` is one the vault publishes on purpose.
 
 **Companions:** see GAP-020, GAP-028 and GAP-029. Randomness is `crypto/rand` in both (`tools/xmrswap/swap.go:498-503`,
 `tools/zecswap/swap.go:640`), and no secret is written to any log line that was read.

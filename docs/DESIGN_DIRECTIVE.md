@@ -73,7 +73,7 @@ the current glowing version cannot).
 | Markets table + filters + search | `app/markets.js` |
 | Token page (chart, stats, trade sheet) | `app/token.js`, `app/sheets.js` |
 | Portfolio, Profile, Settings | `app/screens.js` |
-| Wrapped assets (the XMR/ZEC vault screen) | `app/wrap.js` |
+| Wrapped assets (the XMR/ZEC vault screen) | `app/wrap.js`, `app/wrapui.js` (its parts and the no-vault screen), `app/vault.js` (its data) |
 | NFTs, Founders Pass | `app/nfts.js`, `app/nft.js`, `app/founders.js` |
 | Forms (launch wizard, profile edit) | `app/forms.js` |
 | Charts | `app/chart.js`, `app/stats.js` |
@@ -254,7 +254,7 @@ The goal: no more card inside card inside card.
 One consistent component for SCID, address, TX, BLOCK, CONFIRMATIONS, SETTLEMENT: monospace, excellent spacing,
 intelligent truncation that stays copyable, copy controls without clutter. Long strings must never be
 ellipsised into unreadability where the full value is the point (deposit addresses, destinations, txids —
-`wrap.js` already wraps these with `word-break:break-all`; keep that behaviour).
+`wrapui.js` `full()` already wraps these with `word-break:break-all`; keep that behaviour).
 
 ### 4.6 Iconography
 
@@ -387,7 +387,7 @@ That beats any banner.
 
 Not a DERO app that mentions the others. A network identity system — marks, labels, typographic identifiers,
 settlement indicators, network-specific metadata — that makes `DERO ↔ XMR ↔ ZEC` obvious without a logo collage.
-The wrap screen (`wrap.js`) is where this system is exercised most; the `vaultAsset` record in `config.js`
+The wrap screen (`wrap.js`, with its marks and settlement panel in `wrapui.js`) is where this system is exercised most; the `vaultAsset` record in `config.js`
 (name, symbol, chain, decimals, confirmations) is the data it renders from.
 
 ### 5.10 Empty states

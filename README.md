@@ -59,11 +59,12 @@ operator collected at the end.
                                                                         └──────────────────────────┘
 ```
 
-**The application** is 24 JavaScript files and four stylesheets under `app/`, with no framework, no bundler and
+**The application** is 27 JavaScript files and four stylesheets under `app/`, with no framework, no bundler and
 no dependency of any kind — the page loads zero external scripts, and its Content-Security-Policy is
 `default-src 'none'` with `script-src 'self'`, so it could not load one. It is delivered as TELA documents, each
 installed in one DERO transaction under its 20,000-unit storage-gas cap, so `genconfig` caps each file at 18,250
-bytes after gzip and base64; `feed.js` is the largest at 18,128. Installing the whole app measured 3.227 DERO. It reads a DERO node the user names in Settings, and it signs
+bytes after gzip and base64; `app.js` is the largest at 16,024. Installing the whole app measured 3.227 DERO on
+2026-09-12; the three files split out since then (MT-E10) add about 0.08 DERO. It reads a DERO node the user names in Settings, and it signs
 nothing itself: every write is a contract call handed to the user's own wallet over XSWD, on `localhost`. It
 never sees a key, never proxies a transaction, and stores nothing secret in the browser.
 
@@ -242,7 +243,7 @@ which is a new contract; it is `BL-90` in the backlog and it is the largest sing
 ## 7. Repository layout
 
 ```
-app/            the application: 23 JS files, 3 stylesheets, index.html, templates/, config.js (generated)
+app/            the application: 26 JS files, 4 stylesheets, index.html, templates/, config.js (generated)
 contracts/      12 DVM-BASIC contracts — the whole on-chain surface
 reference/      Go mirrors of the contract arithmetic (canon, pool, launch, uint128) the app is checked against
 tests/          49 Go test files run against derohe's own DVM, plus tests/js for the browser arithmetic

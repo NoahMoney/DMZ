@@ -457,7 +457,7 @@ second one with "A transaction is already in progress".
 
 ## 7. After the plan
 
-- **Update the swap status sentence** in `app/wrap.js` and its twin on the ZEC swap screen in `app/zswap.js`. Today
+- **Update the swap status sentence** in `app/wrapui.js` (the Wrap tab's no-vault screen) and its twin on the ZEC swap screen in `app/zswap.js`. Today
   it reads: "Both programs have completed swaps, every exit included, against real Monero and Zcash node software on
   a local test chain (regtest); neither has yet run on a public test network."
   - Update it once a swap has run on Monero stagenet or Zcash testnet, and again once T1 has passed on mainnet.

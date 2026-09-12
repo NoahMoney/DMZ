@@ -2,7 +2,7 @@
 //
 // Every other DMZ contract keys a per-address record by ADDRESS_STRING(SIGNER()) — the bech32 "dero1…" string.
 // contracts/vault.bas is the exception: Register() stores uc_/ul_ under the raw SIGNER() (33 compressed bytes)
-// and Burn() stores w_<j>_by under ADDRESS_RAW(refund). app/wrap.js myVault()/vaultWithdrawals() build those
+// and Burn() stores w_<j>_by under ADDRESS_RAW(refund). app/vault.js myVault()/vaultWithdrawals() build those
 // keys from the canonical dero1 string, so DERO.GetSC keysstring answers "NOT AVAILABLE" for every one of them:
 // the connected holder never sees their index, their deposit address, or any withdrawal — and the Reclaim
 // button, the vault's only permissionless exit, is rendered from that list and so can never appear.
@@ -41,8 +41,8 @@ test("vault.bas keys uc_ / ul_ / w_*_by by raw bytes, not by the dero1 string", 
   assert.match(burn, /STORE\("w_" \+ j \+ "_by", s\)/, "w_<j>_by is the raw key, not ADDRESS_STRING");
 });
 
-test("app/wrap.js builds those same keys from the canonical dero1 address", () => {
-  const w = app("wrap.js");
+test("app/vault.js (the Wrap screen's data layer) builds those same keys from the canonical dero1 address", () => {
+  const w = app("vault.js");
   assert.match(w, /"uc_" \+ addr/, 'myVault() asks for "uc_" + a dero1 string');
   assert.match(w, /"ul_" \+ addr \+ "_"/, "and ul_ the same way");
   assert.match(w, /hexToStr\(by\["w_" \+ j \+ "_by"\] \|\| ""\) === addr/, "vaultWithdrawals() compares w_by to the dero1 string");

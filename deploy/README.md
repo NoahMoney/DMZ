@@ -291,7 +291,8 @@ cd tools && go run ./genconfig -dist -network mainnet          # dist/mainnet/, 
 vendor\bin\telainstall.exe -network mainnet -yes -wallet .mainnet\owner.db -password <pw> -daemon 127.0.0.1:10102 -app dist\mainnet -durl dmz.tela -ringsize 16 -out deploy\tela-mainnet.json
 ```
 Measured DOC sizes are in `dist/mainnet/manifest.json`. The whole app measured 3.227 DERO to install on the simulator
-on 2026-09-12 (35 DOCs and the ring-16 INDEX; "Costs and sizes" below). Mainnet charges the same storage gas, so hold
+on 2026-09-12 (35 DOCs and the ring-16 INDEX; "Costs and sizes" below); the MT-E10 split has since added three DOCs,
+about 0.08 DERO more. Mainnet charges the same storage gas, so hold
 at least that, plus margin, in the owner wallet. Re-measure if the bundle changes much. Record the INDEX SCID under
 `mainnet.tela.index`.
 
@@ -344,9 +345,9 @@ Contracts are immutable, and so is the mainnet app: its INDEX is installed at ri
 
 ## Installing DMZ on-chain (TELA)
 
-The app is 29 files (25 in `app/` — 20 JS, 4 CSS, `index.html` — plus 4 contract templates in `app/templates/`). Each becomes one `TELA-DOC-1`
+The app is 37 files (32 in `app/` — 27 JS, 4 CSS, `index.html` — plus 5 contract templates in `app/templates/`). Each becomes one `TELA-DOC-1`
 contract, gzip-compressed and base64-encoded (`tela.Compress`), with a DERO signature of the stored code in
-`fileCheckC/S`, then one `TELA-INDEX-1` embeds the DOC SCIDs (29 for the current bundle). `index.html` is `DOC1` (the entrypoint).
+`fileCheckC/S`, then one `TELA-INDEX-1` embeds the DOC SCIDs (38 for the current bundle: its 37 files and `manifest.json`). `index.html` is `DOC1` (the entrypoint).
 `telainstall` installs every file it finds under `-app` except dotfiles and `.png`, so a `dist/<network>` bundle is
 one DOC more than `app/` is: `genconfig` writes `manifest.json` into the bundle and that file is installed too.
 Compression is mandatory here: `styles.css` contains `*/` and every JS file contains non-ASCII characters, neither of
@@ -378,8 +379,8 @@ vendor\bin\telainstall.exe -wallet=<wallet.db> -password= -daemon=127.0.0.1:2000
 
 ```
 vendor\bin\tela-cli.exe --simulator --daemon=127.0.0.1:20000 --wallet=<wallet.db> --password=
-install-doc app/index.html      (answer: dURL dmz.tela, compress yes, ringsize 2)   × 29 files
-install-index DMZ               (paste the 29 DOC SCIDs; DOC1 = index.html)
+install-doc app/index.html      (answer: dURL dmz.tela, compress yes, ringsize 2)   × 37 files
+install-index DMZ               (paste the 37 DOC SCIDs; DOC1 = index.html)
 serve <index scid>
 update-index <index scid>       (later changes)
 ```
@@ -439,8 +440,11 @@ cannot be updated), and it pays again only for the DOCs whose bytes changed.
 **The limit that binds is storage gas, not DOC size.** Every transaction is capped at 20,000 units of storage gas.
 A DOC's install gas measured 1,576 to 1,648 above its `genconfig` DOC bytes, so a DOC larger than about 18,350
 bytes cannot be installed at all. `genconfig` refuses any file above `-max-doc`, now 18,250 bytes by default
-(install gas at most about 19,900). The closest today are `feed.js` (18,128 B, 19,712 gas) and `wrap.js`
-(18,080 B, 19,660 gas): either must be split before it grows by more than about 120 DOC bytes (MT-E10).
+(install gas at most about 19,900). The two closest in this table, `feed.js` (18,128 B, 19,712 gas) and `wrap.js`
+(18,080 B, 19,660 gas), have since been split with their code moved verbatim (MT-E10): `feed.js` 13,440 and
+`names.js` 5,792; `wrap.js` 12,960, `vault.js` 3,028 and `wrapui.js` 4,176 DOC bytes, so `feed.js` and `wrap.js`
+now have 4,810 and 5,290 bytes to grow. The largest DOC is now `app.js` at 16,024. The three extra DOCs add about
+8,300 units of storage gas (0.08 DERO) to the total above.
 
 `xswd.js` could not be estimated: the node's estimator hit the graviton bucket panic five times, and `telainstall`
 sent it with its size-based fallback fee. It was mined, and overpaid by about 680 atomic units.

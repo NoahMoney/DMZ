@@ -138,7 +138,7 @@ nothing to collide with — and the wrapped assets are named in config, not in t
 in the namespace at all. Now each vault's symbol, name and `w` + symbol are reserved to the vault config names,
 and the vault SCID is what settles who is genuine: nothing a creator types is evidence either way.
 
-- `D.reservedBy(ticker)` / `D.impersonation(s)` in feed.js; the mark rides on the market as `s.impersonates`.
+- `D.reservedBy(ticker)` / `D.impersonation(s)` in feed.js (names.js since the MT-E10 split); the mark rides on the market as `s.impersonates`.
 - A filled red `Not real XMR` pill (every other pill is an outline, so filled reads as louder without a new
   colour), the market row's ⚠ and title, and the first line of `H.risks`, in plain words: no vault holds any
   XMR for it and it cannot be withdrawn to XMR on any chain.
@@ -443,7 +443,8 @@ somewhere at install.
 **5.3 `app/templates` drifted from `contracts/` and the app was verifying stale code.** `simdeploy` now demotes
 an outgoing hash to legacy automatically. Add a test that fails when the two directories differ.
 
-**5.4 `wrap.js` is 13 156 DOC bytes of an 18 432 cap.** The largest file in the bundle. Watch it.
+**5.4 ~~`wrap.js` is 13 156 DOC bytes of an 18 432 cap~~ — split 2026-09-12 (MT-E10).** It reached 18 080 against
+a cap now 18 250, and its code moved verbatim into `wrap.js` 12 960, `vault.js` 3 028 and `wrapui.js` 4 176 DOC bytes.
 
 ---
 

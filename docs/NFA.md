@@ -305,7 +305,7 @@ What this means for another DERO tool, concretely:
 - A tool that **reads a price** — `startPrice`, `currBidPrice`, `currBidAmt`, `previousSalePrice`,
   `previousAuctionPrice` — and labels it DERO misreads it by whatever the rate is and by the decimals: those
   numbers are atomic units of the quote, and wXMR has twelve decimals to DERO's five. DMZ's own app names every
-  amount by the quote (`app/feed.js` `nameQuote`, `qsym`, `qdec`; build spec §3.C, invariant 4).
+  amount by the quote (`app/names.js` `nameQuote`, `qsym`, `qdec`; build spec §3.C, invariant 4).
 - A tool that **settles** a listing — `CloseListing`, or `Bid` after the end — makes the contract pay in the quote.
   That works from any wallet; what the seller then holds is §7 R3.
 
@@ -456,7 +456,7 @@ coin: if k signers collude, the reserve is gone and the wXMR is worth nothing, a
 the sale. Accepting a wrapped quote is accepting the federation's credit — the wrapper's trust statement,
 restated for a seller. *Covered:* **partly.** The contract is right to proceed; the page's job is to say what is
 held, done above. §3.C should show the vault's state next to a wrapped price (the app already resolves a
-market's vault, `app/feed.js` `vaultOf`, and every screen compares `halted > height` the same way), so a bidder
+market's vault, `app/names.js` `vaultOf`, and every screen compares `halted > height` the same way), so a bidder
 bids on a halted reserve knowingly. The spec's "cannot be withdrawn" wording should be corrected to "the payment
 abroad waits".
 
@@ -534,7 +534,7 @@ worth saying now. First, `collection` is a free string: nothing verifies it, so 
 `collection` reads the same as an existing creator's, and a screen that lists by collection alone would show the
 impostor beside the originals. The app should group by `(collection, creatorAddr)` — the creator's address is
 stored, fixed, and cannot be borrowed — and show the creator with the collection name, in the way it already
-folds look-alike tickers (`app/feed.js` `decorate`). Second, the badge mechanic has one thing the standard does
+folds look-alike tickers (`app/names.js` `decorate`). Second, the badge mechanic has one thing the standard does
 not: an edition costs nothing to the creator, because it is a storage entry. Under the standard each edition is
 an install, gas-priced against the 20,000-unit cap (`tests/canon_test.go` `TestEveryContractFits…`), paid by the
 creator per asset. A creator who wants a hundred editions installs a hundred contracts. Whether `nft.bas` stays
@@ -692,7 +692,7 @@ Primary, read for this page (the derohe files are the vendored clone at upstream
   `reference/canon.go` — comments stripped at install.
 - `tools/treasurybot/chain.go` `Quote`; `tools/treasurybot/journal_test.go` `TestForeignQuoteMarketsAreNotSwept`
   — the bot sweeps DERO-quoted contracts only.
-- `app/feed.js` `nameQuote`, `qsym`, `qdec`, `vaultOf`, `decorate` — how the app names a quote and folds
+- `app/names.js` `nameQuote`, `qsym`, `qdec`, `vaultOf`, `decorate` — how the app names a quote and folds
   look-alikes; `docs/ARCHITECTURE.md` "Reads" and "Writes" — template verification, XSWD, ring sizes.
 - `docs/TODO.md` §0e (the vault state machine, 2026-09-08), §1.1 (fees in a wrapped asset), §1.3 (no rate, no
   cross-quote totals), §1.4 (NFTs priced in DERO only — the item this build closes).

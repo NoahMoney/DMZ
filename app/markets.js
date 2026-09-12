@@ -23,13 +23,13 @@ let filter = "trending", sort = "hot", q = "", compact = !!(V.app && V.app.setti
   //
   // A launch and its own graduated AMM are NOT two rows. launch.bas graduates in place (`STORE("phase", 1)`
   // inside Buy, line 71), so the curve and the AMM that replaces it are one SCID and one record: grouping by
-  // asset already collapses them. What feed.js relates through `assetVerified` is a different thing — a
+  // asset already collapses them. What names.js relates through `assetVerified` is a different thing — a
   // separate pool.bas contract installed over a launched token — and that one really is a second venue holding
   // its own liquidity, so it is flagged like any other duplicate.
   const ID = (x) => (/^[0-9a-f]{64}$/i.test(String(x || "")) ? String(x).toLowerCase() : "");
   // a launch's base asset is its own SCID (feed.js sets `asset: scid`); a pool names its base in `asset`.
   // Anything with no readable base asset is left ungrouped rather than lumped in with the other unreadable ones.
-  // pairKey, depth and the grouping live on the data layer now (feed.js decorate), so every surface agrees
+  // pairKey, depth and the grouping live on the data layer now (names.js decorate), so every surface agrees
   // The quote the contract actually holds, in that quote's own units: a curve holds what it raised, an AMM
   // holds its quote reserve. Only ever compared inside one pair, so both sides are the same asset with the same
   // decimals — this never becomes a cross-quote comparison, which there is no rate for and must never be one.

@@ -24,7 +24,7 @@ function loadData() {
   run("rpc.js");
   run("amm.js");
   run("stats.js");
-  // feed.js only needs these four helpers off V.ui at load and inside decorate()
+  // feed.js, and names.js which adds decorate() to it, only need these four helpers off V.ui
   window.Veil.ui = {
     clean: (s, n) => String(s || "").slice(0, n),
     safeUrl: (u) => (/^https:\/\//.test(u) ? u : ""),
@@ -34,6 +34,7 @@ function loadData() {
   };
   window.addEventListener = () => {};
   run("feed.js");
+  run("names.js");
   return window.Veil;
 }
 
