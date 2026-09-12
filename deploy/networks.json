@@ -22,13 +22,13 @@
   },
   "simulator": {
     "daemon": "127.0.0.1:20000",
-    "factory": "d1ebd6f418e2942a6b0b3e6b9b4c0be06508c2cad6a318656d0a6052d33645c7",
-    "social": "f218801dbdbd44d718887aed82703c8affe192f85031c0250c90f5b155cdada3",
-    "founders": "d55302c80bdb8790f8ffcece721c5e90ea4505cae6d8173f78ac68319bd299b8",
-    "vault": "ca83fbc377209403fef57225270849afa6d3bc42e88dc5a8715f69d1d6439ebc",
+    "factory": "eebb210abadf6ab5af02e87607d35fcf4419454f06f8d9827541facce1ca37e2",
+    "social": "dca7c31bf5acfb10315cb295edcc00c915b313c4c940b302372e2e7ac7f73d8a",
+    "founders": "c0664f3e8cad8d3125a565bcc52998ce996348803977b4d3ff9707a85bef7afd",
+    "vault": "e136e851f1068f631828d8c25e43b0ee5f273f50df05d878ca15eb1863cc36f7",
     "vaults": [
       {
-        "scid": "ca83fbc377209403fef57225270849afa6d3bc42e88dc5a8715f69d1d6439ebc",
+        "scid": "e136e851f1068f631828d8c25e43b0ee5f273f50df05d878ca15eb1863cc36f7",
         "name": "Monero",
         "sym": "XMR",
         "chain": "Monero — simulated on this network (12 decimals, as Monero)",
@@ -36,7 +36,7 @@
         "conf": 10
       },
       {
-        "scid": "bd0fe89c8e003536b38d6d0466d21980ded749c7d054339e9517a2715d9efa8a",
+        "scid": "8480127c24997424b6a764ad4b13aee2ccc624698d25f940fccb24a11750f2e1",
         "name": "Zcash",
         "sym": "ZEC",
         "chain": "Zcash — simulated on this network (8 decimals, as Zcash)",
@@ -44,10 +44,10 @@
         "conf": 6
       }
     ],
-    "chat": "a7badd542df069e5ab33b6a8eaf1f9e3c05d3bd51205b38b03331ad5407693e6",
-    "htlc": "b01a9e7c516584cb0708c826b3387e9052b3049fa65d8acce7e031643c5cc4f2",
-    "swap": "c121966fbf4bc2f928a484d2b2f860a35f6bedeefecdc06fa01b3e252722eca8",
-    "board": "d95568f49e70d5a7828bcf4e61f40139e1bd4656db903984ead9027c9b56a3b6",
+    "chat": "e4e9890aa67b9ebbe6343dd2c4ba5f55ea635f9f41456db6d560c1dda36382be",
+    "htlc": "9422717ff20a5ff90d791e10a1c4b0618f232de2c36770a8f74303857fa043ab",
+    "swap": "8d951df3decb1045cb34f67f62e0b6789da50f0507e453888b7f565545802a8f",
+    "board": "894af60be95f2c861d18dd91ed024430b2ae7fdf7d01c30699babbf9c86611ce",
     "treasuries": [
       "dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd"
     ],

@@ -290,9 +290,10 @@ under `mainnet.vault` in `networks.json`.
 cd tools && go run ./genconfig -dist -network mainnet          # dist/mainnet/, manifest.json, DOC size check
 vendor\bin\telainstall.exe -network mainnet -yes -wallet .mainnet\owner.db -password <pw> -daemon 127.0.0.1:10102 -app dist\mainnet -durl dmz.tela -ringsize 16 -out deploy\tela-mainnet.json
 ```
-Measured DOC sizes are in `dist/mainnet/manifest.json`. The install cost is unmeasured for the current app: see the
-STALE note under "Costs and sizes", and re-measure on the simulator before the go/no-go, because the last figure
-recorded there (≈ 1.64 DERO) predates `wrap.js`. Record the INDEX SCID under `mainnet.tela.index`.
+Measured DOC sizes are in `dist/mainnet/manifest.json`. The whole app measured 3.227 DERO to install on the simulator
+on 2026-09-12 (35 DOCs and the ring-16 INDEX; "Costs and sizes" below). Mainnet charges the same storage gas, so hold
+at least that, plus margin, in the owner wallet. Re-measure if the bundle changes much. Record the INDEX SCID under
+`mainnet.tela.index`.
 
 **There are no updates on mainnet.** An INDEX installed above ring size 2 records its owner as `"anon"`, and
 `UpdateCode` then refuses every caller for ever. This was proven on the simulator: an update sent anyway was mined
@@ -383,51 +384,66 @@ serve <index scid>
 update-index <index scid>       (later changes)
 ```
 
-### Costs and sizes (measured update, simulator, 2026-09-05, commit 13 — STALE)
+### Costs and sizes (measured on the simulator, 2026-09-12)
 
-> STALE. This table is the 28-DOC bundle of 2026-09-05. The app has since gained `wrap.js` and several files have
-> grown, so every row, the total and the DERO figure understate the current app. Per-file source and DOC bytes for it
-> are in `dist/<network>/manifest.json` (`bytes`, `docBytes`, `sha256` for all 29 files), written by
-> `cd tools && go run ./genconfig -dist -network <net>`; the install fee is only known from a real install, so
-> re-measure on the simulator before any mainnet install rather than reading a number off this table.
+Measured by installing the whole bundle on a fresh simulator from one wallet that nothing else drives, so its balance
+change is the install and nothing else (MT-E07, `research/release/tela-install-cost.log`). The bundle was built by
+`genconfig -dist -network simulator` from `cc92174` (34 files plus `manifest.json`). Every DOC went at ring 2 and
+the INDEX at ring 16, as on mainnet. The simulator charges storage gas and nothing else, so each fee is that
+transaction's storage gas.
 
-| File | Source bytes | On-chain DOC bytes (gzip+base64 inside the template) | Install fee (storage gas, atomic units) |
+| File | Source bytes | DOC bytes (`genconfig`, gzip+base64) | Install fee (storage gas, atomic units) |
 |---|---|---|---|
-| index.html | 3 264 | 2 645 | 2 996 |
-| amm.js | 6 368 | 4 170 | 4 510 |
-| app.js | 16 917 | 9 720 | 10 062 |
-| chart.js | 12 911 | 7 299 | 7 644 |
-| config.js | 1 475 | 2 425 | 2 772 |
-| desk.css | 5 528 | 3 949 | 4 296 |
-| feed.js | 15 487 | 8 090 | 8 434 |
-| forms.js | 13 312 | 7 204 | 7 550 |
-| founders.js | 2 993 | 3 077 | 3 428 |
-| home.js | 11 797 | 6 734 | 7 078 |
-| live.js | 4 726 | 3 905 | 4 248 |
-| markets.js | 7 517 | 5 044 | 5 394 |
-| nft.js | 4 659 | 3 596 | 3 938 |
-| nfts.js | 11 751 | 6 698 | 7 042 |
-| parts.css | 7 010 | 4 089 | 4 436 |
-| rpc.js | 8 096 | 5 471 | 5 812 |
-| screens.js | 10 883 | 6 456 | 6 806 |
-| sheets.js | 4 813 | 3 561 | 3 908 |
-| stats.js | 6 869 | 4 995 | 5 340 |
-| styles.css | 8 704 | 5 409 | 5 760 |
-| templates/founders.bas | 12 154 | 6 458 | 6 834 |
-| templates/launch.bas | 13 867 | 6 835 | 7 208 |
-| templates/nft.bas | 3 964 | 3 012 | 3 378 |
-| templates/pool.bas | 11 814 | 6 651 | 7 020 |
-| token.js | 17 098 | 8 872 | 9 218 |
-| ui.css | 11 186 | 5 569 | 5 912 |
-| ui.js | 11 715 | 8 022 | 8 362 |
-| xswd.js | 6 824 | 4 622 | 4 966 |
-| **28 DOCs** | 253 702 | 154 578 | 164 352 |
+| amm.js | 9,232 | 4,708 | 6,286 |
+| app.js | 33,752 | 16,024 | 17,600 |
+| chart.js | 15,632 | 7,632 | 9,218 |
+| chat.js | 9,832 | 4,868 | 6,452 |
+| config.js | 4,099 | 2,952 | 4,544 |
+| desk.css | 6,567 | 3,184 | 4,774 |
+| feed.js | 40,889 | 18,128 | 19,712 |
+| forms.js | 29,914 | 12,968 | 14,554 |
+| founders.js | 4,052 | 2,404 | 4,004 |
+| home.js | 26,487 | 12,200 | 13,782 |
+| index.html | 4,710 | 1,828 | 3,428 |
+| live.js | 3,989 | 2,264 | 3,846 |
+| manifest.json | 5,916 | — | 4,488 (written by genconfig) |
+| markets.js | 20,609 | 10,472 | 12,068 |
+| nfas.js | 32,402 | 14,172 | 15,756 |
+| nft.js | 6,854 | 3,340 | 4,920 |
+| nfts.js | 15,723 | 7,240 | 8,822 |
+| notice.js | 9,191 | 4,968 | 6,560 |
+| parts.css | 15,411 | 5,740 | 7,332 |
+| rpc.js | 10,350 | 5,400 | 6,978 |
+| screens.js | 28,560 | 13,636 | 15,228 |
+| sheets.js | 15,391 | 6,612 | 8,202 |
+| stats.js | 11,985 | 6,664 | 8,250 |
+| styles.css | 9,390 | 4,856 | 6,454 |
+| templates/founders.bas | 10,398 | 3,844 | 5,492 |
+| templates/launch.bas | 15,257 | 5,368 | 7,010 |
+| templates/nfa.bas | 14,937 | 4,480 | 6,108 |
+| templates/nft.bas | 3,873 | 1,508 | 3,138 |
+| templates/pool.bas | 10,604 | 3,668 | 5,298 |
+| token.js | 32,853 | 15,192 | 16,778 |
+| ui.css | 11,773 | 4,832 | 6,412 |
+| ui.js | 20,709 | 11,344 | 12,920 |
+| wrap.js | 40,362 | 18,080 | 19,660 |
+| xswd.js | 8,023 | 3,960 | 6,224 (size-based fallback fee: the node could not estimate it) |
+| zswap.js | 24,550 | 11,884 | 13,470 |
+| INDEX (ring 16, owner "anon") | — | — | 6,964 |
+| **35 DOCs and the INDEX** | 564,276 | | **322,732** |
 
-Total for that bundle: 28 DOCs ≈ 151.0 KB on chain, fees ≈ 164 352 atomic units ≈ **1.64 DERO** for the whole app
-(that run re-installed every file; a later update pays only for the DOCs that changed, and the INDEX `UpdateCode`
-call adds ≈ 0.04 DERO). Those 28 came from `app/` directly; the current app is one file larger and its biggest DOC
-is still `app.js`. The DOC limit needs no hand-checking: `genconfig` computes each file's gzip+base64 DOC size and
-refuses to write the bundle if any file exceeds `-max-doc` (default 18 KB).
+Total: **3.22732 DERO** in 36 transactions, 12 min 15 s on the simulator. The wallet went from
+800,000 to 477,268 atomic units, exactly the sum of the fees. A later release is a new INDEX (a ring-16 INDEX
+cannot be updated), and it pays again only for the DOCs whose bytes changed.
+
+**The limit that binds is storage gas, not DOC size.** Every transaction is capped at 20,000 units of storage gas.
+A DOC's install gas measured 1,576 to 1,648 above its `genconfig` DOC bytes, so a DOC larger than about 18,350
+bytes cannot be installed at all. `genconfig` refuses any file above `-max-doc`, now 18,250 bytes by default
+(install gas at most about 19,900). The closest today are `feed.js` (18,128 B, 19,712 gas) and `wrap.js`
+(18,080 B, 19,660 gas): either must be split before it grows by more than about 120 DOC bytes (MT-E10).
+
+`xswd.js` could not be estimated: the node's estimator hit the graviton bucket panic five times, and `telainstall`
+sent it with its size-based fallback fee. It was mined, and overpaid by about 680 atomic units.
 
 ### Hosts
 

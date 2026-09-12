@@ -1,0 +1,131 @@
+# MT-E07: what installing the current app bundle as TELA costs, measured on a fresh DERO simulator, 2026-09-12
+#
+# The simulator was restarted on 2026-09-12 after vendor/bin was rebuilt with go1.26.8, and a restart wipes its chain
+# (vendor/derohe/cmd/simulator/simulator.go:187 removes --data-dir). The development base set was redeployed first
+# (tools/simdeploy, simnfa, simvault x2, simwrapmkt x2), then the bundle was installed from a copy of simulator wallet_20
+# (RPC 30020). No other tool drives that wallet, so its balance change is the install and nothing else.
+#
+# Bundle: <repo>/dist/simulator, built by `tools/genconfig -dist -network simulator` from commit cc92174a0fd6, with
+# app/ and contracts/ equal to that commit except app/config.js (the redeployed simulator SCIDs, rendered by genconfig
+# from deploy/networks.json). 34 files; manifest.json sha256 57b54fea4e4ab5c81048b70aca549ae2206b26def0d1a71cd8a1821d47ecfd13,
+# config.js sha256 c6167fe5cd0314967a6b5d11aa4678a80553cb6ca3b134e346e02fb4459b22c9.
+# Command (from <repo>): vendor/bin/telainstall.exe -network simulator -ringsize 16 -wallet <tmp>/mte07-run/wallet.db
+#   -daemon 127.0.0.1:20000 -app dist/simulator -durl dmz.tela -out <tmp>/mte07-run/tela-deployment.json
+#   Every DOC at ring 2 (the default), the INDEX at ring 16 (owner "anon", as on mainnet).
+# Fees: each transaction's `fees` from GetTransferbyTXID on the RPC wallet 30020, which has the same keys as the copy.
+# This INDEX is a measurement, not the simulator's deployment: deploy/networks.json keeps tela.index empty.
+
+== result
+                      txs   fees (atomic)      DERO
+DOCs, ring 2           35         315,768   3.15768
+INDEX, ring 16          1           6,964   0.06964
+total                  36         322,732   3.22732
+
+wallet 30020: 800,000 before, 477,268 after. The difference, 322,732, is exactly the sum of the 36 recorded fees.
+blocks 209 to 280; wall time 12m14.6s (2026-09-12T01:19:01Z to 01:31:16Z)
+Every fee paid equals the transaction's storage gas: the simulator charges gas and nothing else.
+
+== telainstall -ringsize 16, full bundle, wallet_20 copy, 2026-09-12T01:19:01Z
+INDEX ring 16: its owner will be "anon" and UpdateCode will refuse every caller; a later release is a new INDEX
+network simulator
+wallet deto1qywgdwt9j6la3gfn5859czqqzg7c4cc856f2w5lxusg494ytkaflkqqrw7mmz height 208
+DOC index.html               4710 bytes →   3077 on-chain (gzip)  gas  3428  ring 2  scid ea01b0d0c0a29c75e2c513d2974e2e8b30c003d062a7fb6cae26473c0fd937cb
+DOC amm.js                   9232 bytes →   5946 on-chain (gzip)  gas  6286  ring 2  scid da0e2ff37b6e20a993be164b5e12b46293c8d0124a995691fbbf0f60c27798cf
+DOC app.js                  33752 bytes →  17261 on-chain (gzip)  gas 17600  ring 2  scid ac2026dc229dc2ec1b137cdd652ff15fb37a10565267a0082c6251e3a1642aae
+DOC chart.js                15632 bytes →   8874 on-chain (gzip)  gas  9218  ring 2  scid ad964a941d83fa178dad516dca7719fb9ca4ea0a9c4b0976d94e3706d5e7cda9
+DOC chat.js                  9832 bytes →   6109 on-chain (gzip)  gas  6452  ring 2  scid 87b7201b12723fb2a972cbba9ea161a1ca150834de0eb917eddee53f4c545387
+DOC config.js                4099 bytes →   4197 on-chain (gzip)  gas  4544  ring 2  scid b349a99db866d2c395d4514c1c5918f0d0460a5c2b6a40851adc25cd46ad83c1
+DOC desk.css                 6567 bytes →   4428 on-chain (gzip)  gas  4774  ring 2  scid a5ef0fe6a2b0439f2ac0ba506611b8f73935963e10ca35cba94caf6f1cdb1592
+DOC feed.js                 40889 bytes →  19369 on-chain (gzip)  gas 19712  ring 2  scid a0963e04a176ec065db26977b1d7b80726e4eeb234b8556567d860c3aa4233a3
+DOC forms.js                29914 bytes →  14210 on-chain (gzip)  gas 14554  ring 2  scid a414d9ce9a6b06f8dfbb251b26cd8178b5536e099fb943799b5ac8063f32c89a
+DOC founders.js              4052 bytes →   3653 on-chain (gzip)  gas  4004  ring 2  scid 8a6fb4cb923f8539be25fb1f8a28dbde7c93a792798f5ec35bff418ae7d63984
+DOC home.js                 26487 bytes →  13440 on-chain (gzip)  gas 13782  ring 2  scid 95bf382a5b9dbb2f56e029b525cfd96ae74b43e655d6f92d593b6230c4fed6d6
+DOC live.js                  3989 bytes →   3504 on-chain (gzip)  gas  3846  ring 2  scid a769500fec25767bec20c06d64242950a527395788c31471e026da33738efcd6
+DOC manifest.json            5916 bytes →   4131 on-chain (gzip)  gas  4488  ring 2  scid c6cfc4e5d63c1572f3b34f4f93c9aa5a9a467f00be2fd9ff3a6a9e650b6de8d0
+DOC markets.js              20609 bytes →  11719 on-chain (gzip)  gas 12068  ring 2  scid 9df7ce4ceb2f433329cfd2cbc02441d7ebbecc5c9be809d0750cf77554d3e295
+DOC nfas.js                 32402 bytes →  15413 on-chain (gzip)  gas 15756  ring 2  scid b162e0c901170f74dac14a893f9617d94e5fc34a79642220683c374daf2f74fa
+DOC nft.js                   6854 bytes →   4579 on-chain (gzip)  gas  4920  ring 2  scid 972de3d8459e49685ffc85dde66f0a442d46735fa41050656a9993aa0e2b60ee
+DOC nfts.js                 15723 bytes →   8480 on-chain (gzip)  gas  8822  ring 2  scid 93822fb56d37b69d1af8dc4e824794c42a8e98daa469b85a8a3186fb1ec107a8
+DOC notice.js                9191 bytes →   6213 on-chain (gzip)  gas  6560  ring 2  scid d81cccdfae3df9ce215ad8e03cacd6a1f854d41b8311f7b9ddede6334caaf7f5
+DOC parts.css               15411 bytes →   6985 on-chain (gzip)  gas  7332  ring 2  scid cb02fc762d25e2abf7f858147ce182d054b3d3084a01ff4296b2fe207a9cf1ae
+DOC rpc.js                  10350 bytes →   6638 on-chain (gzip)  gas  6978  ring 2  scid f3f2ae6b062356411765085741bbe89fc5f8ddd7ebbb49f083eaf7e0cd439a90
+DOC screens.js              28560 bytes →  14881 on-chain (gzip)  gas 15228  ring 2  scid 8f68ca284248f1a311207067856c336b316d81e4f18bbc73a89612722468d0c5
+DOC sheets.js               15391 bytes →   7856 on-chain (gzip)  gas  8202  ring 2  scid faa7292cfc2bbd43298ad19e5d417bf50d08f15874126ddc6aee71f77087daef
+DOC stats.js                11985 bytes →   7906 on-chain (gzip)  gas  8250  ring 2  scid d7c276e74752b45dabf3e084b78229878d51526ecf87b3a65783139ee7c16cb1
+DOC styles.css               9390 bytes →   6104 on-chain (gzip)  gas  6454  ring 2  scid afe9ef196201d916fb778d552d2cf8d08169421e49e7d70381fe98f0df23b3e0
+DOC templates/founders.bas  10398 bytes →   5117 on-chain (gzip)  gas  5492  ring 2  scid 82a6ace0de20d3baae0f1f8c33276c7bdd76b82535976dd813fc1194b1a2fbdd
+DOC templates/launch.bas    15257 bytes →   6638 on-chain (gzip)  gas  7010  ring 2  scid a69d8a69178b0f92fa35ee76dd3ba772f07ee742b1621af03854fe82ccfbcaa6
+DOC templates/nfa.bas       14937 bytes →   5743 on-chain (gzip)  gas  6108  ring 2  scid b771fa63f7ed7f76c90255e6eec7b1855fe424d40fd84710b53cbb938abbb1a9
+DOC templates/nft.bas        3873 bytes →   2772 on-chain (gzip)  gas  3138  ring 2  scid 8653a73ae0b2431418c50ae217b4d5ed081e6316aefda1b496ef993e2f5741a8
+DOC templates/pool.bas      10604 bytes →   4932 on-chain (gzip)  gas  5298  ring 2  scid 9030a811c5d36164cea95117dc12b9f76aea1f2ee5191ee4462d8d4e92c76aca
+DOC token.js                32853 bytes →  16434 on-chain (gzip)  gas 16778  ring 2  scid cf4c4c2bd2c66a2b24debac37fda7851a1391ec32f1bbbd63d3e084c8646c6ff
+DOC ui.css                  11773 bytes →   6071 on-chain (gzip)  gas  6412  ring 2  scid b47fa4984759fd5b5133488f71f312e1c52c1f09106d926940dd19826903b9c6
+DOC ui.js                   20709 bytes →  12581 on-chain (gzip)  gas 12920  ring 2  scid 91f3ac41a10aefbaa9e773e26745782adaee8ffe6b95427d5a4dcc9928aa3b9e
+DOC wrap.js                 40362 bytes →  19319 on-chain (gzip)  gas 19660  ring 2  scid 8ecc370e4d540ab00911343dc5b69357d9e7cef588f06a33ce534653b63287f5
+estimate hit the graviton ':' bucket panic, retrying
+estimate hit the graviton ':' bucket panic, retrying
+estimate hit the graviton ':' bucket panic, retrying
+estimate hit the graviton ':' bucket panic, retrying
+estimate hit the graviton ':' bucket panic, retrying
+estimate unavailable for xswd.js (the daemon cannot simulate this DOC): sending with a size-based fee of 6224
+DOC xswd.js                  8023 bytes →   5200 on-chain (gzip)  gas  6224  ring 2  scid d6dff5a4a5bbf7473f3e3336fb7f459f50c3f1ed2e9b4ecf1d306c7e219eddf8
+DOC zswap.js                24550 bytes →  13126 on-chain (gzip)  gas 13470  ring 2  scid 96a02f896342ef7c327eb825015ac7b10e3b4a13fc4768c0c39c8e51afdf82aa
+INDEX cb33a674b695d3c648ec4851f06a1bbeea9f02310466bb6b0181435b396bb095 ring 16 gas 6964 (35 DOCs, 4.44 KB)
+INDEX cb33a674b695d3c648ec4851f06a1bbeea9f02310466bb6b0181435b396bb095 dURL dmz.tela owner anon docs 35 commit 0
+real	12m14.603s
+
+== the INDEX as DERO.GetSC reports it afterwards
+owner = anon · dURL = dmz.tela · commit = 0 · telaVersion = 1.1.0 · 35 DOC keys
+
+== fee paid per transaction (GetTransferbyTXID on wallet 30020), in install order
+height  fees   txid
+   209  3428   ea01b0d0c0a29c75e2c513d2974e2e8b30c003d062a7fb6cae26473c0fd937cb  index.html
+   212  6286   da0e2ff37b6e20a993be164b5e12b46293c8d0124a995691fbbf0f60c27798cf  amm.js
+   214 17600   ac2026dc229dc2ec1b137cdd652ff15fb37a10565267a0082c6251e3a1642aae  app.js
+   216  9218   ad964a941d83fa178dad516dca7719fb9ca4ea0a9c4b0976d94e3706d5e7cda9  chart.js
+   218  6452   87b7201b12723fb2a972cbba9ea161a1ca150834de0eb917eddee53f4c545387  chat.js
+   220  4544   b349a99db866d2c395d4514c1c5918f0d0460a5c2b6a40851adc25cd46ad83c1  config.js
+   222  4774   a5ef0fe6a2b0439f2ac0ba506611b8f73935963e10ca35cba94caf6f1cdb1592  desk.css
+   224 19712   a0963e04a176ec065db26977b1d7b80726e4eeb234b8556567d860c3aa4233a3  feed.js
+   226 14554   a414d9ce9a6b06f8dfbb251b26cd8178b5536e099fb943799b5ac8063f32c89a  forms.js
+   228  4004   8a6fb4cb923f8539be25fb1f8a28dbde7c93a792798f5ec35bff418ae7d63984  founders.js
+   230 13782   95bf382a5b9dbb2f56e029b525cfd96ae74b43e655d6f92d593b6230c4fed6d6  home.js
+   232  3846   a769500fec25767bec20c06d64242950a527395788c31471e026da33738efcd6  live.js
+   234  4488   c6cfc4e5d63c1572f3b34f4f93c9aa5a9a467f00be2fd9ff3a6a9e650b6de8d0  manifest.json
+   236 12068   9df7ce4ceb2f433329cfd2cbc02441d7ebbecc5c9be809d0750cf77554d3e295  markets.js
+   238 15756   b162e0c901170f74dac14a893f9617d94e5fc34a79642220683c374daf2f74fa  nfas.js
+   240  4920   972de3d8459e49685ffc85dde66f0a442d46735fa41050656a9993aa0e2b60ee  nft.js
+   242  8822   93822fb56d37b69d1af8dc4e824794c42a8e98daa469b85a8a3186fb1ec107a8  nfts.js
+   244  6560   d81cccdfae3df9ce215ad8e03cacd6a1f854d41b8311f7b9ddede6334caaf7f5  notice.js
+   246  7332   cb02fc762d25e2abf7f858147ce182d054b3d3084a01ff4296b2fe207a9cf1ae  parts.css
+   248  6978   f3f2ae6b062356411765085741bbe89fc5f8ddd7ebbb49f083eaf7e0cd439a90  rpc.js
+   250 15228   8f68ca284248f1a311207067856c336b316d81e4f18bbc73a89612722468d0c5  screens.js
+   252  8202   faa7292cfc2bbd43298ad19e5d417bf50d08f15874126ddc6aee71f77087daef  sheets.js
+   254  8250   d7c276e74752b45dabf3e084b78229878d51526ecf87b3a65783139ee7c16cb1  stats.js
+   256  6454   afe9ef196201d916fb778d552d2cf8d08169421e49e7d70381fe98f0df23b3e0  styles.css
+   258  5492   82a6ace0de20d3baae0f1f8c33276c7bdd76b82535976dd813fc1194b1a2fbdd  templates/founders.bas
+   260  7010   a69d8a69178b0f92fa35ee76dd3ba772f07ee742b1621af03854fe82ccfbcaa6  templates/launch.bas
+   262  6108   b771fa63f7ed7f76c90255e6eec7b1855fe424d40fd84710b53cbb938abbb1a9  templates/nfa.bas
+   264  3138   8653a73ae0b2431418c50ae217b4d5ed081e6316aefda1b496ef993e2f5741a8  templates/nft.bas
+   266  5298   9030a811c5d36164cea95117dc12b9f76aea1f2ee5191ee4462d8d4e92c76aca  templates/pool.bas
+   268 16778   cf4c4c2bd2c66a2b24debac37fda7851a1391ec32f1bbbd63d3e084c8646c6ff  token.js
+   270  6412   b47fa4984759fd5b5133488f71f312e1c52c1f09106d926940dd19826903b9c6  ui.css
+   272 12920   91f3ac41a10aefbaa9e773e26745782adaee8ffe6b95427d5a4dcc9928aa3b9e  ui.js
+   274 19660   8ecc370e4d540ab00911343dc5b69357d9e7cef588f06a33ce534653b63287f5  wrap.js
+   276  6224   d6dff5a4a5bbf7473f3e3336fb7f459f50c3f1ed2e9b4ecf1d306c7e219eddf8  xswd.js (size-based fee, see below)
+   278 13470   96a02f896342ef7c327eb825015ac7b10e3b4a13fc4768c0c39c8e51afdf82aa  zswap.js
+   280  6964   cb33a674b695d3c648ec4851f06a1bbeea9f02310466bb6b0181435b396bb095  INDEX, ring 16
+        -----
+       322732   36 transactions
+
+== what the numbers say
+1. The whole app costs 3.22732 DERO to install at these sizes: 35 DOCs at ring 2 and one ring-16 INDEX. The INDEX is
+   2.2% of it; the DOCs are the cost, and each one is its gzip size plus 339 to 375 gas.
+2. Two DOCs are close to the per-transaction storage-gas limit of 20,000 (deploy/README.md §4): feed.js at 19,712
+   (288 left) and wrap.js at 19,660 (340 left). genconfig's own DOC size check agrees: feed.js is 18,128 B against its
+   18,432 B limit. A few hundred more gzipped bytes in either file and that file needs splitting before the bundle can
+   be installed at all.
+3. xswd.js could not be estimated. The daemon's gas estimate hit the graviton ':' bucket panic five times, and
+   telainstall sent the DOC with its size-based fallback fee of 6,224. It was mined at height 276 and paid 6,224. By
+   the other 34 DOCs' ratio its gas would be about 5,545, so the fallback overpaid about 680 atomic units (0.0068 DERO)
+   and changed nothing else.

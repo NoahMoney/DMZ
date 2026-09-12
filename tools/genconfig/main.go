@@ -32,7 +32,11 @@ var (
 	distDir      = flag.String("out", "../dist", "dist root")
 	network      = flag.String("network", "", "network name (simulator, testnet, mainnet)")
 	dist         = flag.Bool("dist", false, "build dist bundles instead of writing app/config.js")
-	maxDoc       = flag.Int("max-doc", 18*1024, "maximum on-chain DOC size (gzip+base64 bytes) per file")
+	// maxDoc guards the limit that binds: DERO caps a transaction at 20,000 units of storage gas, and a DOC's install
+	// gas measured 1,576 to 1,648 above this DOC size (research/release/tela-install-cost.log, 2026-09-12). A DOC above
+	// about 18,350 B cannot be installed, so 18,250 keeps every file at or under about 19,900 gas. (It was 18,432,
+	// which let through DOCs the chain would refuse.)
+	maxDoc = flag.Int("max-doc", 18250, "maximum on-chain DOC size (gzip+base64 bytes) per file; above about 18,350 a DOC exceeds the 20,000 storage-gas cap")
 )
 
 func main() {
