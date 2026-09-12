@@ -43,12 +43,14 @@ func NewProverCLI(command []string) Prover {
 // NewPinnedProver is the prover the companion runs (GAP-003): path must be absolute — a bare name is whatever PATH
 // finds first — and the file there must hash to wantSHA256 (ProverSHA256), now and before every later run, so a
 // binary replaced while the companion runs is refused rather than trusted. It is run directly, with no launcher
-// in front of it: a launcher (wsl.exe, a shell) would be the thing hashed, not the prover.
+// in front of it. A prover inside WSL is NewPinnedWSLProver's (X-17): it hashes the binary in the distribution, not
+// the wsl.exe that runs it, which is what hashing a command's first program would do.
 func NewPinnedProver(path, wantSHA256 string) (Prover, error) {
 	if !filepath.IsAbs(path) {
 		return nil, fmt.Errorf("proof-xmr: %q is not an absolute path: a bare name is whatever program PATH finds first", path)
 	}
-	p := &proverCLI{command: []string{path}, pin: strings.ToLower(wantSHA256)}
+	p := &proverCLI{command: []string{path}, pin: strings.ToLower(wantSHA256),
+		pinned: func() (string, []byte, error) { b, err := os.ReadFile(path); return path, b, err }}
 	if err := p.checkPin(); err != nil {
 		return nil, err
 	}
@@ -57,8 +59,11 @@ func NewPinnedProver(path, wantSHA256 string) (Prover, error) {
 
 type proverCLI struct {
 	command []string
-	// pin, when set, is the SHA-256 the binary at command[0] must hash to before each run
+	// pin, when set, is the SHA-256 the prover's binary must hash to before each run
 	pin string
+	// pinned reads that binary and names it: the file at command[0] for a native prover, the file inside the WSL
+	// distribution for one that wsl.exe runs (X-17)
+	pinned func() (name string, b []byte, err error)
 }
 
 // checkPin hashes the binary and compares it with the pin.
@@ -66,13 +71,13 @@ func (p *proverCLI) checkPin() error {
 	if p.pin == "" {
 		return nil
 	}
-	b, err := os.ReadFile(p.command[0])
+	name, b, err := p.pinned()
 	if err != nil {
 		return fmt.Errorf("proof-xmr: %w", err)
 	}
 	sum := sha256.Sum256(b)
 	if got := hex.EncodeToString(sum[:]); got != p.pin {
-		return fmt.Errorf("proof-xmr: %s hashes to sha256 %s, and the companion runs only the pinned build %s", p.command[0], got, p.pin)
+		return fmt.Errorf("proof-xmr: %s hashes to sha256 %s, and the companion runs only the pinned build %s", name, got, p.pin)
 	}
 	return nil
 }
@@ -83,6 +88,11 @@ func (p *proverCLI) run(ctx context.Context, stdin []byte, args ...string) (stdo
 	if len(p.command) == 0 {
 		return nil, -1, "", errors.New("proof-xmr: empty command")
 	}
+	// The binary is hashed, then run by name: by its path for a native prover, by wsl.exe inside the distribution for
+	// one in WSL (X-17). The two paths are alike in the gap between the hash and the run: a file replaced inside it is
+	// not caught on either. Closing it would take running the very bytes that were hashed (a private copy, or an open
+	// handle), which neither does. The gap is the time a process takes to start, and replacing the binary needs write
+	// access to it, which would already have let it be replaced before the first hash.
 	if err := p.checkPin(); err != nil {
 		return nil, -1, "", err
 	}

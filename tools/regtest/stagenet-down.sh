@@ -7,6 +7,24 @@ SDIR="$REPO/.sim/stagenet"
 WIPE=0
 [ "${1:-}" = "--wipe" ] && WIPE=1
 
+# The watchdog first (X-25), so that it does not restart the monerod being stopped. A restart it is making when told to
+# stop finishes the stop and starts nothing; that can take up to about 100 s.
+wd="$(stagenet_watchdog_pid "$SDIR")"
+if [ -n "$wd" ]; then
+	wsl_exec kill -TERM "$wd" 2>/dev/null || true
+	for i in $(seq 1 120); do
+		wsl_exec kill -0 "$wd" 2>/dev/null || break
+		sleep 1
+	done
+	if wsl_exec kill -0 "$wd" 2>/dev/null; then
+		say "the stagenet watchdog (pid $wd in WSL) did not stop within 120 s; killing it"
+		wsl_exec kill -KILL "$wd" 2>/dev/null || true
+	fi
+	say "stagenet watchdog stopped"
+fi
+rm -f "$SDIR/watchdog.pid"
+stop_winpid stagenet-watchdog
+
 if [ -f "$SDIR/monerod.pid" ]; then
 	pid="$(cat "$SDIR/monerod.pid")"
 	# monerod's own clean shutdown, then SIGINT, then SIGKILL; LMDB is flushed on the first two

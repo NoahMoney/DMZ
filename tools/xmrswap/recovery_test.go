@@ -110,14 +110,22 @@ func TestRegisterTheMakersWakesOnThisOS(t *testing.T) {
 	if n := strings.Count(strings.Join(logs, "\n"), "wake: the "); n != 2 {
 		t.Fatalf("%d wakes registered:\n%s", n, strings.Join(logs, "\n"))
 	}
-	if runtime.GOOS == "windows" {
-		for i, at := range []time.Time{refundAt, reclaimAt} {
+	for i, at := range []time.Time{refundAt, reclaimAt} {
+		switch runtime.GOOS {
+		case "windows":
 			out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 				"$t = Get-ScheduledTask -TaskName "+psQuote(names[i])+"; 'WakeToRun=' + $t.Settings.WakeToRun; 'Start=' + $t.Triggers[0].StartBoundary").CombinedOutput()
 			if err != nil || !strings.Contains(string(out), "WakeToRun=True") || !strings.Contains(string(out), at.Format("2006-01-02T15:04")) {
 				t.Fatalf("the task %s as the scheduler has it: %v\n%s", names[i], err, out)
 			}
 			t.Logf("%s: %s", names[i], strings.Join(strings.Fields(string(out)), " "))
+		case "linux":
+			// X-23: the systemd user timer, set to wake the system, at the card's time
+			loaded, props := systemdTimer(t, names[i])
+			if !loaded || !strings.Contains(props, "WakeSystem=yes") || !strings.Contains(props, at.Format("2006-01-02 15:04")) {
+				t.Fatalf("the timer %s as systemd has it:\n%s", names[i], props)
+			}
+			t.Logf("%s: %s", names[i], strings.Join(strings.Fields(props), " "))
 		}
 	}
 	for _, n := range names {
@@ -125,12 +133,22 @@ func TestRegisterTheMakersWakesOnThisOS(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if runtime.GOOS == "windows" {
-		for _, n := range names {
+	for _, n := range names {
+		switch runtime.GOOS {
+		case "windows":
 			if out, _ := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 				"if (Get-ScheduledTask -TaskName "+psQuote(n)+" -ErrorAction SilentlyContinue) { 'still there' } else { 'gone' }").CombinedOutput(); !strings.Contains(string(out), "gone") {
 				t.Fatalf("after UnregisterWake the task %s is %s", n, out)
 			}
+		case "linux":
+			if loaded, props := systemdTimer(t, n); loaded {
+				t.Fatalf("after UnregisterWake systemd still has %s:\n%s", n, props)
+			}
+		}
+	}
+	if runtime.GOOS == "linux" {
+		if left := systemdLeft(t, WakeTaskName(st.SwapID)); left != "" {
+			t.Fatalf("after UnregisterWake systemd still has:\n%s", left)
 		}
 	}
 }
@@ -231,8 +249,30 @@ func TestRemovingAWakeThatIsNotThereIsNoError(t *testing.T) {
 	}
 }
 
+// systemdTimer is what the user's systemd has for name.timer (the Linux wake, X-23): whether it is loaded, and its
+// properties as `systemctl --user show` prints them.
+func systemdTimer(t *testing.T, name string) (loaded bool, props string) {
+	t.Helper()
+	out, err := exec.Command("systemctl", "--user", "show", name+".timer", "-p", "LoadState,ActiveState,WakeSystem,TimersCalendar,NextElapseUSecRealtime").CombinedOutput()
+	if err != nil {
+		t.Fatalf("systemctl --user show %s.timer: %v: %s", name, err, out)
+	}
+	return strings.Contains(string(out), "LoadState=loaded"), strings.TrimSpace(string(out))
+}
+
+// systemdLeft is every unit of the user's systemd, loaded or not, whose name starts with prefix.
+func systemdLeft(t *testing.T, prefix string) string {
+	t.Helper()
+	out, err := exec.Command("systemctl", "--user", "list-units", "--all", "--no-legend", "--plain", prefix+"*").CombinedOutput()
+	if err != nil {
+		t.Fatalf("systemctl --user list-units: %v: %s", err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // TestRegisterWakeOnThisOS (MT-B15): the real registration on this machine, made, found with its wake setting, and
-// removed. It adds a task to the machine's scheduler for a moment, so it runs only with XMRSWAP_TEST_WAKE=1.
+// removed: a Task Scheduler task on Windows, a systemd user timer on Linux (X-23). It adds one to the machine's
+// scheduler for a moment, so it runs only with XMRSWAP_TEST_WAKE=1.
 func TestRegisterWakeOnThisOS(t *testing.T) {
 	if os.Getenv("XMRSWAP_TEST_WAKE") != "1" {
 		t.Skip("set XMRSWAP_TEST_WAKE=1 to register, find and remove a real wake task on this machine")
@@ -247,13 +287,20 @@ func TestRegisterWakeOnThisOS(t *testing.T) {
 	}
 	defer UnregisterWake(name)
 	t.Logf("registered: %s", what)
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 			"$t = Get-ScheduledTask -TaskName "+psQuote(name)+"; 'WakeToRun=' + $t.Settings.WakeToRun; 'Start=' + $t.Triggers[0].StartBoundary; 'Run=' + $t.Actions[0].Execute + ' ' + $t.Actions[0].Arguments").CombinedOutput()
 		if err != nil || !strings.Contains(string(out), "WakeToRun=True") || !strings.Contains(string(out), at.Format("2006-01-02T15:04")) {
 			t.Fatalf("the task as the scheduler has it: %v\n%s", err, out)
 		}
 		t.Logf("the scheduler has:\n%s", strings.TrimSpace(string(out)))
+	case "linux":
+		loaded, props := systemdTimer(t, name)
+		if !loaded || !strings.Contains(props, "WakeSystem=yes") || !strings.Contains(props, at.Format("2006-01-02 15:04")) {
+			t.Fatalf("the timer as systemd has it:\n%s", props)
+		}
+		t.Logf("systemd has:\n%s", props)
 	}
 	if err := UnregisterWake(name); err != nil {
 		t.Fatal(err)
@@ -261,10 +308,18 @@ func TestRegisterWakeOnThisOS(t *testing.T) {
 	if err := UnregisterWake(name); err != nil {
 		t.Fatalf("removing the wake a second time, when it is already gone: %v", err)
 	}
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		if out, _ := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 			"if (Get-ScheduledTask -TaskName "+psQuote(name)+" -ErrorAction SilentlyContinue) { 'still there' } else { 'gone' }").CombinedOutput(); !strings.Contains(string(out), "gone") {
 			t.Fatalf("after UnregisterWake the task is %s", out)
+		}
+	case "linux":
+		if loaded, props := systemdTimer(t, name); loaded {
+			t.Fatalf("after UnregisterWake systemd still has the timer:\n%s", props)
+		}
+		if left := systemdLeft(t, name); left != "" {
+			t.Fatalf("after UnregisterWake systemd still has:\n%s", left)
 		}
 	}
 }

@@ -40,7 +40,10 @@
 //
 // -prover is the absolute path of the proof-xmr binary, run directly, and it must hash to the build pinned in the
 // companion (xmrswap.ProverSHA256) before every run (GAP-003). A build whose sha256 differs is refused; off mainnet
-// -prover-sha256 may name a development build instead.
+// -prover-sha256 may name a development build instead. On Windows the prover may be the Linux build inside WSL, given
+// as -prover "wsl.exe [-d <distribution>] -e <absolute path inside WSL>" (X-17). The binary itself, read through
+// \\wsl.localhost\<distribution>\..., is what is hashed before every run, and Windows' own wsl.exe runs it, so the
+// pin holds on mainnet too.
 //
 // The rendezvous is sealed (GAP-019): the maker makes a key for the swap with `xmrswap channel-key` and gives it to
 // the taker with the offer; both companions read it from XMRSWAP_CHANNEL_KEY and refuse to start without it. Every
@@ -241,7 +244,7 @@ func main() {
 		pin = o.proverSHA
 		fmt.Fprintf(os.Stderr, "\nWARNING: -prover-sha256 runs a proof-xmr build that is not the pinned one (%s). Refused on mainnet.\n\n", xmrswap.ProverSHA256)
 	}
-	prov, err := xmrswap.NewPinnedProver(o.prover, pin)
+	prov, err := xmrswap.PinnedProverFor(o.prover, pin)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -413,7 +416,7 @@ func parseOptions(role string, args []string, getenv func(string) string) (*opti
 	fs.StringVar(&o.moneroName, "monero-name", "", "the open wallet's file name, so it can be reopened after the joint wallets are made on the same rpc (its password: XMRSWAP_MONERO_WALLET_PASSWORD)")
 	fs.StringVar(&o.moneroWalletDir, "monero-wallet-dir", "", "the wallet-rpc's --wallet-dir on this machine: the joint wallets' files are deleted there after the sweep. Required on mainnet")
 	fs.StringVar(&o.htlc, "htlc", "", "htlc.bas scid (default: the one deploy/networks.json records for the daemon's DERO network, MT-A18); either way its code must hash to the pinned htlc.bas v3, installed with w1min, w2min and g2 inside this party's policy")
-	fs.StringVar(&o.prover, "prover", "", "the absolute path of the proof-xmr binary; it must hash to the pinned build")
+	fs.StringVar(&o.prover, "prover", "", "the absolute path of the proof-xmr binary, or on Windows `wsl.exe [-d <distribution>] -e <its absolute path inside WSL>`; the binary must hash to the pinned build")
 	fs.StringVar(&o.proverSHA, "prover-sha256", "", "off mainnet only: run a proof-xmr build with this sha256 instead of the pinned one")
 	fs.StringVar(&o.channel, "channel", "./swap-channel", "directory both parties can reach (the rendezvous)")
 	fs.Uint64Var(&o.amountDero, "amount-dero", 0, "atomic units of the DERO-side asset bob locks (DERO unless -asset)")
@@ -426,7 +429,7 @@ func parseOptions(role string, args []string, getenv func(string) string) (*opti
 	fs.Uint64Var(&o.t2, "t2", 0, "bob: blocks from t1 to t2 (default: t2-min)")
 	fs.Uint64Var(&o.t1Min, "t1-min", xmrswap.DefaultT1Min, "policy: the least t1 - now either side accepts (lowering it is refused off the simulator)")
 	fs.Uint64Var(&o.t2Min, "t2-min", xmrswap.DefaultT2Min, "policy: the least t2 - t1 either side accepts")
-	fs.Uint64Var(&o.t1Max, "t1-max", xmrswap.DefaultT1Max, "policy: the most t1 - now the taker accepts; until t1 her XMR has no exit of its own")
+	fs.Uint64Var(&o.t1Max, "t1-max", 0, fmt.Sprintf("policy: the most t1 - now the taker accepts; 0 is the mainnet profile's for the trade's confirmation tier (%d at the lowest, MT-B32). Until t1 her XMR has no exit of its own", xmrswap.DefaultT1Max))
 	fs.Uint64Var(&o.t2Max, "t2-max", xmrswap.DefaultT2Max, "policy: the most t2 - t1 the taker accepts")
 	fs.Uint64Var(&o.gateDeadline, "gate-deadline", xmrswap.DefaultGateDeadline, "G: alice ignores a gate reaching her at or after t1 − G, and bob releases none that late (lowering it is refused off the simulator)")
 	fs.Uint64Var(&o.g2Min, "g2-min", xmrswap.DefaultG2Min, "alice: the least g2 (the Punish window [t2, t2 + g2) of htlc.bas v3) she accepts in the install (lowering it is refused off the simulator; MT-J13)")
@@ -465,7 +468,13 @@ func parseOptions(role string, args []string, getenv func(string) string) (*opti
 	if o.confs < 10 {
 		return nil, fmt.Errorf("-confs %d is below CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE (10): nobody can spend the output before then, so the gate must not open on it", o.confs)
 	}
-	if !filepath.IsAbs(o.prover) {
+	if xmrswap.IsWSLProverCommand(o.prover) {
+		// X-17: on Windows the prover may be the build inside WSL, named by the command that runs it. The binary itself is
+		// hashed before every run (xmrswap.NewPinnedWSLProver), so the pin holds, on mainnet as elsewhere
+		if _, _, _, err := xmrswap.ParseWSLProverCommand(strings.Fields(o.prover)); err != nil {
+			return nil, fmt.Errorf("-prover: %w (GAP-003, X-17)", err)
+		}
+	} else if !filepath.IsAbs(o.prover) {
 		return nil, fmt.Errorf("-prover %q is not an absolute path: a bare name runs whatever program PATH finds first, and that program's exit status would decide whether the peer's proof holds (GAP-003)", o.prover)
 	}
 	if o.deroLogin == "" {

@@ -62,7 +62,7 @@ DERO. Punish makes doing nothing cost Bob the DERO, so he refunds (revealing `s_
 
 Why Punish ends and Reclaim follows (v3, MT-J13(b), `docs/ATOMIC_SWAP_STUDY.md` §5 decision 17 (a)): in v2 a lock
 nobody punished was closed by anyone's Punish, for ever. In v3 Punish is open for `g2` blocks from T2 (an install
-argument; 4,800 proposed, pending the operator), and from T2 + g2 the lock is the maker's to Reclaim with `s_b`. Bob
+argument; 4,800, as the operator answered on 2026-09-12), and from T2 + g2 the lock is the maker's to Reclaim with `s_b`. Bob
 loses the lock only to a timely Punish; a Reclaim reveals `s_b` exactly as a Refund does, so an Alice who was away for
 the whole window recovers her XMR once Bob reclaims. **What v3 costs the taker is that her Punish has a deadline, and
 that past it her XMR depends on Bob.** Her companion sends it at once from T2 and none from T2 + g2 − (11 + 8 +
@@ -74,7 +74,7 @@ stay locked for ever; under v2 she could Punish at any time after T2 (`docs/XMR_
 
 | Constant | Value | Reason |
 |---|---|---|
-| `T1_MIN` | 400 blocks (~2 h) after the lock; Bob's default is lock + 420, and Alice refuses a `t1` more than 1,200 blocks out | Alice must lock XMR, wait 20 Monero confirmations by default (~40 min; ten is the floor, and the 18-block reorganisation reported on Monero is why the default is twice it), receive `k_b`, and claim — all before T1 |
+| `T1_MIN` | 400 blocks (~2 h) after the lock; Bob's default is lock + 420, and Alice refuses a `t1` further out than her trade's tier's T1Max: the tier's quote plus 60, 480 blocks at the lowest tier (MT-B32; 1,200 for every trade before) | Alice must lock XMR, wait 20 Monero confirmations by default (~40 min; ten is the floor, and the 18-block reorganisation reported on Monero is why the default is twice it), receive `k_b`, and claim — all before T1 |
 | `T2_MIN` | T1 + 400 blocks (~2 h more), at most T1 + 1,200 | Bob's refund window |
 | Monero confirmations before `k_b` | 20 by default (`DefaultConfirmations`); refused below 10, the `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE` | below ten the output cannot be spent anyway; above it, a reorganisation deeper than the depth Bob chose could still unwind Alice's lock after he has released the gate, and Monero has no bound on that depth (invariant 10) |
 
@@ -225,6 +225,8 @@ type Prover interface {
 }
 func NewProverCLI(command []string) Prover   // unpinned, for drivers and tests: {"proof-xmr"} or {"wsl.exe","-e","<path to proof-xmr>"}
 func NewPinnedProver(path, wantSHA256 string) (Prover, error) // the companion's: an absolute path, hashed before every run
+func NewPinnedWSLProver(command []string, wantSHA256 string) (Prover, error) // Windows: wsl.exe [-d <distro>] -e <path>; the binary itself is hashed (X-17)
+func PinnedProverFor(v, wantSHA256 string) (Prover, error) // a -prover value: a wsl.exe command, or an absolute path
 // fakewallet.go — a fake monero-wallet-rpc HTTP server for tests and the simulator driver
 func NewFakeWallet(net Network) *FakeWallet   // ServeHTTP; Mine(n) advances height; deterministic; supports the calls above
 ```
@@ -236,6 +238,39 @@ reference for `generate_from_keys`, `get_transfers`, `sweep_all`, `transfer`. **
 from Monero's own tests** (`tests/unit_tests/base58.cpp`, `tests/unit_tests/address_from_url.cpp` or the
 documented example addresses) — not from your own encoder. Use `filippo.io/edwards25519` for the curve and
 `golang.org/x/crypto/sha3` (`NewLegacyKeccak256`) — say in the commit why each; no other new dependency.
+
+**The prover on Windows (X-17).** proof-xmr is a Linux program. A Windows holder builds it inside WSL
+(`build-reproducible.sh`) and gives it to the companion as `-prover "wsl.exe [-d <distribution>] -e <absolute path
+inside WSL>"`. Hashing the command's first program would hash `wsl.exe`, so the pin is checked on the binary itself
+instead (`NewPinnedWSLProver`, `tools/xmrswap/proof_wsl.go`):
+- The file is read through the distribution's share, `\\wsl.localhost\<distribution>\<path>`, or `\\wsl$\...` on a
+  Windows that has only the older name. It is hashed before every run, as a native binary is. Then Windows' own
+  `%SystemRoot%\System32\wsl.exe` runs it with `-d <distribution> -e <path>`.
+- A command that names no distribution runs in the default one. That is read once from the registry
+  (`HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss`, `DefaultDistribution`, as `wsl.exe` reads it) and named on
+  every run, so the distribution hashed is the one run.
+- It fails closed. Each of these is refused:
+  - a path that no share root can read, or that is not a regular file;
+  - a first readable copy that hashes wrong (no later root is searched for one that matches);
+  - a launcher that is not System32's `wsl.exe`, or a default distribution that cannot be read;
+  - any form but the one above: without `-e`, `wsl.exe` runs the command through the user's shell, which finds and
+    expands it; there is no other option and nothing after the path;
+  - a path that is not absolute and clean, or that has a character outside `A-Z a-z 0-9 . _ + @ ~ - /`, because WSL's
+    share shows some characters as others.
+- The gap between the hash and the run is the native path's. The file is hashed and then run by name, so a
+  replacement inside the gap is caught on neither path. Closing it would take running the very bytes that were
+  hashed, which neither does.
+
+So the pinned build runs on mainnet from Windows as it does from Linux, with no `-prover-sha256`, which mainnet refuses.
+Tests:
+- `TestAWSLProverCommandIsParsedStrictly`, `TestPinnedWSLProverHashesTheBinaryNotTheLauncher` and
+  `TestPinnedWSLProverFailsClosed` run a stand-in `wsl.exe` over a stand-in share, and check that the launcher's hash
+  is not what is pinned;
+- `TestAProverInsideWSLIsNamedByItsCommand` checks the command line;
+- `TestPinnedWSLProverRunsTheRealProver`, run with `XMRSWAP_TEST_WSL_PROVER=<its path inside WSL>`, runs the
+  reproducible build through the real `wsl.exe`: keygen, prove, verify, and a tampered proof refused. It was run on
+  2026-09-12 against the build pinned by `ProverSHA256`, read through `\\wsl.localhost` from the default distribution.
+  The proof took 16.1 s through `wsl.exe` and was 1,601 bytes; it verified, and the tampered copy was refused.
 
 ### 3.D `tools/xmrswap` — the state machine, DERO side, channel, CLI, simulator driver (agent D)
 
@@ -283,7 +318,8 @@ every pass rather than only once its height is stable, because its window closes
 t2 is refused, which leaves the lock open. So Bob's companion sends no Refund, first time or fee re-send, from t2 − 11
 (counting 11, one block conservative, as the Lock and Punish cutoffs do), and refuses at start a t2 − t1 of 11 or less,
 which would leave no height to send one at (`TestBobRefundsAtHisLastHeight`, `TestBobSendsNoRefundAtTheCutoff`,
-`TestDeroClientRefundStopsAtItsCutoff`). A Refund not sent by then, or undone by a replaced block once the height is
+`TestDeroClientRefundStopsAtItsCutoff`). Alice's companion refuses the same window from a maker whose own does not, at the
+offer and at each sight of the lock, whatever her T2Min (X-23, `TestTheTakerRefusesAWindowWithNoRefundHeight`). A Refund not sent by then, or undone by a replaced block once the height is
 past the cutoff, is not sent at all. What that means for Bob, and his companion says it when it gets there: the lock
 stays open, from t2 until t2 + g2 anyone may Punish it, which pays Alice his DERO and returns him nothing, and if nobody
 does, his Reclaim from t2 + g2 returns it and puts `s_b` on the chain for her
@@ -313,7 +349,8 @@ Invariants (§4) are asserted in tests, not assumed. `cmd/xmrswap` runs one side
 XMRSWAP_MONERO_LOGIN=<u>:<p> xmrswap bob|alice -state <file> -net <network> -daemon <rpc> -dero <wallet-rpc>
 -monero <wallet-rpc> -htlc <scid> -prover <absolute path> -channel <dir> -amount-dero N -amount-xmr M`, plus, on
 mainnet, `-mainnet -monerod <loopback> -monero-wallet-dir <dir>`; `-net`, `-daemon`, `-dero`, `-monero` and
-`-prover` have no defaults. `-daemon` may be given more than once: the first is the party's own node, and alice
+`-prover` have no defaults. `-prover` is the binary's absolute path, or on Windows the `wsl.exe` command that runs it
+inside WSL (X-17, §3.C). `-daemon` may be given more than once: the first is the party's own node, and alice
 locks no XMR until every further one, on the same DERO network, shows her the same lock (MT-B09). Both companions
 read the swap's channel key from `XMRSWAP_CHANNEL_KEY` (`xmrswap channel-key` makes one; GAP-019) and do not start
 without it. `xmrswap status -dir <dir> -daemon <rpc> [-monero <wallet-rpc>]` reconciles every state
@@ -406,11 +443,13 @@ Added 2026-09-11 from `docs/ATOMIC_SWAP_STUDY.md` and the mainnet gap analysis:
     history, before any second attempt); Alice locks no XMR until it is in her wallet at stable depth and she can
     spend at least `StipendMin`. Default 14,016 atomic units: (3,000 + 504) × 4.
 15. **A gate after `t1 − G` is not used** (U2). Bob releases `k_b` only while `height + G + 2 < t1`; Alice treats one
-    that reaches her at or after `t1 − G` as never received. Default G = 100 (assumed, operator decision 5).
+    that reaches her at or after `t1 − G` as never received. Default G = 100 (operator decision 5, re-confirmed 2026-09-12). Bob's
+    side is tested on its own (`TestTheMakersGateMarginIsGPlusTwo`).
 16. **The taker watches her Claim until it is stable** (U3), and a Claim undone by a replaced block sends her back to
     claiming (before the cutoff) or to waiting for the refund.
 17. **Only the pinned contract and the pinned prover** (U4, GAP-003). The companion refuses an `-htlc` whose code does
-    not hash to `HTLCCodeSHA256`, and a prover that is not an absolute path hashing to `ProverSHA256`; a verifier that
+    not hash to `HTLCCodeSHA256`, and a prover whose binary does not hash to `ProverSHA256`, named by an absolute path or, on Windows,
+    by the `wsl.exe` command that runs it inside WSL, whose binary is read through the distribution's share (X-17); a verifier that
     prints a verdict must print it for the very statement asked about.
 18. **Networks, endpoints and credentials fail closed** (GAP-007 to GAP-010). No network or endpoint has a default;
     mainnet is named and never mixed; on mainnet both wallet logins come from the environment and each wallet must
@@ -434,7 +473,9 @@ Added 2026-09-11 from `docs/ATOMIC_SWAP_STUDY.md` and the mainnet gap analysis:
     and says that past t2 + g2, with no Punish on the chain, her XMR comes back only if the maker Reclaims, and that
     anyone she trusts may send the Punish for her. The companion then asks the OS to wake the machine ten minutes before the first window closes and again ten
     minutes before t2, when her Punish window opens (MT-J13): a Windows Task Scheduler task with WakeToRun (run here,
-    `TestRegisterWakeOnThisOS`), a systemd user timer with WakeSystem on Linux (not run here), and on macOS nothing,
+    `TestRegisterWakeOnThisOS`), a systemd user timer with WakeSystem on Linux (registered, found
+    and removed inside WSL's systemd 255 on 2026-09-12, X-23: `TestRegisterWakeOnThisOS`, `TestRegisterTheMakersWakesOnThisOS`
+    with `XMRSWAP_TEST_WAKE=1`, leaving no `xmrswap-*` unit), and on macOS nothing,
     because only root can schedule a wake there. A finished swap removes both. The maker gets his own card before his
     DERO is locked (MT-B28): the state file as a secret, the resume command, and t1, the last height his companion
     sends a Refund at (t2 − 12), t2 and t2 + g2 as clock times, with a wake ten minutes before t1, when his Refund
@@ -447,12 +488,12 @@ Added 2026-09-11 from `docs/ATOMIC_SWAP_STUDY.md` and the mainnet gap analysis:
     `TestRecordedHTLCIsTheDeployRecord`); given or recorded, the companion refuses it at start unless its code is the
     pinned htlc.bas v3 and every `-daemon` shows the same code and install arguments.
 25. **The mainnet policy is one file** (MT-B16, BL-27). `tools/xmrswap/mainnet_profile.json` holds T1Min, the default
-    t1, T1Max, T2Min, the default T2 − T1, T2Max, the confirmation floor and tiers, G, k, the stipend floor, and
+    t1, T1Max per confirmation tier (the tier's quote plus a 60-block slack, MT-B32), T2Min, the default T2 − T1, T2Max, the confirmation floor and tiers, G, k, the stipend floor, and
     htlc.bas v3's install arguments w1min, w2min and g2; the companion's defaults are generated from it
     (`go generate ./xmrswap` writes `profile_gen.go`), and `profile_test.go` fails when the file, the generated
     constants and the defaults disagree, checks the t1 rule at every tier, and checks that every tier's t1 meets
-    max(T1Min, w1min + 11). Each value an operator decision still holds open is marked there with its MT-J number (g2:
-    MT-J13).
+    max(T1Min, w1min + 11). Each value an operator decision still holds open is marked there with its MT-J number,
+    and each answered one records the answer and its date (G 100 and g2 4,800, both answered 2026-09-12).
 26. **htlc.bas v3's install is read and held to policy, and its windows are kept** (MT-A03(a), MT-J13). Each party
     reads the code's hash and `w1min`, `w2min`, `g2` in one `DERO.GetSC` (`Deployment`), from every configured node,
     before anything of its own goes in (`checkDeployment`). Bob refuses an install his agreed widths cannot meet

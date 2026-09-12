@@ -214,15 +214,15 @@ the block-time constant, and §9 R19 says why that conversion is an estimate.
 | Monero confirmations before `k_b` | 20 by default; the companion refuses fewer than 10 | ten is Monero's own spend age, so no smaller number is even meaningful. Above it, a reorganisation deeper than the depth Bob chose could still unwind Alice's lock after he has released the gate, and Monero has no bound on that depth, so the default is twice the floor. It is the one number in the protocol that is an assumption rather than a proof | `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE 10`, `src/cryptonote_config.h`; `DefaultConfirmations`, `tools/xmrswap/swap.go:26-30` |
 | Monero reorganisation bound | none | `cryptonote_config.h` contains no constant limiting reorganisation depth (checked 2026-09-08); the 10-block spend age is a spend rule, not a finality rule | `src/cryptonote_config.h` |
 | the deepest Monero reorganisation this project knows of | 18 blocks (≈ 36 min at target), 2026 | reported by exchanges and swap services; **secondary sources only**, no primary record found (`research/crosschain/README.md`, "Monero timing and reorg: secondary sources only. Flagged.") | SOURCES.md row "Monero timing" |
-| `T1_MIN` | 400 DERO blocks (≈ 2 h) after the lock; Bob's companion sets `t1` = lock + 420 by default, and Alice's refuses a `t1` more than 1,200 blocks (≈ 6 h) out | Alice's whole path has to fit inside it: see the budget below. The 20 blocks of slack are there because Alice reads the lock a block or two after Bob chose `t1` and measures it against the same floor; the ceiling stops a maker holding her XMR against a deadline months away | `tools/xmrswap/swap.go:24, 44, 99`; a design margin, not a measured interval |
+| `T1_MIN` | 400 DERO blocks (≈ 2 h) after the lock; Bob's companion sets `t1` = lock + 420 by default, and Alice's refuses a `t1` further out than her trade's tier's T1Max: the tier's quote plus 60 blocks, 480 (≈ 2.4 h) at the lowest tier and 537 at 40 confirmations (MT-B32; it was 1,200 for every trade) | Alice's whole path has to fit inside it: see the budget below. The 20 blocks of slack are there because Alice reads the lock a block or two after Bob chose `t1` and measures it against the same floor; the ceiling stops a maker holding her XMR against a deadline months away | `tools/xmrswap/swap.go:24, 44, 99`; a design margin, not a measured interval |
 | `T2_MIN` | T1 + 400 blocks (≈ 2 h more), and no more than T1 + 1,200 | Bob's refund window; long enough that a Bob who is merely offline for an hour is not punished | `tools/xmrswap/swap.go:25, 45` |
-| gate deadline G | 100 blocks (≈ 30 min) before T1 | Alice treats a `k_b` reaching her at or after `t1 − G` as never received, and Bob releases none that late: suppressing her Claim after a late gate must then last G blocks. 100 is the study's assumed value (operator decision 5) | `tools/xmrswap/swap.go:64`; `docs/ATOMIC_SWAP_STUDY.md` §2.1 U2 |
+| gate deadline G | 100 blocks (≈ 30 min) before T1 | Alice treats a `k_b` reaching her at or after `t1 − G` as never received, and Bob releases none that late: suppressing her Claim after a late gate must then last G blocks. 100 is the study's value, re-confirmed by the operator on 2026-09-12 (decision 5, MT-J04; the first answer was 30) | `tools/xmrswap/swap.go:64`; `docs/ATOMIC_SWAP_STUDY.md` §2.1 U2 |
 | stipend | 14,016 atomic units (0.14016 DERO) | a Claim at its fee (304 storage gas measured on the DVM, + 200) and a Punish at 3,000, each doubled twice by the re-send policy: (3,000 + 504) × 4. A walker keeps it: it is the maker's cost on every swap | `tools/xmrswap/swap.go:71-76`; `tests/htlc_test.go` `TestHtlcClaim` |
-| g2, the Punish window | 4,800 blocks (≈ 24 h) after T2, **pending operator decision MT-J13** | an `htlc.bas` v3 install argument: Punish in [T2, T2 + g2), the maker's Reclaim from T2 + g2. It is the taker's floor (`-g2-min`): she refuses an install with less. Her companion sends no Punish from T2 + g2 − (11 + 8 + margin). Below about 19 + margin blocks no Punish can go out and be stable in time | `tools/xmrswap/mainnet_profile.json`; `docs/HTLC_V3_COMPANION_NOTES.md` §7 |
+| g2, the Punish window | 4,800 blocks (≈ 24 h) after T2, as the operator answered on 2026-09-12 (MT-J13) | an `htlc.bas` v3 install argument: Punish in [T2, T2 + g2), the maker's Reclaim from T2 + g2. It is the taker's floor (`-g2-min`): she refuses an install with less. Her companion sends no Punish from T2 + g2 − (11 + 8 + margin). Below about 19 + margin blocks no Punish can go out and be stable in time | `tools/xmrswap/mainnet_profile.json`; `docs/HTLC_V3_COMPANION_NOTES.md` §7 |
 | contract bounds | `now + 1 < t1 < t2 ≤ now + 1,000,000`, and since v3 `t1 ≥ now + w1min`, `t2 ≥ t1 + w2min` at the Lock's execution height (install arguments, 400 and 400 at the profile) | the contract cannot know Monero's state; it enforces ordering and the minimum widths (MT-A03(a)), and the companion's own floors apply on top. DERO mines a Lock at most 10 blocks after it is built (the companion counts 11, one block conservative) and the daemon's estimate runs at height 0, so Bob's companion accepts no t1 width below max(T1_MIN, w1min + 11) = 411 and builds no Lock from t1 − w1min − 10. 411 is the contract's least with no slack: at exactly 411 the Lock can be built only at the height the windows were decided at, so one block arriving before the Lock reads the height makes his companion refuse (nothing is sent), and Alice's first-sight check leaves the Lock 11 blocks to be mined and read. The default of 420 is what leaves room: 10 heights to build at, 20 blocks for her check | build spec §3.A; `tools/xmrswap/dero.go` `lockCutoff` |
 
 **The mainnet profile** (MT-B16, BL-27). Every policy number above lives in one file,
-`tools/xmrswap/mainnet_profile.json`: T1Min 400, the default t1 420, T1Max 1,200, T2Min 400, the default T2 − T1 400,
+`tools/xmrswap/mainnet_profile.json`: T1Min 400, the default t1 420, T1Max per confirmation tier (the tier's quote plus 60 blocks: 480, 480 and 537), T2Min 400, the default T2 − T1 400,
 T2Max 1,200, the confirmation floor 20 and its tiers, G 100, k 2 and the stipend floor 14,016. The companion's defaults
 are generated from it, and `profile_test.go` fails if the file, the generated constants and the defaults ever disagree.
 The same test checks the study's t1 rule at every tier: t1 − lock ≥ the waits before Alice's XMR lock + the expected
@@ -237,13 +237,22 @@ low:
 | 30 | 398.9 | 390 | 420 |
 | 40 | 476.7 | 467 | 477 |
 
-Three values wait on the operator, and the file marks each: G (MT-J04; the operator answered 30, and 100 is kept as
-recommended), the confirmation floor and the notional thresholds of the 30 and 40 tiers (MT-J03; 10 only after
-BL-30), and T1Max, T2Max and T2 − T1 (MT-J05). Answering one is a one-line edit to the file, then `go generate
-./xmrswap`. What each answer does: G = 30 brings every tier inside the default 420 (249, 329 and 407 blocks) and makes
-a suppressed Claim cost the maker 9 minutes instead of 30; a 10-confirmation tier needs 236 blocks at G = 100; T1Max
-can come down to 477 at G = 100 with tiers up to 40, or to 420 at G = 30, and no lower without dropping the 40 tier;
-T2 − T1 = 1,200 is already inside T2Max.
+The operator's answers are in the file, with their dates:
+- G stays 100 (MT-J04, re-confirmed 2026-09-12; the first answer was 30);
+- g2 is 4,800 (MT-J13, 2026-09-12);
+- T2 − T1 is 400 (MT-J05, window (a));
+- T1Max is per tier (MT-J05, ceilings (b), built as MT-B32): each tier's quote plus a slack of 60 blocks.
+
+The slack covers a maker who quotes at k = 3 at every tier, since one more σ is at most 43 blocks (at 40
+confirmations), and it adds at most 18 minutes to the taker's wait before her first exit. A maker who needs a longer t1
+for a large trade raises that tier's T1Max in the file explicitly, with the reason; `profile_test.go` refuses a raise
+without one.
+
+Two values still wait on the operator, and the file marks each: the confirmation floor with the notional thresholds of
+the 30 and 40 tiers (MT-J03; 10 only after BL-30), and T2Max, which the MT-J05 answer does not name. Answering one is a
+one-line edit to the file, then `go generate ./xmrswap`. What they would do: a 10-confirmation tier needs 236 blocks
+at G = 100, and T2 − T1 = 1,200 is already inside T2Max. G = 30, the first answer to MT-J04, would have brought every
+tier inside the default 420 (249, 329 and 407 blocks).
 
 **Alice's budget inside T1, at target rates.** Bob's lock reaches stable depth: 8 DERO blocks, 144 s. Her XMR
 transaction is mined: one Monero block expected, 120 s. Twenty confirmations, the default: 2,400 s. Bob's watcher notices and
@@ -610,7 +619,10 @@ name further DERO nodes with `-daemon`, and she locks no XMR until every one sho
 contract — same terms, open, inside her policy by its own height. A node that shows other terms makes her refuse;
 one that shows no lock makes her wait until her budget refuses it (`tools/xmrswap/swap.go` `witnessCheck`;
 `TestALyingDeroNodeBlocksTheXmrLock`). It moves the trust from one node to all of them, and only if they are run by
-different people. For Bob's Monero side it is not built.
+different people. For Bob's Monero side it is not built. What his companion can see from one node is tested (MT-G05,
+`TestALyingMonerodOpensNoGateWhereTheLieShows`): answers that do not hold together, or break a rule of Monero's, keep
+the gate shut. A node that lies consistently opens it (`TestALyingMonerodThatAgreesWithItselfOpensTheGate`); that is
+this row's residual, T6, as `docs/CROSS_CHAIN_TRUST_MODEL.md` §5 states it.
 
 **R19. Heights are not clocks.** T1 and T2 are DERO heights; Alice's wait is Monero confirmations; the two are
 coupled only through wall time. If DERO blocks run fast for an hour, Alice's two hours are shorter than she

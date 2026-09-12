@@ -89,6 +89,8 @@ type run struct {
 	bobRestarts, aliceRestarts int
 	stepErrors                 int             // non-fatal errors a Step returned (an rpc "timeout", a rename the OS refused): each is retried by the next Step
 	reached                    map[string]bool // every "role|phase" either side saved, as the crash hook saw it
+	// resend is both sides' ResendAfter; 0 is a second (resendAfter)
+	resend time.Duration
 }
 
 func newRun(t *testing.T, p plan) *run {
@@ -152,7 +154,17 @@ func (r *run) config(role string) Config {
 		T1Min: testT1Min, T2Min: testT2Min, T1Delta: testT1Delta, T2Delta: testT2Delta, Confirmations: testConfs, StableBlocks: testStable,
 		ClaimMargin: testClaimMargin, GateMargin: testGateMargin, GateDeadline: testGateDeadline, LockSettleBlocks: 2, SweepWaits: testSweepWaits,
 		Stipend: testStipend, StipendMin: testStipend, StipendSettleBlocks: 3, G2Min: testG2,
-		Poll: 3 * time.Millisecond, ResendAfter: time.Second, Log: r.logf}
+		Poll: 3 * time.Millisecond, ResendAfter: r.resendAfter(), Log: r.logf}
+}
+
+// resendAfter is ResendAfter for both sides: a second unless the test chose. A repeat is timed by the wall clock, so a
+// test whose outcome must not depend on the machine's speed chooses one end of it: a repeat on every step, or none
+// (X-19).
+func (r *run) resendAfter() time.Duration {
+	if r.resend > 0 {
+		return r.resend
+	}
+	return time.Second
 }
 
 // stipendPaid is whether the maker's stipend (Path 0) is on the chain yet.
@@ -654,14 +666,16 @@ func TestEveryExitWithTheLongestExecutionDelay(t *testing.T) {
 }
 
 // TestHappyPathWithoutCrashes is the plain swap: one lock, one transfer, one gate, one claim, one sweep, and
-// each side reads the other's share off the chain.
+// each side reads the other's share off the chain. No message is repeated (X-19): a repeat is timed by the wall
+// clock, and the count of gates below would otherwise depend on how fast the machine runs the swap.
 func TestHappyPathWithoutCrashes(t *testing.T) {
 	r := newRun(t, plan{scenario: "happy", seed: 7})
+	r.resend = time.Hour
 	r.drive()
 	r.check()
 	r.expectExit(LockClaimed)
 	bob := r.loadState("bob")
-	if bob.Phase != "swept" || len(bob.Sweep.Txs) != 1 || r.bobW.sweeps != 1 || r.sweepChecks != 1 || r.gateSends < 1 || r.bobRestarts != 1 || r.aliceRestarts != 1 {
+	if bob.Phase != "swept" || len(bob.Sweep.Txs) != 1 || r.bobW.sweeps != 1 || r.sweepChecks != 1 || r.gateSends != 1 || r.bobRestarts != 1 || r.aliceRestarts != 1 {
 		t.Fatalf("bob %s sweeps %v (%d calls, %d checked), gate sends %d, restarts %d/%d", bob.Phase, bob.Sweep.Txs, r.bobW.sweeps, r.sweepChecks, r.gateSends, r.bobRestarts, r.aliceRestarts)
 	}
 	// the gate went out from the phase that decided it and was not repeated after the claim (§5.D)
@@ -993,8 +1007,17 @@ func TestAliceRefusesTermsBelowPolicy(t *testing.T) {
 		r.step("alice")
 		r.chain.Advance(1)
 	}
+	// nothing of hers went out: every message on the channel is the maker's offer, however many times the wall clock
+	// let him repeat it (X-19)
 	alice := r.loadState("alice")
-	if alice.Phase != "refused" || len(r.sent) != 1 || r.sent[0].Kind != KindOffer {
+	offers := 0
+	for _, m := range r.sent {
+		if m.Kind != KindOffer {
+			t.Fatalf("alice %s, and a %s message went out", alice.Phase, m.Kind)
+		}
+		offers++
+	}
+	if alice.Phase != "refused" || offers == 0 {
 		t.Fatalf("alice %s; messages %d", alice.Phase, len(r.sent))
 	}
 }

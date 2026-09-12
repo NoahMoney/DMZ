@@ -45,8 +45,10 @@ const (
 	// to a million blocks out and the floors above say nothing about the top, so without a ceiling the taker's
 	// XMR can be locked against a t1 months away with no exit of her own before it: she cannot claim without
 	// k_b, she cannot refund, and Punish is only at t2, so the maker holds a free option on her coins for as
-	// long as he named. Three times the floor is wide enough for every honest delay at 18 s blocks (about six
-	// hours) and short enough that the option is worth little.
+	// long as he named. T1Max is per confirmation tier (MT-B32, the operator's answer to MT-J05): the tier's quote
+	// plus the profile's slack, 480 blocks at the lowest tier, where every trade is while no tier's threshold is set.
+	// It was three times the floor, 1,200, before. DefaultT1Max is the lowest tier's; a Config that sets none gets
+	// its trade's tier's (withDefaults, TierFor). T2Max stays 1,200.
 	DefaultT1Max uint64 = profileT1Max
 	DefaultT2Max uint64 = profileT2Max
 	// DefaultSweepWaits is how many passes the sweep gives a joint wallet that shows nothing spendable before
@@ -60,8 +62,9 @@ const (
 	// after t1 − G as never received, and waits for Bob's refund or t2 instead of claiming. Her Claim carries s_a
 	// in the clear into a mempool ordered by fee per byte, so a Bob who releases the gate late and keeps her
 	// Claim out of the chain until t1 can read s_a, sweep the XMR, and refund; G is how many blocks of
-	// suppression that costs him. 100 is the study's assumed value (operator decision 5), not a measurement; an
-	// honest gate arrives near block 150 of the default 420.
+	// suppression that costs him. 100 is the study's value, not a measurement; the operator answered 30 and, asked to
+	// re-confirm, confirmed 100 on 2026-09-12 (MT-J04, decision 5). An honest gate arrives near block 150 of the
+	// default 420.
 	DefaultGateDeadline uint64 = profileGateDeadline
 	// DefaultFixedFee is what Refund, Punish and Reclaim are sent at (NewDeroRPC's FixedFee): the daemon's estimator
 	// runs a contract at height 0, where all three are refused, so none can be estimated.
@@ -86,8 +89,8 @@ const (
 	// docs/audit/FINDINGS_2026-09-10.md XMR-01).
 	DefaultFeeReserve uint64 = DefaultFixedFee<<2 + 1000
 	// DefaultG2Min is the taker's floor on the deployment's g2, the length of her Punish window [t2, t2 + g2)
-	// (htlc.bas v3, MT-J13): she refuses an install whose g2 is shorter. It is the profile's g2, pending the
-	// operator's decision.
+	// (htlc.bas v3, MT-J13): she refuses an install whose g2 is shorter. It is the profile's g2, 4,800 blocks, as the
+	// operator answered on 2026-09-12.
 	DefaultG2Min uint64 = profileG2
 )
 
@@ -185,7 +188,7 @@ func (c Config) withDefaults() Config {
 	// same floor, so the maker adds slack or his own lock is refused
 	def(&c.T1Delta, c.T1Min+(profileT1Default-profileT1Min))
 	def(&c.T2Delta, c.T2Min+(profileT2MinusT1-profileT2Min))
-	def(&c.T1Max, DefaultT1Max)
+	def(&c.T1Max, TierFor(c.AmountXmr).T1Max) // MT-B32: the ceiling of the trade's own confirmation tier
 	def(&c.T2Max, DefaultT2Max)
 	def(&c.Confirmations, DefaultConfirmations)
 	def(&c.StableBlocks, DefaultStableBlocks)
@@ -237,6 +240,9 @@ type Swap struct {
 	frozenWarned bool
 	// scanWarned: the operator has been told once that the joint wallet holds nothing spendable yet.
 	scanWarned bool
+	// inconsistentWarned: the operator has been told once that the view wallet listed a payment its own chain cannot
+	// hold (MT-G05).
+	inconsistentWarned bool
 	// witnessWaiting is the last reason a witness node gave the taker to wait before her XMR lock, said once (MT-B09).
 	witnessWaiting string
 	// blindWarned: the operator has been told once that the contract cannot be read and the refund goes out blind.
@@ -304,6 +310,12 @@ func newSwap(role string, cfg Config, st *State, dero Dero, xmr Wallet, prover P
 	// less leaves no height in [t1, t2) at which one can be sent and still execute before t2
 	if role == "bob" && cfg.T2Delta <= DeroTxValidity {
 		return nil, fmt.Errorf("a t2 − t1 of %d leaves no height at which a Refund can go out and execute before t2: one built at h executes by h + %d, so t2 − t1 must be more than %d", cfg.T2Delta, DeroTxValidity, DeroTxValidity)
+	}
+	// X-23: the taker holds the maker to the same rule. A lock whose t2 − t1 leaves him no height to refund at leaves
+	// her XMR no way back but a Punish or his Reclaim, so her floor on t2 − t1, at the offer and at each sight of the
+	// lock, is never below DeroTxValidity + 1, whatever T2Min says
+	if role == "alice" && cfg.T2Min <= DeroTxValidity {
+		cfg.T2Min = DeroTxValidity + 1
 	}
 	if role == "alice" && punishCutoff(0, cfg.G2Min, cfg.ClaimMargin) == 0 {
 		return nil, fmt.Errorf("a g2 floor of %d leaves no block in which a Punish can go out and be stable before t2 + g2 (it needs more than %d + %d + the claim margin %d)", cfg.G2Min, DeroTxValidity, DefaultStableBlocks, cfg.ClaimMargin)
@@ -419,6 +431,17 @@ func (s *Swap) flush(ctx context.Context) error {
 	s.cfg.Log("%s: sent %s", s.st.Role, m.Kind)
 	s.st.LastSentAt = time.Now()
 	return nil
+}
+
+// stopRepeatingGate ends the repeat of k_b when the maker leaves gate_sent for his refund. From t1 htlc.bas refuses her
+// Claim, so the gate is of no use to her any more, and repeating it would only put k_b on the channel again while he
+// refunds. Without this the repeat went on for as long as ResendAfter, a wall-clock interval, allowed: a swap that
+// ended within it (a fast machine) sent the gate once, and one that did not (a loaded machine) sent it again from
+// refund_window (X-19). claimSeen ends it the same way on the other exit.
+func (s *Swap) stopRepeatingGate() {
+	if s.st.LastSent != nil && s.st.LastSent.Kind == KindGate {
+		s.st.LastSent, s.st.LastSentAt = nil, time.Time{}
+	}
 }
 
 // recv waits up to `wait` for the message the phase expects. Repeats of consumed kinds are dropped; anything
@@ -889,6 +912,7 @@ func (s *Swap) confirmedAtJoint(ctx context.Context) (sum, h uint64, counted []s
 	if err != nil {
 		return 0, 0, nil, err
 	}
+	seen := map[string]bool{}
 	for _, t := range in {
 		// MT-B14, review R6: an output whose transaction carries an unlock_time never counts, whatever its value.
 		// monero 0.18.5.1 unlocks an output only past both its unlock_time and 10 blocks of depth (wallet2.cpp:7308-
@@ -903,7 +927,29 @@ func (s *Swap) confirmedAtJoint(ctx context.Context) (sum, h uint64, counted []s
 			}
 			continue
 		}
-		if t.Confirmations >= s.cfg.Confirmations && t.Unlocked {
+		// MT-G05: one wallet's answers must hold together. This swap's joint address is fresh, so a payment to it at
+		// height 0, or at or below min (the scan this swap asked for starts above min), is not on the chain the wallet
+		// reports. Neither is a second entry for a txid already counted: get_transfers lists a transaction once per
+		// address. Each is a node, or a wallet, saying something its own chain does not; it is left out, and said once.
+		if t.Height == 0 || t.Height <= min || seen[t.TxID] {
+			if !s.inconsistentWarned {
+				s.inconsistentWarned = true
+				s.cfg.Log("bob: the view wallet lists tx %s at the joint address at height %d, which its own chain cannot hold (at height 0, at or below %d where this swap's scan starts, or listed twice): it does not count towards the gate", t.TxID, t.Height, min)
+			}
+			continue
+		}
+		seen[t.TxID] = true
+		if t.Height > h {
+			continue // scanned after the wallet gave its height: it counts on a later pass
+		}
+		// Confirmations are counted no deeper than the wallet's own heights give. h − t.Height is what
+		// monero-wallet-rpc itself reports (its height less the block's), and a node that says more is saying
+		// something its own chain does not.
+		confs := t.Confirmations
+		if d := h - t.Height; d < confs {
+			confs = d
+		}
+		if confs >= s.cfg.Confirmations && t.Unlocked {
 			sum += t.Amount
 			counted = append(counted, t.TxID)
 		}
@@ -1350,10 +1396,12 @@ func (s *Swap) stepBob(ctx context.Context) error {
 				return err
 			}
 			if h >= st.Lock.T1 {
+				s.stopRepeatingGate()
 				return s.save("refund_window")
 			}
 			return nil
 		}
+		s.stopRepeatingGate()
 		return s.save("refund_window")
 
 	case "claimed":
@@ -2043,6 +2091,10 @@ func (s *Swap) stepAlice(ctx context.Context) error {
 			return s.finish("refused", fmt.Sprintf("offer refused: the maker scales %s with %d decimals and this companion with %d, so one of the two amounts is not what its holder thinks", assetName(got.Asset), got.Decimals, want.Decimals))
 		case got.Stipend < s.cfg.StipendMin:
 			return s.finish("refused", fmt.Sprintf("offer refused: a stipend of %d DERO atomic units is below the %d this companion needs to pay for a Claim, and a Punish, without buying DERO from anyone (Path 0)", got.Stipend, s.cfg.StipendMin))
+		case got.T2Delta <= DeroTxValidity:
+			// X-23, MT-B27: the maker's Refund goes out only below t2 − DeroTxValidity, so this window leaves him no height
+			// to send one at. His own companion refuses to offer it; hers refuses it from a maker whose companion does not
+			return s.finish("refused", fmt.Sprintf("offer refused: a t2 − t1 of %d leaves the maker no height at which a Refund can go out and execute before t2 (one built at h executes by h + %d, MT-B27), so the XMR she locks could come back only through a Punish or his Reclaim", got.T2Delta, DeroTxValidity))
 		case got.T1Delta < s.cfg.T1Min || got.T2Delta < s.cfg.T2Min:
 			return s.finish("refused", fmt.Sprintf("offer refused: timelock widths %d/%d below the minimums %d/%d", got.T1Delta, got.T2Delta, s.cfg.T1Min, s.cfg.T2Min))
 		case got.T1Delta > s.cfg.T1Max || got.T2Delta > s.cfg.T2Max:

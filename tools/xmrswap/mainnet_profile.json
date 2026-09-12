@@ -1,12 +1,12 @@
 {
-  "_doc": "The Monero swap's mainnet policy in one place (MT-B16, BL-27). The companion's defaults are generated from this file (go generate ./xmrswap writes profile_gen.go), profile_test.go fails if the two ever differ, and it checks the t1 rule at every confirmation tier. The app's copy of these values, when it has one (today it quotes none), is to be checked against this file too. Heights and widths are DERO blocks of 18 s; confirmations are Monero blocks of 120 s. A value named in pending waits on the operator decision given there: answering it is a one-line edit here, then go generate. w1min, w2min and g2 are htlc.bas v3's install arguments (MT-A03(a), MT-J13): what tools/simdeploy is run with (-htlc-w1min, -htlc-w2min, -htlc-g2); the maker builds no Lock narrower than max(t1_min, w1min + 11) and the taker refuses an install whose g2 is below this one.",
+  "_doc": "The Monero swap's mainnet policy in one place (MT-B16, BL-27). The companion's defaults are generated from this file (go generate ./xmrswap writes profile_gen.go), profile_test.go fails if the two ever differ, and it checks the t1 rule at every confirmation tier. The app's copy of these values, when it has one (today it quotes none), is to be checked against this file too. Heights and widths are DERO blocks of 18 s; confirmations are Monero blocks of 120 s. T1Max is per confirmation tier (t1_max on each tier, MT-B32); a trade's is its tier's, and while no tier's threshold is set every trade is at the lowest. A value named in pending waits on the operator decision given there: answering it is a one-line edit here, then go generate; notes records the answers already given, with their dates. w1min, w2min and g2 are htlc.bas v3's install arguments (MT-A03(a), MT-J13): what tools/simdeploy is run with (-htlc-w1min, -htlc-w2min, -htlc-g2); the maker builds no Lock narrower than max(t1_min, w1min + 11) and the taker refuses an install whose g2 is below this one.",
   "dero_block_seconds": 18,
   "monero_block_seconds": 120,
   "stable_blocks": 8,
   "claim_margin": 8,
   "t1_min": 400,
   "t1_default": 420,
-  "t1_max": 1200,
+  "t1_slack": 60,
   "t2_min": 400,
   "t2_minus_t1": 400,
   "t2_max": 1200,
@@ -18,17 +18,19 @@
   "w2min": 400,
   "g2": 4800,
   "confirmation_tiers": [
-    { "confirmations": 20, "from_piconero": 0 },
-    { "confirmations": 30, "from_piconero": null },
-    { "confirmations": 40, "from_piconero": null }
+    { "confirmations": 20, "from_piconero": 0, "t1_max": 480 },
+    { "confirmations": 30, "from_piconero": null, "t1_max": 480 },
+    { "confirmations": 40, "from_piconero": null, "t1_max": 537 }
   ],
+  "notes": {
+    "gate_deadline": "MT-J04 (decision 5), answered 2026-09-12: 100. The operator answered G = 30 on 2026-09-11 and, asked to re-confirm, confirmed 100 on 2026-09-12; the value the file held stands (MT-B33 needs no change)",
+    "g2": "MT-J13 (G2), answered 2026-09-12: 4,800 blocks (24 h), the contracts engineer's proposal (docs/HTLC_V3_COMPANION_NOTES.md §7). It stays an htlc.bas v3 install argument: tools/simdeploy's -htlc-g2 has no default, and each install names it. It is the Punish window [t2, t2 + g2) and the taker's floor on it. The taker sends no Punish from t2 + g2 - (11 + 8 + claim_margin), which stays as it is (MT-B29, answered 2026-09-12)",
+    "t1_max": "MT-J05 ceilings (b), answered 2026-09-11 and built as MT-B32: each tier's t1_max is the t1 a maker quotes at that tier (the default 420, or the t1 rule's need where that is more: 477 at 40 confirmations) plus t1_slack, 60 blocks (18 min). Why 60: one standard deviation of the tier's Monero path, the rule's unit of spread, is at most 43 blocks (at 40 confirmations), so a maker who quotes at k = 3 instead of k = 2 still fits every tier, and the taker's XMR waits at most 18 minutes longer than the quote before her first exit. No slack is needed for her reading the lock a few blocks late, because she measures t1 - now, which only shrinks. A maker who needs a longer t1 for a large trade raises that tier's t1_max here explicitly, with a t1_max_raised note on the tier saying why; profile_test.go refuses a t1_max other than quote + slack without one. T1Max was 1,200 for every trade before",
+    "t2_minus_t1": "MT-J05 window (a), answered 2026-09-11: 400, as the profile already held"
+  },
   "pending": {
-    "gate_deadline": "pending operator decision MT-J04 (decision 5): the operator answered 30; 100 is kept, as recommended, until the answer is confirmed",
-    "confirmations_floor": "pending operator decision MT-J03 (decision 4): 20 with tiers upward is recommended; allowing 10, disclosed, only after BL-30",
-    "confirmation_tiers": "pending operator decision MT-J03: the notional thresholds of the 30 and 40 tiers wait on the operator and on BL-30; while they are null every trade is at the lowest tier",
-    "t1_max": "pending operator decision MT-J05 (decision 6): the operator answered 'lower toward the default t1 plus slack'; 1,200 is kept until the value is set",
-    "t2_max": "pending operator decision MT-J05 (decision 6): 1,200 is kept",
-    "t2_minus_t1": "pending operator decision MT-J05 (decision 6): (a) 400, as today; (b) up to 1,200",
-    "g2": "pending operator decision MT-J13 (G2): the contracts engineer proposed 4,800 blocks (24 h; docs/HTLC_V3_COMPANION_NOTES.md §7); the operator has not answered. It is the Punish window [t2, t2 + g2) and the taker's floor on it; below 11 + 8 + claim_margin + 1 no Punish can go out and be stable in time"
+    "confirmations_floor": "MT-J03 (decision 4): answered (b) on 2026-09-11, that a maker may also quote down to 10 confirmations, disclosed. That needs BL-30 first (MT-B31), so the floor stays 20",
+    "confirmation_tiers": "MT-J03 with BL-30: the notional thresholds of the 30 and 40 tiers are not set; while they are null every trade is at the lowest tier",
+    "t2_max": "MT-J05: the answer (ceilings (b)) names T1Max only; T2Max stays 1,200 until the operator says otherwise"
   }
 }

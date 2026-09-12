@@ -84,13 +84,40 @@ start_detached() {
 	echo "$pid" >"$DATA/$name.winpid"
 }
 
-# stop_winpid <name>: ends the wsl.exe host of a daemon, if it is still there.
+# stop_winpid <name>: ends the wsl.exe host of a daemon, if it is still there. Only a wsl.exe is stopped. Once its daemon
+# has gone, the pid in the file may since have been given to any other process: the stagenet watchdog restarts monerod
+# in its own WSL session, and the first host then exits.
 stop_winpid() {
 	local name="$1" f="$DATA/$1.winpid" pid
 	[ -f "$f" ] || return 0
-	pid="$(cat "$f")"
-	powershell.exe -NoProfile -NonInteractive -Command "Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1 || true
+	pid="$(tr -dc 0-9 <"$f")"
+	if [ -n "$pid" ]; then
+		powershell.exe -NoProfile -NonInteractive -Command "\$p = Get-Process -Id $pid -ErrorAction SilentlyContinue; if (\$p -and \$p.ProcessName -eq 'wsl') { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }" >/dev/null 2>&1 || true
+	fi
 	rm -f "$f"
+}
+
+# stagenet_watchdog_pid <stagenet dir>: the pid, inside WSL, of the running stagenet watchdog
+# (stagenet-watchdog.sh --run), read from the pid file its launcher wrote. It prints nothing when there is no such file,
+# or when the process is not the watchdog, and never fails.
+stagenet_watchdog_pid() {
+	local f="$1/watchdog.pid" pid
+	[ -f "$f" ] || return 0
+	pid="$(tr -dc 0-9 <"$f")"
+	[ -n "$pid" ] || return 0
+	if wsl_exec cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' ' ' | grep -q 'stagenet-watchdog.sh --run'; then
+		printf '%s\n' "$pid"
+	fi
+	return 0
+}
+
+# stagenet_monerod_alive <stagenet dir>: true when monerod.pid names a live process started with --stagenet.
+stagenet_monerod_alive() {
+	local f="$1/monerod.pid" pid
+	[ -f "$f" ] || return 1
+	pid="$(tr -dc 0-9 <"$f")"
+	[ -n "$pid" ] || return 1
+	wsl_exec cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' ' ' | grep -q -- '--stagenet'
 }
 
 # stagenet_wallet_rpc_pid <binary> <port> [pid]: the pid, inside WSL, of the one process that is the pinned

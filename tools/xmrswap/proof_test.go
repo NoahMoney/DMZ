@@ -25,6 +25,10 @@ import (
 // A pinned prover (NewPinnedProver) is run as its path alone, so it cannot be handed a leading argument: with
 // XMRSWAP_FAKE_PROVER set, the binary answers verify in that mode instead (pinnedFakeMain).
 func TestMain(m *testing.M) {
+	// a copy of this binary named wsl.exe stands in for WSL's launcher (proof_wsl_test.go)
+	if root := os.Getenv("XMRSWAP_FAKE_WSL_ROOT"); root != "" {
+		os.Exit(fakeWSLMain(root, os.Args[1:]))
+	}
 	if mode := os.Getenv("XMRSWAP_FAKE_PROVER"); mode != "" {
 		os.Exit(pinnedFakeMain(mode, os.Args[1:]))
 	}

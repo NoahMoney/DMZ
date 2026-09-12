@@ -261,26 +261,44 @@ func TestTheTakerRefusesAnotherAssetOrScale(t *testing.T) {
 // TestAGateAfterTheDeadlineIsNotUsed: a maker who holds the gate back to t1 − G or later (the setup for suppressing
 // her Claim until t1) gets no Claim at all. The taker waits for his refund, recovers her XMR with s_b, and he gets
 // his DERO back and no XMR.
+//
+// It runs at both ends of the wall clock (X-19). A message is repeated every ResendAfter of wall-clock time, so how
+// many repeats fall inside the swap depends on how fast the machine runs it: none on an idle machine, several on a
+// loaded one. Under load the test once failed, because the maker went on repeating the gate from refund_window and the
+// run's hook refuses a gate from any phase but gate_sending and gate_sent; stopRepeatingGate ends that repeat. It is run
+// once with a repeat on every step, as the slowest machine would make them, and once with none, as the fastest would,
+// so its outcome does not depend on the machine.
 func TestAGateAfterTheDeadlineIsNotUsed(t *testing.T) {
-	r := newRun(t, plan{scenario: "happy", seed: 111})
-	r.bob = startWith(r, "bob", nil)
-	r.bob.cfg.GateMargin = 1 // a maker who releases the gate as late as he likes
-	r.alice = startWith(r, "alice", nil)
-	late := func() bool {
-		t1 := r.loadState("bob").Lock.T1
-		return !(r.stipendPaid() && r.chain.Height()+testGateDeadline < t1)
-	}
-	r.until(600, r.bothDone, late)
-	bob, alice := r.loadState("bob"), r.loadState("alice")
-	if n := r.alice.dero.(*memDero).calls["Claim"]; n != 0 || alice.ClaimTx != "" {
-		t.Fatalf("alice sent %d Claims against a gate at or after t1 − G", n)
-	}
-	if !hasLog(r, "t1 − G") {
-		t.Fatalf("alice did not say why she stopped:\n%s", strings.Join(r.logs, "\n"))
-	}
-	r.expectExit(LockRefunded)
-	if bob.Phase != "refunded" || alice.Phase != "swept" || r.aliceW.transfers != 1 || alice.Revealed != bob.Own.Secret {
-		t.Fatalf("bob %s, alice %s, transfers %d", bob.Phase, alice.Phase, r.aliceW.transfers)
+	for _, c := range []struct {
+		name   string
+		resend time.Duration
+	}{{"a repeat on every step", time.Nanosecond}, {"no repeat", time.Hour}} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRun(t, plan{scenario: "happy", seed: 111})
+			r.resend = c.resend
+			r.bob = startWith(r, "bob", nil)
+			r.bob.cfg.GateMargin = 1 // a maker who releases the gate as late as he likes
+			r.alice = startWith(r, "alice", nil)
+			late := func() bool {
+				t1 := r.loadState("bob").Lock.T1
+				return !(r.stipendPaid() && r.chain.Height()+testGateDeadline < t1)
+			}
+			r.until(600, r.bothDone, late)
+			bob, alice := r.loadState("bob"), r.loadState("alice")
+			if n := r.alice.dero.(*memDero).calls["Claim"]; n != 0 || alice.ClaimTx != "" {
+				t.Fatalf("alice sent %d Claims against a gate at or after t1 − G", n)
+			}
+			if !hasLog(r, "t1 − G") {
+				t.Fatalf("alice did not say why she stopped:\n%s", strings.Join(r.logs, "\n"))
+			}
+			r.expectExit(LockRefunded)
+			if bob.Phase != "refunded" || alice.Phase != "swept" || r.aliceW.transfers != 1 || alice.Revealed != bob.Own.Secret {
+				t.Fatalf("bob %s, alice %s, transfers %d", bob.Phase, alice.Phase, r.aliceW.transfers)
+			}
+			if r.gateSends == 0 {
+				t.Fatal("the maker never released the gate, so this run is not the case the test names")
+			}
+		})
 	}
 }
 

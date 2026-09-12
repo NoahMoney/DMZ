@@ -3,6 +3,7 @@
 package xmrswap
 
 // The mainnet profile's values (MT-B16); swap.go's defaults are these. Edit mainnet_profile.json, then go generate.
+// profileT1Max is the lowest tier's t1_max, every trade's while no tier's threshold is set (MT-B32).
 const (
 	profileDeroBlockSeconds   uint64 = 18
 	profileMoneroBlockSeconds uint64 = 120
@@ -10,7 +11,8 @@ const (
 	profileClaimMargin        uint64 = 8
 	profileT1Min              uint64 = 400
 	profileT1Default          uint64 = 420
-	profileT1Max              uint64 = 1200
+	profileT1Slack            uint64 = 60
+	profileT1Max              uint64 = 480
 	profileT2Min              uint64 = 400
 	profileT2MinusT1          uint64 = 400
 	profileT2Max              uint64 = 1200
@@ -25,7 +27,7 @@ const (
 
 // profileTiers are the confirmation tiers by notional; a nil threshold is one the operator has not set.
 var profileTiers = []ProfileTier{
-	{Confirmations: 20, FromPiconero: profileAmount(0)},
-	{Confirmations: 30},
-	{Confirmations: 40},
+	{Confirmations: 20, FromPiconero: profileAmount(0), T1Max: 480},
+	{Confirmations: 30, T1Max: 480},
+	{Confirmations: 40, T1Max: 537},
 }

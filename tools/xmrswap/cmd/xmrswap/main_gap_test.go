@@ -67,6 +67,23 @@ func TestTheProverIsAnAbsolutePath(t *testing.T) {
 	}
 }
 
+// TestAProverInsideWSLIsNamedByItsCommand (X-17): on Windows the prover may be the build inside WSL, named as
+// `wsl.exe [-d <distribution>] -e <absolute path>`. The command line accepts that form on mainnet too, with no
+// -prover-sha256, since the binary itself is what is hashed before every run. Any other form of it is refused before
+// anything is contacted.
+func TestAProverInsideWSLIsNamedByItsCommand(t *testing.T) {
+	for _, v := range []string{"wsl.exe -e /opt/dmz/proof-xmr", "wsl.exe -d Ubuntu-24.04 -e /usr/local/bin/proof-xmr"} {
+		if _, err := parseOptions("bob", set(mainnetArgs(t), "-prover", v), env(mainnetEnv)); err != nil {
+			t.Fatalf("%q on mainnet: %v", v, err)
+		}
+	}
+	for _, v := range []string{"wsl.exe -e proof-xmr", "wsl.exe /opt/dmz/proof-xmr", "wsl.exe -e /opt/dmz/proof-xmr verify", "wsl.exe -u root -e /opt/dmz/proof-xmr"} {
+		if _, err := parseOptions("bob", set(baseArgs(t), "-prover", v), env(nil)); err == nil || !strings.Contains(err.Error(), "-prover") {
+			t.Fatalf("%q: %v", v, err)
+		}
+	}
+}
+
 // TestMainnetTakesCredentialsFromTheEnvironmentOnly (GAP-008, GAP-009): on mainnet both wallet logins are required
 // and come from the environment; on the command line, where every local process can read them, they are refused.
 // Off mainnet the command line is still accepted.

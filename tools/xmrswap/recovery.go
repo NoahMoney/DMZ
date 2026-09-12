@@ -222,8 +222,9 @@ func UnregisterWake(name string) error {
 //
 //   - windows: a Task Scheduler task for this user (Register-ScheduledTask, no elevation), triggered once at `at` and
 //     set to WakeToRun, which starts the resume command in a console. The power plan must allow wake timers.
-//   - linux: a systemd user timer (systemd-run --user --on-calendar) with WakeSystem=yes. Not run on the build's own
-//     machine, which is Windows; where there is no systemd-run, nothing is registered and the reason is returned.
+//   - linux: a systemd user timer (systemd-run --user --on-calendar) with WakeSystem=yes. Registered, found and removed
+//     inside WSL's systemd 255 on 2026-09-12 (X-23); stopping the transient timer unloads it and its service. Where
+//     there is no systemd-run, nothing is registered and the reason is returned.
 //   - darwin: nothing. macOS has no unprivileged wake from sleep: `pmset schedule wake` needs root, and a launchd
 //     agent's calendar trigger does not wake a sleeping Mac. The companion does not ask for root.
 //   - anything else: nothing, and the reason.

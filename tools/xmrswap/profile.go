@@ -6,16 +6,32 @@ import "math"
 
 // ProfileTier is one confirmation tier of the mainnet profile (MT-B16, U7): trades from FromPiconero up wait for
 // Confirmations before the gate. A nil FromPiconero is a threshold the operator has not set (MT-J03); until it is,
-// every trade is at the lowest tier.
+// every trade is at the lowest tier. T1Max is the most t1 − now a taker accepts at the tier (MT-B32): the tier's quote
+// (TierT1) plus the profile's slack, unless the profile raises it for the tier explicitly.
 type ProfileTier struct {
 	Confirmations uint64
 	FromPiconero  *uint64
+	T1Max         uint64
 }
 
 func profileAmount(v uint64) *uint64 { return &v }
 
 // Tiers are the profile's confirmation tiers, lowest first.
 func Tiers() []ProfileTier { return append([]ProfileTier(nil), profileTiers...) }
+
+// TierFor is the tier a trade of amountXmr piconero is at: the highest whose threshold is set and at or below the
+// amount, or the lowest when none is.
+func TierFor(amountXmr uint64) ProfileTier { return tierFor(profileTiers, amountXmr) }
+
+func tierFor(tiers []ProfileTier, amountXmr uint64) ProfileTier {
+	t := tiers[0]
+	for _, x := range tiers[1:] {
+		if x.FromPiconero != nil && *x.FromPiconero <= amountXmr {
+			t = x
+		}
+	}
+	return t
+}
 
 // companionWaitBlocks is how many DERO blocks the companion lets pass between the maker's lock and the taker's XMR
 // lock: the lock mined (1) and stable (the stable depth), then the maker's stipend mined (1) and stable (the stable

@@ -234,6 +234,26 @@ headers below, floor nBits `1c00802e` × 16, newest header at most 1 h old), aga
 the difficulty rule needs (`docs/ZCASH_HEADER_VERIFICATION.md` §4). It proves work, not the network's consensus (§2
 there). The gate is off by default until it has run against the Zcash testnet node.
 
+**The Monero maker's row, as tested (MT-G05).** Bob's companion reads the taker's XMR from one `monerod`, through his
+own wallet-rpc, and releases the gate only on what that wallet shows (`confirmedAtJoint`, `tools/xmrswap/swap.go`).
+
+Where the lie shows in the answers themselves, the gate stays shut. The companion refuses:
+- a payment the wallet's unlocked balance does not hold;
+- one frozen by an `unlock_time`, or one the wallet calls locked;
+- confirmations deeper than the wallet's own heights give;
+- a payment above the wallet's height (not counted until the wallet reaches it), at height 0, or dated before this
+  swap's scan began;
+- one payment listed twice;
+- a wallet under the joint name that holds another address;
+- a payment another swap has already counted.
+
+The tests are `TestALyingMonerodOpensNoGateWhereTheLieShows` and `TestOneMoneroPaymentOpensOneGate`.
+
+A node that lies consistently, showing a payment at the right depth, unlocked and in the balance, looks like the chain
+to a companion that reads one node, and the gate opens (`TestALyingMonerodThatAgreesWithItselfOpensTheGate`). That
+residual is T6 as the table states it. No second Monero source is read and no Monero proof of work is checked, so the
+defence is the node itself: on mainnet `-monerod` is loopback, the maker's own (GAP-010).
+
 **What reduces T6, strongest first:**
 1. **Run your own nodes.** This is the companions' default, and the trust statement's.
 2. **Check the proof of work yourself.** For Zcash, check Equihash and the Merkle path before revealing `s` or funding.
