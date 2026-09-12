@@ -3629,3 +3629,98 @@ Phase X of `docs/MAINNET_TODO.md`:
 - the private DERO testnet's week (X-05; day 7 is 2026-09-19);
 - Reclaim, live (X-08);
 - the operator's re-confirmations and open decisions (X-14).
+
+---
+
+## 2026-09-13 — stage 1a of the mainnet test plan (X-04): the Monero exits pass on `dc1f47e`; the stage does not pass
+
+Stage 1a is the DERO simulator with regtest Monero and Zcash (`docs/MAINNET_TEST_PLAN.md` §2). It started on
+`fbe3901` on 2026-09-12. Midway, the coordinator narrowed it for lack of compute: run only the Monero exits (T1, T2, T3,
+T3b, T3c) on main at `bd6f5c5` or later, with `simhtlc -regtest` and the pinned prover, and record every other
+remaining test as not run. The Monero exits were therefore run again on `dc1f47e`, and those are the runs that count.
+The evidence is in `research/stage1/`: one log per test or run, machine paths scrubbed, no key.
+
+### The tests
+
+| Test | Result | Commit | Evidence (`research/stage1/`) |
+|---|---|---|---|
+| T0 — network gate | **passed** | `fbe3901` | `t0-network-gate.log`: `UI TEST OK (mainnet-shaped)`; Wrap opens "not offered on this network", then how XMR and ZEC settle; one button (the ZEC board); the banner names both networks; no request left the device; all 22 wallets unchanged |
+| T1 — Claim exit | **passed** | `dc1f47e` | `t1-t2-t3-t3b-monero-exits-regtest-dc1f47e.log` (lock 0). Earlier on `fbe3901`: the fake wallet (`t1a-…`), regtest (`t1b-…`), and the token leg the plan asks for once, BRW `b11e7a24…` (`t1c-…`, the first run with a real token as the DERO leg, MT-B04; not repeated on `dc1f47e`) |
+| T2 — Refund exit | **passed** | `dc1f47e` | the same log (lock 1): Refund in block 3180, in [t1 3178, t2 3198), built at 3181 below the cutoff 3187, counted once stable; alice swept her XMR back. `fbe3901`: `t2-refund-regtest-fbe3901.log` |
+| T3 — Punish exit | **passed** | `dc1f47e` | the same log (lock 2): Punish at 3262, in [t2 3261, t2 + g2 3291); 1 regtest XMR stranded at the joint address, recorded. `fbe3901`: `t3-…` |
+| T3b — Reclaim | **passed** | `dc1f47e` | the same log (lock 3): bob back at his cutoff sent no Refund, Reclaimed at 3373 ≥ t2 + g2 3372; `sha256(xb_3)` = `hb_3`; alice swept. `fbe3901`: `t3b-reclaim-regtest-fbe3901.log` |
+| T3c — Punish deadline | **passed** | `dc1f47e` | `t3c-punish-deadline-cli-dc1f47e.log`: alice restarted at her cutoff 3478 sent no Punish (`await_reclaim`, `punishTx` empty); a Punish sent by hand at t2 + g2 was mined in block 3506 and refused (`st_4` stayed 0, the sender lost exactly its 3,000 fee); bob's Reclaim, alice's sweep |
+| T4 — ZEC Claim exit | not run: skipped for time | — | no §1 row blocks it |
+| T5 — ZEC Refund exit | not run: skipped for time | — | no §1 row blocks it |
+| T6 — NFA purchase | **passed** | `fbe3901` | `t6-nfa-purchase.log`: the 1,000 split 945 / 50 / 5 to the unit; `owed` 5 until Pay out, then `op_` 5 and the treasury +5 |
+| T7 — token trade | **passed** | `fbe3901` | `t7-token-trade.log`: both UI passes, `simsmoke`, `simlaunch` (second attempt; the first ran out of DERO in wallet 14, below); the private buy ring 16, no signer, `tc` unmoved; the chart's price point equals `rd`/`ra` |
+| T8 — timeouts (a, b, c) | not run: skipped for time | — | no §1 row blocks it |
+| T9 — restarts | not run: skipped for time | — | no §1 row blocks it; the restarts made inside T3c are in its log, not claimed as T9 |
+| T10 — duplicated messages | not run: skipped for time | — | no §1 row blocks it |
+
+Every run that ran was reconciled as §4 says: the chain (`DERO.GetTransaction`, `DERO.GetSC`, monerod
+`/get_transactions`), each wallet (DERO `GetBalance` and `GetTransfers`, Monero `get_balance`, `get_transfer_by_txid`,
+and the joint spend and view wallets), each companion's state file and `xmrswap status`, and, where one exists, the
+app's screen. Every txid on every chain is in the logs. No `xmrswap-*` task was left after any run. The Monero swap has
+no screen, and the simulator wallets 30006/30007 are not an XSWD wallet, so no app screen covered T1–T3c.
+
+**Stage 1a did not pass.** §2 needs every unblocked test to have run: T4, T5, T8, T9 and T10 are blocked by no row of
+§1 and were not run. Every run that did run reconciled with no unexplained difference.
+
+### Findings (not fixed)
+
+- **F-1 · `xmrswap status` prints the read height as the lock's** (`tools/xmrswap/status.go:56-57`): "lock 0 is claimed
+  at height 2644" for a Claim mined at 2628. The height is `d.Height(ctx)`, the tip when the status ran.
+- **F-2 · "on mainnet" for a regtest swap** (`status.go:32`): it prints `terms.net`, which `simhtlc -regtest` records as
+  `mainnet` (regtest's address form); the fake wallet's runs read "on stagenet".
+- **F-3 · the maker's stipend at "height 0"** (`status.go:34`): it prints `Stipend.Height`, which the maker never sets
+  (he records `attemptHeight`).
+- **F-4 · "claimed the DERO" for a token leg** (`tools/xmrswap/swap.go:1822`): the taker's outcome after claiming
+  1,000 BRW units.
+- **F-5 · a Reclaim's txid lost to a kill** (T3c): killed after sending the Reclaim and before recording it, the
+  maker's restarted companion ended "reclaimed: tx (reclaimed; txid not recorded)", and his state names no
+  `reclaimTx`. Exactly one Reclaim exists; the txid is only in his wallet's history and on the chain.
+- **A restart right after a hard kill is refused** (T3c): "`<state>.lock` was touched 14s ago: another companion is
+  running on this state". A dead process's lock file is as fresh as a live one's for some seconds. The guard is right
+  to fail closed; the plan's T9 must say to restart once the lock is stale.
+
+None changes a companion's decision; F-1 to F-3 and F-5 make the §4 status and state readings wrong or incomplete.
+
+### Plan corrections (`docs/MAINNET_TEST_PLAN.md` at `dc1f47e`)
+
+- `:69` — `simhtlc`'s default is `-t2 20`, not 16 (`-h` at `fbe3901` and `dc1f47e`); `:375-376` — so Bob's Refund can go
+  out from t1 to t1 + 8 (cutoff t2 − 11 = t1 + 9), not t1 + 4.
+- `:470` — T3c's hand-sent Punish needs `-H 'Content-Type: application/json'`: without it the DERO wallet RPC answers
+  HTTP 415 and sends nothing (shown in the T3c log). The simulator's wallets have no login, so `-u <login>` does not
+  apply there.
+- `:43`, `:316-318` — stale at `dc1f47e`: `xmrswap -prover` takes `wsl.exe [-d <distribution>] -e <path inside WSL>`
+  and pins that binary, so no wrapper and no `-prover-sha256` are needed.
+- `:428` — a taker restarted at t2 + g2 itself (as `simhtlc -paths reclaim` does) goes from `await_refund` to
+  `refund_seen` and never passes through `await_reclaim`. She enters `await_reclaim` only when restarted in
+  [her cutoff, t2 + g2) with the lock open (T3c, `:466`).
+- `:477-483` and T3c step 4 — T3b's step 3 restarts Bob before t2, but in T3c he must stay stopped until the
+  hand-sent Punish at t2 + g2, so he comes back past t2 + g2 and Reclaims at once.
+- `:637-639` (T7) — `tools/uitest/run.sh` takes no UI lock (it was run under `tools/withlock.sh ui`). Its XSWD wallet is
+  simulator wallet 14, which is also one of `simlaunch`'s buyers (12–15, 3 DERO each), and the pass mints a 5-DERO
+  Founders Pass. Nothing in the plan or §5 funds wallets 14 and 15, and `simlaunch`'s first attempt stopped on
+  "Insufficent funds".
+- `:511` (T4) — `TestRegtestCLI` appends to `research/regtest/zecswap-cli.log` (`tools/zecswap/regtest_cli_test.go:17`), a
+  prior-evidence file, so a stage run writes into it. T4 did not run.
+- `:679` (T9) — "kill the process hard … then run the same command again": once the dead process's lock file is stale.
+- T2, T3 (`:375`, `:399`) give `-fake-monero` for stage 1a; the regtest nodes were used instead (§2 allows either).
+
+### Stage 1b (X-06)
+
+After T3c the coordinator asked for stage 1b on stagenet. Prepared: the stagenet node at its tip (2,206,098), both
+stagenet wallet-rpcs started (`127.0.0.1:38087`, `:38088`) and `xmrswap-stagenet-alice` and `-bob` created at the tip.
+Mining to alice on the node (6 threads, monerod at nice 10) ran from 02:26 to 02:45 and found no block; it was stopped
+when the permission system refused a read of its status. The original brief also said to leave the stagenet monerod
+alone. No stagenet XMR exists, so stage 1b did not run: it needs the operator to approve mining on that node, or
+another source of stagenet XMR. At the profile's floors, T3b and T3c each wait out t2 + g2 = the lock + 5,620 simulator
+blocks, 22–28 hours (§6 T3b).
+
+### NEXT
+
+- T4, T5, T8, T9 and T10 on stage 1a, then the stage's verdict again.
+- F-1 to F-5, and the plan corrections above.
+- Stage 1b, once stagenet XMR can be had.

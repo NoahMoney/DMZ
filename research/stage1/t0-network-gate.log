@@ -1,0 +1,69 @@
+T0 · stage 1a · 2026-09-12 · commit fbe3901 — the app's network gate (no funds)
+==============================================================================
+Plan: docs/MAINNET_TEST_PLAN.md §6 T0 step 1 (steps 2 and 3 are stages 2 and 3 only).
+Machine paths are written <repo>, <tmp>, <playwright>.
+
+What ran
+- The app server already running on 127.0.0.1:8082 (tools/serve -dir ../app), serving app/ at fbe3901. Not restarted.
+- The DERO simulator 127.0.0.1:20000, height 2408 while the pass ran. Not restarted.
+- No XSWD wallet was running (nothing listened on 44326 before or during the pass), so no wallet could be asked.
+- Command, from <repo>, the plan's own, started at below-normal priority:
+    tools/withlock.sh ui env PW_DIR=<playwright> node tools/uitest/ui.mjs http://127.0.0.1:8082/index.html \
+      .sim/ui-stage1a-mainnet --mainnet
+- Playwright 1.62.0 and Chromium 151.0.7922.34, both the pins (tools/uitest/README.md).
+
+Raw output (2026-09-12T12:10:46Z – 12:11:16Z)
+START 2026-09-12T12:10:46Z
+• playwright 1.62.0 (pinned 1.62.0) from <playwright>
+• browser: chromium 151.0.7922.34 (pinned 151.0.7922.34)
+• CSP: inline script blocked · 1 violation report(s) · default-src 'none'; script-src 'self'; style-src 'self' 'uns…
+• 390px, mainnet-shaped config: network mainnet, 0 vault(s)
+• pill "Simulator · 2408" · banner: This build is for mainnet, but the node it reads reports Simulator. What is on screen comes from that node, not from mainnet, and nothing can be signed until the two agre
+• signing gate: This build is for mainnet, but the node it reads reports Simulator. What is on screen comes from that node, not from mainnet, and nothing can be signe
+• mainnet 390px wrap: Wrapped assets Wrapped XMR and ZEC are not offered on this network. Wrapping means real Monero or Zcash held b
+• mainnet 390px home: FLOW · LAST 24 HOURS LIVE 1.77 DERO Settled through 5 markets on this deployment. ACTIVE BLOCKS / H 0 BUY PRES
+• mainnet 390px markets: Markets Compact Hot Volume 24h Change 24h Liquidity FDV Newest Trending New Gainers Losers Graduating Graduate
+• mainnet 390px trade: EXECUTION LIVE Trade Every market this app creates on this network settles against DERO: wrapped XMR and ZEC a
+• mainnet 390px zswap: ZEC swap Buy a DERO-side asset with transparent ZEC, or sell one for ZEC. The DERO leg is a lock in swap.bas;
+• mainnet 390px portfolio: Portfolio WRAPPED ASSETS Wrapped XMR and ZEC are not offered on this network. Wrapping means real Monero or Zc
+• mainnet 390px notice: A MESSAGE FROM THE DEV Read this once Dear users, Please be respectful and kind to each other. This platform i
+• impersonation with no vault: ["XMR","ZEC","XMR",null]
+• requests that left this device at 390px: none
+• 1024px, mainnet-shaped config: network mainnet, 0 vault(s)
+• pill "Simulator · 2408" · banner: This build is for mainnet, but the node it reads reports Simulator. What is on screen comes from that node, not from mainnet, and nothing can be signed until the two agre
+• signing gate: This build is for mainnet, but the node it reads reports Simulator. What is on screen comes from that node, not from mainnet, and nothing can be signe
+• mainnet 1024px wrap: Wrapped assets Wrapped XMR and ZEC are not offered on this network. Wrapping means real Monero or Zcash held b
+• mainnet 1024px home: FLOW · LAST 24 HOURS LIVE 1.77 DERO Settled through 5 markets on this deployment. ACTIVE BLOCKS / H 0 BUY PRES
+• mainnet 1024px markets: Markets Compact Hot Volume 24h Change 24h Liquidity FDV Newest Trending New Gainers Losers Graduating Graduate
+• mainnet 1024px trade: EXECUTION LIVE Trade Every market this app creates on this network settles against DERO: wrapped XMR and ZEC a
+• mainnet 1024px zswap: ZEC swap Buy a DERO-side asset with transparent ZEC, or sell one for ZEC. The DERO leg is a lock in swap.bas;
+• mainnet 1024px portfolio: Portfolio WRAPPED ASSETS Wrapped XMR and ZEC are not offered on this network. Wrapping means real Monero or Zc
+• mainnet 1024px notice: A MESSAGE FROM THE DEV Read this once Dear users, Please be respectful and kind to each other. This platform i
+• impersonation with no vault: ["XMR","ZEC","XMR",null]
+• requests that left this device at 1024px: none
+UI TEST OK (mainnet-shaped)
+EXIT 0 2026-09-12T12:11:16Z
+
+The screenshots, read (they are in <repo>/.sim/ui-stage1a-mainnet/, which git ignores; 14 files, mainnet-390-*.png and
+mainnet-1024-*.png for wrap, home, markets, trade, zswap, portfolio, notice)
+- mainnet-390-wrap.png and mainnet-1024-wrap.png: the screen opens "Wrapped assets" / "Wrapped XMR and ZEC are not
+  offered on this network.", then "HOW XMR AND ZEC SETTLE HERE INSTEAD": Monero "atomic swap for a DERO-side asset",
+  Zcash "transparent ZEC only, by atomic swap", Custodian "none: each chain's own lock". No deposit address, no burn
+  form, no input. The one button is "Open the ZEC swap board". At 1024 the foot reads "Nothing on this screen asks you
+  to sign."
+- The banner under the header, on both widths: "This build is for mainnet, but the node it reads reports Simulator. …
+  nothing can be signed until the two agree". It names both networks. The pill reads "Simulator · 2408" in red.
+- The run ends "UI TEST OK (mainnet-shaped)".
+
+Reconciliation (§4; T0: none of these steps may produce a transaction)
+- Every simulator wallet, 30000–30021: GetBalance before (daemon height 2405) and after (2411), identical on all 22:
+    30000 670118 · 30001 800000 · 30002 1911348 · 30003 716408 · 30004 757772 · 30005 750264 · 30006 210974 ·
+    30007 919330 · 30008 800000 · 30009 800000 · 30010 368422 · 30011 916144 · 30012 1044393 · 30013 776540 ·
+    30014 225719 · 30015 800000 · 30016 800000 · 30017 788916 · 30018 798000 · 30019 797000 · 30020 477268 ·
+    30021 99819 (DERO atomic units)
+- GetTransfers (in, out, min_height 2405) on each of the 22: no entry.
+- The XSWD test wallet was not open during the pass (no listener on 44326), so it could sign nothing.
+- txids: none on any chain.
+- differences: none.
+
+Result: PASSED (stage 1a, step 1). Prior evidence, not this pass: MT-D11, .sim/ui-final-mainnet-0911.

@@ -1,0 +1,519 @@
+T7 · stage 1a · 2026-09-12 · commit fbe3901 — a token trade
+============================================================
+Plan: docs/MAINNET_TEST_PLAN.md §6 T7, stage 1. Machine paths are written <repo>, <tmp>, <playwright>.
+
+Commands (from <repo>; the binaries built with go1.26.8 at fbe3901; everything at below-normal priority)
+  tools/withlock.sh ui env PW_DIR=<playwright> tools/uitest/run.sh
+  cd tools && go run ./simsmoke && go run ./simlaunch
+The plan's UI command is `PW_DIR=<playwright> tools/uitest/run.sh`; it was wrapped in `tools/withlock.sh ui` because
+run.sh does not take the UI lock itself and tools/withlock.sh says the UI pass must never run twice at once. Nothing
+else differs. The app server (127.0.0.1:8082) and the simulator (127.0.0.1:20000) were running and were not restarted.
+
+The wallet the app signs with: vendor/bin/xswdwallet.exe --wallet=.sim/xswd_wallet14.db --password= --daemon=127.0.0.1:20000,
+started for this test and stopped after it. It opened deto1qyyvq8xp22kkzta3g25r8eful0nqsm9jr23522mqfn4xmp89skhkgqqc62nc9,
+the same key as simulator wallet 14 (RPC 30014), so its balance and history are read through 30014.
+
+Funding before the test (setup, not part of T7; plain transfers at ring 2, each read back on chain)
+- 07c6f0b0a5c55725703b95de60929879509d083b19cb48f7e5262339a0fcf245  30015 -> 30014  600,000  fee 121  block 2420
+- 92b34a39b9894713e7b096b61d9816e4a6d0113360d7aeb89a83032dd7a14be9  30016 -> 30006  600,000  fee 121  block 2420
+  (30006 is bob for T1–T3c; the Founders Pass the wallet pass mints costs 500,000, and 30014 held 225,719)
+- after the first simlaunch attempt (below):
+  e9419a52a1148688c1bb8b6dd88a95e44b10a31224edaf0d5a3269a4fcf725d7  30008 -> 30014  400,000  fee 121  block 2471
+  5d07316ed2bd8e2ad8104525875bbf06ab93e2828bd1c78fedd8dfa9a98ed017  30009 -> 30015  400,000  fee 121  block 2471
+
+Results
+- tests/js (amm assertions): 44 of 44 pass.
+- read-only pass: UI TEST OK.
+- wallet pass (launch, published buy, private buy paid to 30006, profile, stake, Founders Pass, a ZEC offer posted and
+  cancelled): UI TEST OK.
+- simsmoke: SIMULATOR SMOKE OK, every call "(matches model)".
+- simlaunch, first attempt (12:22:17Z): stopped at its third buy with "Insufficent funds … Need 3.00000 Actual 2.12549".
+  simlaunch's buyers are wallets 12–15, 3 DERO each, and wallet 14 is the wallet pass's XSWD wallet, which the pass
+  had just brought to 2.12549 DERO (wallet 15 held 1.99879). Not a code defect: the test's own funding. What it left on
+  chain: factory e84c17bd3eb44787c79534815aacc7350eea5f304bd80d778a37766cbd6899dc and launch
+  8bd63c0ba0180c275d0604bd9e878273881d24e078c67f1f56faee3938c9fd9f with two buys (def7bc57…, 85f1958c…), not
+  graduated. Wallets 14 and 15 were funded (above) and simlaunch was run again from the start.
+- simlaunch, second attempt (12:26:59Z): SIMULATOR LAUNCH E2E OK, every call "(matches model)", graduated after 4 buys
+  at height 2490.
+
+Reconciliation (§4), the wallet pass: wallet 30014, token BRW b11e7a24cd9f809c8f4234887a4fc4ddc8ffad7b8a61ee682806f77bbc3223d3
+(launch.bas, 3 decimals, fee 50 bps, tax 200 bps to stakers, tmode 3). Every txid below: DERO.GetTransaction
+valid_block set, in_pool false, at the height given.
+  height txid                                                              what                       burn    fee    ring signer
+  2431   b11e7a24cd9f809c8f4234887a4fc4ddc8ffad7b8a61ee682806f77bbc3223d3  install launch.bas          0 16019    2   30014
+  2432   7a830d845d5486359ad68917b720e7b984f6464e1fb57c2ce2e4d58889e46e65  register on the factory 10000   394    2   30014
+  2433   40db8f8a899a3d081cb8430d41a9ced9cea00308fbc06f8518a86a32aafbfbd5  buy, posted            50000   451    2   30014
+  2434   51a5ba4dc159814ae52a7bfc7167a9aad82742e21df3d5fa7848961107352ab5  private buy to 30006   30000   473   16   none
+  2435   0c617af46fbd54fff2c71360c72c309c6cc98922b274e71a9943f3c28048ef9c  profile                     0   329    2   30014
+  2436   28e723bd2231568e339d2cdf625684cc38d2c0673f56a65032f1fc2ed296696b  stake 1,000,000 BRW units   0   296  2,2   30014
+  2437   173753744ebe92e819a88ee3a05d1271b13011f9aa1b6d6fdd7299a682986908  Founders Pass, mint 1 500000  4000    2   30014
+  2438   5e499862b81dfba85a1c23e6a28676df68edca861fa6859f47f5d1b9db087170  register passes             0   302  2,2   30014
+  2439   e140b4a30ba69893691395958b8ee5863062df14e973772b8cf72d6a8aea2c3a  Post ZEC offer #8           0   619    2   30014
+  2440   e1530d4d855c7caf5730bb0bbd76a07808dedb7132bce26e027dc3762397bb10  Cancel offer #8             0   287    2   30014
+- The launch's keys read at each height (DERO.GetSC with topoheight):
+    2432 (before any trade)   balance 0      rd 333333  ra 1066666400  sold 0          real 0      fd 0    tacc 0    tc 0  pc 0
+    2433 (the posted buy)     balance 50000  rd 382083  ra  930570351  sold 136096049  real 48750  fd 250  tacc 1000 tc 1  pc 0
+    2434 (the private buy)    balance 80000  rd 411333  ra  864397244  sold 202269156  real 78000  fd 400  tacc 1600 tc 1  pc 1
+    2436 (the stake)          the same, stot 1000000
+  The posted buy of 50,000: fee 250 (0.5 %) to fd, tax 1,000 (2 %) to tacc, 48,750 to the curve (rd +48,750), and
+  136,096,049 units out (ra −136,096,049), which is the trade record t_0's "out" and the quote's 136,096.049 BRW.
+  The private buy of 30,000: fee 150, tax 600, 29,250 to the curve, 66,173,107 units out. real + fd + tacc = 78,000 +
+  400 + 1,600 = 80,000 = the contract's DERO balance.
+- The trade records: tc moved 0 -> 1 on the posted buy and stayed 1 on the private buy (the pass's own read: "1 → 1").
+- The private buy on the node: one payload, a ring of 16, and no signer extracted.
+- The price point and the chart: p_0 records height 2433 with rd 382083 and ra 930570351, i.e. 3.82083 DERO / 930,570.351
+  BRW = 0.0₅4106 DERO; the chart after the buy (14-after-buy.png) showed "0.0₅4105" and "ONE PRICE POINT". After the
+  private buy, 4.11333 / 864,397.244 = 0.0₅4759; the chart (20-after-private-buy.png) showed 0.0₅4758. Both agree to
+  the display's rounding down.
+- Balances, before (daemon height 2421) -> after:
+    30014 DERO: 825,719 -> 212,549 (Δ −613,170 = burns 590,000 + fees 23,170, the ten rows above; no other entry)
+    30014 BRW : 0 -> 135,096,049 (136,096,049 bought, 1,000,000 staked)
+    30006 BRW : 0 -> 66,173,107 (the private buy's units, received at 30006)
+  The stake was reflected on chain (stot 1,000,000); the pass's own check read "total staked on chain: 1000000", and
+  "registered pass units on chain: 3".
+- What the app said (the page console, .sim/ui-w/console.log): "Buy BRW confirmed" for the posted buy, which the app
+  checks against a balance; for the private buy paid elsewhere, "Buy BRW → deto1qyx…ywu80 included in block 2434: this
+  app did not check that it executed, so read the result on screen", the plan's words; "Update profile included in
+  block 2435: this app did not check that it executed". Every other call was "confirmed". Screenshots:
+  .sim/ui-w/12-token.png, 13-trade-sheet.png, 14-after-buy.png, 15-feed.png, 19-private-sheet.png,
+  20-after-private-buy.png, 16-portfolio.png, 20-staked.png, 22-nfts-registered.png, 25-zswap-cancelled.png (git
+  ignores .sim/).
+- The unposted trade of the plan's stage 2 and 3 is not in run.sh; simsmoke's step 6 is one ("w1 sells 20,000 units
+  (unpublished)"): tc stayed 1 while pc moved 1 -> 2.
+
+Reconciliation, simsmoke and simlaunch: each call's contract keys (rd, ra, lp, fd, fa, tc, pc; and for the launch
+phase, sold, real, tacc, stot) were read back after every call and matched the tool's model (the "(matches model)"
+lines below). Their wallets' DERO histories (30000, 30001, 30002, 30012, 30013, 30015) hold only their own calls.
+Contract payouts to a wallet (a sale's DERO, fees claimed) change the balance but are not entries in the wallet's
+GetTransfers, so these two tools are reconciled by their own reads, not by a before/after sum per wallet.
+
+differences: none. The first simlaunch attempt's stop is a funding shortfall of this run, explained above.
+
+Result: PASSED.
+
+Raw output follows (run.sh, simsmoke and simlaunch's first attempt, then simlaunch's second attempt).
+-----------------------------------------------------------------------------------------------------
+START ui 2026-09-12T12:15:17Z
+== amm assertions (node --test tests/js)
+TAP version 13
+# Subtest: safeUrl refuses every scheme but https and every character that could break out of an attribute
+ok 1 - safeUrl refuses every scheme but https and every character that could break out of an attribute
+  ---
+  duration_ms: 2.0241
+  ...
+# Subtest: clean strips control, bidi and zero-width characters and bounds the length
+ok 2 - clean strips control, bidi and zero-width characters and bounds the length
+  ---
+  duration_ms: 0.3093
+  ...
+# Subtest: safeUrl accepts a userinfo URL whose visible prefix is not where it goes
+ok 3 - safeUrl accepts a userinfo URL whose visible prefix is not where it goes
+  ---
+  duration_ms: 0.1994
+  ...
+# Subtest: the look-alike fold that markets get is applied to NFAs too
+ok 4 - the look-alike fold that markets get is applied to NFAs too
+  ---
+  duration_ms: 0.7289
+  ...
+# Subtest: pool swaps quote what the contract paid (vectors.json, from TestPoolFuzz)
+ok 5 - pool swaps quote what the contract paid (vectors.json, from TestPoolFuzz)
+  ---
+  duration_ms: 1.2276
+  ...
+# Subtest: pool swaps quote a pool whose spot price floors to zero at 18 decimals
+ok 6 - pool swaps quote a pool whose spot price floors to zero at 18 decimals
+  ---
+  duration_ms: 0.2014
+  ...
+# Subtest: launch buys and sells quote what reference/launch.go pays, through graduation
+ok 7 - launch buys and sells quote what reference/launch.go pays, through graduation
+  ---
+  duration_ms: 12.0901
+  ...
+# Subtest: the graduating buy's refund is the contract's refund
+ok 8 - the graduating buy's refund is the contract's refund
+  ---
+  duration_ms: 7.2807
+  ...
+# Subtest: priceOf reads the quote's decimals off the market — DERO 5, ZEC 8, XMR 12
+ok 9 - priceOf reads the quote's decimals off the market — DERO 5, ZEC 8, XMR 12
+  ---
+  duration_ms: 1.0981
+  ...
+# Subtest: parseUnits and fmtUnits carry a 12-decimal amount without a float
+ok 10 - parseUnits and fmtUnits carry a 12-decimal amount without a float
+  ---
+  duration_ms: 1.1426
+  ...
+# Subtest: stats.enrich survives a record with no price history (what loadNFA returns)
+ok 11 - stats.enrich survives a record with no price history (what loadNFA returns)
+  ---
+  duration_ms: 6.3464
+  ...
+# Subtest: an NFA filed under pool_<i> cannot abort decorate() or the ranking
+ok 12 - an NFA filed under pool_<i> cannot abort decorate() or the ranking
+  ---
+  duration_ms: 8.7017
+  ...
+# Subtest: every registry loop files a record only when its kind matches the list
+ok 13 - every registry loop files a record only when its kind matches the list
+  ---
+  duration_ms: 0.745
+  ...
+# Subtest: every contract but vault.bas keys per-address records by ADDRESS_STRING
+ok 14 - every contract but vault.bas keys per-address records by ADDRESS_STRING
+  ---
+  duration_ms: 0.8353
+  ...
+# Subtest: vault.bas keys uc_ / ul_ / w_*_by by raw bytes, not by the dero1 string
+ok 15 - vault.bas keys uc_ / ul_ / w_*_by by raw bytes, not by the dero1 string
+  ---
+  duration_ms: 0.5387
+  ...
+# Subtest: app/vault.js (the Wrap screen's data layer) builds those same keys from the canonical dero1 address
+ok 16 - app/vault.js (the Wrap screen's data layer) builds those same keys from the canonical dero1 address
+  ---
+  duration_ms: 0.3853
+  ...
+# Subtest: a dero1 string and the raw signer bytes are different keys
+ok 17 - a dero1 string and the raw signer bytes are different keys
+  ---
+  duration_ms: 1.7977
+  ...
+# Subtest: no screen outside notice.js claims the fee share is enforced or universal
+ok 18 - no screen outside notice.js claims the fee share is enforced or universal
+  ---
+  duration_ms: 6.8043
+  ...
+# Subtest: the screens that state the founders share name the asset it is a share of
+ok 19 - the screens that state the founders share name the asset it is a share of
+  ---
+  duration_ms: 0.8732
+  ...
+# Subtest: notice.js still says what the other screens are being held to
+ok 20 - notice.js still says what the other screens are being held to
+  ---
+  duration_ms: 0.2921
+  ...
+# Subtest: loadFounders reads the era counter
+ok 21 - loadFounders reads the era counter
+  ---
+  duration_ms: 1.3006
+  ...
+# Subtest: myFounders pays what the contract paid across an era roll
+ok 22 - myFounders pays what the contract paid across an era roll
+  ---
+  duration_ms: 1.7609
+  ...
+# Subtest: myFounders is still capped by rpool and quiet for a stranger
+ok 23 - myFounders is still capped by rpool and quiet for a stranger
+  ---
+  duration_ms: 0.6146
+  ...
+# Subtest: myFounders is unchanged on a pass that has never rolled an era
+ok 24 - myFounders is unchanged on a pass that has never rolled an era
+  ---
+  duration_ms: 0.5054
+  ...
+# Subtest: a held bid is disclosed as a standing claim when the asset is not listed
+ok 25 - a held bid is disclosed as a standing claim when the asset is not listed
+  ---
+  duration_ms: 3.8199
+  ...
+# Subtest: a held bid is still on the page once the owner starts a new listing
+ok 26 - a held bid is still on the page once the owner starts a new listing
+  ---
+  duration_ms: 34.6531
+  ...
+# Subtest: the bidder of a strand is not called the top bidder of a listing they did not bid on
+ok 27 - the bidder of a strand is not called the top bidder of a listing they did not bid on
+  ---
+  duration_ms: 1.8708
+  ...
+# Subtest: an ended listing with no bid but a held bid does not promise the unit back
+ok 28 - an ended listing with no bid but a held bid does not promise the unit back
+  ---
+  duration_ms: 0.978
+  ...
+# Subtest: an asset with no held bid says nothing about one
+ok 29 - an asset with no held bid says nothing about one
+  ---
+  duration_ms: 0.5599
+  ...
+# Subtest: an ended auction that took a real bid still reads as a settlement, not a strand
+ok 30 - an ended auction that took a real bid still reads as a settlement, not a strand
+  ---
+  duration_ms: 1.1137
+  ...
+# Subtest: FE-2: the pool_/launch_ loop takes only pool and launch records
+ok 31 - FE-2: the pool_/launch_ loop takes only pool and launch records
+  ---
+  duration_ms: 0.4407
+  ...
+# Subtest: FE-2: a record with no price history no longer throws, so one poisoned id cannot cost every market its metrics
+ok 32 - FE-2: a record with no price history no longer throws, so one poisoned id cannot cost every market its metrics
+  ---
+  duration_ms: 2.5767
+  ...
+# Subtest: APP-1: NFAs get the impersonation, look-alike and shared-name marks the markets get
+ok 33 - APP-1: NFAs get the impersonation, look-alike and shared-name marks the markets get
+  ---
+  duration_ms: 2.3068
+  ...
+# Subtest: ADV-PRICE-04: 200 dust blocks no longer out-rank five real ones
+ok 34 - ADV-PRICE-04: 200 dust blocks no longer out-rank five real ones
+  ---
+  duration_ms: 2.8103
+  ...
+# Subtest: FE-1: a contract on a legacy template hash is recorded as such, not merely as verified
+ok 35 - FE-1: a contract on a legacy template hash is recorded as such, not merely as verified
+  ---
+  duration_ms: 1.6656
+  ...
+# Subtest: FE-1: app.tx refuses the ...To entrypoints on a contract that is not on the current template
+ok 36 - FE-1: app.tx refuses the ...To entrypoints on a contract that is not on the current template
+  ---
+  duration_ms: 0.7415
+  ...
+# Subtest: UX-06: the chain noun is short and whole for every vault this build ships
+ok 37 - UX-06: the chain noun is short and whole for every vault this build ships
+  ---
+  duration_ms: 2.4137
+  ...
+# Subtest: PRIV-01: no screen claims a trade is private, and both first-read screens say what is public
+ok 38 - PRIV-01: no screen claims a trade is private, and both first-read screens say what is public
+  ---
+  duration_ms: 8.3064
+  ...
+# Subtest: UX-04: the burn form no longer blames the contract for publishing the burner
+ok 39 - UX-04: the burn form no longer blames the contract for publishing the burner
+  ---
+  duration_ms: 0.4851
+  ...
+# Subtest: UX-01: the deposit section states the ceiling as well as the floor, and the pill reads what the vault can do
+ok 40 - UX-01: the deposit section states the ceiling as well as the floor, and the pill reads what the vault can do
+  ---
+  duration_ms: 0.3939
+  ...
+# Subtest: FE-4: min_out is derived from the market re-read at the moment of signing
+ok 41 - FE-4: min_out is derived from the market re-read at the moment of signing
+  ---
+  duration_ms: 0.3713
+  ...
+# Subtest: FE-4: the guard is the one that makes the slippage setting mean something
+ok 42 - FE-4: the guard is the one that makes the slippage setting mean something
+  ---
+  duration_ms: 0.4356
+  ...
+# Subtest: LIV-04: the burn names the wallet that signs it, and no other address can be named from this app
+ok 43 - LIV-04: the burn names the wallet that signs it, and no other address can be named from this app
+  ---
+  duration_ms: 0.5115
+  ...
+# Subtest: FEE-05: no screen promises a share of every protocol fee
+ok 44 - FEE-05: no screen promises a share of every protocol fee
+  ---
+  duration_ms: 1.2444
+  ...
+1..44
+# tests 44
+# suites 0
+# pass 44
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 310.2503
+dest wallet 30006: deto1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgfywu80
+== read-only pass
+• CSP: inline script blocked · 1 violation report(s) · default-src 'none'; script-src 'self'; style-src 'self' 'uns…
+• open http://127.0.0.1:8082/index.html
+• intro: Welcome to DMZ A social exchange that runs entirely on the DERO chain. 1 Your node, your w
+• node pill: Simulator · 2423
+• markets: Markets Compact Hot Volume 24h Change 24h Liquidity FDV Newest XMR ZEC Trending New Gainer
+• trade: EXECUTION LIVE Trade A market settles against DERO or against a wrapped asset — trade a to
+• wrap: Deposit & withdraw XMR XMR ZEC WRAPPED-ASSET VAULT OPEN XM MONERO → DR DERO CLAIMS OUTSTAN
+• nfts: NFTs Assets priced in XMR and ZEC, each sold or auctioned by its own contract; the Founder
+• portfolio: Portfolio WRAPPED ASSETS YOU HOLD 2 CHAINS XM · wXMR Wrapped Monero — a claim on Monero, h
+• profile (not in the phone bar): Profile NO WALLET CONNECTED Your address is the only identity DMZ has. Nothing about you i
+• no listed NFA owes a share: Pay out not exercised
+• privacy copy: intro and Settings both say pseudonymous; no banned phrase in app/*.js
+• wrap: 2-of-3, bond line qualified; parens 1/1
+• wrap: Deposit & withdraw XMR XMR ZEC WRAPPED-ASSET VAULT OPEN XM MONERO → DR DERO CLAIMS OUTSTANDING <0.0001 XMR MIN
+• chat: 10 rooms · #dmz everything #dero the home chain #xmr monero #zec zcash #markets trading #b08f9afdffc7
+• notice: A MESSAGE FROM THE DEV Read this once Dear users, Please be respectful and kind to each ot
+• impersonation: XMR and wXMR reserved to the vault; listed copies: none
+• split pairs: 0 group(s), thin halves never rank; name impersonation XMR
+• tabs: home markets trade wrap zswap nfts chat portfolio profile (7 visible at this width)
+• onChange listeners after five navigations: 3
+• markets: enrich+redraw of 5 markets: 0.82 ms
+• token: XMR XMR Monero Wrapped asset · verified pool PRICE · DERO 110,854,467.0104 5M 0.00% 1H 0.00% 6H 0.00% 24H +10.85% Thin m
+• switcher lists 5 markets
+• zswap: ZEC swap Buy a DERO-side asset with transparent ZEC, or sell one for ZEC. The DERO leg is a lock in swap.bas; the Zcash leg is a script your companion
+• post form: privacy statement above the fields
+• post form: secret generated, its hash filled in, stored nowhere
+• post form: a shielded and a script address refused before anything was built
+• zswap #4 (open): ZEC swap #4 open Open THE OFFER · BOARD.BAS Maker gives 1.5 DERO Maker wants 0.4 ZEC Price 0.26667 ZEC per DERO Maker dero1qy5…fu6qr · 2 completed · 2
+• accept form: privacy statement above the fields
+• zswap #5 (accepted): ZEC swap #5 dead Dead since block 409: accepted, and the maker never locked THE OFFER · BOARD.BAS Maker gives 1 DERO Maker wants 0.25 ZEC Price 0.2500
+• zswap #6 (locked): ZEC swap #6 closed Swapped: the taker's DERO is claimed THE OFFER · BOARD.BAS Maker gives 2 DERO Maker wants 0.5 ZEC Price 0.25000 ZEC per DERO Maker 
+• the seeded lock is no longer open (Swapped): Claim for the taker not shown
+• stale banner with the node refusing: Your node did not answer the last read (test: the node refused). The figures on screen were read 7s ago and may have changed since.
+• stale banner once the node answers again: gone
+• desktop 1280px: sidebar shell on
+• 1024px token main column: 724px
+• 1024px horizontal overflow: 0px
+• 390px horizontal overflow: 0px (worst of home, markets, wrap, notice)
+• 768px horizontal overflow: 0px (worst of home, markets, wrap, notice)
+UI TEST OK
+exit 0
+== wallet pass (private buy to deto1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgfywu80)
+• CSP: inline script blocked · 1 violation report(s) · default-src 'none'; script-src 'self'; style-src 'self' 'uns…
+• open http://127.0.0.1:8082/index.html
+• intro: Welcome to DMZ A social exchange that runs entirely on the DERO chain. 1 Your node, your w
+• node pill: Simulator · 2426
+• markets: Markets Compact Hot Volume 24h Change 24h Liquidity FDV Newest XMR ZEC Trending New Gainer
+• trade: EXECUTION LIVE Trade A market settles against DERO or against a wrapped asset — trade a to
+• wrap: Deposit & withdraw XMR XMR ZEC WRAPPED-ASSET VAULT OPEN XM MONERO → DR DERO CLAIMS OUTSTAN
+• nfts: NFTs Assets priced in XMR and ZEC, each sold or auctioned by its own contract; the Founder
+• portfolio: Portfolio WRAPPED ASSETS YOU HOLD 2 CHAINS XM · wXMR Wrapped Monero — a claim on Monero, h
+• profile (not in the phone bar): Profile NO WALLET CONNECTED Your address is the only identity DMZ has. Nothing about you i
+• no listed NFA owes a share: Pay out not exercised
+• privacy copy: intro and Settings both say pseudonymous; no banned phrase in app/*.js
+• wrap: 2-of-3, bond line qualified; parens 1/1
+• wrap: Deposit & withdraw XMR XMR ZEC WRAPPED-ASSET VAULT OPEN XM MONERO → DR DERO CLAIMS OUTSTANDING <0.0001 XMR MIN
+• chat: 10 rooms · #dmz everything #dero the home chain #xmr monero #zec zcash #markets trading #b08f9afdffc7
+• notice: A MESSAGE FROM THE DEV Read this once Dear users, Please be respectful and kind to each ot
+• impersonation: XMR and wXMR reserved to the vault; listed copies: none
+• split pairs: 0 group(s), thin halves never rank; name impersonation XMR
+• tabs: home markets trade wrap zswap nfts chat portfolio profile (7 visible at this width)
+• onChange listeners after five navigations: 3
+• markets: enrich+redraw of 5 markets: 0.89 ms
+• token: XMR XMR Monero Wrapped asset · verified pool PRICE · DERO 110,854,467.0104 5M 0.00% 1H 0.00% 6H 0.00% 24H +10.85% Thin m
+• switcher lists 5 markets
+• zswap: ZEC swap Buy a DERO-side asset with transparent ZEC, or sell one for ZEC. The DERO leg is a lock in swap.bas; the Zcash leg is a script your companion
+• post form: privacy statement above the fields
+• post form: secret generated, its hash filled in, stored nowhere
+• post form: a shielded and a script address refused before anything was built
+• zswap #4 (open): ZEC swap #4 open Open THE OFFER · BOARD.BAS Maker gives 1.5 DERO Maker wants 0.4 ZEC Price 0.26667 ZEC per DERO Maker dero1qy5…fu6qr · 2 completed · 2
+• accept form: privacy statement above the fields
+• zswap #5 (accepted): ZEC swap #5 dead Dead since block 409: accepted, and the maker never locked THE OFFER · BOARD.BAS Maker gives 1 DERO Maker wants 0.25 ZEC Price 0.2500
+• zswap #6 (locked): ZEC swap #6 closed Swapped: the taker's DERO is claimed THE OFFER · BOARD.BAS Maker gives 2 DERO Maker wants 0.5 ZEC Price 0.25000 ZEC per DERO Maker 
+• the seeded lock is no longer open (Swapped): Claim for the taker not shown
+• stale banner with the node refusing: Your node did not answer the last read (test: the node refused). The figures on screen were read 2s ago and may have changed since.
+• stale banner once the node answers again: gone
+• desktop 1280px: sidebar shell on
+• 1024px token main column: 724px
+• 1024px horizontal overflow: 0px
+• 390px horizontal overflow: 0px (worst of home, markets, wrap, notice)
+• 768px horizontal overflow: 0px (worst of home, markets, wrap, notice)
+• connect wallet over XSWD
+• connected deto1qyyvq8xp22kkzta3g25r8eful0nqsm9jr23522mqfn4xmp89skhkgqqc62nc9
+• launch a token from the form
+• launched b11e7a24cd9f809c8f4234887a4fc4ddc8ffad7b8a61ee682806f77bbc3223d3
+• buy 0.5 DERO with publish on
+• large price impact on a fresh curve: acknowledging
+• quote: YOU RECEIVE (ESTIMATED) 136,096.049 BRW 1 BRW = 0.0₅3673 DERO at this size · quoted 0.0₅3124 DERO
+• published trade on chain: {"n":0,"side":1,"addr":"dero1qyyvq8xp22kkzta3g25r8eful0nqsm9jr23522mqfn4xmp89skhkgqqzrktad","in":"50000","out":"136096049","height":2433,"ts":1789215470,"scid":"b11e7a24cd9f809c8f4234887a4fc4ddc8ffad7b8a61ee682806f77bbc3223d3"}
+• feed shows it
+• private buy: ring 16, paid to deto1qyx6datst…
+• private buy on the node: ring members per payload [16], extracted signer ""
+• published records before/after the private buy: 1 → 1
+• portfolio + profile
+• stake from the token page
+• total staked on chain: 1000000
+• founders pass: mint 1, register it
+• registered pass units on chain: 3
+• zswap: the seeded lock is not open any more; Claim for the taker not sent
+• zswap: post an offer from the form with a secret generated here, then cancel it
+• zswap #8 after Cancel: ZEC swap #8 closed Cancelled by the maker THE OFFER · BOARD.BAS Maker gives 0.1 DERO Maker wants 0.02 ZEC Price 0.20000 
+UI TEST OK
+exit 0
+EXIT ui 0 2026-09-12T12:18:56Z
+START simsmoke 2026-09-12T12:18:56Z
+daemon 127.0.0.1:20000 height 2440
+w0 deto1qyvyeyzrcm2fzf6kyq7egkes2ufgny5xn77y6typhfx9s7w3mvyd5qqynr5hx
+w1 deto1qyre7td6x9r88y4cavdgpv6k7lvx6j39lfsx420hpvh3ydpcrtxrxqg8v8e3z
+treasury deto1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qg8ap2y9
+1. install test asset
+  asset scid a8be01324d82bdb8609c68ac942e3422d66835362b178e32cb49d30c49ef50d8 (gas 5000/197)
+2. mint 10,000,000 units to w0 and w1
+3. install pool.bas (fee 50 bps, protocol share 50%)
+  pool scid 908b4e18ba1e6f543ee5bc0a309c158fc0488cedee9c6c22094139414ab275b4 (gas 488000/10940, code 10604 bytes)
+  install            rd=0 ra=0 lp=0 fd=0 fa=0 tc=0 pc=0  (matches model)
+4. w0 adds 2 DERO + 1,000,000 units
+  AddLiquidity       rd=200000 ra=1000000 lp=200000 fd=0 fa=0 tc=0 pc=0  (matches model)
+  gas 453600/114
+5. w1 buys with 0.5 DERO (published)
+  SwapDeroForAsset   rd=249875 ra=800801 lp=200000 fd=125 fa=0 tc=1 pc=1  (matches model)
+  quote 199199 units, t_0 = "1|dero1qyre7td6x9r88y4cavdgpv6k7lvx6j39lfsx420hpvh3ydpcrtxrxqga4mp52|50000|199199|2451|1789215649", gas 821400/274
+6. w1 sells 20,000 units (unpublished)
+  SwapAssetForDero   rd=243817 ra=820751 lp=200000 fd=125 fa=50 tc=1 pc=2  (matches model)
+  gas 716500/171
+7. slippage: buy with min_out above the quote must be rejected by the estimator
+  rejected as expected
+8. w0 removes half of its LP
+  RemoveLiquidity    rd=122519 ra=412428 lp=100500 fd=125 fa=50 tc=1 pc=3  (matches model)
+  gas 801500/171
+9. treasury claims protocol fees
+  ClaimFees          rd=122519 ra=412428 lp=100500 fd=0 fa=0 tc=1 pc=3  (matches model)
+  claimed 125 DERO units and 50 asset units, gas 308200/94
+SIMULATOR SMOKE OK
+EXIT simsmoke 0 2026-09-12T12:22:17Z
+START simlaunch 2026-09-12T12:22:17Z
+daemon 127.0.0.1:20000 height 2458, treasury deto1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qg8ap2y9
+1. install factory.bas (owner w0, regfee 0.1 DERO)
+  factory e84c17bd3eb44787c79534815aacc7350eea5f304bd80d778a37766cbd6899dc gas 326600/1680 tstr=dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd
+2. w1 launches VSC: supply 1e9 units, graduation 10 DERO, creator 3%, tax 5% to stakers (tmode 3)
+  launch 8bd63c0ba0180c275d0604bd9e878273881d24e078c67f1f56faee3938c9fd9f gas 1290400/15779; C=776000000 Lq=194000000 vd0=333333 vt0=1034666408
+  install          phase=0 rd=333333 ra=1034666408 sold=0 real=0 fd=0 tacc=0 stot=0 tc=0 pc=0 (matches model)
+3. register the launch on the factory (0.1 DERO to treasury)
+  launch_0 stored
+4. buyers 12..15 buy 3 DERO each (published) until the curve graduates
+  buy 1            phase=0 rd=616833 ra=559127767 sold=475538641 real=283500 fd=1500 tacc=15000 stot=0 tc=1 pc=0 (matches model)
+    gas 823500/253 out=475538641 refund=false t_0="1|dero1qytj4zds5lz3quthjchazsetu9ygvk7qgwjga9tmuea0gxc0crfwvqqfnda9n|300000|475538641|2465|1789215813"
+  buy 2            phase=0 rd=900333 ra=383067663 sold=651598745 real=567000 fd=3000 tacc=30000 stot=0 tc=2 pc=1 (matches model)
+    gas 924000/301 out=176060104 refund=false t_1="1|dero1qy87ghfeeh6n6tdxtgh7yuvtp6wh2uwfzvz7vjq0krjy4smmx62j5qg6whxwe|300000|176060104|2467|1789215837"
+transfer: rpc error -32098: Insufficent funds for scid 0000000000000000000000000000000000000000000000000000000000000000 Need 3.00000 Actual 2.12549
+exit status 1
+EXIT simlaunch 1 2026-09-12T12:24:17Z
+T7DONE
+-----------------------------------------------------------------------------------------------------
+START simlaunch rerun 2026-09-12T12:26:59Z
+daemon 127.0.0.1:20000 height 2477, treasury deto1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qg8ap2y9
+1. install factory.bas (owner w0, regfee 0.1 DERO)
+  factory 88d0f14be9e88ec4b05b1159290391048fe6918604027e67fd93385f7d15e0af gas 326600/1680 tstr=dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd
+2. w1 launches VSC: supply 1e9 units, graduation 10 DERO, creator 3%, tax 5% to stakers (tmode 3)
+  launch 8adaca243488de8e207e380692ce410b25c5057871426469e61d8f11ee28d4cf gas 1290400/15779; C=776000000 Lq=194000000 vd0=333333 vt0=1034666408
+  install          phase=0 rd=333333 ra=1034666408 sold=0 real=0 fd=0 tacc=0 stot=0 tc=0 pc=0 (matches model)
+3. register the launch on the factory (0.1 DERO to treasury)
+  launch_0 stored
+4. buyers 12..15 buy 3 DERO each (published) until the curve graduates
+  buy 1            phase=0 rd=616833 ra=559127767 sold=475538641 real=283500 fd=1500 tacc=15000 stot=0 tc=1 pc=0 (matches model)
+    gas 823500/253 out=475538641 refund=false t_0="1|dero1qytj4zds5lz3quthjchazsetu9ygvk7qgwjga9tmuea0gxc0crfwvqqfnda9n|300000|475538641|2484|1789216089"
+  buy 2            phase=0 rd=900333 ra=383067663 sold=651598745 real=567000 fd=3000 tacc=30000 stot=0 tc=2 pc=1 (matches model)
+    gas 924000/301 out=176060104 refund=false t_1="1|dero1qy87ghfeeh6n6tdxtgh7yuvtp6wh2uwfzvz7vjq0krjy4smmx62j5qg6whxwe|300000|176060104|2486|1789216112"
+  buy 3            phase=0 rd=1183833 ra=291332020 sold=743334388 real=850500 fd=4500 tacc=45000 stot=0 tc=3 pc=2 (matches model)
+    gas 924000/300 out=91735643 refund=false t_2="1|dero1qyyvq8xp22kkzta3g25r8eful0nqsm9jr23522mqfn4xmp89skhkgqqzrktad|300000|91735643|2488|1789216134"
+  buy 4            phase=1 rd=1000002 ra=194000000 sold=776000000 real=1000002 fd=5292 tacc=52910 stot=0 tc=4 pc=3 (matches model)
+    gas 1482200/318 out=32665612 refund=true t_3="1|dero1qy9zd2uaw5hahz628n863sszfuzupy2npmzlsjq3342erpfvze2kzqqegp7te|158204|32665612|2490|1789216155"
+  graduated after 4 buys at height 2490
+5. AMM: w12 sells a fifth of its tokens, w13 buys 0.5 DERO
+  sell             phase=1 rd=672138 ra=288869959 sold=776000000 real=1000002 fd=5292 tacc=69303 stot=0 tc=5 pc=4 (matches model)
+  buy amm          phase=1 rd=719513 ra=269896741 sold=776000000 real=1000002 fd=5417 tacc=71803 stot=0 tc=5 pc=5 (matches model)
+6. staking: w12 stakes half of its tokens, w15 buys 1 DERO (tax accrues), w12 claims, w12 unstakes
+  stake            phase=1 rd=719513 ra=269896741 sold=776000000 real=1000002 fd=5417 tacc=71803 stot=190215456 tc=5 pc=5 (matches model)
+  buy taxed        phase=1 rd=814263 ra=238564021 sold=776000000 real=1000002 fd=5667 tacc=76803 stot=190215456 tc=5 pc=6 (matches model)
+  claim            phase=1 rd=814263 ra=238564021 sold=776000000 real=1000002 fd=5667 tacc=0 stot=190215456 tc=5 pc=6 (matches model)
+  reward 76802 units; wallet DERO 754176 -> 830671 (fee paid in between)
+  unstake          phase=1 rd=814263 ra=238564021 sold=776000000 real=1000002 fd=5667 tacc=0 stot=0 tc=5 pc=6 (matches model)
+7. treasury claims protocol fees
+  claimfees        phase=1 rd=814263 ra=238564021 sold=776000000 real=1000002 fd=0 tacc=0 stot=0 tc=5 pc=6 (matches model)
+  claimed 5667 DERO units
+8. social: install, profile, follow
+  profile and follow stored
+9. nft: holder badge for VSC (hold 1000 units for 2 blocks, price 1 DERO)
+  edition 0 minted by dero1qy87ghfeeh6n6tdxtgh7yuvtp6wh2uwfzvz7vjq0krjy4smmx62j5qg6whxwe; creator and treasury paid
+SIMULATOR LAUNCH E2E OK 
+EXIT simlaunch 0 2026-09-12T12:36:13Z

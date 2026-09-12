@@ -1,0 +1,86 @@
+T6 · stage 1a · 2026-09-12 · commit fbe3901 — an NFA purchase
+===============================================================
+Plan: docs/MAINNET_TEST_PLAN.md §6 T6, stage 1. Machine paths are written <repo>, <tmp>, <playwright>.
+
+Command (from <repo>/tools; simnfa built with go1.26.8 at fbe3901, run at below-normal priority), the plan's, with the
+factory the simulator record names (deploy/networks.json simulator.factory):
+  go run ./simnfa -factory 8e70572e6277a2ab71ef627ed63da5ed4a66815f31354b6a9aad96f5a2367ecc -creator 10 -buyer 13 \
+    -treasury 2 -start -buy -price 1000 -royalty 5
+Read from the factory first: factory.bas v2 ("v" 2), regfee 10,000, treasury dero1qyx7…yajpd (simulator wallet 2).
+
+wallets (DERO simulator)
+  creator and seller 30010  deto1qy5afru8r3rryk357gh002l77yssljsh3x6drrq2c3acf2u4w63zjqg7sqz9t
+  buyer              30013  deto1qy87ghfeeh6n6tdxtgh7yuvtp6wh2uwfzvz7vjq0krjy4smmx62j5qgqht7t3
+  treasury (read)    30002  deto1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qg8ap2y9
+  Pay out sender     30017  deto1qy2un79azg3lu39hjrfmfveyv39ugesw86l9r5x06s42txspapr52qq0zyv8n (used by no other test)
+
+Raw output (2026-09-12T12:37:14Z – 12:38:39Z)
+0. factory
+   regfee 10000 nc 1 treasury dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd
+   nfa.bas canon 14937 bytes, sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114 (must be config.js templates.nfa)
+1. balances
+   creator deto1qy5afru8r3rryk357gh002l77yssljsh3x6drrq2c3acf2u4w63zjqg7sqz9t DERO 368422
+   buyer   deto1qy87ghfeeh6n6tdxtgh7yuvtp6wh2uwfzvz7vjq0krjy4smmx62j5qgqht7t3 DERO 22592 DERO 22592
+2. estimate and install
+   -> storage gas 15686 compute 1045800 <nil>
+   nfa db6cbe092dcf2f84d9d98909d95fe81eb57a458d2b4920af87f1b227f94c309f storage gas 15686
+   quote 0000000000000000000000000000000000000000000000000000000000000000 protoFee 50 royalty 5 version 1.1.1 listType
+   creator holds the one unit
+3. register on factory
+   registered as nfa_1 tx c763d56dd9b4eb19aa389c5fb406ba9b854378faca8d146016a3fdfe0a6d4572
+4. start a sale: 1000 atomic units of DERO for 24 hours
+   listType sale startPrice 1000 scBalance 1 ends 1789303077 tx ab5b495395125a3caaeb52729af97c54f0c3e06f57dde61078e35d2dcbd84334
+5. buyer takes the sale
+   buyer holds the unit: true previousSalePrice 1000 listType  tx b2ba6982157828d0eda04bf3c33f987dde6c243440914e29994ccf68ce60477f
+SIMULATOR NFA OK
+scid db6cbe092dcf2f84d9d98909d95fe81eb57a458d2b4920af87f1b227f94c309f
+storage_gas 15686
+register_tx c763d56dd9b4eb19aa389c5fb406ba9b854378faca8d146016a3fdfe0a6d4572
+start_tx ab5b495395125a3caaeb52729af97c54f0c3e06f57dde61078e35d2dcbd84334
+buy_tx b2ba6982157828d0eda04bf3c33f987dde6c243440914e29994ccf68ce60477f
+EXIT simnfa 0
+
+Pay out (the plan's step 4 for stages 2 and 3, done here by hand so that §6 T6's chain checks and reconciliation
+after Pay out could be read at stage 1): PayOwed(payee = the treasury's dero1 address) from 30017, ring 2, fee =
+DERO.GetGasEstimate's storage gas 163 + 200 = 363.
+
+txids (DERO simulator; DERO.GetTransaction: valid_block set, in_pool false)
+  db6cbe092dcf2f84d9d98909d95fe81eb57a458d2b4920af87f1b227f94c309f  install nfa.bas     block 2531  signer 30010  fee 15886
+  c763d56dd9b4eb19aa389c5fb406ba9b854378faca8d146016a3fdfe0a6d4572  RegisterNFA          block 2533  signer 30010  burn 10000 fee 391
+  ab5b495395125a3caaeb52729af97c54f0c3e06f57dde61078e35d2dcbd84334  Start (sale, 1000)   block 2535  signer 30010  fee 392 (ring 2,2: the unit in)
+  b2ba6982157828d0eda04bf3c33f987dde6c243440914e29994ccf68ce60477f  buy                  block 2537  signer 30013  burn 1000 fee 409
+  9eb9e8d8c9f3133425a76f92f5fcd2b347539cad12d429980078a887fab274da  PayOwed(treasury)    block 2543  signer 30017  fee 363
+
+contract keys after the sale (DERO.GetSC db6cbe09…, read at height 2539)
+  owner 0fe45d39…952a01 (the buyer; the app reads it as dero1qy8…whxwe = 30013), previousOwner = creatorAddr 29d48f87…a22901,
+  previousSalePrice 1000, scBalance 0, listType "", owed 5, ow_dero1qyx7…yajpd 5, royalty 5, protoFee 50,
+  artificerFee 0, quote 000…0 (DERO); the contract's DERO balance 5
+contract keys after Pay out (read at height 2546)
+  owed 0; ow_dero1qyx7…yajpd deleted (the node: "leaf not found"); op_dero1qyx7…yajpd 5; owner, scBalance 0 and
+  previousSalePrice 1000 unchanged; the contract's DERO balance 0
+
+balances before -> after (DERO atomic units)
+  creator 30010: 368,422 -> 342,748  (Δ −25,674 = −install fee 15,886 − regfee 10,000 − 391 − start fee 392
+                                      + royalty 50 + seller's payout 945)
+  buyer   30013: 22,592 -> 21,183    (Δ −1,409 = price 1,000 + fee 409); NFA units 0 -> 1; the creator's 1 -> 0
+  treasury 30002: 2,456,769 -> 2,466,769 after the sale (+10,000, the factory's registration fee, and nothing of the
+                  protocol fee), -> 2,466,774 after Pay out (+5, the protocol fee, only after Pay out)
+  Pay out sender 30017: 788,916 -> 788,553 (Δ −363, its fee and nothing else)
+  The 1,000 split to the unit: 50 royalty to the creator, 5 protocol fee owed then paid to the treasury, 945 to the
+  seller.
+
+companions: none (T6 has none).
+
+app (read-only, no wallet; <repo>/.sim/stage1a-t6/, git ignores .sim/)
+  nfa-before-payout.png (#nfa/db6cbe09…): "LAST SALE 0.01 DERO · Not listed · owner dero1qy8…whxwe", "Previous sale
+    0.01 DERO", "Owner dero1qy8…whxwe", "Creator dero1qy5…fu6qr", "Royalty 5% … Protocol fee 0.5% to the treasury",
+    "OWED, WAITING TO BE PAID OUT · 0.00005 DERO · Protocol fee → treasury · dero1qyx…yajpd · 0.00005 DERO", a
+    "Pay out" button, and "Anyone may press Pay out. It pays the named payee its whole balance, never the person who
+    presses it".
+  nfa-after-payout.png: the same page with the owed section gone; owner, last sale and fees unchanged.
+  The plan's "the sheet showed that same split before it was signed" does not apply here: simnfa signed the purchase,
+  not the app's sheet.
+
+differences: none.
+
+Result: PASSED.

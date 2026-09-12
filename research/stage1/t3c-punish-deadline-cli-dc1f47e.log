@@ -1,0 +1,597 @@
+T3c · stage 1a · 2026-09-13 · commit dc1f47e — the Punish deadline, the xmrswap command line as two processes
+============================================================================================================
+Plan: docs/MAINNET_TEST_PLAN.md §6 T3c, "Stage 1" (T1's command-line pair on the simulator, against an htlc a simhtlc
+run installed, Monero on regtest). Machine paths are written <repo>, <tmp>, <user>. No key, password or channel key is
+in this file; the channel key was made with `xmrswap channel-key` and passed through XMRSWAP_CHANNEL_KEY only.
+
+Build: xmrswap built with go1.26.8 at dc1f47e (sha256 ad8504d5…). At dc1f47e -prover takes
+`wsl.exe -e <path inside WSL>` and pins the WSL binary itself, so no wrapper and no -prover-sha256 were used.
+
+The commands (a scratch harness started them, killed them and restarted them; bob and alice were separate processes):
+  bob:   xmrswap bob   -state <tmp>/cli/t3c/bob.json   -dero 127.0.0.1:30006 -monero http://127.0.0.1:28084 -monero-name <bob's wallet>
+                       -t1 48 -t2 16 <common>
+  alice: xmrswap alice -state <tmp>/cli/t3c/alice.json -dero 127.0.0.1:30007 -monero http://127.0.0.1:28083 -monero-name <alice's wallet>
+                       -claim-margin 8 <common>
+  common: -net regtest -daemon 127.0.0.1:20000 -htlc bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3
+          -monerod 127.0.0.1:28081 -prover "wsl.exe -e <path to the pinned proof-xmr build>" -amount-dero 2000
+          -amount-xmr 1000000000000 -t1-min 10 -t2-min 6 -gate-deadline 4 -g2-min 30 -channel <tmp>/cli/t3c/channel
+  The plan's flags, with the htlc the dc1f47e simhtlc run installed (w1min 10, w2min 6, g2 30). Every other flag at its
+  default (confs 0 = the tier's 20, stable 8). The Monero wallets s1cli-1789225277-alice (funded by mining 4 regtest
+  blocks to it) and s1cli-1789225277-bob, made for these runs; the harness mined one regtest block about every 6 s.
+  "Stop" was a hard kill (taskkill /F): a console Ctrl-C cannot be sent from the harness. The companion saves every
+  step durably, so a hard stop is the harsher of the two.
+
+What happened (the driver log below has every line with its DERO height)
+  16:52:46  both started. bob locked (lock 4, 9cf4ff65…, block 3412; t1 3459, t2 3475) and paid the stipend (block 3422).
+  16:56:45  T3b step 1: bob killed in watching_xmr (h 3423).
+  17:06:27  T3b step 2: alice, after her Monero lock (d5568e77…), reached await_refund at h 3455, before t2 3475, and was
+            killed there. Her punish cutoff t2 + g2 − (11 + 8 + 8) = 3478; t2 + g2 = 3505.
+  17:13:22  T3c step 2: alice restarted at h 3478, her cutoff. Her log: "height 3478 is past the punish cutoff 3478
+            (t2 3475 + g2 30 − 11 validity − 8 stable − 8 margin): not punishing; waiting for bob's Reclaim",
+            punish_window -> await_reclaim. punishTx empty in her state.
+  17:13:50  a second kill of alice in await_reclaim and an immediate restart (a T9 row, folded in): the restart was
+            refused by the companion, "alice.json.lock was touched 12s ago: another companion is running on this
+            state" (see the note below). Alice stayed stopped from here to 17:35.
+  17:21:35  T3c step 3, h 3505 = t2 + g2, lock 4 open (st_4 0): Punish sent by hand from wallet 30018. In the plan's form
+            (curl without a Content-Type header) the wallet RPC answered HTTP 415 with an empty body and sent nothing;
+            with -H 'Content-Type: application/json' it sent 33758ff3…. Mined in block 3506 and refused: st_4 still 0
+            at h 3508. 30018 paid its 3,000 fee and nothing else moved.
+  17:22:21  T3c step 4 (T3b's step 3, here past t2 + g2): bob restarted at 3508. "height 3509 is at or past the refund
+            cutoff 3464 (t2 3475 − 11) with the lock open: no Refund is sent", refund_window -> punish_window ->
+            reclaiming; his Reclaim 4fce032b… went out and was mined in block 3510.
+  17:22:50  bob killed 2 s into reclaiming (a T9 row, folded in), after the Reclaim had been sent; his immediate
+            restart was refused the same way ("bob.json.lock was touched 14s ago").
+  17:35:08  both started again by hand with the same commands and the same channel key, once the dead processes' lock
+            files were stale. bob: reclaiming -> reclaim_confirming -> reclaimed (stable at 3551), with no second
+            Reclaim; alice (T3b step 4): st_4 4 -> refund_seen -> sweep_ready -> sweeping -> swept, her XMR back
+            (eab3c9b2…).
+
+Note on the refused restarts. xmrswap takes a lock file beside the state (XMR-04) and refuses to start while it was
+touched recently ("another companion is running on this state"). A process killed hard leaves its lock file as fresh as
+a live one's, so a restart made at once is refused until the file ages. That is the guard working (a second copy must
+be refused, §6 T9), and it was the harness's error to restart at once. The plan's T9 wording, "kill the process hard …
+then run the same command again", should add: once the dead process's lock file is stale.
+
+txids
+  DERO    9cf4ff652c08b0dfb8c3818498643b09b9dd06123cbe6aba1f719f2e6f308389  Lock (id 4)     block 3412  bob    burn 2000, fee 858
+  DERO    8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58  stipend         block 3422  bob    14016, fee 121
+  DERO    33758ff3ced5bb0cee40437473072ecddc4a723fa3e65da944374ea374191ddc  Punish by hand  block 3506  30018  fee 3000; refused
+  DERO    4fce032b08cb6ce852e1cd224f517f329fafaadb926e0c4fa482c2c75f9b7cd3  Reclaim         block 3510  bob    fee 3000
+  Monero  d5568e776b90769148b860080702aed1f5fd8f39bc42dbb63b49218d298452bf  alice's lock, 1 XMR  monerod block 19372; fee 1,820,400,000
+  Monero  eab3c9b23530b2d86988bb957ef01ec7bf1dc11fc2b105858c2af72c52f3130f  alice's recovery    monerod block 19733; alice in 998,177,200,000
+
+chain checks (§6 T3c)
+  The hand-sent Punish is in block 3506, at or above t2 + g2 = 3505, and st_4 is unchanged by it (0 at 3505 and 3508).
+  No Punish from alice's wallet exists at all: 30007's history over the run holds only the stipend. Then: st_4 = 4,
+  sha256(xb_4) = hb_4, xa_4 absent, the Reclaim at 3510 >= t2 + g2; the contract's balance 0.
+
+balances before -> after (DERO)
+  30018 (third wallet): 695,592 -> 692,592 (Δ −3,000: exactly its fee; nothing else moved)
+  30006 bob:   625,932 -> 607,937 (Δ −17,995 = Lock 2,000 + 858 + stipend 14,016 + 121 + Reclaim fee 3,000 − the 2,000 the
+               Reclaim returned)
+  30007 alice: 1,041,401 -> 1,055,417 (Δ +14,016: the stipend; she paid no fee)
+  XMR alice (s1cli-1789225277-alice): −(1 XMR + 1,820,400,000) + 998,177,200,000: her transfer and sweep fees; in − out −
+      fees = get_balance. Her joint spend wallet (xmrswap-bfc9da5a-ffa33ec356332d42-4-spend): in 1 XMR, out the recovery
+      plus fee 1,822,800,000, balance 0.
+
+companions (<tmp>/cli/t3c/)
+  bob:   phase reclaimed, done true, outcome "reclaimed: tx (reclaimed; txid not recorded) after t2 + g2, stable (stable
+         height 3551); s_b is on the chain so alice can recover any XMR she locked". His state names no reclaimTx: the
+         kill came between sending the Reclaim and recording it, and the restarted companion found the lock already
+         reclaimed. The txid is in his wallet's history (4fce032b…) and on the chain (finding F-5).
+  alice: phase swept, done true, stipend 8ffca073… at 3422, xmr.lockTx d5568e77…, punishTx empty, revealed set, sweep [eab3c9b2…]
+  xmrswap status (dc1f47e) against both wallet-rpcs: no divergence; "lock 4 is reclaimed" (the read height, F-1); the
+  joint address "has received 1000000000000 piconero in 1 confirmed transfers (terms 1000000000000)".
+  wakes: the companions registered their Windows wake tasks (xmrswap-<id>, -reclaim, -t2); none remain after the run.
+
+app: no screen shows 30006, 30007 or 30018.
+
+differences: none between the chain, the wallets and the state files, beyond F-5's missing txid, whose cause is above.
+
+Result: PASSED.
+
+An aborted first attempt, on fbe3901 (not a test)
+  At 01:01Z the same scenario was started with the fbe3901 build on T3b's htlc d82dbfd4…. The harness gave its phase
+  watcher a timeout without a unit, so bob was never stopped, and the swap went the happy way: lock 1 c1171891…
+  (block 3038), stipend a1bdb320… (3047), alice's XMR lock 2176d187…, her Claim 45049981… (stable at 3065), bob's sweep
+  77d983bc…; bob swept, alice claimed, st_1 = 1 on d82dbfd4…. The driver was stopped and the two companions finished
+  on their own. Their four wake tasks were removed when each ended. It is evidence of the command line's happy path on
+  fbe3901, not of T3c.
+
+Raw output follows: the driver log, each process's output, then the reads made after the run.
+--------------------------------------------------------------------------------------------
+== the driver log
+[16:52:26Z h=3408] scenario t3c: htlc bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, -t1 48 -t2 16 -claim-margin(alice) 8; wallets bob 30006 / s1cli-1789225277-bob, alice 30007 / s1cli-1789225277-alice
+[16:52:27Z h=3408] balances before: 30006 "balance":625932 30007 "balance":1041401 30018 "balance":695592 
+[16:52:27Z h=3408] xmrswap-* tasks before: none
+[16:52:28Z h=3408] the channel key made with 'xmrswap channel-key' and handed to both through XMRSWAP_CHANNEL_KEY (its value is not written here)
+[16:52:46Z h=3409] START bob run 1 (phase on disk '')
+[16:52:46Z h=3409] START alice run 1 (phase on disk '')
+[16:56:45Z h=3423] CATCH bob in watching_xmr (T3b step 1: his lock and the stipend are in): killed: saw "watching_xmr" after 162315 polls; killed 3.001s later with the file saying "watching_xmr"; on disk after the kill "watching_xmr"
+[17:06:27Z h=3455] alice is in await_refund
+[17:06:27Z h=3455] t1 3459, t2 3475, g2 30: alice's punish cutoff 3478, t2 + g2 3505
+[17:06:27Z h=3455] KILL alice (taskkill /F) in phase await_refund: T3b step 2: after her Monero lock, before t2
+[17:13:22Z h=3478] height reached 3478
+[17:13:22Z h=3478] START alice run 2 (phase on disk 'await_refund')
+[17:13:35Z h=3478] alice is in await_reclaim
+[17:13:35Z h=3478] alice's punishTx after her restart at or past her cutoff: ''
+[17:13:50Z h=3479] KILL alice (taskkill /F) in phase await_reclaim: T9: await_reclaim
+[17:13:50Z h=3479] START alice run 3 (phase on disk 'await_reclaim')
+[17:13:51Z h=3479] alice is in await_reclaim
+[17:21:35Z h=3505] height reached 3505
+[17:21:35Z h=3505] lock st before the hand Punish: "valuesstring":["0"]
+[17:21:35Z h=3505] hand Punish of lock 4 from 30018, first in the plan's form: curl -s http://127.0.0.1:30018/json_rpc -d '{"jsonrpc":"2.0","id":"1","method":"transfer","params":{"scid":"bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3","ringsize":2,"fees":3000,"sc_rpc":[{"name":"entrypoint","datatype":"S","value":"Punish"},{"name":"id","datatype":"U","value":4}]}}'
+[17:21:35Z h=3505] answer: HTTP 415, body ''
+[17:21:35Z h=3505] then with the header the wallet RPC requires: curl -s -H 'Content-Type: application/json' http://127.0.0.1:30018/json_rpc -d '{"jsonrpc":"2.0","id":"1","method":"transfer","params":{"scid":"bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3","ringsize":2,"fees":3000,"sc_rpc":[{"name":"entrypoint","datatype":"S","value":"Punish"},{"name":"id","datatype":"U","value":4}]}}'
+[17:21:36Z h=3505] answer: {"jsonrpc":"2.0","id":"1","result":{"txid":"33758ff3ced5bb0cee40437473072ecddc4a723fa3e65da944374ea374191ddc"}}
+[17:22:21Z h=3508] lock st after the hand Punish: "valuesstring":["0"]
+[17:22:21Z h=3508] START bob run 2 (phase on disk 'watching_xmr')
+[17:22:50Z h=3510] CATCH bob in reclaiming (T9: reclaiming): killed: saw "reclaiming" after 18389 polls; killed 2s later with the file saying "reclaiming"; on disk after the kill "reclaiming"
+[17:22:50Z h=3510] START bob run 3 (phase on disk 'reclaiming')
+[17:35:06Z h=3550] FINISH: the harness's restarts of alice (run 3, 17:13:50Z) and bob (run 3, 17:22:50Z) were refused by the companion itself: each dead process's lock file was still fresh ('was touched 14s ago: another companion is running on this state'). Neither ran after that; bob's run 2 had sent the Reclaim before its kill. Both are started again now with the same commands and the same channel key (taken from the harness's environment, not written).
+[17:35:08Z h=3550] START bob run 4 and alice run 4
+[17:37:48Z h=3559] EXIT bob run 4 status 0, phase reclaimed, outcome: reclaimed: tx (reclaimed; txid not recorded) after t2 + g2, stable (stable height 3551); s_b is on the chain so alice can recover any XMR she locked
+[17:37:48Z h=3559] EXIT alice run 4 status 0, phase swept, outcome: swept the XMR to 47h2ZSHPLGdJcT4ReMarFR6fRjERPvTuF63irGAyvMMZPaVheRVAZ7xZBg6YiuET7kd6wXBfbhaPY7Gkt9QaC5U522QUJwb
+[17:37:56Z h=3559] balances after: 30006 "balance":607937 30007 "balance":1055417 30018 "balance":692592 
+[17:37:57Z h=3559] xmrswap-* tasks after: none
+[17:37:58Z h=3559] lock: 4 tx 9cf4ff652c08b0dfb8c3818498643b09b9dd06123cbe6aba1f719f2e6f308389; bob phase reclaimed done true; alice phase swept done true
+[17:37:58Z h=3559] SCENARIO DONE
+
+== bob.1.log
+htlc.bas v3 at bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, installed with w1min 10, w2min 6, g2 30 (Punish in [t2, t2 + 30), Reclaim from t2 + 30)
+
+WARNING: the DERO wallet RPC answers calls made with no credentials: while the swap runs any local process, and any web page through its /ws endpoint, can call transfer on it; start it with --rpc-login (GAP-008)
+
+
+WARNING: the monero-wallet-rpc answered without asking for credentials: at sweep time it holds the joint spend key, and it can transfer and sweep; start it with --rpc-login (GAP-009)
+
+
+WARNING: -net regtest. A regtest Monero wallet's addresses are mainnet-form, and nothing this companion can
+read tells a regtest wallet-rpc from a mainnet one. The DERO side is the simulator, so nothing of value is locked on
+DERO; if http://127.0.0.1:28084 is not on a regtest chain, the XMR it sends is real and is being traded for simulator coins.
+
+bob: DERO deto1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgfywu80 on simulator, contract bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, state <tmp>\cli\t3c\bob.json (phase ""), channel <tmp>\cli\t3c\channel
+02:53:15 bob:  -> setup
+02:53:15 bob: sent offer
+02:53:26 bob: π_a verified; joint address 493dTWekV3kLA2mZS2UMRyKj3xtWMCcS4iVHqRww9XbXUby8wanyKM3aTKStiqdFXshQMCLVgiSuvN4BXpyUzXGFM3JpUe1; taker deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce
+02:53:26 bob: setup -> verified_pi_a
+02:53:26 bob: sent bob_setup
+02:53:26 bob: RECOVERY CARD — read it before any DERO of yours is locked
+02:53:26 bob: SECRET: <tmp>\cli\t3c\bob.json holds your key share s_b and the gate secret. Back it up now, where only you can read it: without it the DERO you lock now can be neither refunded nor reclaimed, and whoever copies it can take the XMR once alice's Claim puts s_a on the chain.
+02:53:26 bob: resume: <tmp>\bin2\xmrswap.exe bob -state <tmp>\cli\t3c\bob.json -dero 127.0.0.1:30006 -monero http://127.0.0.1:28084 -monero-name s1cli-1789225277-bob -t1 48 -t2 16 -net regtest -daemon 127.0.0.1:20000 -htlc bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3 -monerod 127.0.0.1:28081 -prover "wsl.exe -e <path to the pinned proof-xmr build>" -amount-dero 2000 -amount-xmr 1000000000000 -t1-min 10 -t2-min 6 -gate-deadline 4 -g2-min 30 -channel <tmp>\cli\t3c\channel
+02:53:26 bob:         in the directory <user>\Desktop\codex\app-pigeon, which its relative paths are relative to
+02:53:26 bob:         it reads VEIL_RPC_LOGIN, XMRSWAP_MONERO_LOGIN and XMRSWAP_CHANNEL_KEY from the environment; their values are written nowhere, the wake task included
+02:53:26 bob: now            height 3411  2026-09-13 02:53 AEST
+02:53:26 bob: gate by        height 3441  about 2026-09-13 03:02 AEST  your companion releases the gate only before this; from here it waits for t1 to refund
+02:53:26 bob: t1             height 3459  about 2026-09-13 03:07 AEST  your Refund window opens: if alice has not claimed, your companion refunds, which returns your DERO and puts s_b on the chain for her
+02:53:26 bob: refund sent by height 3463  about 2026-09-13 03:09 AEST  the last height your companion sends a Refund at (t2 − 12), so that it executes before t2
+02:53:26 bob: t2             height 3475  about 2026-09-13 03:12 AEST  from here until t2 + g2 anyone may Punish the lock, which pays alice your DERO; your companion sends none
+02:53:26 bob: reclaim from   height 3505  about 2026-09-13 03:21 AEST  t2 + g2 (g2 = 30): if nobody punished, your companion Reclaims from here, which returns your DERO and puts s_b on the chain; until it does, alice's XMR waits on it, and nothing else returns either
+02:53:26 bob: if alice claims, the XMR at the joint address is yours with no deadline: s_a stays on the chain, and your companion sweeps it once the Claim is stable
+02:53:26 bob: be running from t1 until your Refund is stable: a Refund not sent by the height above leaves your DERO to anyone's Punish in [t2, t2 + g2), and if nobody punishes, only your Reclaim from t2 + g2 returns it — be running then too, which the second wake is for
+02:53:27 bob: wake: the Windows task "xmrswap-8e513b0b59333912" starts <tmp>\bin2\xmrswap.exe in a console of its own at 2026-09-13 02:57 AEST and is set to wake this computer (WakeToRun: the power plan must allow wake timers) (before t1, when your Refund window opens)
+02:53:27 bob: wake: the Windows task "xmrswap-8e513b0b59333912-reclaim" starts <tmp>\bin2\xmrswap.exe in a console of its own at 2026-09-13 03:11 AEST and is set to wake this computer (WakeToRun: the power plan must allow wake timers) (before t2 + g2, when your Reclaim opens)
+02:53:27 bob: verified_pi_a -> dero_locking
+2026/09/13 02:53:27 rename <tmp>\cli\t3c\bob.json.tmp-b729d9856da731d5 <tmp>\cli\t3c\bob.json: Access is denied.
+02:53:56 bob: DERO locked: id 4 tx 9cf4ff652c08b0dfb8c3818498643b09b9dd06123cbe6aba1f719f2e6f308389 t1 3459 t2 3475 amount 2000
+02:53:56 bob: dero_locking -> dero_locked
+02:53:56 bob: sent dero_locked
+02:54:20 bob: dero_locked -> stipend_sending
+02:55:00 bob: sent dero_locked
+02:56:00 bob: sent dero_locked
+02:56:42 bob: sent the taker a stipend of 14016 DERO atomic units for her gas (Path 0): tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58
+02:56:42 bob: stipend_sending -> watching_xmr
+
+== alice.1.log
+htlc.bas v3 at bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, installed with w1min 10, w2min 6, g2 30 (Punish in [t2, t2 + 30), Reclaim from t2 + 30)
+
+WARNING: the DERO wallet RPC answers calls made with no credentials: while the swap runs any local process, and any web page through its /ws endpoint, can call transfer on it; start it with --rpc-login (GAP-008)
+
+
+WARNING: the monero-wallet-rpc answered without asking for credentials: at sweep time it holds the joint spend key, and it can transfer and sweep; start it with --rpc-login (GAP-009)
+
+
+WARNING: -net regtest. A regtest Monero wallet's addresses are mainnet-form, and nothing this companion can
+read tells a regtest wallet-rpc from a mainnet one. The DERO side is the simulator, so nothing of value is locked on
+DERO; if http://127.0.0.1:28083 is not on a regtest chain, the XMR it sends is real and is being traded for simulator coins.
+
+alice: DERO deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce on simulator, contract bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, state <tmp>\cli\t3c\alice.json (phase ""), channel <tmp>\cli\t3c\channel
+02:53:21 alice:  -> setup
+02:53:21 alice: setup -> offer_checked
+02:53:21 alice: sent alice_setup
+02:53:32 alice: π_b verified; joint address 493dTWekV3kLA2mZS2UMRyKj3xtWMCcS4iVHqRww9XbXUby8wanyKM3aTKStiqdFXshQMCLVgiSuvN4BXpyUzXGFM3JpUe1
+02:53:32 alice: offer_checked -> verified_pi_b
+02:54:00 alice: verified_pi_b -> lock_announced
+02:54:00 alice: lock 4 checked at height 3413: t1 3459 t2 3475 amount 2000
+02:54:00 alice: lock_announced -> saw_dero_lock
+02:56:20 alice: waiting for the maker's stipend of 14016 DERO atomic units (Path 0); no XMR is locked until it is
+02:56:25 alice: the stipend (tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58, height 3422) is not at stable depth yet (stable height 3414); no XMR is locked until it is
+02:56:40 alice: the stipend (tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58, height 3422) is not at stable depth yet (stable height 3415); no XMR is locked until it is
+02:57:00 alice: the stipend (tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58, height 3422) is not at stable depth yet (stable height 3416); no XMR is locked until it is
+02:57:20 alice: the stipend (tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58, height 3422) is not at stable depth yet (stable height 3417); no XMR is locked until it is
+02:57:35 alice: the stipend (tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58, height 3422) is not at stable depth yet (stable height 3418); no XMR is locked until it is
+02:57:55 alice: the stipend (tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58, height 3422) is not at stable depth yet (stable height 3419); no XMR is locked until it is
+02:58:15 alice: the stipend (tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58, height 3422) is not at stable depth yet (stable height 3420); no XMR is locked until it is
+02:58:30 alice: the stipend (tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58, height 3422) is not at stable depth yet (stable height 3421); no XMR is locked until it is
+02:58:50 alice: the maker's stipend of 14016 DERO atomic units is at stable depth (tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58, height 3422); this wallet can spend 1055417
+02:58:50 alice: locking 1000000000000 piconero against t1 3459 and t2 3475 — about 0 and 0 hours from height 3430, and until t1 the XMR has no exit of its own
+02:58:50 alice: RECOVERY CARD — read it before any XMR of yours moves
+02:58:50 alice: SECRET: <tmp>\cli\t3c\alice.json holds your key share and the joint wallets' password. Back it up now, where only you can read it: without it, XMR locked now cannot be recovered after a refund, and whoever copies it can take that XMR once s_b is public.
+02:58:50 alice: resume: <tmp>\bin2\xmrswap.exe alice -state <tmp>\cli\t3c\alice.json -dero 127.0.0.1:30007 -monero http://127.0.0.1:28083 -monero-name s1cli-1789225277-alice -claim-margin 8 -net regtest -daemon 127.0.0.1:20000 -htlc bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3 -monerod 127.0.0.1:28081 -prover "wsl.exe -e <path to the pinned proof-xmr build>" -amount-dero 2000 -amount-xmr 1000000000000 -t1-min 10 -t2-min 6 -gate-deadline 4 -g2-min 30 -channel <tmp>\cli\t3c\channel
+02:58:50 alice:         in the directory <user>\Desktop\codex\app-pigeon, which its relative paths are relative to
+02:58:50 alice:         it reads VEIL_RPC_LOGIN, XMRSWAP_MONERO_LOGIN and XMRSWAP_CHANNEL_KEY from the environment; their values are written nowhere, the wake task included
+02:58:50 alice: now            height 3430  2026-09-13 02:58 AEST
+02:58:50 alice: claim cutoff   height 3443  about 2026-09-13 03:02 AEST  no Claim of yours is sent from here
+02:58:50 alice: gate deadline  height 3455  about 2026-09-13 03:06 AEST  a gate reaching you from here is not used (t1 − G)
+02:58:50 alice: finish by      height 3443  about 2026-09-13 03:02 AEST  be running before this to complete the swap
+02:58:50 alice: t1             height 3459  about 2026-09-13 03:07 AEST  bob may refund from here; his refund puts s_b on the chain, and your XMR comes back with it
+02:58:50 alice: t2             height 3475  about 2026-09-13 03:12 AEST  bob can no longer refund; your companion sends Punish at once, and anyone may send it for you: it carries no secret and pays only you
+02:58:50 alice: punish sent by height 3477  about 2026-09-13 03:12 AEST  the last height your companion sends Punish at (t2 + g2 − 28), so that it is stable before the window closes
+02:58:50 alice: punish ends    height 3504  about 2026-09-13 03:21 AEST  the Punish window's last block (g2 = 30): from t2 + g2 the contract refuses Punish and the lock is bob's to Reclaim
+02:58:50 alice: your XMR has no deadline once s_b is on the chain: bob's refund puts it there, and so does his Reclaim after t2 + g2, and the XMR then comes back to you alone; a Punish in [t2, t2 + g2) pays you the DERO instead, and any XMR you locked then stays under the joint key
+02:58:50 alice: if bob neither releases the gate nor refunds, and nobody sends Punish in [t2, t2 + g2), your XMR comes back only if bob Reclaims: a bob who never does — unwilling, or having lost his state or s_b — leaves your XMR and his DERO locked for ever. Only a Punish before t2 + g2 rules that out: be running then, or have someone you trust send it for you (anyone may; it carries no secret and pays only you)
+02:58:51 alice: wake: the Windows task "xmrswap-ffa33ec356332d42" starts <tmp>\bin2\xmrswap.exe in a console of its own at 2026-09-13 02:59 AEST and is set to wake this computer (WakeToRun: the power plan must allow wake timers) (before the first window closes)
+02:58:51 alice: wake: the Windows task "xmrswap-ffa33ec356332d42-t2" starts <tmp>\bin2\xmrswap.exe in a console of its own at 2026-09-13 03:02 AEST and is set to wake this computer (WakeToRun: the power plan must allow wake timers) (before t2, when the Punish window opens)
+02:58:51 alice: saw_dero_lock -> xmr_locking
+02:58:59 alice: XMR locked: tx d5568e776b90769148b860080702aed1f5fd8f39bc42dbb63b49218d298452bf to 493dTWekV3kLA2mZS2UMRyKj3xtWMCcS4iVHqRww9XbXUby8wanyKM3aTKStiqdFXshQMCLVgiSuvN4BXpyUzXGFM3JpUe1
+02:58:59 alice: xmr_locking -> xmr_locked
+02:58:59 alice: sent xmr_locked
+03:00:02 alice: sent xmr_locked
+03:01:05 alice: sent xmr_locked
+03:02:08 alice: sent xmr_locked
+03:03:11 alice: sent xmr_locked
+03:04:14 alice: sent xmr_locked
+03:05:17 alice: sent xmr_locked
+03:06:20 alice: sent xmr_locked
+03:06:27 alice: t1 − G (3455) passed without the gate: waiting for bob's refund, or t2
+03:06:27 alice: xmr_locked -> await_refund
+
+== alice.2.log
+htlc.bas v3 at bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, installed with w1min 10, w2min 6, g2 30 (Punish in [t2, t2 + 30), Reclaim from t2 + 30)
+
+WARNING: the DERO wallet RPC answers calls made with no credentials: while the swap runs any local process, and any web page through its /ws endpoint, can call transfer on it; start it with --rpc-login (GAP-008)
+
+
+WARNING: the monero-wallet-rpc answered without asking for credentials: at sweep time it holds the joint spend key, and it can transfer and sweep; start it with --rpc-login (GAP-009)
+
+
+WARNING: -net regtest. A regtest Monero wallet's addresses are mainnet-form, and nothing this companion can
+read tells a regtest wallet-rpc from a mainnet one. The DERO side is the simulator, so nothing of value is locked on
+DERO; if http://127.0.0.1:28083 is not on a regtest chain, the XMR it sends is real and is being traded for simulator coins.
+
+alice: DERO deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce on simulator, contract bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, state <tmp>\cli\t3c\alice.json (phase "await_refund"), channel <tmp>\cli\t3c\channel
+03:13:35 alice: sent xmr_locked
+03:13:35 alice: await_refund -> punish_window
+03:13:35 alice: height 3478 is past the punish cutoff 3478 (t2 3475 + g2 30 − 11 validity − 8 stable − 8 margin): not punishing; waiting for bob's Reclaim, which puts s_b on the chain (if he never sends one, the XMR locked here and his DERO stay locked for ever)
+03:13:35 alice: punish_window -> await_reclaim
+
+== alice.3.log
+htlc.bas v3 at bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, installed with w1min 10, w2min 6, g2 30 (Punish in [t2, t2 + 30), Reclaim from t2 + 30)
+
+WARNING: the DERO wallet RPC answers calls made with no credentials: while the swap runs any local process, and any web page through its /ws endpoint, can call transfer on it; start it with --rpc-login (GAP-008)
+
+
+WARNING: the monero-wallet-rpc answered without asking for credentials: at sweep time it holds the joint spend key, and it can transfer and sweep; start it with --rpc-login (GAP-009)
+
+
+WARNING: -net regtest. A regtest Monero wallet's addresses are mainnet-form, and nothing this companion can
+read tells a regtest wallet-rpc from a mainnet one. The DERO side is the simulator, so nothing of value is locked on
+DERO; if http://127.0.0.1:28083 is not on a regtest chain, the XMR it sends is real and is being traded for simulator coins.
+
+2026/09/13 03:14:02 <tmp>\cli\t3c\alice.json.lock was touched 12s ago: another companion is running on this state
+
+== bob.2.log
+htlc.bas v3 at bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, installed with w1min 10, w2min 6, g2 30 (Punish in [t2, t2 + 30), Reclaim from t2 + 30)
+
+WARNING: the DERO wallet RPC answers calls made with no credentials: while the swap runs any local process, and any web page through its /ws endpoint, can call transfer on it; start it with --rpc-login (GAP-008)
+
+
+WARNING: the monero-wallet-rpc answered without asking for credentials: at sweep time it holds the joint spend key, and it can transfer and sweep; start it with --rpc-login (GAP-009)
+
+
+WARNING: -net regtest. A regtest Monero wallet's addresses are mainnet-form, and nothing this companion can
+read tells a regtest wallet-rpc from a mainnet one. The DERO side is the simulator, so nothing of value is locked on
+DERO; if http://127.0.0.1:28084 is not on a regtest chain, the XMR it sends is real and is being traded for simulator coins.
+
+bob: DERO deto1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgfywu80 on simulator, contract bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, state <tmp>\cli\t3c\bob.json (phase "watching_xmr"), channel <tmp>\cli\t3c\channel
+03:22:38 bob: sent dero_locked
+03:22:38 bob: watching_xmr -> refund_window
+03:22:38 bob: height 3509 is at or past the refund cutoff 3464 (t2 3475 − 11) with the lock open: no Refund is sent, since one could execute only at or after t2, where htlc.bas refuses it and keeps the fee. From t2 until t2 + g2 = 3505 anyone may Punish the lock, which pays alice the DERO and returns this party nothing; if nobody does, this party Reclaims it from t2 + g2, which returns the DERO and puts s_b on the chain for alice
+2026/09/13 03:22:38 rename <tmp>\cli\t3c\bob.json.tmp-662771e4d318795a <tmp>\cli\t3c\bob.json: Access is denied.
+03:22:43 bob: height 3509 is at or past the refund cutoff 3464 (t2 3475 − 11) with the lock open: no Refund is sent, since one could execute only at or after t2, where htlc.bas refuses it and keeps the fee. From t2 until t2 + g2 = 3505 anyone may Punish the lock, which pays alice the DERO and returns this party nothing; if nobody does, this party Reclaims it from t2 + g2, which returns the DERO and puts s_b on the chain for alice
+03:22:43 bob: refund_window -> punish_window
+2026/09/13 03:22:43 rename <tmp>\cli\t3c\bob.json.tmp-89e443e02c388733 <tmp>\cli\t3c\bob.json: Access is denied.
+03:22:48 bob: punish_window -> reclaiming
+
+== bob.3.log
+htlc.bas v3 at bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, installed with w1min 10, w2min 6, g2 30 (Punish in [t2, t2 + 30), Reclaim from t2 + 30)
+
+WARNING: the DERO wallet RPC answers calls made with no credentials: while the swap runs any local process, and any web page through its /ws endpoint, can call transfer on it; start it with --rpc-login (GAP-008)
+
+
+WARNING: the monero-wallet-rpc answered without asking for credentials: at sweep time it holds the joint spend key, and it can transfer and sweep; start it with --rpc-login (GAP-009)
+
+
+WARNING: -net regtest. A regtest Monero wallet's addresses are mainnet-form, and nothing this companion can
+read tells a regtest wallet-rpc from a mainnet one. The DERO side is the simulator, so nothing of value is locked on
+DERO; if http://127.0.0.1:28084 is not on a regtest chain, the XMR it sends is real and is being traded for simulator coins.
+
+2026/09/13 03:23:01 <tmp>\cli\t3c\bob.json.lock was touched 14s ago: another companion is running on this state
+
+== alice.4.log
+htlc.bas v3 at bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, installed with w1min 10, w2min 6, g2 30 (Punish in [t2, t2 + 30), Reclaim from t2 + 30)
+
+WARNING: the DERO wallet RPC answers calls made with no credentials: while the swap runs any local process, and any web page through its /ws endpoint, can call transfer on it; start it with --rpc-login (GAP-008)
+
+
+WARNING: the monero-wallet-rpc answered without asking for credentials: at sweep time it holds the joint spend key, and it can transfer and sweep; start it with --rpc-login (GAP-009)
+
+
+WARNING: -net regtest. A regtest Monero wallet's addresses are mainnet-form, and nothing this companion can
+read tells a regtest wallet-rpc from a mainnet one. The DERO side is the simulator, so nothing of value is locked on
+DERO; if http://127.0.0.1:28083 is not on a regtest chain, the XMR it sends is real and is being traded for simulator coins.
+
+alice: DERO deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce on simulator, contract bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, state <tmp>\cli\t3c\alice.json (phase "await_reclaim"), channel <tmp>\cli\t3c\channel
+03:35:23 alice: sent xmr_locked
+03:35:23 alice: bob reclaimed the lock after t2 + g2; s_b read from the chain
+03:35:23 alice: await_reclaim -> refund_seen
+03:35:45 alice: refund_seen -> sweep_ready
+03:35:55 alice: sweep_ready -> sweeping
+03:35:55 alice: swept the joint wallet to 47h2ZSHPLGdJcT4ReMarFR6fRjERPvTuF63irGAyvMMZPaVheRVAZ7xZBg6YiuET7kd6wXBfbhaPY7Gkt9QaC5U522QUJwb: [eab3c9b23530b2d86988bb957ef01ec7bf1dc11fc2b105858c2af72c52f3130f]
+03:35:55 alice: the joint wallets xmrswap-bfc9da5a-ffa33ec356332d42-4-spend and xmrswap-bfc9da5a-ffa33ec356332d42-4-view stay in the wallet-rpc's wallet-dir, encrypted under this swap's password; delete them once the sweep is confirmed
+03:35:55 alice: done: swept the XMR to 47h2ZSHPLGdJcT4ReMarFR6fRjERPvTuF63irGAyvMMZPaVheRVAZ7xZBg6YiuET7kd6wXBfbhaPY7Gkt9QaC5U522QUJwb
+03:35:55 alice: sweeping -> swept
+alice: swept the XMR to 47h2ZSHPLGdJcT4ReMarFR6fRjERPvTuF63irGAyvMMZPaVheRVAZ7xZBg6YiuET7kd6wXBfbhaPY7Gkt9QaC5U522QUJwb
+
+== bob.4.log
+htlc.bas v3 at bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, installed with w1min 10, w2min 6, g2 30 (Punish in [t2, t2 + 30), Reclaim from t2 + 30)
+
+WARNING: the DERO wallet RPC answers calls made with no credentials: while the swap runs any local process, and any web page through its /ws endpoint, can call transfer on it; start it with --rpc-login (GAP-008)
+
+
+WARNING: the monero-wallet-rpc answered without asking for credentials: at sweep time it holds the joint spend key, and it can transfer and sweep; start it with --rpc-login (GAP-009)
+
+
+WARNING: -net regtest. A regtest Monero wallet's addresses are mainnet-form, and nothing this companion can
+read tells a regtest wallet-rpc from a mainnet one. The DERO side is the simulator, so nothing of value is locked on
+DERO; if http://127.0.0.1:28084 is not on a regtest chain, the XMR it sends is real and is being traded for simulator coins.
+
+bob: DERO deto1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgfywu80 on simulator, contract bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3, state <tmp>\cli\t3c\bob.json (phase "reclaiming"), channel <tmp>\cli\t3c\channel
+03:35:21 bob: sent dero_locked
+2026/09/13 03:35:21 rename <tmp>\cli\t3c\bob.json.tmp-c91f7c31205b13c5 <tmp>\cli\t3c\bob.json: Access is denied.
+03:35:26 bob: reclaiming -> reclaim_confirming
+03:36:21 bob: sent dero_locked
+03:37:21 bob: sent dero_locked
+03:37:46 bob: done: reclaimed: tx (reclaimed; txid not recorded) after t2 + g2, stable (stable height 3551); s_b is on the chain so alice can recover any XMR she locked
+03:37:46 bob: reclaim_confirming -> reclaimed
+03:37:46 bob: sent done
+bob: reclaimed: tx (reclaimed; txid not recorded) after t2 + g2, stable (stable height 3551); s_b is on the chain so alice can recover any XMR she locked
+
+-------------------
+After the run: the DERO side
+== DERO history 30006 (bob) from 3408
+{"port":30006,"h":3412,"topo":3412,"txid":"9cf4ff652c08b0dfb8c3818498643b09b9dd06123cbe6aba1f719f2e6f308389","dir":"out","amount":2000,"burn":2000,"fees":858,"dest":"deto1qyra7p7sjn3"}
+{"port":30006,"h":3422,"topo":3422,"txid":"8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58","dir":"out","amount":14016,"fees":121,"dest":"deto1qy05unfm5l0","rpc":"D=7709009766739832"}
+{"port":30006,"h":3510,"topo":3510,"txid":"4fce032b08cb6ce852e1cd224f517f329fafaadb926e0c4fa482c2c75f9b7cd3","dir":"out","amount":0,"fees":3000,"dest":"deto1qyyr55jpq65"}
+== DERO history 30007 (alice) from 3408
+{"port":30007,"h":3422,"topo":3422,"txid":"8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58","dir":"in","amount":14016,"fees":121,"rpc":"D=7709009766739832"}
+== DERO history 30018 (third wallet) from 3408
+{"port":30018,"h":3506,"topo":3506,"txid":"33758ff3ced5bb0cee40437473072ecddc4a723fa3e65da944374ea374191ddc","dir":"out","amount":0,"fees":3000,"dest":"deto1qydp9nlkfjf"}
+== DERO.GetTransaction
+{"txid":"9cf4ff652c08b0dfb8c3818498643b09b9dd06123cbe6aba1f719f2e6f308389","valid_block":"1ffdb71c3bb8d8e3342c2540ce53979525bb6ca2627bdcbb2c913469637976ff","in_pool":false,"block_height":3412,"signer":"deto1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgfywu80","ring":[2]}
+{"txid":"8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58","valid_block":"178af81c7c280098b057abd8422cbc097b611c24ee336ee5bd7c46a3e7f74966","in_pool":false,"block_height":3422,"signer":"deto1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgfywu80","ring":[2]}
+{"txid":"33758ff3ced5bb0cee40437473072ecddc4a723fa3e65da944374ea374191ddc","valid_block":"4414ea3bddb9a90e03a17a7d0905501fe6b73df73427ccd493e0fdd418c6a819","in_pool":false,"block_height":3506,"signer":"deto1qykd5wkkzkqrke83rmylsqlxe4aye5m7hsdtrkyey89s63dgl92sqqg8g4equ","ring":[2]}
+{"txid":"4fce032b08cb6ce852e1cd224f517f329fafaadb926e0c4fa482c2c75f9b7cd3","valid_block":"191ef115a0e66da1342d6ee9fbb953ca0724fe700c854285b54911d5313e8c79","in_pool":false,"block_height":3510,"signer":"deto1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgfywu80","ring":[2]}
+== DERO.GetSC lock 4
+{"balance":0,"st_4":"4","v_4":"2000","t1_4":"3459","t2_4":"3475","g2":"30","n":"5","xa_4":"absent","sha256_xb4_eq_hb4":true}
+== state files
+<tmp>/cli/t3c/bob.json {"role":"bob","phase":"reclaimed","outcome":"reclaimed: tx (reclaimed; txid not recorded) after t2 + g2, stable (stable height 3551); s_b is on the chain so alice can recover any XMR she locked","done":true,"lock":{"id":4,"tx":"9cf4ff652c08b0dfb8c3818498643b09b9dd06123cbe6aba1f719f2e6f308389","t1":3459,"t2":3475,"amount":2000,"lockedHeight":3413},"stipend":{"tx":"8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58","amount":14016},"reclaimTx":"(reclaimed; txid not recorded)","revealed":"empty","joint":"493dTWekV3kLA2mZS2UMRyKj3xtWMCcS4iVHqRww9XbXUby8wanyKM3aTKStiqdFXshQMCLVgiSuvN4BXpyUzXGFM3JpUe1"}
+<tmp>/cli/t3c/alice.json {"role":"alice","phase":"swept","outcome":"swept the XMR to 47h2ZSHPLGdJcT4ReMarFR6fRjERPvTuF63irGAyvMMZPaVheRVAZ7xZBg6YiuET7kd6wXBfbhaPY7Gkt9QaC5U522QUJwb","done":true,"lock":{"id":4,"t1":3459,"t2":3475,"amount":2000,"seenHeight":3413},"stipend":{"tx":"8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58","amount":14016,"height":3422},"xmrLockTx":"d5568e776b90769148b860080702aed1f5fd8f39bc42dbb63b49218d298452bf","revealed":"set","sweep":["eab3c9b23530b2d86988bb957ef01ec7bf1dc11fc2b105858c2af72c52f3130f"],"joint":"493dTWekV3kLA2mZS2UMRyKj3xtWMCcS4iVHqRww9XbXUby8wanyKM3aTKStiqdFXshQMCLVgiSuvN4BXpyUzXGFM3JpUe1"}
+
+-------------------
+After the run: the Monero side (one JSON line per read; no key or password printed; 20 regtest blocks mined first)
+{"monerod_height_before":19751}
+{"mined":20,"to":"42mXZV4kwZZj…","monerod_height_after":19771}
+{"monerod":"d5568e776b90769148b860080702aed1f5fd8f39bc42dbb63b49218d298452bf","in_pool":false,"block_height":19372,"confirmations":399}
+{"monerod":"eab3c9b23530b2d86988bb957ef01ec7bf1dc11fc2b105858c2af72c52f3130f","in_pool":false,"block_height":19733,"confirmations":38}
+{"wallet":"alice","name":"s1cli-1789225277-alice","address":"47h2ZSHPLGdJcT4ReMarFR6fRjERPvTuF63irGAyvMMZPaVheRVAZ7xZBg6YiuET7kd6wXBfbhaPY7Gkt9QaC5U522QUJwb","balance":135648857722212,"unlocked":135648857722212,"in_count":5,"in_sum":"137652494922212","out_count":2,"out_sum":"2000000000000","out_fees":"3637200000","check":"in - out - fees = balance"}
+{"wallet":"alice","txid":"d5568e776b90769148b860080702aed1f5fd8f39bc42dbb63b49218d298452bf","type":"out","amount":1000000000000,"fee":1820400000,"height":19372,"confirmations":399,"unlock_time":0,"locked":false}
+{"wallet":"alice","txid":"eab3c9b23530b2d86988bb957ef01ec7bf1dc11fc2b105858c2af72c52f3130f","type":"in","amount":998177200000,"fee":1822800000,"height":19733,"confirmations":38,"unlock_time":0,"locked":false}
+{"wallet":"bob","name":"s1cli-1789225277-bob","address":"42mXZV4kwZZjAdL6vMW6vEYtNJh9XFSa1DmQ1YP6Va2yVFY39BBqf8sbjdLz4NyCvfZ8uVbybSj4UJBEmMDMRChjVjKETXs","balance":"21946990117815389","unlocked":"19947818237633077","in_count":647,"in_sum":"21946990117815389","out_count":0,"out_sum":"0","out_fees":"0","check":"in - out - fees = balance"}
+{"wallet":"bob","txid":"d5568e776b90769148b860080702aed1f5fd8f39bc42dbb63b49218d298452bf","not_in_this_wallet":"get_transfer_by_txid: Transaction not found."}
+{"wallet":"bob","txid":"eab3c9b23530b2d86988bb957ef01ec7bf1dc11fc2b105858c2af72c52f3130f","not_in_this_wallet":"get_transfer_by_txid: Transaction not found."}
+{"wallet":"bob-joint-spend","name":"xmrswap-bfc9da5a-8e513b0b59333912-4-spend","error":"open_wallet: Failed to open wallet : file not found \"<repo>/.sim/regtest/monero/wallets-2/xmrswap-bfc9da5a-8e513b0b"}
+{"wallet":"bob-joint-view","name":"xmrswap-bfc9da5a-8e513b0b59333912-4-view","address":"493dTWekV3kLA2mZS2UMRyKj3xtWMCcS4iVHqRww9XbXUby8wanyKM3aTKStiqdFXshQMCLVgiSuvN4BXpyUzXGFM3JpUe1","balance":1000000000000,"unlocked":1000000000000,"in_count":1,"in_sum":"1000000000000","out_count":0,"out_sum":"0","out_fees":"0","check":"in - out - fees = balance"}
+{"wallet":"bob-joint-view","txid":"d5568e776b90769148b860080702aed1f5fd8f39bc42dbb63b49218d298452bf","type":"in","amount":1000000000000,"fee":1820400000,"height":19372,"confirmations":399,"unlock_time":0,"locked":false}
+{"wallet":"bob-joint-view","txid":"eab3c9b23530b2d86988bb957ef01ec7bf1dc11fc2b105858c2af72c52f3130f","not_in_this_wallet":"get_transfer_by_txid: Transaction not found."}
+{"wallet":"alice-joint-spend","name":"xmrswap-bfc9da5a-ffa33ec356332d42-4-spend","address":"493dTWekV3kLA2mZS2UMRyKj3xtWMCcS4iVHqRww9XbXUby8wanyKM3aTKStiqdFXshQMCLVgiSuvN4BXpyUzXGFM3JpUe1","balance":0,"unlocked":0,"in_count":1,"in_sum":"1000000000000","out_count":1,"out_sum":"998177200000","out_fees":"1822800000","check":"in - out - fees = balance"}
+{"wallet":"alice-joint-spend","txid":"d5568e776b90769148b860080702aed1f5fd8f39bc42dbb63b49218d298452bf","type":"in","amount":1000000000000,"fee":1820400000,"height":19372,"confirmations":399,"unlock_time":0,"locked":false}
+{"wallet":"alice-joint-spend","txid":"eab3c9b23530b2d86988bb957ef01ec7bf1dc11fc2b105858c2af72c52f3130f","type":"out","amount":998177200000,"fee":1822800000,"height":19733,"confirmations":38,"unlock_time":0,"locked":false}
+{"wallet":"alice-joint-view","name":"xmrswap-bfc9da5a-ffa33ec356332d42-4-view","error":"open_wallet: Failed to open wallet : file not found \"<repo>/.sim/regtest/monero/wallets/xmrswap-bfc9da5a-ffa33ec356"}
+
+-------------------
+After the run: xmrswap status (dc1f47e)
+== xmrswap status -dir <tmp>/cli/t3c -daemon 127.0.0.1:20000 -monero http://127.0.0.1:28084
+<tmp>\cli\t3c\alice.json
+  alice, phase "swept", done true, swap ffa33ec356332d42
+  outcome: swept the XMR to 47h2ZSHPLGdJcT4ReMarFR6fRjERPvTuF63irGAyvMMZPaVheRVAZ7xZBg6YiuET7kd6wXBfbhaPY7Gkt9QaC5U522QUJwb
+  terms: 2000 atomic units of DERO for 1000000000000 piconero on mainnet; stipend 14016; t1 3459, t2 3475
+  stipend: 14016, tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58 (height 3422)
+  chain: lock 4 is reclaimed at height 3565 (t1 3459, t2 3475, 2000 of DERO)
+  monero: the joint address 493dTWekV3kLA2mZS2UMRyKj3xtWMCcS4iVHqRww9XbXUby8wanyKM3aTKStiqdFXshQMCLVgiSuvN4BXpyUzXGFM3JpUe1 has received 1000000000000 piconero in 1 confirmed transfers (terms 1000000000000)
+<tmp>\cli\t3c\bob.json
+  bob, phase "reclaimed", done true, swap 8e513b0b59333912
+  outcome: reclaimed: tx (reclaimed; txid not recorded) after t2 + g2, stable (stable height 3551); s_b is on the chain so alice can recover any XMR she locked
+  terms: 2000 atomic units of DERO for 1000000000000 piconero on mainnet; stipend 14016; t1 3459, t2 3475
+  stipend: 14016, tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58 (height 0)
+  chain: lock 4 is reclaimed at height 3566 (t1 3459, t2 3475, 2000 of DERO)
+  monero: the joint address 493dTWekV3kLA2mZS2UMRyKj3xtWMCcS4iVHqRww9XbXUby8wanyKM3aTKStiqdFXshQMCLVgiSuvN4BXpyUzXGFM3JpUe1 has received 1000000000000 piconero in 1 confirmed transfers (terms 1000000000000)
+== xmrswap status -dir <tmp>/cli/t3c -daemon 127.0.0.1:20000 -monero http://127.0.0.1:28083
+<tmp>\cli\t3c\alice.json
+  alice, phase "swept", done true, swap ffa33ec356332d42
+  outcome: swept the XMR to 47h2ZSHPLGdJcT4ReMarFR6fRjERPvTuF63irGAyvMMZPaVheRVAZ7xZBg6YiuET7kd6wXBfbhaPY7Gkt9QaC5U522QUJwb
+  terms: 2000 atomic units of DERO for 1000000000000 piconero on mainnet; stipend 14016; t1 3459, t2 3475
+  stipend: 14016, tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58 (height 3422)
+  chain: lock 4 is reclaimed at height 3566 (t1 3459, t2 3475, 2000 of DERO)
+  monero: the joint address 493dTWekV3kLA2mZS2UMRyKj3xtWMCcS4iVHqRww9XbXUby8wanyKM3aTKStiqdFXshQMCLVgiSuvN4BXpyUzXGFM3JpUe1 has received 1000000000000 piconero in 1 confirmed transfers (terms 1000000000000)
+<tmp>\cli\t3c\bob.json
+  bob, phase "reclaimed", done true, swap 8e513b0b59333912
+  outcome: reclaimed: tx (reclaimed; txid not recorded) after t2 + g2, stable (stable height 3551); s_b is on the chain so alice can recover any XMR she locked
+  terms: 2000 atomic units of DERO for 1000000000000 piconero on mainnet; stipend 14016; t1 3459, t2 3475
+  stipend: 14016, tx 8ffca073e2326bdc506acef110465e0c9b5eb856dbe69d2234566cf784b79b58 (height 0)
+  chain: lock 4 is reclaimed at height 3567 (t1 3459, t2 3475, 2000 of DERO)
+  monero: the joint address 493dTWekV3kLA2mZS2UMRyKj3xtWMCcS4iVHqRww9XbXUby8wanyKM3aTKStiqdFXshQMCLVgiSuvN4BXpyUzXGFM3JpUe1 has received 1000000000000 piconero in 1 confirmed transfers (terms 1000000000000)
+
+-------------------
+The aborted first attempt on fbe3901: its driver log and its two processes' output
+[15:01:40Z h=3031] scenario t3c: htlc d82dbfd498d08629c79bc1437520b465ee9f0c18741538aaeed7aec8ebe3f1ea, -t1 48 -t2 16 -claim-margin(alice) 8; wallets bob 30006 / s1cli-1789225277-bob, alice 30007 / s1cli-1789225277-alice
+[15:01:40Z h=3031] balances before: 30006 "balance":710907 30007 "balance":973698 30018 "balance":695592 
+[15:01:41Z h=3031] xmrswap-* tasks before: none
+[15:01:41Z h=3031] the channel key made with 'xmrswap channel-key' and handed to both through XMRSWAP_CHANNEL_KEY (its value is not written here)
+[15:01:57Z h=3032] START bob run 1 (phase on disk '')
+[15:01:57Z h=3032] START alice run 1 (phase on disk '')
+[15:01:57Z h=3032] CATCH bob in watching_xmr (T3b step 1: his lock and the stipend are in): invalid value "1800" for flag -timeout: parse error
+Usage of <tmp>\bin\phasekill.exe:
+  -delay duration
+    	wait this long after first seeing the phase
+  -giveup string
+    	comma-separated phases that mean the target was passed
+  -phase string
+    	phase to kill in
+  -pid int
+    	windows pid
+  -state string
+    	state file
+  -timeout duration
+    	give up after this long (default 1h0m0s)
+== bob.1.log
+htlc.bas v3 at d82dbfd498d08629c79bc1437520b465ee9f0c18741538aaeed7aec8ebe3f1ea, installed with w1min 10, w2min 6, g2 30 (Punish in [t2, t2 + 30), Reclaim from t2 + 30)
+
+WARNING: the DERO wallet RPC answers calls made with no credentials: while the swap runs any local process, and any web page through its /ws endpoint, can call transfer on it; start it with --rpc-login (GAP-008)
+
+
+WARNING: the monero-wallet-rpc answered without asking for credentials: at sweep time it holds the joint spend key, and it can transfer and sweep; start it with --rpc-login (GAP-009)
+
+
+WARNING: -net regtest. A regtest Monero wallet's addresses are mainnet-form, and nothing this companion can
+read tells a regtest wallet-rpc from a mainnet one. The DERO side is the simulator, so nothing of value is locked on
+DERO; if http://127.0.0.1:28084 is not on a regtest chain, the XMR it sends is real and is being traded for simulator coins.
+
+
+WARNING: -prover-sha256 runs a proof-xmr build that is not the pinned one (7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d). Refused on mainnet.
+
+bob: DERO deto1qyx6datstrsx8qlmctgpxdtze4t8mu2l4rue6ql29s7ec5j9hwnv5qgfywu80 on simulator, contract d82dbfd498d08629c79bc1437520b465ee9f0c18741538aaeed7aec8ebe3f1ea, state <tmp>\cli\t3c\bob.json (phase ""), channel <tmp>\cli\t3c\channel
+01:02:59 bob:  -> setup
+01:02:59 bob: sent offer
+01:03:05 bob: π_a verified; joint address 41mq3dBCmWn1AUVP4yfE6yRg2CA1MqhyPjHc1hpJn1CmT1RaPDDB1VzNduhPiBt6sMbUKXAE7Dx7RMEE3x68WhPHBQPk4ZG; taker deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce
+01:03:05 bob: setup -> verified_pi_a
+01:03:05 bob: sent bob_setup
+01:03:05 bob: RECOVERY CARD — read it before any DERO of yours is locked
+01:03:05 bob: SECRET: <tmp>\cli\t3c\bob.json holds your key share s_b and the gate secret. Back it up now, where only you can read it: without it the DERO you lock now can be neither refunded nor reclaimed, and whoever copies it can take the XMR once alice's Claim puts s_a on the chain.
+01:03:05 bob: resume: <tmp>\bin\xmrswap.exe bob -state <tmp>\cli\t3c\bob.json -dero 127.0.0.1:30006 -monero http://127.0.0.1:28084 -monero-name s1cli-1789225277-bob -t1 48 -t2 16 -net regtest -daemon 127.0.0.1:20000 -htlc d82dbfd498d08629c79bc1437520b465ee9f0c18741538aaeed7aec8ebe3f1ea -monerod 127.0.0.1:28081 -prover <tmp>\bin\proverwrap.exe -prover-sha256 7ca0f4b4442129ada324a83fdea989898b7f85d01a5023fb47e3f1d3854e473d -amount-dero 2000 -amount-xmr 1000000000000 -t1-min 10 -t2-min 6 -gate-deadline 4 -g2-min 30 -channel <tmp>\cli\t3c\channel
+01:03:05 bob:         it reads VEIL_RPC_LOGIN, XMRSWAP_MONERO_LOGIN and XMRSWAP_CHANNEL_KEY from the environment; their values are written nowhere, the wake task included
+01:03:05 bob: now            height 3036  2026-09-13 01:03 AEST
+01:03:05 bob: gate by        height 3066  about 2026-09-13 01:12 AEST  your companion releases the gate only before this; from here it waits for t1 to refund
+01:03:05 bob: t1             height 3084  about 2026-09-13 01:17 AEST  your Refund window opens: if alice has not claimed, your companion refunds, which returns your DERO and puts s_b on the chain for her
+01:03:05 bob: refund sent by height 3088  about 2026-09-13 01:18 AEST  the last height your companion sends a Refund at (t2 − 12), so that it executes before t2
+01:03:05 bob: t2             height 3100  about 2026-09-13 01:22 AEST  from here until t2 + g2 anyone may Punish the lock, which pays alice your DERO; your companion sends none
+01:03:05 bob: reclaim from   height 3130  about 2026-09-13 01:31 AEST  t2 + g2 (g2 = 30): if nobody punished, your companion Reclaims from here, which returns your DERO and puts s_b on the chain; until it does, alice's XMR waits on it, and nothing else returns either
+01:03:05 bob: if alice claims, the XMR at the joint address is yours with no deadline: s_a stays on the chain, and your companion sweeps it once the Claim is stable
+01:03:05 bob: be running from t1 until your Refund is stable: a Refund not sent by the height above leaves your DERO to anyone's Punish in [t2, t2 + g2), and if nobody punishes, only your Reclaim from t2 + g2 returns it — be running then too, which the second wake is for
+01:03:06 bob: wake: the Windows task "xmrswap-098cc816230c6ce3" starts the resume command in a console at 2026-09-13 01:07 AEST and is set to wake this computer (WakeToRun: the power plan must allow wake timers) (before t1, when your Refund window opens)
+01:03:06 bob: wake: the Windows task "xmrswap-098cc816230c6ce3-reclaim" starts the resume command in a console at 2026-09-13 01:21 AEST and is set to wake this computer (WakeToRun: the power plan must allow wake timers) (before t2 + g2, when your Reclaim opens)
+01:03:07 bob: verified_pi_a -> dero_locking
+01:03:26 bob: DERO locked: id 1 tx c1171891db46968545d319fe95869928c4cc744db8f7a1505243544055bcdfc5 t1 3084 t2 3100 amount 2000
+01:03:26 bob: dero_locking -> dero_locked
+01:03:26 bob: sent dero_locked
+01:03:58 bob: dero_locked -> stipend_sending
+01:04:28 bob: sent dero_locked
+01:05:28 bob: sent dero_locked
+01:06:12 bob: sent the taker a stipend of 14016 DERO atomic units for her gas (Path 0): tx a1bdb320a4886f705462b7a23914687372ae2c2ec6d0a2a2d756d9ad3a3546dc
+01:06:12 bob: stipend_sending -> watching_xmr
+01:06:39 bob: sent dero_locked
+01:07:39 bob: sent dero_locked
+01:08:39 bob: sent dero_locked
+01:08:39 bob: alice reports Monero tx 2176d18750552dae871d1186d89ffb1aa5a0a46e72164856caf8fbdf23bcc41f; watching the view wallet, not the message
+01:10:38 bob: 1000000000000 piconero at the joint address with ≥ 20 confirmations (Monero height 15594)
+01:10:38 bob: watching_xmr -> xmr_confirmed
+01:10:49 bob: xmr_confirmed -> gate_sending
+01:10:49 bob: sent gate
+01:10:49 bob: gate_sending -> gate_sent
+01:10:54 bob: alice claimed; s_a read from the chain at height 3064
+01:10:54 bob: gate_sent -> claimed
+01:13:19 bob: the claim is stable (read at height 3064): the XMR at the joint address is this party's; sweeping it
+01:13:44 bob: claimed -> sweep_ready
+01:13:50 bob: sweep_ready -> sweeping
+01:13:50 bob: swept the joint wallet to 42mXZV4kwZZjAdL6vMW6vEYtNJh9XFSa1DmQ1YP6Va2yVFY39BBqf8sbjdLz4NyCvfZ8uVbybSj4UJBEmMDMRChjVjKETXs: [77d983bcd1ea9bc622ee51ca13b4bb5fbd7d2d138f32d5b9d64f1a0f934f6917]
+01:13:50 bob: the joint wallets xmrswap-d82dbfd4-098cc816230c6ce3-1-spend and xmrswap-d82dbfd4-098cc816230c6ce3-1-view stay in the wallet-rpc's wallet-dir, encrypted under this swap's password; delete them once the sweep is confirmed
+01:13:50 bob: done: swept the XMR to 42mXZV4kwZZjAdL6vMW6vEYtNJh9XFSa1DmQ1YP6Va2yVFY39BBqf8sbjdLz4NyCvfZ8uVbybSj4UJBEmMDMRChjVjKETXs
+01:13:50 bob: sweeping -> swept
+01:13:50 bob: sent done
+bob: swept the XMR to 42mXZV4kwZZjAdL6vMW6vEYtNJh9XFSa1DmQ1YP6Va2yVFY39BBqf8sbjdLz4NyCvfZ8uVbybSj4UJBEmMDMRChjVjKETXs
+== alice.1.log
+htlc.bas v3 at d82dbfd498d08629c79bc1437520b465ee9f0c18741538aaeed7aec8ebe3f1ea, installed with w1min 10, w2min 6, g2 30 (Punish in [t2, t2 + 30), Reclaim from t2 + 30)
+
+WARNING: the DERO wallet RPC answers calls made with no credentials: while the swap runs any local process, and any web page through its /ws endpoint, can call transfer on it; start it with --rpc-login (GAP-008)
+
+
+WARNING: the monero-wallet-rpc answered without asking for credentials: at sweep time it holds the joint spend key, and it can transfer and sweep; start it with --rpc-login (GAP-009)
+
+
+WARNING: -net regtest. A regtest Monero wallet's addresses are mainnet-form, and nothing this companion can
+read tells a regtest wallet-rpc from a mainnet one. The DERO side is the simulator, so nothing of value is locked on
+DERO; if http://127.0.0.1:28083 is not on a regtest chain, the XMR it sends is real and is being traded for simulator coins.
+
+
+WARNING: -prover-sha256 runs a proof-xmr build that is not the pinned one (7293e9c97e0330966499fff397a0488ef40d38f65da49423429c8c548c83d39d). Refused on mainnet.
+
+alice: DERO deto1qy05unfm5l0aeqd5w7ht6ytgxuldzny668rdmaq5gujzmmn63qw2wqqzdnfce on simulator, contract d82dbfd498d08629c79bc1437520b465ee9f0c18741538aaeed7aec8ebe3f1ea, state <tmp>\cli\t3c\alice.json (phase ""), channel <tmp>\cli\t3c\channel
+01:02:45 alice:  -> setup
+01:02:59 alice: setup -> offer_checked
+01:02:59 alice: sent alice_setup
+01:03:11 alice: π_b verified; joint address 41mq3dBCmWn1AUVP4yfE6yRg2CA1MqhyPjHc1hpJn1CmT1RaPDDB1VzNduhPiBt6sMbUKXAE7Dx7RMEE3x68WhPHBQPk4ZG
+01:03:11 alice: offer_checked -> verified_pi_b
+01:03:26 alice: verified_pi_b -> lock_announced
+01:03:26 alice: lock 1 checked at height 3038: t1 3084 t2 3100 amount 2000
+01:03:26 alice: lock_announced -> saw_dero_lock
+01:05:56 alice: the stipend (tx a1bdb320a4886f705462b7a23914687372ae2c2ec6d0a2a2d756d9ad3a3546dc, height 3047) is not at stable depth yet (stable height 3039); no XMR is locked until it is
+01:06:16 alice: the stipend (tx a1bdb320a4886f705462b7a23914687372ae2c2ec6d0a2a2d756d9ad3a3546dc, height 3047) is not at stable depth yet (stable height 3040); no XMR is locked until it is
+01:06:31 alice: the stipend (tx a1bdb320a4886f705462b7a23914687372ae2c2ec6d0a2a2d756d9ad3a3546dc, height 3047) is not at stable depth yet (stable height 3041); no XMR is locked until it is
+01:06:51 alice: the stipend (tx a1bdb320a4886f705462b7a23914687372ae2c2ec6d0a2a2d756d9ad3a3546dc, height 3047) is not at stable depth yet (stable height 3042); no XMR is locked until it is
+01:07:11 alice: the stipend (tx a1bdb320a4886f705462b7a23914687372ae2c2ec6d0a2a2d756d9ad3a3546dc, height 3047) is not at stable depth yet (stable height 3043); no XMR is locked until it is
+01:07:26 alice: the stipend (tx a1bdb320a4886f705462b7a23914687372ae2c2ec6d0a2a2d756d9ad3a3546dc, height 3047) is not at stable depth yet (stable height 3044); no XMR is locked until it is
+01:07:46 alice: the stipend (tx a1bdb320a4886f705462b7a23914687372ae2c2ec6d0a2a2d756d9ad3a3546dc, height 3047) is not at stable depth yet (stable height 3045); no XMR is locked until it is
+01:08:01 alice: the stipend (tx a1bdb320a4886f705462b7a23914687372ae2c2ec6d0a2a2d756d9ad3a3546dc, height 3047) is not at stable depth yet (stable height 3046); no XMR is locked until it is
+01:08:21 alice: the maker's stipend of 14016 DERO atomic units is at stable depth (tx a1bdb320a4886f705462b7a23914687372ae2c2ec6d0a2a2d756d9ad3a3546dc, height 3047); this wallet can spend 987714
+01:08:21 alice: locking 1000000000000 piconero against t1 3084 and t2 3100 — about 0 and 0 hours from height 3055, and until t1 the XMR has no exit of its own
+01:08:21 alice: RECOVERY CARD — read it before any XMR of yours moves
+01:08:21 alice: SECRET: <tmp>\cli\t3c\alice.json holds your key share and the joint wallets' password. Back it up now, where only you can read it: without it, XMR locked now cannot be recovered after a refund, and whoever copies it can take that XMR once s_b is public.
+01:08:21 alice: resume: <tmp>\bin\xmrswap.exe alice -state <tmp>\cli\t3c\alice.json -dero 127.0.0.1:30007 -monero http://127.0.0.1:28083 -monero-name s1cli-1789225277-alice -claim-margin 8 -net regtest -daemon 127.0.0.1:20000 -htlc d82dbfd498d08629c79bc1437520b465ee9f0c18741538aaeed7aec8ebe3f1ea -monerod 127.0.0.1:28081 -prover <tmp>\bin\proverwrap.exe -prover-sha256 7ca0f4b4442129ada324a83fdea989898b7f85d01a5023fb47e3f1d3854e473d -amount-dero 2000 -amount-xmr 1000000000000 -t1-min 10 -t2-min 6 -gate-deadline 4 -g2-min 30 -channel <tmp>\cli\t3c\channel
+01:08:21 alice:         it reads VEIL_RPC_LOGIN, XMRSWAP_MONERO_LOGIN and XMRSWAP_CHANNEL_KEY from the environment; their values are written nowhere, the wake task included
+01:08:21 alice: now            height 3055  2026-09-13 01:08 AEST
+01:08:21 alice: claim cutoff   height 3068  about 2026-09-13 01:12 AEST  no Claim of yours is sent from here
+01:08:21 alice: gate deadline  height 3080  about 2026-09-13 01:15 AEST  a gate reaching you from here is not used (t1 − G)
+01:08:21 alice: finish by      height 3068  about 2026-09-13 01:12 AEST  be running before this to complete the swap
+01:08:21 alice: t1             height 3084  about 2026-09-13 01:17 AEST  bob may refund from here; his refund puts s_b on the chain, and your XMR comes back with it
+01:08:21 alice: t2             height 3100  about 2026-09-13 01:21 AEST  bob can no longer refund; your companion sends Punish at once, and anyone may send it for you: it carries no secret and pays only you
+01:08:21 alice: punish sent by height 3102  about 2026-09-13 01:22 AEST  the last height your companion sends Punish at (t2 + g2 − 28), so that it is stable before the window closes
+01:08:21 alice: punish ends    height 3129  about 2026-09-13 01:30 AEST  the Punish window's last block (g2 = 30): from t2 + g2 the contract refuses Punish and the lock is bob's to Reclaim
+01:08:21 alice: your XMR has no deadline once s_b is on the chain: bob's refund puts it there, and so does his Reclaim after t2 + g2, and the XMR then comes back to you alone; a Punish in [t2, t2 + g2) pays you the DERO instead, and any XMR you locked then stays under the joint key
+01:08:21 alice: if bob neither releases the gate nor refunds, and nobody sends Punish in [t2, t2 + g2), your XMR comes back only if bob Reclaims: a bob who never does — unwilling, or having lost his state or s_b — leaves your XMR and his DERO locked for ever. Only a Punish before t2 + g2 rules that out: be running then, or have someone you trust send it for you (anyone may; it carries no secret and pays only you)
+01:08:22 alice: wake: the Windows task "xmrswap-98d2822c2f5c1a7a" starts the resume command in a console at 2026-09-13 01:09 AEST and is set to wake this computer (WakeToRun: the power plan must allow wake timers) (before the first window closes)
+01:08:23 alice: wake: the Windows task "xmrswap-98d2822c2f5c1a7a-t2" starts the resume command in a console at 2026-09-13 01:11 AEST and is set to wake this computer (WakeToRun: the power plan must allow wake timers) (before t2, when the Punish window opens)
+01:08:23 alice: saw_dero_lock -> xmr_locking
+01:08:36 alice: XMR locked: tx 2176d18750552dae871d1186d89ffb1aa5a0a46e72164856caf8fbdf23bcc41f to 41mq3dBCmWn1AUVP4yfE6yRg2CA1MqhyPjHc1hpJn1CmT1RaPDDB1VzNduhPiBt6sMbUKXAE7Dx7RMEE3x68WhPHBQPk4ZG
+01:08:36 alice: xmr_locking -> xmr_locked
+01:08:36 alice: sent xmr_locked
+01:09:39 alice: sent xmr_locked
+01:10:42 alice: sent xmr_locked
+01:10:49 alice: xmr_locked -> gate_received
+01:10:49 alice: gate_received -> claiming
+01:10:49 Claim estimated: storage gas 304, fee 504
+01:11:12 alice: claimed: tx 4504998161034b14ce460fe0a0f5563d507a0ac7d3d9f7b64c0ef7ed2b44bcf4; watching it until it is stable
+01:11:12 alice: claiming -> claim_confirming
+01:13:37 alice: done: claimed the DERO: tx 4504998161034b14ce460fe0a0f5563d507a0ac7d3d9f7b64c0ef7ed2b44bcf4, stable (stable height 3065)
+01:13:37 alice: claim_confirming -> claimed
+01:13:37 alice: sent done
+alice: claimed the DERO: tx 4504998161034b14ce460fe0a0f5563d507a0ac7d3d9f7b64c0ef7ed2b44bcf4, stable (stable height 3065)

@@ -32,8 +32,8 @@ is fixed with a regression test. What stands between this and mainnet is not fix
 1. **The Monero swap's cross-curve proof is unaudited.** It proves `SHA256(s) = H ∧ s·G = S` with dalek's R1CS API,
    which upstream marks unaudited.
 2. **No external review of the contracts.**
-3. **The Monero swap has not run on a public network**, and the current contracts are not deployed on the DERO
-   testnet.
+3. **The Monero swap has not run on a public network.** A private DERO testnet runs the current contracts except
+   `founders.bas` v2, and the week of running they need before mainnet (MT-F05) has only begun.
 
 `docs/MAINNET_TODO.md` is the list of everything open for mainnet, with the operator's rulings; `docs/BACKLOG.md`
 is everything else; `docs/audit/FINDINGS_2026-09-10.md` is the adversarial audit, each finding with its status.
