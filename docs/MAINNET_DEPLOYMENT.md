@@ -147,7 +147,7 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
      -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
      -app <an empty scratch directory> -regfee 10000 ^
      -pass-name "DMZ Founders Pass" -pass-image "<the operator's image URL (https), supplied before launch>" ^
-     -pass-descr "Register a pass for a fixed share of the fees DMZ takes, paid in the asset each fee was taken in: DERO and DERO tokens through this contract, XMR and ZEC by the treasury's bot. The bot makes each payment; no contract forces it." ^
+     -pass-descr "Register a pass for a fixed share of DMZ's trading and swap fees, paid in the asset each fee was taken in: DERO and DERO tokens through this contract, XMR and ZEC by the treasury's bot. The bot makes each payment; no contract forces it." ^
      -pass-price 100000 -pass-max 20 -pass-reserve 4 -pass-share 5000 -pass-mfee 250 ^
      -swap-wmin 1600 -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 4800
    ```
@@ -170,7 +170,7 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
      page read as a reply (X-27).
    - **Prices are atomic units** (1 DERO = 100,000). MT-J16's "1 DERO" is `-pass-price 100000`; `-pass-price 1`
      would sell the pass for 0.00001 DERO, for ever. `-pass-reserve` is at most `-pass-max / 5`: 4 of 20, the
-     operator's answer of 2026-09-13. The description is the one approved for founders.bas v2 (227 of 240 bytes).
+     operator's answer of 2026-09-13. The description is the one approved for founders.bas v2 (236 of 240 bytes).
    - **`-pass-image` is the URL the operator supplies before launch.** It is written once, at install, and no
      function can add or change it: an empty value installs a pass with no image for good. The install attaches no
      DERO (founders.bas v2 refuses any), and the 4 reserved editions are minted to the `-w0` wallet.

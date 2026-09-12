@@ -16,7 +16,7 @@ transaction. It moves a little with the install arguments, so each figure names 
 | `board.bas` v3 | 6,602 | 2,611 | 2,652 | — | `board_test.go`, `board_v3_test.go` |
 | `chat.bas` | 2,401 | 1,146 | 1,315–1,320 (fee and `maxlen` vary) | — | `chat_test.go` |
 | `factory.bas` v2 | 3,452 | 1,443 | 1,680 (`regfee` 10,000) | — | `registry_test.go` |
-| `founders.bas` v2 (adopted 2026-09-13) | 15,884 | 9,250 | 10,221 at the mainnet shape; 11,144 with every header at its maximum | 3,765,000 | `founders_test.go` `TestFoundersV2InstallGas` |
+| `founders.bas` v2 (adopted 2026-09-13) | 15,884 | 9,250 | 10,239 at the mainnet shape; 11,144 with every header at its maximum | 3,765,000 | `founders_test.go` `TestFoundersV2InstallGas` |
 | `htlc.bas` v3 | 11,206 | 5,104 | 5,168–5,180: 5,169 at `w1min` 2, `w2min` 1, `g2` 50; 5,177 at 400, 400, 2,400 | — | `htlc_test.go`, `htlc_v3_test.go` |
 | `launch.bas` | 17,074 | 15,257 | 15,842–15,891; **16,915** with every metadata field at its maximum | 1,193,400–1,517,200 | `launch_test.go`; `zzquote_test.go` `TestLaunchMaxMetadataInstallGas` |
 | `nfa.bas` | 24,234 | 14,937 | 15,874–15,877 DERO-quoted; 15,940–15,942 wrapped | 1,045,800 DERO-quoted; 1,066,600 wrapped | `nfa_test.go` |
@@ -357,7 +357,7 @@ Invariants, tested after every fuzz step:
 - `hst` = the sum of the open positions' units;
 - pass units in wallets = `minted − hst − listed`.
 
-**Install.** Storage gas is 10,221 at the mainnet shape (the approved 227-byte description, no image) and 11,144 with
+**Install.** Storage gas is 10,239 at the mainnet shape (the approved 236-byte description, no image) and 11,144 with
 every header at its maximum, against the 20,000 cap. Compute gas is 3,765,000 (`TestFoundersV2InstallGas`).
 
 **Tests:** `tests/founders_test.go` (v1's tests went with v1; the v2 names are kept):

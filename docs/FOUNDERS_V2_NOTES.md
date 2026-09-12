@@ -64,7 +64,7 @@ well, so v2 was held to every rule the deployed contracts are held to.
 
 Canonical sha256 of v2, `reference.Canon`: **`348f872ed49ec218f361c4a70a5f6cd96ada38c3d3d8a0b960fba473c02746d3`**
 (9,250 installed bytes; pinned by `tests/founders_test.go` `TestFoundersV2CanonicalHash`). Install storage gas
-measured: 10,221 at the mainnet shape (the 227-byte description, no image), 11,144 with every header at its maximum,
+measured: 10,239 at the mainnet shape (the 236-byte description, no image), 11,144 with every header at its maximum,
 against the 20,000 cap.
 
 ## 1. The adoption commit itself
@@ -151,8 +151,8 @@ for `minhst` (MT-K05). For v2:
     treasury.
   - `checkPassHeaders` (`main.go:139-160`) keeps every bound: v2 checks exactly v1's.
   - `TestPassLimitsAreTheContracts` must read the adopted file.
-  - `passDescrDefault` and `deploy/README.md`'s `-pass-descr` become the approved v2 description (227 bytes):
-    "Register a pass for a fixed share of the fees DMZ takes, paid in the asset each fee was taken in: DERO and DERO
+  - `passDescrDefault` and `deploy/README.md`'s `-pass-descr` become the approved v2 description (236 bytes):
+    "Register a pass for a fixed share of DMZ's trading and swap fees, paid in the asset each fee was taken in: DERO and DERO
     tokens through this contract, XMR and ZEC by the treasury's bot. The bot makes each payment; no contract forces
     it."
   - The mainnet flags: `-pass-max 20 -pass-reserve 4` (4 ≤ 20/5).

@@ -82,8 +82,8 @@ func TestPassDefaultsAreTheOperatorsNumbers(t *testing.T) {
 	if *passPrice != 100000 || *passMax != 20 || *passReserve != 4 || *passShare != 5000 || *passMfee != 250 || *passImage != "" {
 		t.Fatalf("defaults price %d max %d reserve %d share %d mfee %d image %q", *passPrice, *passMax, *passReserve, *passShare, *passMfee, *passImage)
 	}
-	if len(passDescrDefault) != 227 {
-		t.Fatalf("the approved description is 227 bytes, the default is %d", len(passDescrDefault))
+	if len(passDescrDefault) != 236 {
+		t.Fatalf("the approved description is 236 bytes, the default is %d", len(passDescrDefault))
 	}
 }
 

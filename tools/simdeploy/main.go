@@ -74,14 +74,14 @@ var (
 )
 
 // passDescrDefault is the Founders Pass description the operator approved for founders.bas v2 (2026-09-13, MT-J16,
-// X-29), 227 of the contract's 240 bytes. founders.bas stores its headers once and defines no setter, so whatever
+// X-29), 236 of the contract's 240 bytes. founders.bas stores its headers once and defines no setter, so whatever
 // goes in here is on chain for the life of the contract, and app/nfts.js renders it under the mint button. It says
 // what v2 and the treasury's bot do: each fee is paid in the asset it was taken in, DERO and DERO tokens through the
 // contract (Deposit, then each position's Claim), XMR and ZEC by the bot to the addresses holders store (SetXmr,
 // SetZec), and no contract forces the bot to make any of those payments. app/notice.js, the page the app declares
 // authoritative, says the same in more words. The v1 wording, "Fees in any asset other than DERO do not reach
 // holders", is false of v2 and must not be installed with it.
-const passDescrDefault = "Register a pass for a fixed share of the fees DMZ takes, paid in the asset each fee was taken in: " +
+const passDescrDefault = "Register a pass for a fixed share of DMZ's trading and swap fees, paid in the asset each fee was taken in: " +
 	"DERO and DERO tokens through this contract, XMR and ZEC by the treasury's bot. The bot makes each payment; no " +
 	"contract forces it."
 
