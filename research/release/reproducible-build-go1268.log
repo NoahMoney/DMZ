@@ -1,0 +1,104 @@
+Reproducible companion builds under go1.26.8, 2026-09-12 (after GAP-015's toolchain move).
+Built from a clean worktree of commit 35e044eb98c30340f8ce7b796cd6d7463993272e (0 changed files). During the run the
+worktree was fast-forwarded to 04a543f, which changed only tools/regtest/stagenet-up.sh, not a build input of either
+companion. The manifest below records 04a543f. Every binary hash equals the one an earlier build from 35e044e
+produced (xmrswap-windows-amd64.exe 2f7a58e2…, zecswap-windows-amd64.exe 09859f2c…), so the move changed nothing
+that was built.
+The app bundle was regenerated from that commit first, so the manifest's bundle lines describe that commit.
+
+== go version go1.26.8 windows/amd64
+== genconfig -dist -network simulator
+  config.js                4099 B  doc   2952 B
+  37 files, manifest.json written
+
+== release -out <out>
+building from <wt>\tools into <out>
+built   xmrswap-windows-amd64.exe          2f7a58e253db6bac65d9a7159b8ff03424866f330b00a5418cd3a70b0f872571   7143424 B
+built   xmrswap-linux-amd64                c386bd22da0ce2af6356d9954d4d378ae9dc95d88815b06839a1c0d45300991d   6860926 B
+built   xmrswap-linux-arm64                2b1bc00cb5cbfb05a334ea3fc564d5dd5cba0744a917cbe9371189f1a8435109   6357118 B
+built   xmrswap-darwin-amd64               6e27455516932794a90bac62cbf1f7d6343873a558ff01124a0273db9dc3b21c   6984896 B
+built   xmrswap-darwin-arm64               b30bcda6808410bbb9a512ca749b9f59a734f449e19a3b79bfef22a4e508d65c   6440690 B
+built   zecswap-windows-amd64.exe          09859f2c29ce4e9821e912b891576d558dfc40b8652a1ae96b6e3a54e4295b4f   7940096 B
+built   zecswap-linux-amd64                f766a5ee18d903e272889353f3c45427e798f4ba554252b6fc68027eb6846af9   7770238 B
+built   zecswap-linux-arm64                0ed785f1f6b8ccdfcc43b79373ab4a059939ed48c7605781f401a85c9a92c3e9   7209086 B
+built   zecswap-darwin-amd64               75bba20dccfb56b443426a248c6ca7f2092733cc00c1c24a905c63dab135143c   7894464 B
+built   zecswap-darwin-arm64               f88df0618bceed166d365de91e4d317c501404719a14475441725ab0ed8915eb   7332466 B
+<out>\manifest.json: 10 binaries, 0 absent, 12 contracts, go go1.26.8, commit 04a543fbef674c847f50b62581c156e3c98485a6 dirty=false (0 build inputs changed)
+release exit 0
+
+== release -verify <out>/manifest.json (rebuilds at a new temporary path and compares)
+copied 5 build-input directories to <tmp> and rebuilding there (a different path from <wt>)
+built   xmrswap-windows-amd64.exe          2f7a58e253db6bac65d9a7159b8ff03424866f330b00a5418cd3a70b0f872571   7143424 B
+built   xmrswap-linux-amd64                c386bd22da0ce2af6356d9954d4d378ae9dc95d88815b06839a1c0d45300991d   6860926 B
+built   xmrswap-linux-arm64                2b1bc00cb5cbfb05a334ea3fc564d5dd5cba0744a917cbe9371189f1a8435109   6357118 B
+built   xmrswap-darwin-amd64               6e27455516932794a90bac62cbf1f7d6343873a558ff01124a0273db9dc3b21c   6984896 B
+built   xmrswap-darwin-arm64               b30bcda6808410bbb9a512ca749b9f59a734f449e19a3b79bfef22a4e508d65c   6440690 B
+built   zecswap-windows-amd64.exe          09859f2c29ce4e9821e912b891576d558dfc40b8652a1ae96b6e3a54e4295b4f   7940096 B
+built   zecswap-linux-amd64                f766a5ee18d903e272889353f3c45427e798f4ba554252b6fc68027eb6846af9   7770238 B
+built   zecswap-linux-arm64                0ed785f1f6b8ccdfcc43b79373ab4a059939ed48c7605781f401a85c9a92c3e9   7209086 B
+built   zecswap-darwin-amd64               75bba20dccfb56b443426a248c6ca7f2092733cc00c1c24a905c63dab135143c   7894464 B
+built   zecswap-darwin-arm64               f88df0618bceed166d365de91e4d317c501404719a14475441725ab0ed8915eb   7332466 B
+PASS go version go1.26.8
+PASS commit 04a543fbef674c847f50b62581c156e3c98485a6
+PASS xmrswap-darwin-amd64 sha256 6e27455516932794a90bac62cbf1f7d6343873a558ff01124a0273db9dc3b21c
+PASS xmrswap-darwin-arm64 sha256 b30bcda6808410bbb9a512ca749b9f59a734f449e19a3b79bfef22a4e508d65c
+PASS xmrswap-linux-amd64 sha256 c386bd22da0ce2af6356d9954d4d378ae9dc95d88815b06839a1c0d45300991d
+PASS xmrswap-linux-arm64 sha256 2b1bc00cb5cbfb05a334ea3fc564d5dd5cba0744a917cbe9371189f1a8435109
+PASS xmrswap-windows-amd64.exe sha256 2f7a58e253db6bac65d9a7159b8ff03424866f330b00a5418cd3a70b0f872571
+PASS zecswap-darwin-amd64 sha256 75bba20dccfb56b443426a248c6ca7f2092733cc00c1c24a905c63dab135143c
+PASS zecswap-darwin-arm64 sha256 f88df0618bceed166d365de91e4d317c501404719a14475441725ab0ed8915eb
+PASS zecswap-linux-amd64 sha256 f766a5ee18d903e272889353f3c45427e798f4ba554252b6fc68027eb6846af9
+PASS zecswap-linux-arm64 sha256 0ed785f1f6b8ccdfcc43b79373ab4a059939ed48c7605781f401a85c9a92c3e9
+PASS zecswap-windows-amd64.exe sha256 09859f2c29ce4e9821e912b891576d558dfc40b8652a1ae96b6e3a54e4295b4f
+PASS contracts/board.bas canonical sha256 162f8d46ad400b1fef981d029ba99f61c9646d6453c3bf9f0cc4bd9e63bc5ab1
+PASS contracts/chat.bas canonical sha256 c1d7136bd137a114f4f529ab3b5864a72780e68cd1fd9fd8a61a23856a1ca9d4
+PASS contracts/factory.bas canonical sha256 5ba105fdda839f17dd69b98b60f0d00dccda4b2eafdec53777b918f5064a7b2a
+PASS contracts/founders.bas canonical sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a
+PASS contracts/htlc.bas canonical sha256 44864ec3cddac871286b9cfd18d18e0b1d2ef0e31960436cee3bacc3025fef06
+PASS contracts/launch.bas canonical sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4
+PASS contracts/nfa.bas canonical sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114
+PASS contracts/nft.bas canonical sha256 345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2
+PASS contracts/pool.bas canonical sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580
+PASS contracts/social.bas canonical sha256 da7ef3f09fccf468c9c03605e0de14a4b129b8cfbb29ced6efad8bf9b5b617ad
+PASS contracts/swap.bas canonical sha256 b9830de831dbaf34f61ea15b484c8f25105e41dc790aa06412db421a990fd6e3
+PASS contracts/vault.bas canonical sha256 db1aba5e0664267bf89105d6d349ddb5eabb3dbdda17163e2cdb6ee6ebf6223d
+PASS dist/simulator/config.js sha256 943ab25423d2475a4b5fba6fead2e1218fc3da18fcb18d5e670758f6f8fb8257
+PASS dist/simulator/nfts.js sha256 29d0a1a7ee1b8ee86768cffc25584b5080be74d63ea2d2f748fff151a196b909
+PASS dist/simulator/notice.js sha256 98244da762d5b46de798f602696481f5107418c28f8c80f8266f29f38b4aa20d
+PASS dist/simulator/parts.css sha256 7d2c05a255b90fe67da63155b371f9228ae8c3a9923e5dd236a79fd74cd3feab
+PASS dist/simulator/wrap.js sha256 0129c4ffa6bce2c9885e6de5841d203e5ad9081003431a9214be5bb2500ad171
+PASS dist/simulator/nft.js sha256 24c04f73f1556c40ea9cd89ed8fc7696e04802a14e3ac37baa60a29a247c4428
+PASS dist/simulator/styles.css sha256 4006d5cdf68f0e86e0d08a4f2ed2b04c3807707e0ae53d46848ed31f436ff8d9
+PASS dist/simulator/templates/launch.bas sha256 ac9dbb1e9cd613cc8022cc958f4d7e17285fc853a6c2598664a5efd53c0771f4
+PASS dist/simulator/forms.js sha256 6e1bfec56dcc3e0be91bef7b5a323c70443e284474280a4be68c5eecf1a51473
+PASS dist/simulator/markets.js sha256 d672419197ba2591b706c0eb62a7ccaed77b18bdee4a774428ad5dd13777cb02
+PASS dist/simulator/templates/founders.bas sha256 49009d2c7afa3f85d2d0c949383557562333c7163d05a042f59aded06b588b4a
+PASS dist/simulator/token.js sha256 f48c049ed62e3852da499cf367579056f2b6ca42dea6944bbe43b35a4dd61146
+PASS dist/simulator/ui.css sha256 e67f89129eab7502af85b6fad550f200b4455de51450af1c7ca0cf1e86f67058
+PASS dist/simulator/xswd.js sha256 4866d834bb6bd913c18ae35e2c9744549321e5e11d9280e041fa3083694e58a6
+PASS dist/simulator/index.html sha256 e7cc3658e27c8d85defee5bdc8fa104d38f6bc3e26d1bdf521f0613a830b01b4
+PASS dist/simulator/manifest.json sha256 404e8c65be355030aa050dc2eec12f9c8ca90d3c2b353d4f53909d57d8602376
+PASS dist/simulator/chat.js sha256 aa97577c45c7618aec43e928243720a8b445be9ff2fa0883b3671a9a47e6551c
+PASS dist/simulator/feed.js sha256 79ba67fec391548c58a8fbe2d152ba1ed162d8ea0760d3b010bc1cfa56c3a59e
+PASS dist/simulator/founders.js sha256 d3f30df978dbf8ce38b521c5ba39b5bf86afe33a7cb16c41920113e59b6e1b92
+PASS dist/simulator/live.js sha256 5b91ceaa20b33ee56364101925538c641f622c031a1d7f362b6e093d4ad0d487
+PASS dist/simulator/names.js sha256 681b5d3e25f7e6edd82a0ef67938e6669d4e4493a9b7ae5c1f1352ce2d044293
+PASS dist/simulator/nfas.js sha256 b6f60d67ccaae2ea58b1776a3dfc4cb8e8e7f6805a317191158af660c62bfaa4
+PASS dist/simulator/chart.js sha256 aff0984d1e4c2a309ac5f64835d658e4cfe089b8ec497d21f69678366f5fcf00
+PASS dist/simulator/sheets.js sha256 f8f1da50456016ddd20bf972d1d4d24812b7ca1451a5f14fc7702326259db020
+PASS dist/simulator/stats.js sha256 98e65b173f9b7d28700c6358185052dfd03a9db35cb62b4fd4ac0072e3836a46
+PASS dist/simulator/templates/nft.bas sha256 345e8227c4f51e0d72f045ec8567bdd5514e4c955661aa96b1abd27aa36933f2
+PASS dist/simulator/amm.js sha256 fe5b16fc787b8c90f52690dca40b1d9a144c5d29085b96438f819a0b4d06e4e2
+PASS dist/simulator/app.js sha256 ecb1231438bedea35486afddcad16aa3e1bc4f5248949f50352b1ae85ff9f066
+PASS dist/simulator/desk.css sha256 bdf78edf1f36bb0819c3e148192c54da532f45ff32e1ec3260bfc1767d0132cc
+PASS dist/simulator/home.js sha256 9254e3db8e294dff0f60420a71dcf736008ea201d291b7f6c2d23751c2155b50
+PASS dist/simulator/rpc.js sha256 5bd259fd6c74598f66ae45eb170f21714eaff3738a034766d0eff7da6d6a6f71
+PASS dist/simulator/screens.js sha256 c5749b0ad5b17af6ae676446dcae7280fb6ea8eb90f91200d16acebc46432199
+PASS dist/simulator/templates/nfa.bas sha256 f900c7533b782aee5ce33ddf410df5685058a8c792cd264647740bef1119e114
+PASS dist/simulator/templates/pool.bas sha256 304ca766363a493edea83f19102091291275eb0ba2573f27cc0680c5a5041580
+PASS dist/simulator/ui.js sha256 2db4e0c19d8856d3315cf6b3977536bb814671cb8bd839ce6ddb9766dd2ca656
+PASS dist/simulator/vault.js sha256 f8db6f69bb01447fd6de3f880503ab7a6526ca5f1059ef4dd67869f54fe1c8e8
+PASS dist/simulator/wrapui.js sha256 97ae257689c0d9585b414a30bcde194b4e34ac681f7498c74a774cb8965cca9d
+PASS dist/simulator/zswap.js sha256 b0bfef2c5cd6e4fb2f97cb530d59cd23fda6634884e154e47866b5ffbf5949c3
+all 62 comparisons match
+verify exit 0
