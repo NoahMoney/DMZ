@@ -53,7 +53,7 @@ Every txid is in `research/regtest/zecswap-e2e.log`. Swap C was rerun after a fi
 |---|---|---|
 | Unit | every `tests/*.go`, `tools/*/…_test.go`, `tests/js` | green |
 | Integration | the live simulator drivers (`simswap`, `simhtlc`, `simvault`, `simwrapmkt`, `simnfa`, `simdeploy`, `verifydeploy`) | green on the final contracts where run |
-| End to end | the UI passes; the regtest runs of both swaps | UI green; Monero refund exit green on real nodes; the rest pending |
+| End to end | the UI passes; the regtest runs of both swaps | UI green; every exit of both swaps green on real regtest nodes, and the reorganisations on both foreign chains (`research/regtest/`) |
 | Property-based | `tests/zzconservation_test.go` and `tests/zzconservation_htlc_test.go` (seeded random call sequences, accepted and refused, across every value-holding contract; htlc: 119 accepted and 206 refused calls, 29 exits); the pool and launch model fuzz | green |
 | Fuzz | `TestCrashFuzz` in both companions; `tests/vault_fuzz_test.go`; zecswap's precision fuzz | green against fakes |
 | State machine | the companions' transition tables (`TestTransitionTableRefusesEveryUnlistedMove`); the contracts' single-shot `st_<id>` states | green |
@@ -73,7 +73,7 @@ Every txid is in `research/regtest/zecswap-e2e.log`. Swap C was rerun after a fi
 
 - Monero stagenet, Zcash testnet, or the DERO testnet with the current contracts (MT-F03 to MT-F05).
 - Mainnet, ever. The rule is never mainnet from this repository.
-- A real reorganisation on either foreign chain.
+- A DERO-side reorganisation: the one-node simulator cannot produce one. The foreign-chain reorganisations have been run on regtest (`research/regtest/xmrswap-reorg.log`, `zecswap-reorg.log`).
 - An external audit of the contracts or of the Monero proof (MT-A17, MT-G03).
 - Several independent real nodes disagreeing on a real network.
 - The Monero FCMP++/Carrot fork, which has no mainnet height (MT-B17).
