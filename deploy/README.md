@@ -343,7 +343,9 @@ new SCID, published the same way. Users open an INDEX they have checked with `to
    "Mainnet · <height>" and the Founders Pass must render from chain data.
 2. Start `tools/treasurybot` from the treasury wallet: `-wallet 127.0.0.1:10104 -config ../dist/mainnet/config.js`,
    with `VEIL_RPC_LOGIN` set in its console (it refuses a mainnet config without it, dry run included), a dry run
-   first (`docs/MAINNET_DEPLOYMENT.md` §5 step 11).
+   first (`docs/MAINNET_DEPLOYMENT.md` §5 step 11). For the passes' XMR and ZEC share of the swap fees, it also
+   needs `-xmr-wallet … -xmr-net mainnet` and `-zec-node … -zec-cookie … -zec-net mainnet -zec-key …`, and the
+   mainnet `xmrTreasury` and `zecTreasury` set in `deploy/networks.json` (step 11 has the details).
 3. **Not on mainnet: there is no vault to sign for** (see the go/no-go table). Were a vault ever installed, the signers
    (`tools/vaultsigner -network mainnet -yes -vault <scid> -backend <chain> …`) would start only after the
    federation gates. The daemon speaks vault v3 and exits against any other `v`; it needs no operator afterwards,
