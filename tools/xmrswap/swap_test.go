@@ -81,6 +81,7 @@ type run struct {
 	srv                        *httptest.Server
 	w                          Wallet
 	bobXmr, aliceXmr           string
+	treasury                   string // the xmrTreasury both companions are given: DMZ's swap fee goes here (fee.go)
 	bobW, aliceW               *countingWallet
 	bob, alice                 *Swap
 	prover                     Prover
@@ -106,11 +107,31 @@ func newRun(t *testing.T, p plan) *run {
 	r.w = NewWalletRPC(r.srv.URL, "", "")
 	r.bobXmr = r.newWallet("bob")
 	r.aliceXmr = r.newWallet("alice")
+	r.treasury = r.newWallet("treasury")
 	r.fw.Fund(r.aliceXmr, testXmr+FakeFee+1)
 	r.fw.Mine(12)
-	r.bobW = &countingWallet{Wallet: r.w, onSweep: r.checkSweep}
-	r.aliceW = &countingWallet{Wallet: r.w, onTransfer: r.checkTransfer}
+	r.bobW = &countingWallet{Wallet: r.w, onSweep: r.checkSweep, onFeeSweep: r.checkFeeSweep}
+	r.aliceW = &countingWallet{Wallet: r.w, onTransfer: r.checkTransfer, onFeeSweep: func(string, string, uint64) error {
+		return errors.New("alice's companion paid a swap fee: only the maker's sweep after a Claim does")
+	}}
 	return r
+}
+
+// checkFeeSweep is DMZ's swap fee at the moment it is paid: to the treasury the record names, and exactly SwapFee of the
+// agreed XMR — never a share of whatever the joint address holds.
+func (r *run) checkFeeSweep(to, treasury string, fee uint64) error {
+	if treasury != r.treasury || fee != SwapFee(testXmr) {
+		return fmt.Errorf("a swap fee of %d to %s, want %d to the treasury %s", fee, treasury, SwapFee(testXmr), r.treasury)
+	}
+	return nil
+}
+
+// jointLeft is what the fake node says is still at an address: after the maker's fee-bearing sweep, nothing.
+func (r *run) jointLeft(address string) uint64 {
+	r.fw.mu.Lock()
+	defer r.fw.mu.Unlock()
+	_, total := r.fw.balance(address)
+	return total
 }
 
 func (r *run) newWallet(name string) string {
@@ -156,7 +177,7 @@ func (r *run) config(role string) Config {
 	return Config{HTLC: testHTLC, AmountDero: testDero, AmountXmr: testXmr, Net: Stagenet, DeroNet: "simulator", MyDero: addr, MoneroWalletName: name,
 		T1Min: testT1Min, T2Min: testT2Min, T1Delta: testT1Delta, T2Delta: testT2Delta, Confirmations: testConfs, StableBlocks: testStable,
 		ClaimMargin: testClaimMargin, GateMargin: testGateMargin, GateDeadline: testGateDeadline, LockSettleBlocks: 2, SweepWaits: testSweepWaits,
-		Stipend: testStipend, StipendMin: testStipend, StipendSettleBlocks: 3, G2Min: testG2,
+		Stipend: testStipend, StipendMin: testStipend, StipendSettleBlocks: 3, G2Min: testG2, XmrTreasury: r.treasury,
 		Poll: 3 * time.Millisecond, ResendAfter: r.resendAfter(), Log: r.logf}
 }
 
@@ -502,8 +523,20 @@ func (r *run) check() {
 			t.Fatalf("%s: claimed but alice %s, bob %s", r.plan.scenario, alice.Phase, bob.Phase)
 		}
 		if bob.Phase == "swept" {
-			if n, amt := r.paidTo(bob.Joint, r.bobXmr); n != 1 || amt != testXmr-FakeFee {
-				t.Fatalf("%s: bob's sweep: %d payments of %d from the joint address to %s", r.plan.scenario, n, amt, r.bobXmr)
+			// DMZ's swap fee: the maker's sweep is one transaction paying the treasury exactly the fee and him the rest,
+			// less the network fee, and it leaves nothing at the joint address
+			fee := SwapFee(testXmr)
+			if n, amt := r.paidTo(bob.Joint, r.bobXmr); n != 1 || amt != testXmr-fee-FakeFee {
+				t.Fatalf("%s: bob's sweep: %d payments of %d from the joint address to %s, want one of %d", r.plan.scenario, n, amt, r.bobXmr, testXmr-fee-FakeFee)
+			}
+			if n, amt := r.paidTo(bob.Joint, r.treasury); n != 1 || amt != fee {
+				t.Fatalf("%s: the swap fee: %d payments of %d from the joint address to the treasury, want one of %d", r.plan.scenario, n, amt, fee)
+			}
+			if left := r.jointLeft(bob.Joint); left != 0 {
+				t.Fatalf("%s: %d piconero left at the joint address after bob's sweep", r.plan.scenario, left)
+			}
+			if bob.Sweep.Fee != fee || bob.Sweep.Treasury != r.treasury {
+				t.Fatalf("%s: bob's state records a swap fee of %d to %q", r.plan.scenario, bob.Sweep.Fee, bob.Sweep.Treasury)
 			}
 		}
 		if bob.Revealed != alice.Own.Secret {
@@ -533,6 +566,13 @@ func (r *run) check() {
 		}
 	default:
 		t.Fatalf("%s: the lock is still open (bob %s, alice %s)", r.plan.scenario, bob.Phase, alice.Phase)
+	}
+	// no fee on a failed swap: only the maker's sweep after a Claim pays the treasury, and only once
+	if n, _ := r.paidTo(bob.Joint, r.treasury); n > 1 || (n == 1 && lock.State != LockClaimed) {
+		t.Fatalf("%s: %d payments to the treasury with the lock in state %d", r.plan.scenario, n, lock.State)
+	}
+	if alice.Sweep.Fee != 0 || alice.Sweep.Treasury != "" {
+		t.Fatalf("%s: alice's state records a swap fee of %d to %q", r.plan.scenario, alice.Sweep.Fee, alice.Sweep.Treasury)
 	}
 	// SEC-K-09: whoever swept held s_a + s_b in a wallet the rpc opened, and must have closed it again
 	for _, side := range []struct {

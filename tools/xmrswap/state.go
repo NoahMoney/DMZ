@@ -188,6 +188,10 @@ type SweepRecord struct {
 	// restart does not begin the wait again, and bounded so a wallet that will never hold anything ends the
 	// swap rather than holding it open for ever.
 	Waits uint64 `json:"waits,omitempty"`
+	// Fee and Treasury are what the sweep pays DMZ's treasury (fee.go), decided with its intent: SwapFee of the agreed
+	// XMR on the maker's sweep after a Claim; 0 and "" on Alice's recovery sweep, and where no treasury is recorded.
+	Fee      uint64 `json:"fee,omitempty"`
+	Treasury string `json:"treasury,omitempty"`
 }
 
 func NewState(path, role, htlc string) *State {

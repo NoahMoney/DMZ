@@ -602,6 +602,25 @@ type countingWallet struct {
 	closes     int
 	onTransfer func(to string, amount uint64) error
 	onSweep    func(to string) error
+	// onFeeSweep sees the maker's fee-bearing sweep (fee.go) as it is made: whom the treasury output pays, and how much
+	onFeeSweep func(to, treasury string, fee uint64) error
+}
+
+// SweepWithFee is counted as the sweep it is — one spend of the joint output, which pays the treasury too — so a test's
+// "one sweep at most" covers both forms.
+func (w *countingWallet) SweepWithFee(ctx context.Context, to string, balance uint64, treasury string, fee uint64) ([]string, error) {
+	w.sweeps++
+	if w.onSweep != nil {
+		if err := w.onSweep(to); err != nil {
+			return nil, fmt.Errorf("TEST INVARIANT: %w", err)
+		}
+	}
+	if w.onFeeSweep != nil {
+		if err := w.onFeeSweep(to, treasury, fee); err != nil {
+			return nil, fmt.Errorf("TEST INVARIANT: %w", err)
+		}
+	}
+	return w.Wallet.SweepWithFee(ctx, to, balance, treasury, fee)
 }
 
 // CloseWallet is counted because the joint spend wallet holds s_a + s_b: a swap that swept and did not close

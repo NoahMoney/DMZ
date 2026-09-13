@@ -166,7 +166,7 @@ dependence on Bob is new in v3, and only a Punish before t2 + g2 removes it.
 |---|---|---|
 | Bob locks; Alice never locks | nothing (she walked; §3) | two fees, ≥ 400 blocks of time |
 | Alice locks; Bob never releases `k_b`; Bob refunds at T1 | Monero fees, ≥ 400 blocks with XMR locked; then XMR back | two DERO fees, the time |
-| Alice locks; Bob releases `k_b`; Alice claims | nothing | nothing: the trade |
+| Alice locks; Bob releases `k_b`; Alice claims | nothing | nothing: the trade, less DMZ's 0.5% swap fee out of the XMR (§2.2) |
 | Alice locks; Bob releases `k_b`; Alice never claims; Bob refunds at T1 | Monero fees; XMR back after the refund | two DERO fees, the time |
 | Alice locks; Bob neither releases nor refunds; Alice punishes at T2 | her XMR is gone; she holds the DERO she bought | the DERO |
 | Alice locks; Bob neither releases nor refunds; nobody punishes in [T2, T2 + g2); Bob reclaims | Monero fees, XMR locked until the reclaim; then XMR back | two DERO fees, the time from T1 to T2 + g2 |
@@ -174,6 +174,42 @@ dependence on Bob is new in v3, and only a Punish before t2 + g2 removes it.
 | Alice locks; Bob refunds at T1 but Alice's `s_a + s_b` never works | impossible if `π_b` verified (§9, R14) | — |
 | Alice claims but Bob's `s_a + s_b` never works | — | impossible if `π_a` verified (§9, R13) |
 | a party's own node lied to it | see §9, R18 | see §9, R18 |
+
+### 2.2 The swap fee: 0.5% of the XMR, paid by the maker, kept by software
+
+A swap that ends in a Claim pays DMZ 0.5% of the XMR the taker locked, in XMR and never in DERO (the operator's ruling
+of 2026-09-13). The maker pays it in the sweep that takes the XMR from the joint address once Alice's Claim is stable.
+That sweep is one Monero transaction from the joint wallet with two outputs: `floor(amount × 50 / 10000)` piconero to
+the treasury, and the rest to the maker, the network fee taken out of the maker's output. It is `transfer` with two
+destinations and `subtract_fee_from_outputs` naming the maker's; monero-wallet-rpc 0.18.5.1 has the parameter, and
+with it the two outputs add up to the whole unlocked balance, so every output is spent and no change is left at the
+joint address (`tools/xmrswap/monero.go`, `SweepWithFee`). A fee that rounds to 0 (a swap under 200 piconero) makes no
+fee output, and the sweep is the plain `sweep_all` it was. Alice's amounts do not change: she locks the agreed XMR and
+receives the agreed DERO, and her companion only states the fee the maker will pay.
+
+**No fee on a failed swap.** After a Refund, a Punish or a Reclaim the maker never sweeps, and Alice's recovery sweep
+pays no fee.
+
+**The treasury** is `xmrTreasury` in each network's block of `deploy/networks.json`, compiled into the companion with the
+`htlc` record by `go generate ./xmrswap` and held to the file by `TestRecordedXmrTreasuryIsTheDeployRecord`
+(`tools/xmrswap/record.go`). It is checked when a swap starts (`CheckTreasury`, `tools/xmrswap/fee.go`): a standard
+address or a subaddress on the swap's Monero network, and never an integrated address. A regtest chain uses mainnet's
+prefixes, so the simulator's treasury is written in mainnet's form. **On mainnet an empty or invalid `xmrTreasury`
+refuses the swap**, with a message naming the field; the mainnet record is empty until the operator names the treasury,
+so today no mainnet swap starts. On a test network an empty one takes no fee, and the command line says so. The
+simulator's record is a regtest wallet made outside the repository; the testnet's is empty until the operator names one.
+
+**This fee is enforced by the companion software, not by any contract.** `htlc.bas` knows nothing of it, and Monero has
+no contract at all: the maker's own companion builds the sweep with the fee output, so a modified maker client can
+leave it out, and nothing on either chain would stop it or show it to Alice. It is a term the maker's software keeps,
+not a guarantee anyone can enforce.
+
+A maker killed during a fee-bearing sweep resumes it as he resumes any sweep (§7, MT-B12). The joint wallet's own record
+says whether the one transaction went out: if it did, it is recorded; if not, it is made, once, since a second would
+spend the same outputs and the daemon would refuse it as a double spend. `TestCrashFuzz` runs every exit with the fee
+in force (`tools/xmrswap/fee_test.go`, `swap_test.go`, `sweep_resume_test.go`). The live regtest runs, one Claim whose
+treasury received exactly the fee by its own wallet's view and one Refund that paid none, are in
+`research/regtest/xmrswap-fee.log`.
 
 ---
 
@@ -340,6 +376,9 @@ What the companion refuses before anything of either party is locked (`tools/xmr
   `tools/xmrswap/record.go`). v3's code hashes the same for every install, so the companion also reads `w1min`,
   `w2min` and `g2` with it, and each party refuses an install outside its policy (the maker: widths his Lock cannot
   meet; the taker: a `g2` below `-g2-min`, the profile's 4,800 by default).
+- **A mainnet swap with no treasury.** The maker's sweep pays DMZ's 0.5% swap fee to the `xmrTreasury` that
+  `deploy/networks.json` records for the DERO network (§2.2). An empty or invalid one refuses a mainnet swap, and one
+  on another Monero network refuses a swap anywhere, with a message naming the field (`tools/xmrswap/fee.go`).
 - **An answer it cannot read the same way twice.** Every daemon and wallet reply is read through a size cap and a
   timeout; one with trailing data, or with neither a result nor an error, is refused (`dero.go:256-295`,
   `monero.go:157`).
@@ -689,6 +728,9 @@ facing a maker who then never reclaims (R11) — her missed window, compounded b
   build reproduces byte for byte from the committed sources (`research/crosschain/poc/proof-xmr/build-reproducible.sh`,
   sha256 `7293e9c9…`, MT-B26). The companion's own binary, which carries both pins, does not yet (BL-14): until it
   does, whoever built your companion is trusted to have pinned the right ones.
+- **The maker's companion, for DMZ's swap fee.** The 0.5% fee on a swap that ends in a Claim is an output of the
+  maker's own sweep (§2.2). **It is enforced by the companion software, not by any contract: a modified maker client can
+  leave it out.** It changes nothing Alice locks or receives, and no fee is taken on a Refund, a Punish or a Reclaim.
 - **DERO for the fee comes from the counterparty.** Every DERO transaction takes its fee from a DERO payload
   (`vendor/derohe/blockchain/transaction_verify.go`, "we can not deduct fees, if no base"), so a holder who
   arrives with only XMR cannot sign the Claim that pays them. The maker sends the taker a stipend once his lock is
@@ -727,7 +769,9 @@ facing a maker who then never reclaims (R11) — her missed window, compounded b
 **What is not trusted.**
 
 - **The operator of DMZ.** They host nothing for a swap, hold no key that touches it, and could not take or
-  freeze either side's coins if they wished to. `htlc.bas` has no owner, no admin, no fee and no update path.
+  freeze either side's coins if they wished to. `htlc.bas` has no owner, no admin, no fee and no update path. DMZ's
+  swap fee reaches the operator only as an output the maker's sweep pays to the treasury address (§2.2): a payment
+  his software makes, not a power anyone holds over a swap.
 - **Any signer set.** There is none. Nothing is wrapped; nothing is held in reserve; nothing is minted.
 - **The counterparty, once your checks have passed — provided you act in your windows.** Before their lock, they can
   walk (§3). After both locks, the only choices they have are the four exits (§2): Bob can decline the gate and

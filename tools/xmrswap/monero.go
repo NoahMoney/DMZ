@@ -56,6 +56,10 @@ type Wallet interface {
 	UnlockedBalance(ctx context.Context) (uint64, error)
 	// SweepAll sends the open wallet's whole unlocked balance to one address and returns the transaction ids.
 	SweepAll(ctx context.Context, to string) (txids []string, err error)
+	// SweepWithFee spends the open wallet's whole unlocked balance — balance, as UnlockedBalance read it — in ONE
+	// transaction with two outputs: exactly fee to treasury, and the rest to `to`, less the network fee. It is the
+	// maker's sweep after a Claim, which pays DMZ's swap fee (fee.go).
+	SweepWithFee(ctx context.Context, to string, balance uint64, treasury string, fee uint64) (txids []string, err error)
 }
 
 // Incoming is one confirmed incoming transfer. Confirmations is the wallet's count (chain height minus the
@@ -78,6 +82,10 @@ type Incoming struct {
 // sent. monero-wallet-rpc 0.18.5.1 answers a view-only wallet's transfer and sweep_all that way, with a tx_hash that
 // was never broadcast, rather than refusing (research/regtest/monero-smoke.log): nothing was sent.
 const CodeNotSigned = -9001
+
+// CodeFeeRefused is the client's own code for a fee-bearing sweep it refused before asking the wallet anything: a swap
+// fee of 0, or one the balance cannot carry beside the maker's own output. Nothing was sent.
+const CodeFeeRefused = -9002
 
 // RPCError is monero-wallet-rpc's own refusal, with its code (src/wallet/wallet_rpc_server_error_codes.h:
 // -13 no wallet open, -17 not enough money, -29 watch-only, -37 not enough unlocked money, ...), or the client's
@@ -615,4 +623,43 @@ func (w *walletRPC) SweepAll(ctx context.Context, to string) ([]string, error) {
 		return r.TxHashList, err
 	}
 	return r.TxHashList, nil
+}
+
+// SweepWithFee is `transfer` with two destinations and subtract_fee_from_outputs = [1]: the treasury's output is exactly
+// fee, the maker's is balance − fee, and the network fee comes out of the maker's output alone. monero-wallet-rpc
+// 0.18.5.1 has the parameter (on_transfer passes it to wallet2::create_transactions_2; its name and its refusals are in
+// the pinned binary, research/regtest/xmrswap-fee.log), and with it the wallet does not add the fee to the money it must
+// find: the two outputs add up to the whole unlocked balance, so every unlocked output is spent and the change is zero —
+// nothing is left at the joint address. sweep_all cannot do this: it pays one address. A fee of 0 is not sent this way
+// (the caller sweeps with SweepAll), and a fee the balance cannot carry is refused here, before anything is sent.
+func (w *walletRPC) SweepWithFee(ctx context.Context, to string, balance uint64, treasury string, fee uint64) ([]string, error) {
+	if fee == 0 || fee >= balance {
+		return nil, &RPCError{Method: "transfer", Code: CodeFeeRefused, Message: fmt.Sprintf("a swap fee of %d piconero out of an unlocked balance of %d cannot be paid beside the maker's own output: nothing was sent", fee, balance)}
+	}
+	params := map[string]interface{}{
+		"destinations": []map[string]interface{}{
+			{"amount": fee, "address": treasury},
+			{"amount": balance - fee, "address": to},
+		},
+		"subtract_fee_from_outputs": []int{1},
+		"account_index":             0,
+	}
+	var r struct {
+		TxHash        string `json:"tx_hash"`
+		UnsignedTxset string `json:"unsigned_txset"`
+		MultisigTxset string `json:"multisig_txset"`
+	}
+	if err := w.call(ctx, "transfer", params, &r); err != nil {
+		return nil, err
+	}
+	if r.UnsignedTxset != "" || r.MultisigTxset != "" {
+		return nil, &RPCError{Method: "transfer", Code: CodeNotSigned, Message: "the wallet answered with a transaction to sign elsewhere, not one it sent (a view-only or multisig wallet): nothing was broadcast"}
+	}
+	if r.TxHash == "" {
+		return nil, errors.New("monero-wallet-rpc transfer: no tx_hash in the result")
+	}
+	if err := w.confirmSent(ctx, "transfer", []string{r.TxHash}); err != nil {
+		return []string{r.TxHash}, err
+	}
+	return []string{r.TxHash}, nil
 }

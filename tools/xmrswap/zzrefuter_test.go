@@ -47,6 +47,11 @@ func (s *zzRefW) Refresh(context.Context, uint64) error {
 func (s *zzRefW) Incoming(context.Context, uint64) ([]Incoming, error) { return s.incoming, nil }
 func (s *zzRefW) UnlockedBalance(context.Context) (uint64, error)      { return s.unlocked, nil }
 func (s *zzRefW) Outgoing(context.Context) ([]string, error)           { return nil, nil }
+
+// SweepWithFee is the maker's fee-bearing sweep (fee.go); here it answers as SweepAll does, from the same script.
+func (s *zzRefW) SweepWithFee(ctx context.Context, to string, _ uint64, _ string, _ uint64) ([]string, error) {
+	return s.SweepAll(ctx, to)
+}
 func (s *zzRefW) SweepAll(context.Context, string) ([]string, error) {
 	s.sweeps++
 	if len(s.sweepErr) > 0 {

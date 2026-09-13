@@ -8,3 +8,11 @@ var recordedHTLC = map[string]string{
 	"simulator": "ef576fce2edaa15c3e09916463ea86a49bfb428ca030d439e69a63a48a612496",
 	"testnet":   "a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798",
 }
+
+// recordedXmrTreasury is the Monero address DMZ's swap fee goes to on each DERO network, as deploy/networks.json's
+// xmrTreasury records it ("" = none recorded).
+var recordedXmrTreasury = map[string]string{
+	"mainnet":   "",
+	"simulator": "49gDG5A67nhDdNmb2JzZ6yYhMrisuHqps3hyawkCo2hv7mJ5RBta8nCecZknbkpLPjazSqZ8yxaW7FmPod28isG3StWYkFK",
+	"testnet":   "",
+}

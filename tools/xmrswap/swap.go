@@ -148,6 +148,11 @@ type Config struct {
 	LockSettleBlocks uint64
 	// SweepWaits is how many passes the sweep waits on a joint wallet with nothing spendable in it.
 	SweepWaits uint64
+	// XmrTreasury is the Monero address DMZ's swap fee goes to (fee.go): deploy/networks.json's xmrTreasury for the DERO
+	// network, compiled in (RecordedXmrTreasury). The maker's sweep after a Claim pays it SwapFee of the agreed XMR; the
+	// taker's companion only states the fee. CheckTreasury judges it when the swap is made: on mainnet a swap without a
+	// valid one is refused, and off mainnet an empty one takes no fee.
+	XmrTreasury string
 	// Asset is the DERO-side leg (U1): "" is DERO, otherwise the 64-hex SCID of the token or NFA unit the maker
 	// locks. AssetDecimals is its scale. Both sides configure both; the taker refuses an offer that differs, and
 	// checks the lock on the chain against the asset agreed.
@@ -304,6 +309,10 @@ func newSwap(role string, cfg Config, st *State, dero Dero, xmr Wallet, prover P
 	case "mainnet", "testnet", "simulator":
 	default:
 		return nil, fmt.Errorf("config needs the DERO network the daemon reports (mainnet, testnet or simulator), not %q", cfg.DeroNet)
+	}
+	// DMZ's swap fee (fee.go): a treasury on another network, or none on mainnet, and no swap starts
+	if err := CheckTreasury(cfg.XmrTreasury, cfg.Net, cfg.moneroMainnet()); err != nil {
+		return nil, err
 	}
 	if st.Terms.DeroNet != "" && st.Terms.DeroNet != cfg.DeroNet {
 		return nil, fmt.Errorf("this state agreed a swap on DERO %s, and the daemon is on %s", st.Terms.DeroNet, cfg.DeroNet)
@@ -1022,10 +1031,23 @@ func (s *Swap) sweep(ctx context.Context) error {
 			}
 			return s.st.Save()
 		}
+		// DMZ's swap fee (fee.go): the maker's sweep after a Claim pays the treasury in the same transaction, and the
+		// intent records how much and to whom before anything is sent. A resume that finds the transaction pays nothing
+		// again, and one that finds none makes the same single transaction (the "sweeping" case below).
+		fee := s.swapFee()
+		s.st.Sweep.Fee, s.st.Sweep.Treasury = 0, ""
+		if fee > 0 {
+			s.st.Sweep.Fee, s.st.Sweep.Treasury = fee, s.cfg.XmrTreasury
+		}
 		if err := s.save("sweeping"); err != nil {
 			return err
 		}
-		txs, err := s.xmr.SweepAll(ctx, s.st.MyXmr)
+		var txs []string
+		if fee > 0 {
+			txs, err = s.xmr.SweepWithFee(ctx, s.st.MyXmr, unlocked, s.cfg.XmrTreasury, fee)
+		} else {
+			txs, err = s.xmr.SweepAll(ctx, s.st.MyXmr)
+		}
 		s.closeJoint(ctx, name)
 		if err == nil && s.crash != nil && s.crash("sweep_sent") {
 			return errCrashed // the test hook: killed after the sweep went out and before it was recorded (MT-B12)
@@ -1043,9 +1065,15 @@ func (s *Swap) sweep(ctx context.Context) error {
 			return err
 		}
 		s.st.Sweep.Txs = txs
-		s.cfg.Log("%s: swept the joint wallet to %s: %v", s.st.Role, s.st.MyXmr, txs)
+		outcome := "swept the XMR to " + s.st.MyXmr
+		if fee > 0 {
+			s.cfg.Log("%s: swept the joint wallet in one transaction: %d piconero to the treasury %s (DMZ's %g%% swap fee) and the rest to %s, less the network fee: %v", s.st.Role, fee, s.cfg.XmrTreasury, float64(XmrFeeBps)/100, s.st.MyXmr, txs)
+			outcome += fmt.Sprintf(", less the %d piconero swap fee paid to the treasury %s in the same transaction", fee, s.cfg.XmrTreasury)
+		} else {
+			s.cfg.Log("%s: swept the joint wallet to %s: %v", s.st.Role, s.st.MyXmr, txs)
+		}
 		s.removeJointWallets()
-		return s.finish("swept", "swept the XMR to "+s.st.MyXmr)
+		return s.finish("swept", outcome)
 	case "sweeping":
 		// MT-B12 (XMR-R1): the process stopped between the durable intent and the record of the sweep. Whether the
 		// sweep went out is a question the joint spend wallet answers: it lists every transfer out of it, mined or
@@ -1192,6 +1220,9 @@ func (s *Swap) stepBob(ctx context.Context) error {
 		st.MyXmr, st.MyDero, st.RestoreHeight, st.DeroHeight = a, s.cfg.MyDero, h, dh
 		st.Terms = Terms{AmountDero: s.cfg.AmountDero, AmountXmr: s.cfg.AmountXmr, Asset: s.cfg.Asset, Decimals: s.cfg.AssetDecimals, Stipend: s.cfg.Stipend,
 			DeroNet: s.cfg.DeroNet, Net: s.cfg.Net.String(), T1Delta: s.cfg.T1Delta, T2Delta: s.cfg.T2Delta}
+		if fee := s.swapFee(); fee > 0 {
+			s.cfg.Log("bob: DMZ's swap fee is yours to pay: when you sweep the XMR after alice's Claim, %d piconero (%g%% of the %d she locks) goes to the treasury %s in the same transaction, and the rest to you less the network fee. No fee is taken if the swap ends any other way", fee, float64(XmrFeeBps)/100, st.Terms.AmountXmr, s.cfg.XmrTreasury)
+		}
 		if err := s.queue(KindOffer, offerBody{AmountDero: st.Terms.AmountDero, AmountXmr: st.Terms.AmountXmr, Asset: st.Terms.Asset, Decimals: st.Terms.Decimals,
 			Stipend: st.Terms.Stipend, DeroNet: st.Terms.DeroNet, Net: st.Terms.Net, HTLC: s.cfg.HTLC, T1Delta: st.Terms.T1Delta, T2Delta: st.Terms.T2Delta}); err != nil {
 			return err
@@ -2214,6 +2245,10 @@ func (s *Swap) stepAlice(ctx context.Context) error {
 			return s.finish("refused", fmt.Sprintf("offer refused: a t1 width of %d is below the %.1f blocks the t1 rule needs at this trade's %d Monero confirmations and a gate deadline of %d (docs/ATOMIC_SWAP_STUDY.md §2.1 U7): the XMR she locks could reach the maker's depth too late for her to claim", got.T1Delta, RequiredT1(s.cfg.Confirmations, s.cfg.GateDeadline, profileK), s.cfg.Confirmations, s.cfg.GateDeadline))
 		}
 		st.Terms = got
+		// DMZ's swap fee is the maker's (fee.go): her companion states it and takes nothing from her
+		if fee := SwapFee(got.AmountXmr); fee > 0 && s.cfg.XmrTreasury != "" {
+			s.cfg.Log("alice: DMZ's swap fee is the maker's: when he sweeps the XMR after your Claim, his companion pays %d piconero of it (%g%%) to the treasury %s. The %d piconero you lock and the DERO you receive do not change, and no fee is taken on a Refund, a Punish or a Reclaim. The fee is kept by the maker's software, not by any contract", fee, float64(XmrFeeBps)/100, s.cfg.XmrTreasury, got.AmountXmr)
+		}
 		if err := s.queue(KindAliceSetup, aliceSetupBody{S: st.Own.S, H: st.Own.H, Proof: st.Own.Proof, V: st.ViewPub, View: st.View, Dero: st.MyDero}); err != nil {
 			return err
 		}
@@ -2676,7 +2711,7 @@ func (s *Swap) confirmReclaim(ctx context.Context) error {
 // CodeNotSigned is the client's: a wallet that answered with a transaction to sign elsewhere broadcast nothing.
 func refusedBeforeSending(code int) bool {
 	switch code {
-	case -2, -13, -17, -29, -37, -46, -50, CodeNotSigned:
+	case -2, -13, -17, -29, -37, -46, -50, CodeNotSigned, CodeFeeRefused:
 		return true
 	}
 	return false

@@ -35,13 +35,21 @@ func TestASweepInterruptedByAKillIsResumed(t *testing.T) {
 			if st.Phase != "swept" {
 				t.Fatalf("%s ended %s: %s", tc.role, st.Phase, st.Outcome)
 			}
-			// one sweep reached the chain, and the companion called sweep_all exactly once: the resume found the
-			// sweep that went out instead of making a second, and made the one that had not
-			if n, amt := r.paidTo(st.Joint, to); n != 1 || amt != testXmr-FakeFee {
-				t.Fatalf("%d payments of %d from the joint address to %s's own", n, amt, tc.role)
+			// one sweep reached the chain, and the companion made it exactly once: the resume found the sweep that went
+			// out instead of making a second, and made the one that had not. The maker's carries DMZ's swap fee (fee.go),
+			// and that one transaction pays the treasury once; alice's recovery pays it nothing
+			want, wantFees := testXmr-FakeFee, 0
+			if tc.role == "bob" {
+				want, wantFees = want-SwapFee(testXmr), 1
+			}
+			if n, amt := r.paidTo(st.Joint, to); n != 1 || amt != want {
+				t.Fatalf("%d payments of %d from the joint address to %s's own, want one of %d", n, amt, tc.role, want)
+			}
+			if n, _ := r.paidTo(st.Joint, r.treasury); n != wantFees {
+				t.Fatalf("%d payments from the joint address to the treasury, want %d", n, wantFees)
 			}
 			if w.sweeps != 1 || len(st.Sweep.Txs) != 1 {
-				t.Fatalf("sweep_all called %d times, %v recorded", w.sweeps, st.Sweep.Txs)
+				t.Fatalf("the sweep was made %d times, %v recorded", w.sweeps, st.Sweep.Txs)
 			}
 			restarts := r.bobRestarts
 			if tc.role == "alice" {

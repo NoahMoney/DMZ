@@ -1,0 +1,120 @@
+DMZ's 0.5% swap fee on regtest Monero: the xmrswap command line (branch xmr-fee) as two processes, bob and alice
+=======================================================================================================================
+2026-09-13. Machine paths are written <tmp>, <repo> and <user>. No key, password or wallet seed is written here: the
+companions print none, the channel key is read from the environment only, and the treasury wallets' keys and passwords
+stay in a directory of their own in the WSL home, outside every repository.
+
+What is being shown (docs/XMR_SWAP.md §2.2)
+- A swap that ends in a Claim: the maker's sweep is ONE transaction from the joint wallet, exactly
+  floor(1,000,000,000,000 × 50 / 10000) = 5,000,000,000 piconero to the treasury, the rest to the maker less the network
+  fee, and nothing left at the joint address. The treasury's receipt is read by the treasury wallet's own view.
+- A swap that ends in a Refund: no fee. Alice's recovery sweep is whole less its network fee, the treasury receives
+  nothing.
+
+The wallet-rpc parameter
+  The fee sweep is `transfer` with two destinations and subtract_fee_from_outputs = [1]. The pinned monero-wallet-rpc
+  0.18.5.1 (sha256 c1e3aff7..., tools/regtest/pins.env) has it; its own strings, read from the binary in WSL:
+    grep -c subtract_fee_from_outputs monero-wallet-rpc                                -> 6
+    " destinations, subtract_fee_from_outputs "
+    "!subtract_fee_from_outputs.empty() && ptx_vector.size() != 1"
+    "subtract_fee_from_outputs.size() && *subtract_fee_from_outputs.crbegin() >= dsts.size()"
+    "subtract_fee_from_outputs.size() && dsts.size() > BULLETPROOF_MAX_OUTPUTS - 1"
+    "!sanity_check(ptx_vector, original_dsts, subtract_fee_from_outputs)"
+    "error::subtract_fee_from_bad_index"
+  With it the wallet does not add the network fee to the money it must find, so two outputs that add up to the joint
+  wallet's whole unlocked balance spend every output and make no change: nothing is stranded at the joint address.
+
+The treasury wallets (outside the repository)
+  Each was made on a monero-wallet-rpc of its own, in WSL, under the WSL home's .dmz/xmr-treasury/<network>/, with a
+  random password kept beside it (mode 0600). Only the address was printed.
+    regtest  (mainnet's prefixes, as regtest uses): 49gDG5A67nhDdNmb2JzZ6yYhMrisuHqps3hyawkCo2hv7mJ5RBta8nCecZknbkpLPjazSqZ8yxaW7FmPod28isG3StWYkFK
+             deploy/networks.json "simulator".xmrTreasury; its wallet-rpc on 127.0.0.1:28085 follows the regtest monerod
+    stagenet (made offline, --stagenet --offline; the stagenet node and wallet-rpcs 38087/38088 were not touched):
+             59dd9ufZdpTS7nTSFXLSCk3sGa1RNAkTbdL9DjNHrpCEV3En3J5X2dsh1ZNyKEJCDuJHCWCWFvREXMukXgWXL5mQ7LWzmKt
+             NOT recorded: the coordinator's ruling leaves deploy/networks.json "testnet".xmrTreasury "" (no fee there)
+             until the operator names a treasury; this wallet is there if they choose it
+    mainnet: "" — every mainnet swap is refused until the operator names one (TestASwapWithoutAValidTreasuryDoesNotStart).
+
+How it was run
+- Every run under tools/withlock.sh xmrreg. The DERO simulator (127.0.0.1:20000) was not restarted; its wallets 30006
+  (bob) and 30007 (alice), simhtlc's defaults. Monero: the regtest monerod (28081) and wallet-rpcs 28083 (alice) and
+  28084 (bob), wallets s1cli-1789225277-alice / -bob; a driver script mined the regtest blocks. The prover: the pinned
+  reproducible proof-xmr in WSL, given as -prover "wsl.exe -e <path inside WSL>" (X-17).
+- htlc.bas v3 bfc9da5a387e945515b741480ed1df1cf8550db018e7cab16b1658bd3322dbb3 on the simulator, installed with
+  w1min 10, w2min 6, g2 30 (stage 1's short-window install), so the lowered simulator policy of stage 1 applies:
+  -t1-min 10 -t2-min 6 -gate-deadline 4 -g2-min 30, -amount-dero 2000 -amount-xmr 1000000000000, alice -claim-margin 8.
+- Each companion took its xmrTreasury from the compiled record for "simulator" (-net regtest). Both said the fee at setup:
+    bob: DMZ's swap fee is yours to pay: when you sweep the XMR after alice's Claim, 5000000000 piconero (0.5% of the
+         1000000000000 she locks) goes to the treasury 49gDG5A6...isG3StWYkFK in the same transaction, and the rest to
+         you less the network fee. No fee is taken if the swap ends any other way
+    alice: DMZ's swap fee is the maker's: when he sweeps the XMR after your Claim, his companion pays 5000000000
+         piconero of it (0.5%) to the treasury 49gDG5A6...isG3StWYkFK. The 1000000000000 piconero you lock and the DERO
+         you receive do not change, and no fee is taken on a Refund, a Punish or a Reclaim. The fee is kept by the
+         maker's software, not by any contract
+
+Windows Defender, and the build that ran
+  The first build (go1.26.8, sha256 11677777b70d32c35a025f20de9cd5116f40c82d61087d96c5beed9a5c49e3d1) was quarantined
+  by Windows Defender as Trojan:Win32/Bearfoos.A!ml at 16:31:39, two seconds after bob's companion registered its two
+  wake tasks: Defender deleted the binary, ended both running companions (bob in dero_locked, alice in saw_dero_lock)
+  and removed both tasks (Get-MpThreatDetection). A plain rebuild was then refused by the OS ("the file contains a
+  virus or potentially unwanted software"). The same source built with -trimpath -ldflags="-s -w" (sha256
+  48b19db4bf5aadf21489eaa558cc630ce3f01e66e458c26953dd5b4fb04549c2) ran every step below. No antivirus exclusion was
+  added: that is the operator's decision (tools/regtest/README.md, "Why WSL").
+
+-----------------------------------------------------------------------------------------------------------------------
+RUN R: a Refund. No fee.
+-----------------------------------------------------------------------------------------------------------------------
+The swap Defender interrupted, resumed with the same commands from its state files. Resumed at DERO height 6133 with
+t1 6161, it left alice's XMR too little time to reach the gate: her lock was confirmed after t1 − G, so no gate went out,
+bob refunded at t1, and alice swept her XMR back.
+  DERO lock      4ca5334e36ab12e2adf9573735e190ff4b7344ce9d831edd5cd83a92a8550d03  (lock id 5, t1 6161, t2 6177, amount 2000)
+  DERO stipend   152b4401163c478dab2b49c972b6acffc2c8e0d4b230c9297783eff995f02d42  (height 6146)
+  XMR lock       95d3f6ba593ee215dad5891446207582968eaf33926503f516bf83744db6797f  1 XMR to the joint address
+                 43kfgTXi1QcVMMe9WDJjVY9fPKNE9SguAMndeBnfhUhDD6tmCKHoZ9LLWVXB87DSS6X6N5sDmwa7u6wTwAJ8k4ix3gn7TpS, monerod block 19866
+  16:41:11 alice: t1 − G (6157) passed without the gate: waiting for bob's refund, or t2
+  DERO refund    282e1809773dbb9024c86f66e9d55755e3fec9841ba387f66da8cd0a61f7be19  (read at 6165, stable; the contract's st_5 = 2)
+  XMR recovery   22af4f02ff1dd7a256cdd01b768888544212d2fa23f8f0cc91d2c10114180b4a  alice's sweep_all, monerod block 19883:
+                 1 input, 2 outputs, network fee (rct_signatures.txnFee) 1,820,400,000
+  Alice's own wallet on 22af4f02...: "amount":998179600000 "type":"in"  = 1,000,000,000,000 − 1,820,400,000: whole
+  Bob's state: phase refunded, sweep {} — no sweep, no fee. Alice's state: sweep.fee absent (0).
+  The treasury wallet, by its own view (refresh, get_balance, get_transfers in), before and after:
+    get_balance "balance":0 "unlocked_balance":0 — and no incoming transfer
+  Both processes exited 0: bob "refunded: tx 282e1809..., stable (stable height 6165)"; alice "swept the XMR to 47h2ZSHP...".
+
+-----------------------------------------------------------------------------------------------------------------------
+RUN C: a Claim. The fee paid once, exactly, in the maker's one sweep transaction.
+-----------------------------------------------------------------------------------------------------------------------
+A fresh swap from 19:23 AEST, the build 48b19db4..., bob given -t1 80 -t2 16 (run R showed stage 1's 48 blocks too
+narrow for 40 Monero confirmations after the stipend's stable wait), the driver mining a regtest block every 3 s.
+  DERO lock      b3b9fc2d82d18eb35bfa25c98f5473a97bc808caec77733123fd68b4ba3a4aaa  (lock id 6, t1 6784, t2 6800, amount 2000)
+  DERO stipend   2d7dfb3371f0114846e404e230af095e31751affef2673948d4793b78e7c95af
+  XMR lock       d9070d1f6fdd89c870b0ca09f04049faa43067dcf0c55d6c00200cb0b638b8d4  1 XMR to the joint address
+                 451RCBo5LYdBTrXwEPNktbTWbJEVqWSBZ78DULw7dYoxQqGb4jRhNoShxv8wECJYgz7YsNwDZUhxgNNieNrBM6rm4vwWomF, monerod block 21667
+  19:30:23 bob: 1000000000000 piconero at the joint address with the trade's confirmations (Monero height 21688); gate at 19:30:32
+  DERO claim     e2ee6b1c3d243ca9dac77f038363e7900401ae573e58d3d737f9cc9398e86ebe  (bob read s_a at 6729; stable at 6730; st_6 = 1)
+  XMR sweep      51d1c35529b84e122df7ac3ef51444ddedceee290bac53518571e785427b4728  ONE transaction from the joint wallet,
+                 monerod block 21749: 1 input, 2 outputs, network fee (rct_signatures.txnFee) 1,808,400,000
+  19:33:36 bob: swept the joint wallet in one transaction: 5000000000 piconero to the treasury 49gDG5A6...isG3StWYkFK
+           (DMZ's 0.5% swap fee) and the rest to 42mXZV4k...ChjVjKETXs, less the network fee: [51d1c355...]
+  The treasury wallet, by its own view (refresh, get_balance, get_transfers in):
+    before: get_balance "balance":0 "unlocked_balance":0, no incoming transfer
+    after:  get_transfers in: "amount":5000000000 "height":21749 "txid":"51d1c35529b84e122df7ac3ef51444ddedceee290bac53518571e785427b4728" "type":"in"
+            get_balance "balance":5000000000 (read inside Monero's ten-block spendable age, so not yet in unlocked_balance)
+  Bob's own wallet (s1cli-1789225277-bob) on 51d1c355...: "amount":993191600000 "type":"in"
+  The sum: 5,000,000,000 (treasury) + 993,191,600,000 (bob) + 1,808,400,000 (network fee) = 1,000,000,000,000, the one
+  output alice locked and the sweep's one input. Two outputs and no third: nothing is left at the joint address.
+  Bob's state: sweep.fee 5000000000, sweep.treasury 49gDG5A6...isG3StWYkFK, sweep.txs [51d1c355...]. Alice's: claimed,
+  no sweep, no fee.
+  Both processes exited 0: bob "swept the XMR to 42mXZV4k..., less the 5000000000 piconero swap fee paid to the treasury
+  49gDG5A6... in the same transaction"; alice "claimed the DERO: tx e2ee6b1c..., stable (stable height 6730)".
+
+Both runs were made before xmr-fee was rebased onto main (which by then carried the zecTreasury and xmrTreasury record
+fields and tools/treasurybot). The rebase changed only the record plumbing (netcfg and deploy/networks.json take main's
+fields; the simulator's xmrTreasury is the regtest treasury above, as in these runs) and no code the runs executed.
+
+A fault of the driver's, said plainly: an earlier attempt at a separate Refund run found the binary gone (Defender) and its
+driver script then stopped on an unset variable, leaving its regtest miner loop running from 16:33 to 19:22. That loop
+mined one regtest block about every 6 s to the stage-1 wallet s1cli-1789225277-bob on the shared regtest chain,
+including during another run's two minutes under the xmrreg lock. It carried no transaction and moved no coin; it was
+stopped when found, and the script's miner now clears its own stop file and its evidence step no longer fails on an
+empty id.

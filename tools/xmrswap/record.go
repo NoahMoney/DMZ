@@ -22,3 +22,15 @@ func RecordedHTLC(deroNet string) (string, error) {
 	}
 	return scid, nil
 }
+
+// RecordedXmrTreasury is deploy/networks.json's xmrTreasury for a DERO network: the Monero address the maker's sweep pays
+// DMZ's swap fee to (fee.go, docs/XMR_SWAP.md §2.2), compiled in beside the htlc record by the same generator and held
+// to the file by the same kind of test. "" is none recorded. It is not judged here: CheckTreasury decides, against the
+// swap's own Monero network, whether a swap may start with it.
+func RecordedXmrTreasury(deroNet string) (string, error) {
+	t, ok := recordedXmrTreasury[deroNet]
+	if !ok {
+		return "", fmt.Errorf("deploy/networks.json has no %q network, so no xmrTreasury", deroNet)
+	}
+	return t, nil
+}

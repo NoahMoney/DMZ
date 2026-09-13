@@ -151,6 +151,19 @@ func main() {
 		o.htlc = scid
 		fmt.Fprintf(os.Stderr, "-htlc not given: using %s, the htlc.bas deploy/networks.json records for %s\n", scid, deroNet)
 	}
+	// DMZ's swap fee (docs/XMR_SWAP.md §2.2): the maker's sweep after a Claim pays it to the xmrTreasury the record names
+	// for this daemon's DERO network, checked against the swap's Monero network before anything else is read. On mainnet
+	// a swap without a valid one does not start; on a test network an empty one takes no fee.
+	treasury, err := xmrswap.RecordedXmrTreasury(deroNet)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := xmrswap.CheckTreasury(treasury, network, deroNet == "mainnet" || (network == xmrswap.Mainnet && !regtest)); err != nil {
+		log.Fatal(err)
+	}
+	if treasury == "" {
+		fmt.Fprintf(os.Stderr, "deploy/networks.json records no xmrTreasury for %s: this test-network swap takes no swap fee\n", deroNet)
+	}
 	dero.SCID = o.htlc
 	deploy, err := dero.Deployment(ctx)
 	if err != nil || deploy.CodeSHA256 != xmrswap.HTLCCodeSHA256 {
@@ -285,7 +298,7 @@ func main() {
 	cfg := xmrswap.Config{HTLC: o.htlc, AmountDero: o.amountDero, AmountXmr: o.amountXmr, Asset: o.asset, AssetDecimals: o.assetDecimals,
 		Net: network, DeroNet: deroNet, MyDero: myDero, MoneroWalletName: o.moneroName, MoneroWalletPassword: o.moneroWalletPass, MoneroWalletDir: o.moneroWalletDir, Monerod: o.monerod,
 		T1Min: o.t1Min, T2Min: o.t2Min, T1Max: o.t1Max, T2Max: o.t2Max, T1Delta: o.t1, T2Delta: o.t2, Confirmations: o.confs, StableBlocks: o.stable, ClaimMargin: o.margin,
-		GateDeadline: o.gateDeadline, Stipend: o.stipend, StipendMin: o.stipendMin, G2Min: o.g2Min, Witnesses: witnesses,
+		GateDeadline: o.gateDeadline, Stipend: o.stipend, StipendMin: o.stipendMin, G2Min: o.g2Min, Witnesses: witnesses, XmrTreasury: treasury,
 		Resume: xmrswap.Resume{Exe: exe, Args: os.Args[1:], Dir: cwd}, Wake: xmrswap.RegisterWake, Log: logf}
 	var sw *xmrswap.Swap
 	if role == "bob" {

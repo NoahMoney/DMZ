@@ -366,7 +366,11 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 				Amount  uint64 `json:"amount"`
 				Address string `json:"address"`
 			} `json:"destinations"`
-			UnlockTime *uint64 `json:"unlock_time"` // the reference's own parameter; the companion never sends it
+			// SubtractFeeFrom is subtract_fee_from_outputs (0.18.5.1): the destinations, by index, whose amounts pay the
+			// network fee, which is then not added to the money the wallet must find. The maker's sweep with the swap fee
+			// names his own output, so its destinations add up to the whole balance and no change is made.
+			SubtractFeeFrom []uint32 `json:"subtract_fee_from_outputs"`
+			UnlockTime      *uint64  `json:"unlock_time"` // the reference's own parameter; the companion never sends it
 		}
 		if rf := params(&p); rf != nil {
 			return nil, rf
@@ -378,34 +382,84 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 		if p.UnlockTime != nil && *p.UnlockTime != 0 {
 			return nil, fail(-50, "Transaction cannot have non-zero unlock time") // 0.18.5.1 refuses to build one
 		}
-		if len(p.Destinations) != 1 {
-			return nil, fail(-4, "the fake wallet pays exactly one destination")
+		if len(p.Destinations) == 0 {
+			return nil, fail(-4, "No destinations for this transfer")
 		}
-		d := p.Destinations[0]
-		if d.Amount == 0 {
-			return nil, fail(-46, "destination amount is zero") // WALLET_RPC_ERROR_CODE_ZERO_AMOUNT
+		var sum uint64
+		for _, d := range p.Destinations {
+			if d.Amount == 0 {
+				return nil, fail(-46, "destination amount is zero") // WALLET_RPC_ERROR_CODE_ZERO_AMOUNT
+			}
+			if sum+d.Amount < sum {
+				return nil, fail(-4, "the destinations overflow")
+			}
+			sum += d.Amount
+		}
+		sub := map[int]bool{}
+		for _, i := range p.SubtractFeeFrom {
+			if int(i) >= len(p.Destinations) || sub[int(i)] {
+				return nil, fail(-4, "subtract_fee_from_outputs names a destination that is not there")
+			}
+			sub[int(i)] = true
+		}
+		needed := sum
+		if len(sub) == 0 {
+			needed += FakeFee
 		}
 		if wf.viewOnly {
 			// 0.18.5.1 does not refuse: it answers a hash and an unsigned_txset for offline signing, and broadcasts
 			// nothing (research/regtest/monero-smoke.log)
-			return map[string]interface{}{"tx_hash": f.nextTxID(), "amount": d.Amount, "fee": FakeFee, "tx_blob": "", "unsigned_txset": "4d6f6e65726f20756e7369676e6564207478207365740004", "multisig_txset": ""}, nil
+			return map[string]interface{}{"tx_hash": f.nextTxID(), "amount": sum, "fee": FakeFee, "tx_blob": "", "unsigned_txset": "4d6f6e65726f20756e7369676e6564207478207365740004", "multisig_txset": ""}, nil
 		}
-		if rf := f.checkDest(d.Address); rf != nil {
-			return nil, rf
+		for _, d := range p.Destinations {
+			if rf := f.checkDest(d.Address); rf != nil {
+				return nil, rf
+			}
 		}
 		unlocked, total := f.walletBalance(wf)
-		if total < d.Amount+FakeFee {
+		if total < needed {
 			return nil, fail(-17, "not enough money") // WALLET_RPC_ERROR_CODE_NOT_ENOUGH_MONEY
 		}
-		if unlocked < d.Amount+FakeFee {
+		if unlocked < needed {
 			return nil, fail(-37, "not enough unlocked money") // WALLET_RPC_ERROR_CODE_NOT_ENOUGH_UNLOCKED_MONEY
 		}
+		amounts := make([]uint64, len(p.Destinations))
+		for i, d := range p.Destinations {
+			amounts[i] = d.Amount
+		}
+		// the fee split evenly over the outputs named, the odd piconero on the first of them
+		share, first := FakeFee, true
+		if len(sub) > 0 {
+			share = FakeFee / uint64(len(sub))
+		}
+		for i := range amounts {
+			if !sub[i] {
+				continue
+			}
+			cut := share
+			if first {
+				cut, first = cut+FakeFee%uint64(len(sub)), false
+			}
+			if amounts[i] <= cut {
+				return nil, fail(-4, "a destination is too small to pay its share of the fee")
+			}
+			amounts[i] -= cut
+		}
+		// one transaction, one record per output: they share its id, and its fee is counted once, on the first.
 		// f.unlockTime stands for an output other software built with an unlock_time (review R6): an honest 0.18.5.1
 		// wallet refuses to make one (-50 above), and consensus may still accept one made elsewhere
-		tx := &fakeTx{id: f.nextTxID(), from: wf.address, to: d.Address, amount: d.Amount, fee: FakeFee, pending: true, unlock: f.unlockTime, burnt: f.burnNext}
+		id := f.nextTxID()
+		var sent uint64
+		for i, d := range p.Destinations {
+			tx := &fakeTx{id: id, from: wf.address, to: d.Address, amount: amounts[i], pending: true, unlock: f.unlockTime, burnt: f.burnNext}
+			if i == 0 {
+				tx.fee = FakeFee
+			}
+			f.txs = append(f.txs, tx)
+			sent += amounts[i]
+		}
 		f.burnNext = false
-		f.txs = append(f.txs, tx)
-		return map[string]interface{}{"tx_hash": tx.id, "amount": tx.amount, "fee": tx.fee, "tx_key": "", "tx_blob": "", "tx_metadata": ""}, nil
+		return map[string]interface{}{"tx_hash": id, "amount": sent, "fee": FakeFee, "amounts_by_dest": map[string]interface{}{"amounts": amounts}, "tx_key": "", "tx_blob": "", "tx_metadata": ""}, nil
 
 	case "sweep_all":
 		var p struct {
@@ -601,8 +655,10 @@ func (f *FakeWallet) dispatch(method string, raw json.RawMessage) (interface{}, 
 		if !wf.scanned || !wf.viewOK {
 			return res, nil
 		}
+		ownSend := map[string]bool{} // a transaction with two outputs is two records here and one send in the wallet
 		for _, tx := range f.txs {
-			if tx.from == wf.address && !wf.viewOnly {
+			if tx.from == wf.address && !wf.viewOnly && !ownSend[tx.id] {
+				ownSend[tx.id] = true
 				// a wallet's own sends: pending until mined, then out (a view-only wallet cannot see its spends)
 				if tx.pending && p.Pending {
 					add("pending", f.entry(tx, "pending"))
