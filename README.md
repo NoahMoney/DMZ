@@ -21,7 +21,7 @@ here has run on DERO, Monero or Zcash mainnet.**
 | Token markets (AMM and bonding curve) | **Simulator** | `pool.bas`, `launch.bas`, priced in DERO or in a DERO token |
 | Assets (NFA, ART-NFA-MS1) | **Simulator** | `nfa.bas`: one contract per asset, its own marketplace, priced in any quote |
 | Founders Pass | **Simulator** | `founders.bas` v2: 20 passes, a reward pool per asset, payout addresses for XMR and ZEC (§6) |
-| DERO ↔ XMR atomic swap | **Real Monero node software, regtest; command line only** | No screen in the app: both sides run `tools/xmrswap`. `htlc.bas` v3 and `tools/xmrswap` against monerod and monero-wallet-rpc 0.18.5.1 in regtest, with the DERO simulator. All four exits (Claim, Refund, Punish, Reclaim), a real reorganisation, and a whole swap from the command line as two separate processes (`research/regtest/`). **Not yet on Monero stagenet, and its proof is unaudited** |
+| DERO ↔ XMR atomic swap | **Real Monero node software, regtest** | Both sides run `tools/xmrswap`. The app's Monero screen shows a lock, its windows and the exit open now, and sends Punish. `htlc.bas` v3 and `tools/xmrswap` against monerod and monero-wallet-rpc 0.18.5.1 in regtest, with the DERO simulator. All four exits (Claim, Refund, Punish, Reclaim), a real reorganisation, and a whole swap from the command line as two separate processes (`research/regtest/`). **Not yet on Monero stagenet, and its proof is unaudited** |
 | DERO ↔ transparent ZEC swap | **Public Zcash testnet** | `swap.bas` and `board.bas` with `tools/zecswap`. A whole swap and a refund ran on the public Zcash testnet on 2026-09-13 (DERO leg on the simulator): the swap took about 17 minutes from offer to both sides paid, and in the refund the maker never claimed, the taker's ZEC came back at `cltv`, and the maker's DERO came back after its deadline (`research/regtest/zecswap-testnet.log`). Before that: three swaps and three real reorganisations against zebrad 6.3.0 in regtest, and a swap and a refund from the command line |
 | Wrapped XMR / ZEC (the federation) | **Simulator only, not deployed on mainnet** | `vault.bas` is tested; `tools/vaultsigner`'s only working backend is a JSON file (§4) |
 | Chat, profiles, follows | **Simulator** | `chat.bas`, `social.bas` |
@@ -55,12 +55,18 @@ is everything else; `docs/audit/FINDINGS_2026-09-10.md` is the adversarial audit
  └──────────────────────┘            └───────────────────────┘          └──────────────────────────┘
 ```
 
-**The application** is 27 JavaScript files (one, `config.js`, generated) and four stylesheets under `app/`, with no
+**The application** is 29 JavaScript files (one, `config.js`, generated) and four stylesheets under `app/`, with no
 framework, no bundler and no dependency. Its Content-Security-Policy is `default-src 'none'` with
 `script-src 'self'`, so it cannot load an outside script. It is delivered as TELA documents, each installed in one
 DERO transaction under the 20,000-unit storage-gas cap, so `genconfig` holds every file under 18,250 bytes after
 gzip and base64. It reads the DERO node the user names in Settings, and hands every write to the user's own wallet
 over XSWD on `localhost`. It never sees a key, never proxies a transaction, and stores nothing secret.
+
+Both swap screens label each swap a **deposit** (XMR or ZEC in, a DERO-side asset out) or a **withdrawal** (the
+reverse), and track its stages: the lock's depth, the window open now and the next deadline. On its own the app
+sees only the DERO side. Paired with the user's own swap program, over a loopback port and a one-time code
+(`docs/SWAP_STATUS.md`), it is to show the Monero or Zcash stages too. **The swap programs do not serve that port
+yet**, so today the foreign-chain stages are in the swap program's own output.
 
 On mainnet the TELA INDEX that serves the application is installed at ring size 16, so its owner is recorded as
 `anon` and no key can update it; `tools/verifydeploy` checks that on chain. A new version is a new INDEX with its
@@ -122,8 +128,10 @@ kills both companions at random points in `TestCrashFuzz` to show the state mach
 The two parties talk through a sealed channel: every message is AES-256-GCM under a per-swap key the maker hands the
 taker out of band, over a directory transport. A reader of the directory learns that messages pass and their sizes,
 not their contents, and nobody without the key can write one that opens. So today the swap works between two people
-who can already exchange that key; there is no way to find a stranger to swap with. The application has no screen
-for this swap: both sides run `xmrswap` from the command line, against their own Monero and DERO nodes and wallets.
+who can already exchange that key; there is no way to find a stranger to swap with. Each side runs `xmrswap`
+against its own Monero and DERO nodes and wallets. The application's Monero screen lists a user's locks, with their
+windows and the exit open now, and offers Punish, the one exit that needs no secret. Claim, Refund and Reclaim
+need the swap's secrets, which only `xmrswap` holds: the screen never asks for one.
 
 ### Transparent ZEC ↔ a DERO-side asset, without a custodian
 
@@ -180,7 +188,7 @@ it ships with.
 | Every signature | Your own wallet, over XSWD on localhost | The application never holds a key and cannot sign |
 | A market is what it claims | The template hash the app checks, and the treasury it names | A contract whose code does not match is shown as unverified |
 | An atomic swap | Your own nodes, your own companion, and being online (or having a machine online) at your window | Miss your window and the other side's exit opens. A node that lies to you **and** works with your counterparty can cost you your side of the swap, so run your own (`docs/CROSS_CHAIN_TRUST_MODEL.md` §5). No lock is ever frozen |
-| Founders Pass payouts | The treasury and its bot | If the bot stops, nothing new is deposited and no XMR or ZEC is paid; what was deposited stays claimable from the contract |
+| Founders Pass payouts | The treasury and its bot | If the bot stops, nothing new is deposited and no XMR or ZEC is paid; what was deposited stays claimable from the contract. The bot's journal lists each period's income, the pass snapshot it was split by, and every payment's txid, and each payment is public on its chain |
 | Wrapped XMR / ZEC (simulator) | **k of n named signers** | A quorum can take the reserve |
 | Your first transaction on DERO | Whoever sells you DERO for its fee | Every DERO fee is paid in DERO, so someone arriving with only XMR or ZEC needs a little DERO first — today, from an exchange |
 | An NFA staying what you bought | Its creator, and its owner while `ownerCanUpdate` is set | They can rewrite its file, signature, cover, icon and tag URLs (`nfa.bas`, `Update`); its name, hashes and collection cannot change |
@@ -202,7 +210,7 @@ two apart.
 | Founders Pass mint | DERO | the treasury |
 | Founders Pass resale | DERO | a 2.5% market fee, deposited by the contract for the registered passes (to the seller while none is registered) |
 | Registration, chat | DERO | the treasury |
-| XMR ↔ DERO and ZEC ↔ DERO swaps | **none today** | see below |
+| XMR ↔ DERO and ZEC ↔ DERO swaps | XMR or ZEC | 0.5% of what the maker receives, paid by the maker to the treasury in the same transaction; none on a refund (see below) |
 | Network fee | **always DERO** | miners |
 
 **The Founders Pass.** Twenty passes (four reserved), 1 DERO each, with a share of 5,000 bps fixed at install. The
@@ -212,21 +220,30 @@ pass then claims its part of each asset from the contract. A deposit is shared b
 made. While no pass is registered the bot deposits nothing and holds those fees until one registers. The bot makes
 every deposit and no contract forces it. Registration, chat and NFA fees are not shared.
 
-**The swap fee, decided and not built.** The operator's ruling is 0.5% of each XMR or ZEC swap, taken in XMR or ZEC:
-the party locking XMR or ZEC adds an output to the treasury's address in the same transaction, and the other side's
-companion refuses to finish without it (Monero checks it with the transaction key, Zcash sees it as a second output).
-That is enforced by the companion software, not by a contract, so a modified client can leave it out. The pass share
-of it is to be paid by the treasury's bot in XMR and ZEC, directly on those chains, to the payout address each holder
-stores with `SetXmr` or `SetZec`; a stored address is public on DERO, so a subaddress is the one to store. **Neither
-the fee in `xmrswap`/`zecswap` nor the bot's XMR and ZEC payments exists yet**, so no swap fee is taken and none is
-paid.
+**The swap fee.** Every completed XMR or ZEC swap pays 0.5% of the XMR or ZEC, in that coin, to the treasury.
+- **Who pays, and when.** The maker, who receives the XMR or ZEC, pays it in the same transaction that takes it:
+  Bob's sweep from the joint Monero address, and the maker's claim of the Zcash script. The network fee comes out of
+  the maker's share. A refunded, punished or reclaimed swap pays nothing, and the taker's amounts never change.
+- **Where it goes.** To the network's `xmrTreasury` (a Monero subaddress) or `zecTreasury` (a transparent Zcash
+  address; `zecswap` builds only transparent transactions), both from `deploy/networks.json`. On mainnet a swap
+  program with no valid treasury address refuses to start a swap. The Zcash treasury is one public address, so
+  anyone can list every DMZ Zcash swap from the payments to it.
+- **What enforces it.** The swap programs, not a contract: a modified maker program can leave it out.
+
+**The passes' share of it.** The treasury's bot pays it in XMR and ZEC, directly on those chains, once per period
+(4,800 DERO blocks, about a day). `share` bps of the period's fee income is split equally among the passes
+registered when the period ends. Each part goes to the address the pass stored with `SetXmr` or `SetZec`: a Monero
+subaddress, and a transparent Zcash address. A stored address is public on DERO. A pass with no valid address keeps
+its part owed until it stores one; a part below the network fee is carried forward. The bot writes each payment to
+its journal before sending it, so a restart never pays twice. It pays only when it is given the treasury's own
+Monero wallet and Zcash node, and no contract forces it to.
 
 ---
 
 ## 7. Repository layout
 
 ```
-app/            the application: 27 JS files (config.js generated), 4 stylesheets, index.html, templates/
+app/            the application: 29 JS files (config.js generated), 4 stylesheets, index.html, templates/
 contracts/      12 DVM-BASIC contracts — the whole on-chain surface — and their design notes in README.md
 reference/      Go mirrors of the contract arithmetic (canon, pool, launch, uint128) the app is checked against
 tests/          51 Go test files run against derohe's own DVM, and tests/js for the browser arithmetic
@@ -285,7 +302,9 @@ parameters (the federation is not), the sequence, and how anyone checks the fina
 
 - the Founders Pass image is fixed at install, with no setter, so it must be supplied then;
 - the Monero proof is unaudited and the contracts have had no external review (§1);
-- no swap fee is collected yet, and the bot pays no XMR or ZEC (§6);
+- the treasury's mainnet `xmrTreasury` (a subaddress) and `zecTreasury` (a transparent `t1` address) must be set in
+  `deploy/networks.json`: until they are, the swap programs refuse every mainnet swap and the bot pays no XMR or ZEC
+  (§6);
 - the runbook's smallest amounts are the ones to start with.
 
 ## 11. House rules

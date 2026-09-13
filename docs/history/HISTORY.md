@@ -3724,3 +3724,62 @@ blocks, 22–28 hours (§6 T3b).
 - T4, T5, T8, T9 and T10 on stage 1a, then the stage's verdict again.
 - F-1 to F-5, and the plan corrections above.
 - Stage 1b, once stagenet XMR can be had.
+
+## 2026-09-13, evening — the swap fee in XMR and ZEC, the passes' XMR and ZEC payouts, the Monero screen and the stage tracker
+
+The operator: "build the fee and the app", and "when xmr / zcash is pending deposit and withdrawal it should track
+the transfer so the user knows what stage it is in". Four agents built it in parallel, each on a branch of its own.
+
+**The design of the fee** (X-29, MT-K02). 0.5% of every completed XMR or ZEC swap, paid in that coin by the maker,
+out of what he receives, in the same transaction: Bob's sweep from the joint Monero address, and the maker's claim
+of the Zcash script. The earlier plan had the party locking XMR or ZEC pay it up front. That would have cost a
+taker 0.5% on every failed swap, and a maker could inflict that loss for little more than time. Enforcement is the
+same either way: only a modified maker client avoids the fee.
+- The addresses are the record's `xmrTreasury` (a subaddress) and `zecTreasury` (transparent only).
+- On mainnet, an empty one makes each companion refuse every swap.
+- On a test network, an empty one takes no fee and prints a warning.
+
+**Zcash** (`3e9ba44`, and `c707ff4` for verifydeploy's coverage test, which had taken the treasury field for a
+contract id). The claim's second output pays exactly the fee, or is left out below zebrad's 54-zatoshi dust
+threshold. A refund never pays it. Live on zebrad 6.3.0 regtest (`research/regtest/zecswap-fee.log`):
+- claim `5e850c0f…4c11`, output 1 exactly 1,000 zatoshi of a 200,000 funding;
+- refund `d8fb86de…11a6`, with the treasury unchanged.
+The first attempt stopped before anything was sent, because one coinbase on the tall regtest chain was too small
+for the funding; the harness now mines enough.
+
+**Monero** (`5968574`). The pinned monero-wallet-rpc 0.18.5.1 supports `subtract_fee_from_outputs`, so Bob's sweep is
+one transfer with two outputs and no change left at the joint address. Live on regtest
+(`research/regtest/xmrswap-fee.log`):
+- sweep `51d1c355…4728`: 0.005 XMR to the treasury, as its own wallet shows, and 0.9931916 XMR to Bob, with a
+  network fee of 0.0018084 XMR;
+- a Refund took no fee.
+Windows Defender flagged a default build of xmrswap as a trojan (a machine-learning heuristic). A build with
+`-trimpath -ldflags="-s -w"` was accepted (X-32). One stray regtest miner from the agent's driver ran from 16:33 to
+19:22; it is disclosed in the log.
+
+**The passes' XMR and ZEC share** (`bb1ee34`). The treasury bot counts confirmed fee income at each treasury
+address. Every 4,800 DERO blocks, once stable, it splits `share` bps of that income equally among the passes
+registered at that height, and pays the addresses they stored with `SetXmr`/`SetZec`. A pass with no valid address
+keeps its part owed; a part below the network fee is carried. The journal records each intent and signed
+transaction before broadcast, so a restart never pays twice. Each asset is off unless configured, and refuses
+mainnet unless every check passes. Live on regtest (`research/regtest/treasurybot-payouts.log`):
+- XMR payout `12a55043…b674`: 1 XMR of a 2 XMR fee to the one registered pass;
+- ZEC payout `402da32a…eb0d`: 19,073 zatoshi, from a coinbase standing in for fees.
+
+**The app** (`5269c20` and `d1c952a`).
+- A Monero swap screen (`app/xmr.js`). It reads `htlc.bas` only when its code matches `app/templates/htlc.bas`
+  (`b785028d…`). It lists a wallet's locks, their windows and the exit open now, offers Punish only inside
+  [t2, t2 + g2), and never asks for a secret.
+- A stage tracker on both swap screens (`app/track.js`). It labels each swap a deposit or a withdrawal and tracks
+  the DERO side from the chain. It can pair with a companion over `docs/SWAP_STATUS.md`, but the companions do not
+  serve that yet (X-31).
+- Checked payout addresses: Zcash transparent only; Monero standard or subaddress.
+- The notice and the pass screen now say the fee exists and who pays what.
+- Node tests 57 pass; 40 bundle files, all under the cap; the UI pass is OK, normal and mainnet-shaped.
+- A Punish sent directly on seeded lock #0 moved it to state 3. The app's own XSWD send is not exercised here (X-32).
+
+### NEXT
+
+- X-33: the operator's mainnet `xmrTreasury` and `zecTreasury`.
+- X-31: `-status` in both companions.
+- X-32: the follow-ups.
