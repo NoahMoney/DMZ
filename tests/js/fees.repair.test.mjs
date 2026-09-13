@@ -55,7 +55,7 @@ test("the screens that state the founders share name the asset rule and the trus
   assert.match(nfts, /Fees from NFA sales reach no holder/);
   assert.match(nfts, /public on the DERO chain for good/);
   assert.match(nfts, /fresh Monero subaddress/);
-  assert.match(nfts, /no contract forces it, and no swap fee is taken yet/);
+  assert.match(nfts, /no contract forces it, and a pass with no address here keeps its part owed/);
   assert.doesNotMatch(nfts, /PayBatch|"Distribute"/);
   assert.match(app("home.js"), /% of claimed fees, paid in each fee's asset/);
 });
@@ -69,7 +69,8 @@ test("notice.js says how fees reach holders, in the description's terms", () => 
     "The bot makes every deposit and every XMR and ZEC payment, and no contract forces either",
     "A deposit is shared by the passes registered when it is made",
     "While no pass is registered nothing is deposited",
-    "no swap fee is taken yet",
+    "the maker of each completed XMR or ZEC swap pays it to the treasury's public address",
+    "a refunded swap pays none",
   ]) assert.ok(src.includes(s), "notice.js does not say: " + s);
 });
 

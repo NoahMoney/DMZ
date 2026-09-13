@@ -99,7 +99,7 @@
         mine.units > Z ? [h("div", { class: "row mt8" }, inp, btn), why] : null);
     };
     return h("div", { class: "mt" }, h("div", { class: "label" }, "XMR and ZEC payout addresses"),
-      h("div", { class: "note mt8" }, "Your share of the fees taken in XMR and ZEC is paid by the treasury's bot, off the DERO chain, to the addresses stored here. The bot makes each payment; no contract forces it, and no swap fee is taken yet, so nothing is paid today. ",
+      h("div", { class: "note mt8" }, "Your share of the fees taken in XMR and ZEC (the 0.5% swap fee the maker of each completed swap pays) is paid by the treasury's bot, off the DERO chain, to the addresses stored here, split between the passes registered when each period ends. The bot makes each payment; no contract forces it, and a pass with no address here keeps its part owed until it stores one. ",
         h("b", null, "An address stored here is public on the DERO chain for good."), " So store a fresh Monero subaddress that you use for nothing else, not your primary address, and a fresh Zcash transparent address: the bot can pay only a transparent one. " +
         "The contract checks only the length and the characters; this page also checks the checksum and that the address is for " + net + ". Only a registered holder can store one; you can always clear your own."),
       one("Monero", "SetXmr", "xm_", mine.xmr, main ? "a fresh subaddress: 95 characters, starting 8" : "a fresh stagenet or testnet subaddress: 95 characters", V.payout.xmr),

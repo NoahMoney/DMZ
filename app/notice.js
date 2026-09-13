@@ -39,10 +39,11 @@
     ["This platform is completely unregulated. ", ["b", "Its creators hold no key that can spend what you hold on DERO."],
       noWrap() ? " The keys that do survive are named below. " + NOWRAP + " No federation holds a coin for anyone here."
         : " The keys that do survive, and the federation that holds the coins behind " + wrapped() + ", are named below."],
-    (share() ? share() + " of the trading fees the treasury claims from DMZ markets" : "A share of the trading fees the treasury claims from DMZ markets — the number is stored in the pass contract —") +
+    (share() ? share() + " of the trading fees the treasury claims from DMZ markets, and of the swap fees it receives," : "A share of the trading fees the treasury claims from DMZ markets, and of the swap fees it receives — the number is stored in the pass contract —") +
       " goes to the Founders Pass holders, each in the asset the fee was taken in, never converted to DERO. DERO and DERO tokens are deposited into the pass contract, where each registered pass claims its part. " +
-      "XMR and ZEC are paid by the treasury's bot to the payout address a holder stored; no swap fee is taken yet, so none is paid today. " +
-      "The bot makes every deposit and every XMR and ZEC payment, and no contract forces either. A deposit is shared by the passes registered when it is made. " +
+      "XMR and ZEC are paid by the treasury's bot to the payout address a holder stored. They come from the 0.5% swap fee: the maker of each completed XMR or ZEC swap pays it to the treasury's public address, in the coin he receives, and a refunded swap pays none. " +
+      "The swap programs add that fee; no contract takes it. " +
+      "The bot makes every deposit and every XMR and ZEC payment, and no contract forces either. A deposit is shared by the passes registered when it is made, and each period's XMR and ZEC by the passes registered when the period ends. " +
       "While no pass is registered nothing is deposited: the bot holds those fees and pays them in the first deposit after a pass registers.",
     ["Code is law. ", ["b", "The contracts are final."], " None of them has an update path. " +
       (fixedApp() ? "Nor has the app you read them through: its TELA INDEX was installed with no owner, so a new version would be a new INDEX, found separately; "
@@ -93,7 +94,8 @@
           U.kv("Custody", noWrap() ? "none — no wrapped asset here, so no federation" : fed() + " federation holds the " + wrapped() + "; the vault contract cannot"),
           U.kv("Support", "none — nobody can act on your behalf"),
           U.kv("Moderation", "none — nothing posted can be removed"),
-          U.kv("Fees", (share() || "the contract's share") + " of claimed trading fees to Pass holders, each in its own asset; the treasury's bot pays it, and no contract forces it"),
+          U.kv("Fees", (share() || "the contract's share") + " of claimed trading fees and of the swap fees to Pass holders, each in its own asset; the treasury's bot pays it, and no contract forces it"),
+          U.kv("Swap fee", "0.5% of the XMR or ZEC, paid by the maker of a completed swap to the treasury; none on a refund; added by the swap programs, not by a contract"),
           U.kv("Your keys", "never leave your wallet; this app cannot see them"),
           U.kv("Contracts", D.cfg.network + " · no update path in any of them"),
           U.kv("This app", fixedApp() ? "fixed: its TELA INDEX has no owner; a new version would be a new INDEX" : "republishable under the TELA INDEX key until it is discarded"),
@@ -102,7 +104,8 @@
         h("div", { class: "stack mt8" },
           factoryKey(),
           key("The treasury", "Receives every protocol fee: the trade fees anyone may claim from a market (they pay only the treasury), registration and chat fees, " +
-            "pass mints" + (noWrap() ? "" : ", slashed signer bonds and vault withdrawal fees") + ". It runs the bot that deposits the pass share and is to pay the XMR and ZEC share, and nothing in a contract makes it."),
+            "pass mints" + (noWrap() ? "" : ", slashed signer bonds and vault withdrawal fees") + ", and the 0.5% XMR and ZEC swap fees, paid to its public addresses on those chains. " +
+            "It runs the bot that deposits the pass share and pays the XMR and ZEC share, and nothing in a contract makes it."),
           fixedApp()
             ? key("The app publisher", "None. On mainnet the TELA INDEX that serves these files is installed at ring size 16, so its owner is recorded as \"anon\" " +
               "and no key can update it; tools/verifydeploy checks that on chain. A new version would be a new INDEX with its own id. Settings shows the commit you are running.")
