@@ -17,7 +17,7 @@
   .app{max-width:1280px;padding-left:236px;border:0}
   /* the rail is an instrument edge: a hairline, no tint, no blur */
   .tabs{position:fixed;left:max(0px,calc(50% - 640px));right:auto;top:0;bottom:0;width:236px;max-width:none;transform:none;display:flex;flex-direction:column;gap:0;padding:20px 0 18px;border-top:0;border-right:1px solid var(--edge);background:var(--bg)}
-  .tabs .tab[data-tab="profile"],.tabs .tab[data-tab="zswap"]{display:flex}
+  .tabs .tab[data-tab="profile"],.tabs .tab[data-tab="zswap"],.tabs .tab[data-tab="xmr"]{display:flex}
   .side-brand{display:flex;align-items:center;padding:2px 20px 26px}
   .side-brand .mark{height:22px;width:auto;display:block}
   /* the zone rule marks where you are: one lime diagonal, no filled pill */

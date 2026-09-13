@@ -1,0 +1,25 @@
+{
+  "v": 1,
+  "program": "xmrswap",
+  "role": "maker",
+  "direction": "withdrawal",
+  "network": "simulator",
+  "contract": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "lock": 4,
+  "asset": "",
+  "deroAmount": "2000000",
+  "foreignAmount": "1000000000000",
+  "fee": "5000000000",
+  "phase": "done",
+  "outcome": "refunded",
+  "next": "Nothing: your DERO is back. The key share your Refund made public lets the taker recover any XMR she locked.",
+  "updated": "2026-09-13T15:10:00Z",
+  "steps": [
+    { "id": "dero_lock", "label": "You lock 20 DERO for the taker", "chain": "DERO", "state": "done", "txid": "9b4b01ea0f8960cbb1d9b3503336a737df61ecabf5ecad3c4c3b756e1cfe25e8", "conf": 40, "need": 8, "deadline": null },
+    { "id": "stipend", "label": "You send the taker the DERO for her gas", "chain": "DERO", "state": "done", "txid": "b229a803ab212a0da25ef7033397eef64c09a719ab22da46f8cfadbfd24715df", "conf": 38, "need": 8, "deadline": null },
+    { "id": "xmr_lock", "label": "The taker locks 1 XMR at the joint address", "chain": "Monero", "state": "skipped", "txid": "", "conf": null, "need": null, "deadline": null },
+    { "id": "gate", "label": "You hand the taker your gate secret", "chain": "Monero", "state": "skipped", "txid": "", "conf": null, "need": null, "deadline": null },
+    { "id": "claim", "label": "The taker claims the DERO, before t1", "chain": "DERO", "state": "skipped", "txid": "", "conf": null, "need": null, "deadline": { "chain": "DERO", "height": 6492, "eta": "2026-09-13T14:00:00Z" } },
+    { "id": "refund", "label": "Your xmrswap refunds your DERO, from t1 until t2", "chain": "DERO", "state": "done", "txid": "10c27af561b5b5b9475321b58428ab556d11f4544fbb86d6e4c065a8e0b01c53", "conf": 9, "need": 8, "deadline": { "chain": "DERO", "height": 6892, "eta": "2026-09-13T16:00:00Z" } }
+  ]
+}

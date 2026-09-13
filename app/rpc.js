@@ -135,6 +135,7 @@
     async getSC(scid, opt = {}) {
       const p = { scid, variables: !!opt.variables, code: !!opt.code };
       if (opt.keys) p.keysstring = opt.keys;
+      if (Number.isSafeInteger(opt.topoheight) && opt.topoheight > 0) p.topoheight = opt.topoheight; // the state as it was then
       const r = await this.call("DERO.GetSC", p);
       // uint64 values arrive as JSON numbers (exact only below 2^53: ask for exact ones through `keys`),
       // string values arrive hex-encoded. vars: numbers → BigInt, strings → hex; strs: strings decoded as text.

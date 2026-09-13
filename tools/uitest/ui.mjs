@@ -401,6 +401,104 @@ try {
     } else step("no swap-board seed for this build (" + (process.env.ZSEED || ".sim/zswap-seed.json") + "): offer pages not exercised");
   }
 
+  // The Monero swap screen (app/xmr.js). On the build's own htlc.bas: the code check, the windows read from it, the
+  // companion commands with its id, and the lookup. Then, when XSEED (default .sim/xmr-seed.json, written by
+  // tools/uitest/xmrseed.mjs) names a second install of the same template with small windows, each seeded lock's page
+  // in its window, and Punish's confirmation, opened and never sent. Last, both swap screens paired with a stub status
+  // server (tools/uitest/statusstub.mjs, never shipped in app/), after its gates are checked.
+  {
+    const cfgHtlc = await page.evaluate(() => window.Veil.data.cfg.htlc || "");
+    await page.evaluate(() => { location.hash = "#xmr"; }); await sleep(3500); await shot("02k-xmr");
+    const xt = await text(); step("xmr: " + xt.slice(0, 150));
+    for (const want of [/how it works/i, /xmrswap status -dir/, /0\.5% of the XMR/, /only on a completed swap/, /unaudited/, /ring size 2/, /out of band/, /this app cannot/, /its own DERO and Monero nodes, its own xmrswap, and being online/, /w1min = [\d,]+ blocks/, /g2 = [\d,]+ blocks/, /Connect a wallet to list the locks/, /Read from your node at block \d+/])
+      if (!want.test(xt)) fail("the XMR swap screen does not say " + want + ": " + xt.slice(0, 200));
+    if (/\btrustless\b/i.test(xt)) fail("the XMR swap screen calls something trustless");
+    if (/^[0-9a-f]{64}$/.test(cfgHtlc) && !xt.includes("-htlc " + cfgHtlc)) fail("the companion commands do not carry this network's htlc id");
+    const ins = await page.evaluate(() => [...document.querySelectorAll("#screen input")].map((i) => i.getAttribute("aria-label")));
+    step("xmr inputs: " + JSON.stringify(ins));
+    if (ins.some((l) => !["Lock id", "Status port", "Pairing code"].includes(l))) fail("the XMR swap screen has an input other than the lock id and the pairing form: " + JSON.stringify(ins));
+    await page.fill('input[aria-label="Lock id"]', "0"); await page.getByRole("button", { name: "Find lock", exact: true }).click(); await sleep(3000); await shot("02l-xmr-lock0");
+    const l0 = await text(); step("xmr lookup #0 on the build's contract: " + l0.slice(0, 160));
+    if (!/XMR lock #0/.test(l0) || !/t2 \+ g2 · Punish ends/.test(l0) || !/A transaction sent now meets/.test(l0)) fail("lock 0 by lookup: " + l0.slice(0, 240));
+  }
+  {
+    const xseed = (() => { try { return JSON.parse(fs.readFileSync(process.env.XSEED || ".sim/xmr-seed.json", "utf8")); } catch (e) { return null; } })();
+    const { spawn } = await import("node:child_process"), http = await import("node:http"), stubs = [];
+    const stub = async (fixture, extra) => {
+      const port = 18100 + Math.floor(Math.random() * 800), code = crypto.randomBytes(16).toString("hex");
+      const p = spawn(process.execPath, ["tools/uitest/statusstub.mjs", "--port=" + port, "--fixture=" + fixture, "--code=" + code, ...extra], { stdio: ["ignore", "pipe", "inherit"] });
+      stubs.push(p); await new Promise((r) => { p.stdout.once("data", r); setTimeout(r, 3000); });
+      return { port, code };
+    };
+    const probe = (port, headers) => new Promise((res) => { const q = http.request({ host: "127.0.0.1", port, path: "/v1/status", headers }, (r) => { let b = ""; r.on("data", (c) => (b += c)); r.on("end", () => res({ s: r.statusCode, b })); }); q.on("error", (e) => res({ s: 0, b: String(e) })); q.end(); });
+    const pairWith = async (pg, s) => { await pg.fill('input[aria-label="Status port"]', String(s.port)); await pg.fill('input[aria-label="Pairing code"]', s.code); await pg.getByRole("button", { name: "Pair", exact: true }).click(); await sleep(3000); };
+    try {
+      const network = await page.evaluate(() => window.Veil.data.cfg.network);
+      if (xseed) {
+        const xp = await browser.newPage({ viewport: { width: 430, height: 860 }, bypassCSP: true });
+        xp.on("pageerror", (e) => errors.push("pageerror (xmr seed page): " + e.message));
+        xp.on("console", (m) => { if (m.type() === "error" && !/net::ERR_/.test(m.text())) errors.push("console (xmr seed page): " + m.text()); });
+        await xp.route(/\/config\.js(\?.*)?$/, async (route) => { const r = await route.fetch(); await route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: (await r.text()) + "\n;window.VEIL_CONFIG.htlc = " + JSON.stringify(xseed.htlc) + ";\n" }); });
+        await xp.goto(url, { waitUntil: "load" }); await xp.locator("#introOk").click({ timeout: 8000 }).catch(() => {});
+        await xp.waitForFunction(() => (window.Veil.live && window.Veil.live.height) > 0, null, { timeout: 30000 }).catch(() => {});
+        const xtext = async () => (await xp.locator("#screen").innerText()).replace(/\s+/g, " ");
+        for (const name of ["claim", "refund", "punish"]) {
+          const L = xseed[name];
+          await xp.evaluate((i) => { location.hash = "#xmr/" + i; }, L.id); await sleep(3500);
+          await xp.screenshot({ path: `${out}/02m-xmr-${name}.png`, fullPage: true });
+          const t = await xtext(), H = await xp.evaluate(() => window.Veil.live.height || window.Veil.data.height || 0);
+          const win = H + 1 < L.t1 ? "Claim" : H + 1 < L.t2 ? "Refund" : H + 1 < L.t2 + xseed.g2 ? "Punish" : "Reclaim";
+          step("xmr seeded lock #" + L.id + " (" + name + "; tip " + H + ", t1 " + L.t1 + ", t2 " + L.t2 + ", g2 " + xseed.g2 + "): meets " + win + " · " + t.slice(0, 120));
+          if (!t.includes("A transaction sent now meets " + win)) fail("lock #" + L.id + " at tip " + H + " should meet " + win + ": " + t.slice(0, 400));
+          const btn = await xp.getByRole("button", { name: "Punish: pay the taker" }).count();
+          if ((win === "Punish") !== (btn === 1)) fail("the Punish button is " + (btn ? "offered" : "not offered") + " on lock #" + L.id + " in its " + win + " window");
+          if (!/stages/i.test(t) || !/not visible here/.test(t)) fail("lock #" + L.id + " shows no stage tracker with the Monero side marked not visible");
+          if (btn) {
+            await xp.getByRole("button", { name: "Punish: pay the taker" }).click(); await sleep(700);
+            await xp.screenshot({ path: `${out}/02n-xmr-punish-confirm.png`, fullPage: true });
+            const sh = (await xp.locator("#sheet").innerText()).replace(/\s+/g, " ");
+            step("Punish confirmation: " + sh.slice(0, 220));
+            for (const want of [/to the taker named in it, and to nobody else/, /You, the sender, pay its gas/, /Send Punish/]) if (!want.test(sh)) fail("the Punish confirmation does not say " + want);
+            await xp.evaluate(() => window.Veil.ui.closeSheet()); // opened, never sent: this pass has no wallet
+          }
+        }
+        const s = await stub("tests/js/fixtures/status-xmrswap-happy.json", ["--contract=" + xseed.htlc, "--network=" + network, "--lock=" + xseed.claim.id]);
+        // the stub's gates, as a companion must keep them: no code, a wrong code and a rebinding Host get nothing
+        const [none, wrong, rebind] = [await probe(s.port, {}), await probe(s.port, { Authorization: "Bearer " + "0".repeat(32) }), await probe(s.port, { Host: "attacker.example:" + s.port, Authorization: "Bearer " + s.code })];
+        step("status stub gates: no code " + none.s + ", wrong code " + wrong.s + ", foreign Host " + rebind.s);
+        if (none.s !== 401 || none.b || wrong.s !== 401 || wrong.b || rebind.s !== 403 || rebind.b) fail("the status stub's gates: " + JSON.stringify([none, wrong, rebind]));
+        await xp.evaluate(() => { location.hash = "#xmr"; }); await sleep(2500);
+        await pairWith(xp, s);
+        await xp.screenshot({ path: `${out}/02o-xmr-paired.png`, fullPage: true });
+        const pt = await xtext(), at = pt.search(/your swap program/i); step("xmr paired: " + pt.slice(at, at + 220));
+        for (const want of [/your swap program · 127\.0\.0\.1:\d+/i,/Deposit: you give [\d.,]+ XMR and receive/, /3 of 10/, /Next deadline:/, /What happens next:/]) if (!want.test(pt)) fail("the paired Monero tracker does not show " + want);
+        const kept = await xp.evaluate((c) => ({ session: (sessionStorage.getItem("veil.pair.xmrswap") || "").includes(c), local: Object.keys(localStorage).some((k) => (localStorage.getItem(k) || "").includes(c)) }), s.code);
+        step("pairing code kept: sessionStorage " + kept.session + ", localStorage " + kept.local);
+        if (kept.local) fail("the pairing code reached localStorage");
+        await xp.evaluate((i) => { location.hash = "#xmr/" + i; }, xseed.claim.id); await sleep(3000);
+        await xp.screenshot({ path: `${out}/02p-xmr-paired-lock.png`, fullPage: true });
+        if (!/3 of 10/.test(await xtext())) fail("lock #" + xseed.claim.id + " does not show its paired swap program's stages");
+        await xp.close();
+      } else step("no Monero lock seed (" + (process.env.XSEED || ".sim/xmr-seed.json") + "): seeded lock pages and the Monero pairing not exercised; tools/uitest/xmrseed.mjs writes one");
+      // the ZEC screen: the fee line, an offer's DERO-side stages unpaired, then paired with a stub zecswap
+      const cfgSwap = await page.evaluate(() => window.Veil.data.cfg.swap || "");
+      if (/^[0-9a-f]{64}$/.test(cfgSwap)) {
+        if (zseed && zseed.board === cfgBoard) {
+          await page.evaluate((i) => { location.hash = "#zswap/" + i; }, zseed.locked); await sleep(3000); await shot("02q-zswap-stages");
+          const st = await text(), at = st.search(/stages/i); step("zswap #" + zseed.locked + " stages: " + st.slice(at, at + 200));
+          if (at < 0 || !/not visible here/.test(st)) fail("the ZEC offer page shows no stage tracker with the Zcash side marked not visible");
+        }
+        const z = await stub("tests/js/fixtures/status-zecswap-happy.json", ["--contract=" + cfgSwap, "--network=" + network, "--lock=" + (zseed ? zseed.lock : 0)]);
+        await page.evaluate(() => { location.hash = "#zswap"; }); await sleep(2500);
+        if (!/The maker pays a 0\.5% fee in ZEC, from the ZEC he receives, in his claim transaction/.test(await text())) fail("the ZEC swap screen does not state the 0.5% fee");
+        await pairWith(page, z); await shot("02r-zswap-paired");
+        const zt = await text(), at = zt.search(/your swap program/i); step("zswap paired: " + zt.slice(at, at + 220));
+        for (const want of [/Withdrawal: you give .* and receive [\d.,]+ ZEC/, /3 of 10/, /by your swap program's estimate/]) if (!want.test(zt)) fail("the paired Zcash tracker does not show " + want);
+        await page.getByRole("button", { name: "Unpair", exact: true }).click().catch(() => {});
+      }
+    } finally { for (const p of stubs) p.kill(); }
+  }
+
   // BL-129: when the node stops answering, the figures on screen are the last good read, and every screen says how
   // old they are. The node is made to refuse every read, a refresh is forced, and the banner must say so with an age;
   // the node is given back, and the banner must go.
@@ -443,6 +541,12 @@ try {
       const zt = await d.evaluate(() => { const t = document.querySelector('.tab[data-tab="zswap"]'); return !!t && getComputedStyle(t).display !== "none"; });
       if (!zt) fail("no ZEC swap tab in the desktop rail");
       await d.click('.tab[data-tab="zswap"]'); await sleep(2500); await d.screenshot({ path: `${out}/desk-zswap.png` });
+    }
+    // and so has the Monero swap screen when the build names an htlc.bas
+    if (await d.evaluate(() => /^[0-9a-f]{64}$/.test(window.Veil.data.cfg.htlc || ""))) {
+      const xt = await d.evaluate(() => { const t = document.querySelector('.tab[data-tab="xmr"]'); return !!t && getComputedStyle(t).display !== "none"; });
+      if (!xt) fail("no XMR swap tab in the desktop rail");
+      await d.click('.tab[data-tab="xmr"]'); await sleep(3000); await d.screenshot({ path: `${out}/desk-xmr.png`, fullPage: true });
     }
     // 1024 is inside the band where the fixed side rails used to leave the main column narrower than a phone
     {
@@ -720,7 +824,7 @@ async function mainnetPass() {
     const gate = await p.evaluate(() => window.Veil.app.netGate());
     step("signing gate: " + String(gate).slice(0, 150));
     if (!gate) fail("a mainnet-labelled build reading a simulator node would open a signing flow");
-    for (const tab of ["wrap", "home", "markets", "trade", "zswap", "portfolio", "notice"]) {
+    for (const tab of ["wrap", "home", "markets", "trade", "zswap", "xmr", "portfolio", "notice"]) {
       await p.evaluate((t) => { location.hash = "#" + t; }, tab); await sleep(1500);
       await p.screenshot({ path: `${out}/mainnet-${width}-${tab}.png`, fullPage: true });
       const tt = (await p.locator("#screen").innerText()).replace(/\s+/g, " ");
@@ -742,6 +846,7 @@ async function mainnetPass() {
       }
       if (tab === "trade" && /against a wrapped asset/i.test(tt)) fail("the Trade hub offers markets against a wrapped asset on a build with none");
       if (tab === "zswap" && (!/ZEC swap/.test(tt) || /\btrustless\b/i.test(tt))) fail("the ZEC swap screen under the mainnet shape: " + tt.slice(0, 200));
+      if (tab === "xmr" && (!/XMR swap/.test(tt) || !/how it works/i.test(tt) || !/-mainnet -net mainnet/.test(tt) || /\btrustless\b/i.test(tt))) fail("the XMR swap screen under the mainnet shape: " + tt.slice(0, 200));
       const over = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       if (over > 1) fail("the mainnet-shaped " + tab + " overflows horizontally by " + over + "px at " + width);
     }

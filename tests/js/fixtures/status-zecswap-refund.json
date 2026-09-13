@@ -1,0 +1,25 @@
+{
+  "v": 1,
+  "program": "zecswap",
+  "role": "taker",
+  "direction": "deposit",
+  "network": "simulator",
+  "contract": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "lock": 2,
+  "asset": "",
+  "deroAmount": "200000",
+  "foreignAmount": "50000000",
+  "fee": "250000",
+  "phase": "done",
+  "outcome": "refunded",
+  "next": "Nothing: your ZEC is back at your refund address. The maker's DERO goes back to him from T_dero.",
+  "updated": "2026-09-13T16:30:00Z",
+  "steps": [
+    { "id": "accept", "label": "You accept the offer", "chain": "DERO", "state": "done", "txid": "9b4b01ea0f8960cbb1d9b3503336a737df61ecabf5ecad3c4c3b756e1cfe25e8", "conf": null, "need": null, "deadline": null },
+    { "id": "dero_lock", "label": "The maker locks 2 DERO in the escrow", "chain": "DERO", "state": "done", "txid": "b229a803ab212a0da25ef7033397eef64c09a719ab22da46f8cfadbfd24715df", "conf": 8, "need": 8, "deadline": null },
+    { "id": "zec_fund", "label": "You fund the Zcash script with 0.5 ZEC", "chain": "Zcash", "state": "done", "txid": "10c27af561b5b5b9475321b58428ab556d11f4544fbb86d6e4c065a8e0b01c53", "conf": 10, "need": 10, "deadline": null },
+    { "id": "zec_claim", "label": "The maker claims the ZEC", "chain": "Zcash", "state": "skipped", "txid": "", "conf": null, "need": null, "deadline": null },
+    { "id": "zec_refund", "label": "Your zecswap takes the ZEC back, from cltv", "chain": "Zcash", "state": "done", "txid": "aa11bb22cc33dd44ee55ff6600778899aabbccddeeff00112233445566778899", "conf": 12, "need": 10, "deadline": { "chain": "Zcash", "height": 3100096, "eta": "2026-09-13T14:00:00Z" } },
+    { "id": "dero_refund", "label": "The maker refunds his DERO, from T_dero", "chain": "DERO", "state": "waiting", "txid": "", "conf": null, "need": null, "deadline": { "chain": "DERO", "height": 7700, "eta": "2026-09-13T20:00:00Z" } }
+  ]
+}

@@ -240,7 +240,9 @@
           create("Create a pool", "LP-owned constant-product pool for any existing DERO asset.", () => V.forms.pool()),
           create("Create a holder NFT", "Editions earned by locking a token for a number of blocks.", () => V.forms.nft())),
         D.cfg.board ? [head("trend", "ZEC swap", "Atomic swap against transparent ZEC · public on the Zcash chain"),
-          h("div", { class: "mlist" }, create("Buy or sell for ZEC", "The offer board, and each swap's DERO leg read live from its lock. Your companion runs the Zcash leg.", () => router.go("zswap")))] : null);
+          h("div", { class: "mlist" }, create("Buy or sell for ZEC", "The offer board, and each swap's DERO leg read live from its lock. Your companion runs the Zcash leg.", () => router.go("zswap")))] : null,
+        D.cfg.htlc ? [head("trend", "XMR swap", "Atomic swap against XMR · agreed out of band, run by your xmrswap"),
+          h("div", { class: "mlist" }, create("Follow a Monero swap", "Your locks, their windows and stages, read live from the chain. Punish is the one exit sent from here.", () => router.go("xmr")))] : null);
     };
     draw(); D.onChange(() => router.current && router.current.name === "trade" && draw());
   });

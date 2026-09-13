@@ -82,7 +82,7 @@ h1{font-size:26px;line-height:1.12}h2{font-size:17px;letter-spacing:-.02em}h3{fo
 .tabs{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;display:grid;grid-template-columns:repeat(7,1fr);padding:0 0 env(safe-area-inset-bottom);background:var(--bg);border-top:1px solid var(--edge);z-index:6}
 /* Eight destinations do not fit a phone bar. Profile steps out of it: it is reached from Portfolio and from the
    wallet button, and the desktop rail shows all eight. */
-.tabs .tab[data-tab="profile"],.tabs .tab[data-tab="zswap"]{display:none}
+.tabs .tab[data-tab="profile"],.tabs .tab[data-tab="zswap"],.tabs .tab[data-tab="xmr"]{display:none}
 .tab{display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0 8px;color:var(--fg3);font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:0;transition:color .15s;position:relative;min-height:52px;justify-content:center}
 .tab+.tab{box-shadow:inset 1px 0 0 var(--edge)}
 .tab::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:var(--acc);transform:scaleX(0);transition:transform .15s cubic-bezier(.2,0,0,1)}

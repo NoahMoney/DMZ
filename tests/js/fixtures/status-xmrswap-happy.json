@@ -1,0 +1,25 @@
+{
+  "v": 1,
+  "program": "xmrswap",
+  "role": "taker",
+  "direction": "deposit",
+  "network": "simulator",
+  "contract": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "lock": 3,
+  "asset": "",
+  "deroAmount": "2000000",
+  "foreignAmount": "1000000000000",
+  "fee": "5000000000",
+  "phase": "xmr_confirming",
+  "outcome": "",
+  "next": "Your XMR is confirming at the joint address. At 10 confirmations the maker hands you his gate secret, and your xmrswap claims the DERO before t1.",
+  "updated": "2026-09-13T12:00:00Z",
+  "steps": [
+    { "id": "dero_lock", "label": "The maker locks 20 DERO for you", "chain": "DERO", "state": "done", "txid": "9b4b01ea0f8960cbb1d9b3503336a737df61ecabf5ecad3c4c3b756e1cfe25e8", "conf": 12, "need": 8, "deadline": null },
+    { "id": "stipend", "label": "The maker sends the DERO for your gas", "chain": "DERO", "state": "done", "txid": "b229a803ab212a0da25ef7033397eef64c09a719ab22da46f8cfadbfd24715df", "conf": 9, "need": 8, "deadline": null },
+    { "id": "xmr_lock", "label": "You lock 1 XMR at the joint address", "chain": "Monero", "state": "active", "txid": "10c27af561b5b5b9475321b58428ab556d11f4544fbb86d6e4c065a8e0b01c53", "conf": 3, "need": 10, "deadline": null },
+    { "id": "gate", "label": "The maker hands you his gate secret", "chain": "Monero", "state": "waiting", "txid": "", "conf": null, "need": null, "deadline": { "chain": "DERO", "height": 6400, "eta": "2026-09-13T13:30:00Z" } },
+    { "id": "claim", "label": "Your xmrswap claims the DERO", "chain": "DERO", "state": "waiting", "txid": "", "conf": null, "need": null, "deadline": { "chain": "DERO", "height": 6492, "eta": "2026-09-13T14:00:00Z" } },
+    { "id": "sweep", "label": "The maker sweeps the XMR, less the 0.5% fee", "chain": "Monero", "state": "waiting", "txid": "", "conf": null, "need": null, "deadline": null }
+  ]
+}

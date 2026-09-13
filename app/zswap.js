@@ -161,22 +161,46 @@
         "Fund the Zcash script only through your companion, which checks that lock first: this page cannot fund Zcash. " + RING2), btn);
   }
 
+  // ---- stages (app/track.js): the DERO side read here, the Zcash side only your companion sees ----
+  const FEE = "The maker pays a 0.5% fee in ZEC, from the ZEC he receives, in his claim transaction. That output pays one public treasury address, so it is visible on Zcash's transparent chain.";
+  const dirOf = (o) => (!me() ? null : o.maker === me() ? "withdrawal" : o.taker === me() ? "deposit" : null);
+  const want = () => ({ program: "zecswap", network: D.cfg.network, contracts: [D.cfg.swap] });
+  const fmt = { foreign: zec, dero: (a, v) => amt(assetOf(a), v) };
+  function stages(o, l, H, dep) {
+    const T = V.track, h0 = B(H), acc = o.st === 1n, S = (x) => Object.assign({ chain: "DERO", conf: null, need: null, deadline: null, txid: "" }, x), dl = (b) => (b === null ? null : { chain: "DERO", height: N(b), eta: null });
+    const gone = o.st === 2n || (o.st === 0n && o.exp !== null && h0 >= o.exp) || (acc && !l && o.ad !== null && h0 >= o.ad), open = l && l.st === 0n, late = open && l.exp !== null && h0 >= l.exp, deep = open && dep !== null && dep !== undefined;
+    const tail = (x) => (gone ? "skipped" : x);
+    return [
+      S({ label: "The maker posts the offer", state: "done" }),
+      S({ label: "A taker accepts it", state: acc ? "done" : o.st === 0n && !gone ? "active" : o.st === 2n ? "skipped" : "failed", deadline: o.st === 0n ? dl(o.exp) : null }),
+      S({ label: "The maker locks the DERO side in the escrow" + (open && !deep ? " (its depth could not be read)" : ""), state: l ? (deep && dep < T.STABLE ? "active" : "done") : acc ? (gone ? "failed" : "active") : tail("waiting"), conf: deep ? dep : null, need: deep ? T.STABLE : null, deadline: acc && !l ? dl(o.ad) : null }),
+      S({ label: "The taker funds the Zcash script, refundable to her from Zcash block cltv", chain: "Zcash", state: gone ? "skipped" : "unseen" }),
+      S({ label: "The maker claims the ZEC with his secret, which makes it public", chain: "Zcash", state: gone ? "skipped" : "unseen" }),
+      S({ label: "The taker's DERO side is claimed with that secret, before T_dero", state: l && l.st === 1n ? "done" : l && l.st === 2n ? "skipped" : open ? (late ? "skipped" : "active") : tail("waiting"), deadline: l ? dl(l.exp) : null }),
+      S({ label: "Or, from T_dero, the maker refunds it", state: l && l.st === 2n ? "done" : l && l.st === 1n ? "skipped" : open ? (late ? "active" : "waiting") : tail("waiting") }),
+    ];
+  }
+
+  Zs.stages = stages;
+
   // ---- screens ----
   const flag = (k) => h("span", { class: "pill " + (k === "open" ? "up" : k === "dead" ? "bad" : k === "live" ? "warn" : "") }, k);
   // the age of every figure on these screens is the age of the read that produced it (BL-129)
   const readLine = () => h("div", { class: "note mt" }, (Zs.fail ? "The last read failed (" + Zs.fail + "). " : "") + "Read from your node at block " + Zs.h + ", ",
     h("span", { "data-ts": Math.floor(Zs.at / 1000) }, U.timeAgo(Math.floor(Zs.at / 1000)) + " ago"),
     ". Board " + V.shortAddr(D.cfg.board) + " and escrow " + V.shortAddr(D.cfg.swap) + " are the ids this build names; this page checks their kind and version, and your companion checks their code.");
-  const row = (o) => { const a = assetOf(o.asset), [k, w] = where(o);
+  const row = (o) => { const a = assetOf(o.asset), [k, w] = where(o), d = dirOf(o);
     return h("button", { class: "feed-item", type: "button", onclick: () => router.go("zswap", String(o.id)) },
       h("div", { class: "body" }, h("div", { class: "between" }, h("b", null, amt(a, o.give)), h("b", { class: "num" }, zec(o.want))),
-        h("div", { class: "between", style: "gap:10px" }, h("span", { class: "meta" }, "#" + o.id + " · " + price(o, a) + " · maker " + record(o.maker)), h("span", { class: "meta" }, k === "open" ? left(o.exp) : w)))); };
-  function list(el) {
+        h("div", { class: "between", style: "gap:10px" }, h("span", { class: "meta" }, (d ? (d === "deposit" ? "Your deposit" : "Your withdrawal") + " · " : "") + "#" + o.id + " · " + price(o, a) + " · maker " + record(o.maker)), h("span", { class: "meta" }, k === "open" ? left(o.exp) : w)))); };
+  function list(el, redraw) {
     const all = [...Zs.offers].reverse(), g = (ks) => all.filter((o) => ks.includes(where(o)[0]));
     const open = g(["open"]), live = g(["live"]), gone = g(["dead", "closed"]).slice(0, 20);
     render(el, h("h1", { class: "mt" }, "ZEC swap"),
       h("div", { class: "sub mt8" }, "Buy a DERO-side asset with transparent ZEC, or sell one for ZEC. The DERO leg is a lock in swap.bas; the Zcash leg is a script your companion builds, funds and watches. " +
         "Nobody holds a coin for anyone: each side keeps an exit of its own for as long as it acts inside its window. The swap programs have completed every exit against real Monero and Zcash node software on a local test chain; neither has yet run on a public test network."),
+      h("div", { class: "note mt8" }, FEE),
+      V.track.panel("zecswap", want(), () => !!router.current && router.current.name === "zswap", redraw, fmt, tip()),
       h("div", { class: "row mt" }, button("Sell for ZEC", "primary", postSheet)),
       U.sectionHead("trend", "Buy with ZEC", "Open offers · pick one to accept it"),
       open.length ? h("div", { class: "list mt8" }, open.map(row)) : U.emptyState("trend", null, "No open offer on this board."),
@@ -184,10 +208,13 @@
       gone.length ? [U.sectionHead("feed", "Closed and dead", "Swapped, refunded, cancelled, expired, or accepted and never locked"), h("div", { class: "list mt8" }, gone.map(row))] : null,
       readLine());
   }
-  function page(el, id) {
+  function page(el, id, redraw) {
     const o = Zs.offers.find((x) => x.id === N(id));
     if (!o) return render(el, h("h1", { class: "mt mb" }, "ZEC swap #" + U.clean(id, 12)), h("div", { class: "errbox" }, "This board has no offer with that number."), readLine());
-    const a = assetOf(o.asset), l = o.st === 1n ? lockOf(o) : null, [k, w] = where(o), H = tip(), mine = !!me() && o.maker === me(), acts = [];
+    const a = assetOf(o.asset), l = o.st === 1n ? lockOf(o) : null, [k, w] = where(o), H = tip(), mine = !!me() && o.maker === me(), acts = [], d = dirOf(o), p = V.track.paired("zecswap");
+    // the stages: the paired companion's own, when it is this offer's lock; else the DERO side read here
+    const track = [h("h3", { class: "mt" }, "Stages"), p && l && p.lock === l.id ? V.track.panel("zecswap", want(), () => !!router.current && router.current.name === "zswap", redraw, fmt, H)
+      : [V.track.render(stages(o, l, H, l && Zs.depth && Zs.depth.id === l.id ? Zs.depth.d : null), H), h("div", { class: "note mt8" }, "The Zcash side is visible only to your swap program. Pair with it on the ZEC swap screen to see every stage here.")]];
     if (k === "open" && !mine) acts.push(button("Accept: buy with ZEC", "primary wide", () => acceptSheet(o)));
     // board.bas Cancel: the maker's, any time while open; once accepted, only from the offer's expiry or its ad_
     if (mine && o.st !== 2n && (o.st === 0n || H >= N(o.exp) || H >= N(o.ad))) acts.push(button("Cancel the offer", "wide", () => send(D.cfg.board, "Cancel", [["id", "U", B(o.id)]], "Cancel offer #" + o.id, ["st_" + o.id], (p0, p1) => p1.vals["st_" + o.id] === "2", o.st === 1n ? 2000 : 0)));
@@ -204,6 +231,7 @@
       })] : null;
     render(el,
       h("div", { class: "between mt" }, h("h1", null, "ZEC swap #" + o.id), flag(k)), h("div", { class: "sub mt8" }, w),
+      d ? h("div", { class: "mt8" }, h("b", null, V.track.dirText(d, zec(o.want), amt(a, o.give)))) : null,
       h("h3", { class: "mt" }, "The offer · board.bas"),
       kv("Maker gives", amt(a, o.give)), kv("Maker wants", zec(o.want)), kv("Price", price(o, a)),
       kv("Maker", h("span", null, h("span", { class: "mono" }, V.shortAddr(o.maker)), " · " + record(o.maker))), kv("Open until", when(o.exp)),
@@ -217,7 +245,7 @@
         : h("div", { class: "note mt8" }, o.st === 1n ? "No lock under this offer's hash, maker and taker yet." : "Nothing is locked until an offer is accepted."),
       h("h3", { class: "mt" }, "The Zcash leg"),
       h("div", { class: "note mt8" }, "Not visible from here: this app cannot read Zcash. Your companion (tools/zecswap) builds, funds, watches and claims it, and a Zcash explorer you choose shows it too."),
-      acts.length ? h("div", { class: "stack mt" }, acts) : null, claim, readLine());
+      acts.length ? h("div", { class: "stack mt" }, acts) : null, claim, track, readLine());
   }
 
   router.on("zswap", async (el, param) => {
@@ -226,15 +254,23 @@
       if (Zs.state === "none") return render(el, title(), U.emptyState("trend", "No swap board on this network", "This build names no swap board or swap escrow, so there is nothing to show and nothing to sign."));
       if (Zs.state === "wrong") return render(el, title(), h("div", { class: "errbox" }, "The contracts this build names as the swap board and the escrow are not board v3 and swap v2 on your node, so nothing is shown and nothing can be signed."));
       if (Zs.state === "err") return render(el, title(), U.errorState("The swap board could not be read from your node: " + Zs.fail, () => reload()));
-      return param ? page(el, param) : list(el);
+      return param ? page(el, param, redraw) : list(el, redraw);
     };
+    const here = () => !!router.current && router.current.name === "zswap" && router.current.param === param;
     const reload = async () => {
-      try { await Zs.load(); } catch (e) { Zs.fail = U.clean(String((e && e.message) || e), 160); if (Zs.state !== "ok") Zs.state = "err"; }
-      if (router.current && router.current.name === "zswap" && router.current.param === param) draw();
+      try {
+        await Zs.load();
+        // an offer's open lock: its depth against the stable 8, read once it is found (app/track.js)
+        const o = param ? Zs.offers.find((x) => x.id === N(param)) : null, l = o && o.st === 1n ? lockOf(o) : null;
+        if (l && l.st === 0n) Zs.depth = { id: l.id, d: await V.track.depth(D.cfg.swap, "st_" + l.id, tip()) };
+      } catch (e) { Zs.fail = U.clean(String((e && e.message) || e), 160); if (Zs.state !== "ok") Zs.state = "err"; }
+      if (here()) draw();
     };
     const busy = () => [...el.querySelectorAll("input")].some((i) => i.value && i.value.trim());
+    const redraw = () => { if (here() && !busy()) draw(); };
     render(el, title(), h("div", { class: "list" }, U.skeleton(3)));
     await reload();
+    V.track.watch("zecswap", want(), here, redraw);
     // one read per block while this screen is open, and none while a field on it holds text
     D.onChange(() => { if (router.current && router.current.name === "zswap" && !busy() && Date.now() - Zs.at > 4000) reload(); });
   });

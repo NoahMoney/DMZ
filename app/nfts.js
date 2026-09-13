@@ -9,9 +9,6 @@
   // an amount in a pass asset, in that asset; a quote whose scale the app does not know is shown in raw units
   const amt = (a, x) => (a.dec === null ? x + " units of " + a.sym + " (scale unknown)" : A.fmtUnits(x, a.dec, a.id === DERO ? 5 : 4) + " " + a.sym);
   const stat = (l, v) => h("div", { class: "stat" }, h("div", { class: "l" }, l), h("div", { class: "v num" }, v));
-  // what founders.bas SetXmr / SetZec accept: length, prefix and the base58 alphabet, checked here before sending
-  const B58 = /^[1-9A-HJ-NP-Za-km-z]+$/;
-  const okAddr = { SetXmr: (s) => (s.length === 95 || s.length === 106) && B58.test(s), SetZec: (s) => s.length === 35 && s[0] === "t" && B58.test(s) };
   let mine = null, mineAt = 0, mineFor = "";
 
   async function loadMine(force) {
@@ -84,20 +81,29 @@
       button("Withdraw", "primary wide mt", () => { const u = BigInt(Math.max(0, parseInt(inp.value || "0", 10) || 0)); if (!u || u > q.u) return toast("Enter 1 to " + q.u, "err"); closeSheet(); tx({ scid: f.scid, entry: "Withdraw", args: [["p", "U", q.p], ["u", "U", u]], describe: "Withdraw passes", probe: { scid: f.scid, keys: ["hst"] } }); }));
   }
   // The XMR and ZEC payout addresses: shown to a registered holder, and to a former one who still has one stored.
+  // Each address is checked by founders.js (V.payout) before Store is offered: a Monero standard address or
+  // subaddress of this build's network with a good checksum, and a TRANSPARENT Zcash address of this build's network,
+  // because the treasury's bot can pay only a transparent one. Until it passes, the button stays off and says why.
   function payoutForm(f) {
     if (mine.units === Z && !mine.xmr && !mine.zec) return null;
-    const one = (label, entry, key, cur, hint) => {
+    const net = D.cfg.network, main = net === "mainnet";
+    const one = (label, entry, key, cur, hint, check) => {
+      const why = h("div", { class: "sub tiny mt8", role: "status" }, "Store is offered once the address checks out.");
+      const btn = button(cur ? "Replace" : "Store", "small", async () => { const v = inp.value.trim(), r = await check(v, net); if (!r.ok) return toast(r.why, "err", 8000); tx({ scid: f.scid, entry, args: [["addr", "S", v]], describe: (cur ? "Replace " : "Store ") + label + " address", probe: { scid: f.scid, keys: [key + me()] } }); }, { disabled: true });
       const inp = h("input", { placeholder: hint, autocomplete: "off", spellcheck: "false", "aria-label": label + " payout address", style: "flex:1;min-width:0" });
-      const set = () => { const v = inp.value.trim(); if (!okAddr[entry](v)) return toast(entry === "SetXmr" ? "A Monero address is 95 or 106 base58 characters" : "A Zcash transparent address is 35 base58 characters starting with t", "err"); tx({ scid: f.scid, entry, args: [["addr", "S", v]], describe: (cur ? "Replace " : "Store ") + label + " address", probe: { scid: f.scid, keys: [key + me()] } }); };
+      inp.oninput = async () => { const v = inp.value.trim(), r = v ? await check(v, net) : null; if (inp.value.trim() !== v) return;
+        btn.disabled = !(r && r.ok); why.textContent = !r ? "Store is offered once the address checks out." : r.ok ? r.warn || "A valid address for " + net + "." : r.why; why.style.color = r && !r.ok ? "var(--down)" : ""; };
       return h("div", { class: "mt" }, h("div", { class: "between" }, h("span", { class: "label" }, label),
         cur ? button("Clear", "small ghost", () => tx({ scid: f.scid, entry, args: [["addr", "S", ""]], describe: "Clear " + label + " address", probe: { scid: f.scid, keys: [key + me()] } })) : null),
         h("div", { class: "mono dim2 mt8", style: "word-break:break-all" }, cur || "None stored."),
-        mine.units > Z ? h("div", { class: "row mt8" }, inp, button(cur ? "Replace" : "Store", "small", set)) : null);
+        mine.units > Z ? [h("div", { class: "row mt8" }, inp, btn), why] : null);
     };
     return h("div", { class: "mt" }, h("div", { class: "label" }, "XMR and ZEC payout addresses"),
       h("div", { class: "note mt8" }, "Your share of the fees taken in XMR and ZEC is paid by the treasury's bot, off the DERO chain, to the addresses stored here. The bot makes each payment; no contract forces it, and no swap fee is taken yet, so nothing is paid today. ",
-        h("b", null, "An address stored here is public on the DERO chain for good."), " Use a fresh Monero subaddress, or a fresh Zcash transparent address, that you use for nothing else. The contract checks only the length and the characters, and so does this page. Only a registered holder can store one; you can always clear your own."),
-      one("Monero", "SetXmr", "xm_", mine.xmr, "95 or 106 characters: a fresh subaddress"), one("Zcash (transparent)", "SetZec", "zc_", mine.zec, "35 characters starting with t"));
+        h("b", null, "An address stored here is public on the DERO chain for good."), " So store a fresh Monero subaddress that you use for nothing else, not your primary address, and a fresh Zcash transparent address: the bot can pay only a transparent one. " +
+        "The contract checks only the length and the characters; this page also checks the checksum and that the address is for " + net + ". Only a registered holder can store one; you can always clear your own."),
+      one("Monero", "SetXmr", "xm_", mine.xmr, main ? "a fresh subaddress: 95 characters, starting 8" : "a fresh stagenet or testnet subaddress: 95 characters", V.payout.xmr),
+      one("Zcash (transparent)", "SetZec", "zc_", mine.zec, main ? "a transparent address: t1… or t3…" : "a transparent address: tm… or t2…", V.payout.zec));
   }
 
   // Level 3 — listings are rows on the ground, hairline separated: a price, who is selling, one control.

@@ -10,3 +10,7 @@ import("./vaultkeys.test.mjs");
 import("./appcore.repair.test.mjs");
 import("./fees.repair.test.mjs");
 import("./nfas.repair.test.mjs");
+// the Monero swap screen's exit windows, the payout-address checks, and the swap stage tracker
+import("./xmr.test.mjs");
+import("./payout.test.mjs");
+import("./track.test.mjs");
