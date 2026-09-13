@@ -37,6 +37,13 @@
 // with and which the refund pays back to. Use a key made for this purpose only. It is read for each signature and
 // zeroed after; it is never written anywhere by this program.
 //
+// THE SWAP FEE. Every swap pays DMZ 0.5 % of the ZEC, in ZEC. The maker pays it: his claim of the taker's funding
+// carries a second output of floor(funding × 50 / 10,000) zatoshi to the network's zecTreasury in the deployment record
+// (-networks, always read), unless that would be below zebrad's dust threshold, when it is left out and the log says
+// so. A refund pays none, and the taker's amounts do not change: her companion only states the fee. On mainnet a
+// record with an empty or invalid zecTreasury refuses every swap. The fee is added by this program and enforced by no
+// contract, and every fee output pays one public address, which lists every DMZ Zcash swap (docs/ZEC_SWAP.md §1, §7).
+//
 // FILES. The state lives in -dir (default: the user's configuration directory, zecswap/ — outside any repository),
 // as -state (default <role>.json). zecswap.WrittenFiles lists every file written beside it; the program prints the
 // list at start, and warns when any of them would land inside a git work tree.
@@ -181,13 +188,19 @@ func run(role string, args []string) {
 	offer := fs.Int64("offer", -1, "the board offer id: the taker's offer to take, or the maker's offer to adopt")
 	secretFile := fs.String("secret-file", "", "maker adopting an offer: the file holding its 32-byte secret as 64 lower-case hex (- for stdin)")
 	refundFile := fs.String("refund-file", "", "taker: where the pre-signed refund is written (default: beside the state file)")
-	networks := fs.String("networks", "deploy/networks.json", "the deployment record; -board and -escrow default to its entry for this network when omitted (the code at the scid is still checked against the pinned hash)")
+	networks := fs.String("networks", "deploy/networks.json", "the deployment record, always read: the swap fee's treasury is its zecTreasury for this network, and -board and -escrow default to its entry when omitted (the code at the scid is still checked against the pinned hash)")
 	verifyHeaders := fs.Bool("verify-headers", false, "verify Zcash proof of work (tools/zecspv) before the maker reveals and before the taker funds; skipped on regtest, plumbing only on testnet")
 	fs.Parse(args)
 	if *keyFile == "" || *wallet == "" || len(n.daemons) == 0 {
 		log.Fatal("-key, -wallet and -daemon are required")
 	}
 	if err := defaultContractsFromRecord(*network, *networks, n.board, n.escrow); err != nil {
+		log.Fatal(err)
+	}
+	// the swap fee's treasury, from the record only; before any node is asked anything, a mainnet swap without a valid
+	// one stops here
+	treasury, noFee, err := treasuryFromRecord(*network, *networks)
+	if err != nil {
 		log.Fatal(err)
 	}
 	if len(*n.board) != 64 || len(*n.escrow) != 64 {
@@ -280,6 +293,11 @@ func run(role string, args []string) {
 		}
 	}
 	fmt.Fprintln(os.Stderr, "zecswap has run swaps only on zebrad 6.3.0 regtest (research/regtest/zecswap-e2e.log, zecswap-cli.log); never a swap on zcashd, Zcash testnet or Zcash mainnet.")
+	if noFee != "" {
+		fmt.Fprintln(os.Stderr, noFee)
+	} else {
+		fmt.Fprintf(os.Stderr, "the swap fee: the maker's claim pays 0.5%% of the ZEC to the DMZ treasury %s, a public address that every DMZ Zcash swap pays; the companion adds it, no contract enforces it, and a refund pays none\n", treasury)
+	}
 
 	st, err := zecswap.LoadState(statePath, role)
 	if err != nil {
@@ -298,7 +316,7 @@ func run(role string, args []string) {
 		Policy: zecswap.PolicyFor(*network), ZcashChain: zecswap.ChainFor(*network),
 		Board: *n.board, Escrow: *n.escrow, MyDero: myDero, DeroMainnet: !testnet,
 		Key:    func(net zecswap.Network) (*zecswap.Key, error) { return zecswap.LoadKey(keyPath, net) },
-		Payout: *payout, GiveAsset: *giveAsset, GiveAmount: *giveAmount, WantAmount: *wantZat,
+		Payout: *payout, Treasury: treasury, GiveAsset: *giveAsset, GiveAmount: *giveAmount, WantAmount: *wantZat,
 		RefundFile: *refundFile, ZcashName: n.zcash[0], DeroName: n.daemons[0],
 		ZcashWitnesses: zsrc[1:], DeroWitnesses: dwit, Log: logf,
 	}
@@ -408,7 +426,7 @@ func defaultContractsFromRecord(network, path string, board, escrow *string) err
 	if *board != "" && *escrow != "" {
 		return nil
 	}
-	deroNet := map[string]string{"mainnet": "mainnet", "testnet": "testnet", "regtest": "simulator"}[network]
+	deroNet := recordNetwork[network]
 	if deroNet == "" {
 		return fmt.Errorf("-network %q has no deployment-record network; give -board and -escrow", network)
 	}
@@ -441,6 +459,46 @@ func defaultContractsFromRecord(network, path string, board, escrow *string) err
 		return fmt.Errorf("the deployment record %s has no board and swap scid for %s yet; give -board and -escrow (the scid is still checked against the pinned code hash)", path, deroNet)
 	}
 	return nil
+}
+
+// recordNetwork is the deployment record's DERO network for each Zcash network.
+var recordNetwork = map[string]string{"mainnet": "mainnet", "testnet": "testnet", "regtest": "simulator"}
+
+// treasuryFromRecord reads the network's zecTreasury from the deployment record, the way defaultContractsFromRecord
+// reads board and swap. It is the address the maker's claim pays the 0.5 % swap fee to (zecswap.SwapFee), and it
+// comes from the record only: no flag names another. It fails closed. A record that cannot be read, or an address that
+// is not a transparent one for this network, refuses every swap. An empty one refuses a mainnet swap, and elsewhere
+// comes back as a warning that no fee is taken.
+func treasuryFromRecord(network, path string) (addr, noFee string, err error) {
+	deroNet := recordNetwork[network]
+	if deroNet == "" {
+		return "", "", fmt.Errorf("-network %q has no deployment-record network, so its %s cannot be read", network, zecswap.TreasuryField)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", fmt.Errorf("the deployment record %s could not be read (%v); the swap fee's treasury, %s, is read from it: point -networks at deploy/networks.json", path, err, zecswap.TreasuryField)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return "", "", fmt.Errorf("the deployment record %s is not JSON: %w", path, err)
+	}
+	v, ok := raw[deroNet]
+	if !ok {
+		return "", "", fmt.Errorf("the deployment record %s has no %q network, so no %s", path, deroNet, zecswap.TreasuryField)
+	}
+	var rec struct {
+		ZecTreasury string `json:"zecTreasury"`
+	}
+	if err := json.Unmarshal(v, &rec); err != nil {
+		return "", "", fmt.Errorf("the deployment record %s: the %s network: %w", path, deroNet, err)
+	}
+	if err := zecswap.CheckTreasury(rec.ZecTreasury, network == "mainnet"); err != nil {
+		return "", "", fmt.Errorf("the deployment record %s, %s network, field %s: %w", path, deroNet, zecswap.TreasuryField, err)
+	}
+	if rec.ZecTreasury == "" {
+		return "", fmt.Sprintf("WARNING: the deployment record's %s network has no %s, so this %s swap takes no swap fee", deroNet, zecswap.TreasuryField, network), nil
+	}
+	return rec.ZecTreasury, "", nil
 }
 
 // readSecret reads a secret from a file, or from stdin for "-" — never from the command line, where the process

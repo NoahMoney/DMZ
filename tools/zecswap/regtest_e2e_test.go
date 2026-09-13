@@ -163,8 +163,17 @@ type e2e struct {
 func newE2E(t *testing.T) *e2e { return newE2EAt(t, e2eLog) }
 
 // newE2EAt is the harness writing its evidence to logPath (appended to, never truncated).
+// regtestCookie is the regtest zebrad's cookie: ZECSWAP_REGTEST_COOKIE, for a work tree whose own .sim holds no node,
+// or the harness's default.
+func regtestCookie() string {
+	if c := os.Getenv("ZECSWAP_REGTEST_COOKIE"); c != "" {
+		return c
+	}
+	return e2eCookie
+}
+
 func newE2EAt(t *testing.T, logPath string) *e2e {
-	user, pass, err := ReadCookie(e2eCookie)
+	user, pass, err := ReadCookie(regtestCookie())
 	if err != nil {
 		t.Fatalf("the regtest zebrad's cookie: %v", err)
 	}
@@ -182,14 +191,15 @@ func (e *e2e) close() { e.log.Close() }
 func (e *e2e) logf(format string, a ...interface{}) {
 	line := time.Now().UTC().Format("2006-01-02T15:04:05Z") + " " + fmt.Sprintf(format, a...)
 	// the log is committed evidence: the test's temporary directory is this machine's path, so it is written as <tmp>
+	// the most specific first: a work tree can itself sit under the temporary directory
 	if e.dir != "" {
 		line = strings.ReplaceAll(line, e.dir, "<tmp>")
 	}
-	if td := os.TempDir(); td != "" {
-		line = strings.ReplaceAll(line, td, "<tmp>")
-	}
 	if e.repo != "" {
 		line = strings.ReplaceAll(line, e.repo, "<repo>")
+	}
+	if td := os.TempDir(); td != "" {
+		line = strings.ReplaceAll(line, td, "<tmp>")
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()

@@ -38,7 +38,11 @@ addresses, scripts. A swap on it therefore publishes:
   signer of `Lock` and `Post`, computable the same way;
 - **the preimage `s`** in the maker's claim, harmless by itself but the join key between the two chains;
 - if the taker's ZEC came from the shielded pool, **the unshielding**: an amount leaving the pool to a
-  t-address shortly before it was locked.
+  t-address shortly before it was locked;
+- **that it is a DMZ swap, to anyone at all**: the maker's claim pays the 0.5 % swap fee (§7, *The swap fee*) to one
+  public treasury address, the same for every DMZ Zcash swap on the network. Anyone can list every DMZ Zcash swap by
+  listing the payments to that address, and each payment sits in a claim that carries the amount, both transparent
+  addresses, `H` and `s`.
 
 None of this is a defect of DMZ; it is what transparent Zcash is. The app says it in these words, on the screen
 where the taker enters their address, before the first button: *"This trade is visible on the Zcash chain
@@ -333,6 +337,34 @@ work.
 - Keys stay in the user's Zcash wallet and DERO wallet. The companion signs the script spend with a key the user gives
   it for that purpose only, and the docs say so in those words.
 
+**The swap fee** (the operator's ruling of 2026-09-13: 0.5 % on every swap, taken in ZEC, never in DERO).
+- **Who pays, and when.** The maker, who locks the DERO-side asset and receives the ZEC. His claim, the transaction
+  that spends the taker's P2SH output with `s`, has a second output of `floor(funding × 50 / 10,000)` zatoshi to the
+  network's treasury (`zecswap.SwapFee`, `tools/zecswap/fee.go`). The network fee (ZIP 317) still comes out of the
+  maker's own output. Two outputs are still two logical actions, so it stays 10,000 zatoshi: on a 200,000-zatoshi swap
+  the treasury receives 1,000 and the maker 189,000.
+- **The treasury** is `zecTreasury` in the network's block of `deploy/networks.json` (regtest reads the simulator's).
+  The companion reads it from the record only; no flag names another. It must be a transparent address, P2PKH or
+  P2SH, on the swap's network, because the companion builds only transparent transactions.
+  - On mainnet an empty or invalid one refuses every swap, for maker and taker alike, before any node is contacted,
+    with a message naming the field. The mainnet block is empty today, so no mainnet swap starts.
+  - Off mainnet an empty one means no fee, and the companion says so at start. An invalid one is refused everywhere.
+  - The maker's state fixes the address at setup, so a later edit of the record does not move a running swap's fee.
+  - The regtest address's key was made outside the repository and is in no file here.
+- **Dust.** zebrad 6.3.0 refuses a transaction with an output below `3 × (100 × (size + 148) / 1,000)` zatoshi
+  (`zebra-chain/src/transparent.rs`, `ONE_THIRD_DUST_THRESHOLD_RATE` and `Output::is_dust`, applied by the mempool's
+  `reject_if_non_standard_tx`): 54 zatoshi for a P2PKH or a P2SH output. A fee below that is left out, and the maker's
+  log says so. No swap the companion allows reaches it: a claim spends at least 15,000 zatoshi (the 10,000 fee and the
+  5,000 output floor), whose fee is 75, and the policy's smallest swap is 100,000.
+- **No fee on a failed swap.** A refund never carries it: `BuildRefund` refuses a request that names a treasury. The
+  taker's funding, her pre-signed refunds and her amounts are what they were. Her companion only states, when she
+  accepts, the fee the maker will pay.
+- **Enforced by the software, not by a contract.** The script pays the maker's key whatever else the claim pays, and
+  nothing on Zcash or in `swap.bas` checks the fee. A modified maker client can leave the output out and the swap
+  still completes (Z20). The fee holds against unmodified clients only.
+- **What it reveals.** Every fee output pays the same public address, so anyone can list every DMZ Zcash swap from the
+  payments to it (§1).
+
 **Reorganisations** (tested on the real regtest zebrad with `invalidateblock`, `research/regtest/zecswap-reorg.log`).
 - If the chain drops a funding the maker read below `C_zec`, the companion reports it and the funding counts for nothing.
   Depth starts over on the chain as it is, and `s` stays with the maker until a funding is `C_zec` deep there.
@@ -392,7 +424,8 @@ provided, with the answer to "what does this provide that a smaller primitive ca
   addresses with the reason), sees `cltv` computed by policy from a Zcash height the app reads from the
   companion or a public block explorer the user names (and is told is trusted for that number), and the fees:
   the `Accept` gas in DERO, the Zcash funding fee (ZIP-317: a marginal fee per logical action, at least 10,000
-  zatoshi), the maker's expected claim time, and the taker's own worst case ("if the maker never claims, your
+  zatoshi), the maker's 0.5 % swap fee (paid out of the ZEC he receives, not out of what she funds), the maker's
+  expected claim time, and the taker's own worst case ("if the maker never claims, your
   ZEC is back after 2 hours; you pay two Zcash fees").
 - **Post** — the maker enters the asset and amounts and the transparent address to be paid at, sees the
   exposure (eight hours per accepted offer) and the gas for `Post` and `Lock`, and the app generates `s` — in
@@ -430,6 +463,8 @@ provided, with the answer to "what does this provide that a smaller primitive ca
 | Z18 | Any address accepts an offer it will never fund (ADV-PRICE-07) | board v3: the row is held until `ad_<id>`, then the maker cancels and posts again under a new `H`; v2 held it until the offer's expiry, up to a million blocks | maker: an hour per griefing `Accept`, which costs the griefer one fee; nobody's coins. A bond that would cost the griefer more is an operator decision (D-7, BL-45) |
 | Z19 | The maker claims ZEC late, revealing `s` shortly before `T_dero`, while the taker is away | swap v2: anyone who reads `s` — the maker's companion, her second device, a relayer — sends her Claim before `T_dero`, and it pays only her. v1 needed the taker herself; after `T_dero` the maker refunded and held both | taker: nothing, if anyone sends the Claim before `T_dero`. Z17 is the case v2 does not reach |
 
+| Z20 | A maker runs a modified client that leaves the swap fee out of his claim | the claim is valid: the script pays his key, and no contract or consensus rule checks the fee | DMZ's treasury loses the fee; the fee is enforced by the companion, not by a contract (§7) |
+
 Z14 and Z15 cost only time when the lying source is not the counterparty's accomplice, and a whole leg when it is.
 What reduces that, strongest first: each party's own nodes, which is the companions' default; reads from several
 independent nodes that must all agree before the step each side's safety rests on, which `zecswap` does (MT-C10;
@@ -450,6 +485,8 @@ built. A single remote node is disclosed as able to cause a loss that nothing in
   reads, for what the two chains contain. A node that colludes with the counterparty costs its reader a whole leg,
   not time (Z14, Z15; `docs/CROSS_CHAIN_TRUST_MODEL.md` §5). Nothing else. No DMZ server, signer, relay or operator is in the
   path, and nothing needs one to finish: every state has a timelocked exit.
+- **The swap fee is outside that settlement**: the companion adds it to the maker's claim, nothing enforces it (§7,
+  Z20), and its one treasury address makes every DMZ Zcash swap listable (§1).
 
 ## 11. What is built, what is not
 
@@ -474,7 +511,8 @@ Built 2026-09-11 and 2026-09-12, the rest of `tools/zecswap`:
 - the DERO client, the code pins, and the command line;
 - the reorganisation handling and the `lost` phase (§7);
 - the header gate behind `-verify-headers` (§7);
-- contract ids read from `deploy/networks.json`.
+- contract ids read from `deploy/networks.json`;
+- the 0.5 % swap fee in the maker's claim, its treasury read from `deploy/networks.json` (2026-09-13, §7).
 
 It is verified:
 - by unit tests against fake nodes, plus real zebrad v6 transactions and real Mainnet headers
@@ -496,6 +534,12 @@ It is verified:
     said so;
   - a refund. The maker's process was stopped after it locked, and the taker's process refunded at `cltv`. The maker's
     process, started again, refunded the DERO after `T_dero`;
+- by the swap fee on the same nodes, through the command line, every txid in `research/regtest/zecswap-fee.log`
+  (`TestRegtestFee`, 2026-09-13, DERO wallets 30018–30020):
+  - a whole swap whose claim zebrad mined with two outputs: 189,000 zatoshi to the maker, and exactly 1,000 zatoshi
+    (floor(200,000 × 50 / 10,000)) to the regtest treasury. It was read back through `getrawtransaction`, `gettxout`
+    and `getaddressutxos`, and the treasury went from 0 to 1,000 zatoshi;
+  - a refund with one output, 190,000 zatoshi to the taker, and nothing to the treasury;
 - by the header gate's reads, in `research/regtest/zecswap-headers.log`:
   - on regtest: the shapes and the Merkle branches; the gate itself is skipped there;
   - through the gate against the Zcash testnet node, on historical blocks, as plumbing only: Equihash, the difficulty

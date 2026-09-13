@@ -68,6 +68,21 @@ func P2PKHHash(spk []byte) ([20]byte, bool) {
 	return h, true
 }
 
+// P2SHScript is OP_HASH160 <script hash> OP_EQUAL.
+func P2SHScript(sh [20]byte) []byte {
+	out := []byte{opHash160}
+	out = append(out, push(sh[:])...)
+	return append(out, opEqual)
+}
+
+// isPayee says whether spk is a P2PKH or a P2SH output script, the only two a treasury output may pay.
+func isPayee(spk []byte) bool {
+	if _, ok := P2PKHHash(spk); ok {
+		return true
+	}
+	return len(spk) == 23 && spk[0] == opHash160 && spk[1] == 20 && spk[22] == opEqual
+}
+
 // ---- keys ----
 
 // WIF version bytes (Zcash's chainparams, the same as Bitcoin's): 0x80 on mainnet, 0xEF on testnet and regtest.
@@ -286,14 +301,21 @@ type SpendRequest struct {
 	BranchID uint32   // consensus.nextblock, checked by the caller
 	FeeMult  uint64   // 1 is the conventional fee; the refund ladder uses RefundFeeLevels
 	Version  uint32   // 5 (or 0) or 6
+	// Treasury is the P2PKH or P2SH script the maker's claim pays the swap fee to (SwapFee of Value, fee.go), as its
+	// second output; nil pays none. A refund never pays it: BuildRefund refuses a request that names one.
+	Treasury []byte
 }
 
 // BuildClaim is the maker's claim: the claim branch, with the secret. nSequence final, nLockTime 0 and
 // nExpiryHeight 0 — the claim has no reason to wait and none to expire; the maker's companion alone decides
-// when it may still be sent (Policy.ClaimOpen).
+// when it may still be sent (Policy.ClaimOpen). Output 0 pays the maker, less the network fee; output 1, when
+// r.Treasury is set and the fee is not dust (TreasuryOutput), pays the swap fee to the treasury.
 func BuildClaim(r SpendRequest, secret [32]byte) (*Tx, error) {
 	if r.Key == nil {
 		return nil, errors.New("zecswap: no key")
+	}
+	if r.Treasury != nil && !isPayee(r.Treasury) {
+		return nil, errors.New("zecswap: the treasury script is neither P2PKH nor P2SH")
 	}
 	ver, err := txVersion(r.Version)
 	if err != nil {
@@ -320,6 +342,9 @@ func BuildClaim(r SpendRequest, secret [32]byte) (*Tx, error) {
 func BuildRefund(r SpendRequest) (*Tx, error) {
 	if r.Key == nil {
 		return nil, errors.New("zecswap: no key")
+	}
+	if r.Treasury != nil {
+		return nil, errors.New("zecswap: a refund never pays the swap fee: a failed swap is not charged")
 	}
 	ver, err := txVersion(r.Version)
 	if err != nil {
@@ -351,12 +376,20 @@ func finishSpend(tx *Tx, r SpendRequest, scriptSig func(sig []byte) []byte) erro
 		return errors.New("zecswap: the funding is worth more than the supply")
 	}
 	tx.Out = []TxOut{{ScriptPubKey: P2PKHScript(r.Payout)}}
-	tx.In[0].ScriptSig = scriptSig(make([]byte, maxSigLen))
-	fee := tx.ConventionalFee() * mult
-	if r.Value < fee+OutputFloor {
-		return fmt.Errorf("zecswap: the funding of %d zatoshi does not cover a fee of %d and an output of at least %d", r.Value, fee, OutputFloor)
+	var swapFee uint64
+	if r.Treasury != nil {
+		if o, ok := TreasuryOutput(r.Value, r.Treasury); ok {
+			tx.Out = append(tx.Out, o)
+			swapFee = o.Value
+		}
 	}
-	tx.Out[0].Value = r.Value - fee
+	tx.In[0].ScriptSig = scriptSig(make([]byte, maxSigLen))
+	// ZIP 317 counts every output, the treasury's included; the network fee comes out of output 0 alone
+	fee := tx.ConventionalFee() * mult
+	if r.Value < fee+swapFee+OutputFloor {
+		return fmt.Errorf("zecswap: the funding of %d zatoshi does not cover a fee of %d, a swap fee of %d and an output of at least %d", r.Value, fee, swapFee, OutputFloor)
+	}
+	tx.Out[0].Value = r.Value - fee - swapFee
 	d, err := tx.SigDigest(0, SigHashAll)
 	if err != nil {
 		return err
@@ -393,11 +426,14 @@ func CheckRefundTx(tx *Tx, h HTLC) error {
 	return nil
 }
 
-// CheckClaimTx is the claim's shape: one input, final, no lock time, no expiry.
+// CheckClaimTx is the claim's shape: one input, final, no lock time, no expiry, and one or two outputs (the maker's,
+// and the treasury's when the swap fee is paid).
 func CheckClaimTx(tx *Tx) error {
 	switch {
 	case len(tx.In) != 1:
 		return fmt.Errorf("zecswap: a claim spends the one funding output, not %d inputs", len(tx.In))
+	case len(tx.Out) < 1 || len(tx.Out) > 2:
+		return fmt.Errorf("zecswap: a claim pays the maker and at most the treasury, not %d outputs", len(tx.Out))
 	case tx.LockTime != 0:
 		return errors.New("zecswap: the claim has a lock time")
 	case tx.ExpiryHeight != 0:

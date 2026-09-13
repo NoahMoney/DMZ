@@ -96,3 +96,87 @@ func (t *Tx) CheckFee(mult uint64) error {
 	}
 	return nil
 }
+
+// ---- the swap fee ----
+//
+// The operator's ruling of 2026-09-13: every swap pays DMZ 0.5 %, in ZEC and never in DERO. The maker, who locks the
+// DERO-side asset and receives the ZEC, pays it in the claim that spends the taker's P2SH output with the secret. The
+// claim's second output pays SwapFee of the funding's value to the network's treasury address (deploy/networks.json
+// zecTreasury), and the network fee still comes out of the maker's own output. A refund never pays it, and nothing
+// the taker signs or pays changes. The fee is enforced by this software and by no contract: the script pays the
+// maker's key whatever the claim's other outputs are, so a modified maker client can leave the fee out
+// (docs/ZEC_SWAP.md §7, "The swap fee").
+
+const (
+	// SwapFeeBps is the fee in basis points of the funding: 50 is 0.5 %.
+	SwapFeeBps = 50
+	// BpsDenominator is 100 % in basis points.
+	BpsDenominator = 10_000
+	// OneThirdDustThresholdRate is zebrad 6.3.0's ONE_THIRD_DUST_THRESHOLD_RATE (zebra-chain/src/transparent.rs, at
+	// tag v6.3.0), in zatoshi per 1,000 bytes. zebrad's mempool refuses a transaction with an output below the
+	// threshold it gives (Output::is_dust, called from reject_if_non_standard_tx in
+	// zebrad/src/components/mempool/storage.rs; added in Zebra 3.1.0, ZcashFoundation/zebra#10134).
+	OneThirdDustThresholdRate = 100
+	// TreasuryField is the deployment record's field for the treasury address, named in every refusal.
+	TreasuryField = "zecTreasury"
+)
+
+// SwapFee is floor(value × SwapFeeBps / BpsDenominator), computed without the product, so no value overflows it.
+func SwapFee(value uint64) uint64 {
+	return value/BpsDenominator*SwapFeeBps + value%BpsDenominator*SwapFeeBps/BpsDenominator
+}
+
+// DustThreshold is zebrad's threshold for out: 3 × (100 × (serialized size + 148) / 1,000), with zebrad's integer
+// division. That is 54 zatoshi for a pay-to-public-key-hash output (34 bytes) and for a pay-to-script-hash one (32).
+func DustThreshold(out TxOut) uint64 {
+	return 3 * (OneThirdDustThresholdRate * (txOutSize(out) + 148) / 1000)
+}
+
+// IsDust is zebrad's Output::is_dust: the output's value is below DustThreshold.
+func IsDust(out TxOut) bool { return out.Value < DustThreshold(out) }
+
+// TreasuryOutput is the fee output of a claim spending a funding of value, paid to the treasury script, and whether
+// the claim carries it. It does not when the fee would be dust by zebrad's rule, because zebrad's mempool would then
+// refuse the whole claim. With ZIP 317's 10,000-zatoshi floor and OutputFloor, a claim spends at least 15,000
+// zatoshi, whose fee (75) is above the 54-zatoshi threshold, so the omission is reached only if those numbers change.
+func TreasuryOutput(value uint64, treasury []byte) (TxOut, bool) {
+	o := TxOut{Value: SwapFee(value), ScriptPubKey: treasury}
+	return o, !IsDust(o)
+}
+
+// TreasuryScript checks a treasury address and returns the script its fee output pays. It must be a transparent
+// address on net, P2PKH (t1…, tm…) or P2SH (t3…, t2…), because this package builds transparent transactions only.
+func TreasuryScript(addr string, net Network) ([]byte, error) {
+	if addr == "" {
+		return nil, fmt.Errorf("zecswap: %s is empty", TreasuryField)
+	}
+	n, kind, h, err := ParseAddress(addr)
+	if err != nil {
+		return nil, fmt.Errorf("zecswap: %s %q is not a transparent Zcash address: %v", TreasuryField, addr, err)
+	}
+	if n != net {
+		return nil, fmt.Errorf("zecswap: %s %s is a %s address, and this swap is on %s", TreasuryField, addr, n, net)
+	}
+	if kind == P2SH {
+		return P2SHScript(h), nil
+	}
+	return P2PKHScript(h), nil
+}
+
+// CheckTreasury is the companion's rule for the record's zecTreasury before any swap starts. On mainnet it must be a
+// valid transparent mainnet address, or no swap starts. Elsewhere it may be empty, and then no fee is taken (the
+// caller says so), but it is never accepted invalid.
+func CheckTreasury(addr string, mainnet bool) error {
+	if addr == "" {
+		if mainnet {
+			return fmt.Errorf("zecswap: the deployment record's mainnet %s is empty; every mainnet swap pays its 0.5%% fee to that address, so none is started without it (deploy/networks.json)", TreasuryField)
+		}
+		return nil
+	}
+	net := Testnet
+	if mainnet {
+		net = Mainnet
+	}
+	_, err := TreasuryScript(addr, net)
+	return err
+}

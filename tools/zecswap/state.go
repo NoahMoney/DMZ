@@ -62,7 +62,9 @@ type State struct {
 	ClaimPkh    string `json:"claimPkh,omitempty"`
 	RefundPkh   string `json:"refundPkh,omitempty"`
 	Payout      string `json:"payout,omitempty"` // 40-hex key hash the claim or refund pays
-	CLTV        uint32 `json:"cltv,omitempty"`
+	// Treasury is the maker's: the zecTreasury address his claim pays the swap fee to, fixed at setup
+	Treasury string `json:"treasury,omitempty"`
+	CLTV     uint32 `json:"cltv,omitempty"`
 
 	AcceptHeight   uint64            `json:"acceptHeight,omitempty"` // DERO height the accept was first read at
 	LockDeadline   uint64            `json:"lockDeadline,omitempty"` // the maker locks only below this: P_lock, or board v3's ad_<i> if earlier

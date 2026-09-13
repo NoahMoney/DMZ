@@ -37,6 +37,9 @@ type cliNet struct {
 	// makerKey and takerKey are key files; empty makes a fresh key in the swap's directory (regtest, where the test
 	// mines the taker's coin). On testnet they are the operator's funded keys, kept outside the repository.
 	makerKey, takerKey string
+	// networks is the deployment record the companions read (-networks); its zecTreasury is the swap fee's payee.
+	// Empty is this work tree's deploy/networks.json.
+	networks string
 }
 
 func (e *e2e) where() *cliNet {
@@ -46,6 +49,9 @@ func (e *e2e) where() *cliNet {
 	}
 	if w.dero == "" {
 		w.dero, w.makerWallet, w.takerWallet, w.installWallet = e2eDaemon, e2eMaker, e2eTaker, e2eThird
+	}
+	if w.networks == "" {
+		w.networks = filepath.Join(e.repo, "deploy", "networks.json")
 	}
 	return w
 }
@@ -65,7 +71,7 @@ func TestRegtestCLI(t *testing.T) {
 	e := newE2EAt(t, cliLog)
 	defer e.close()
 	bin := buildCLI(t)
-	cookie, err := filepath.Abs(e2eCookie)
+	cookie, err := filepath.Abs(regtestCookie())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +124,7 @@ func (e *e2e) spawn(tag, role, dir, wallet, keyPath string, extra ...string) *pr
 		"-board", e.board, "-escrow", e.escrow,
 		"-key", keyPath, "-dir", dir,
 		"-interval", w.interval,
+		"-networks", w.networks,
 	}
 	args = append(args, extra...)
 	ctx, cancel := context.WithCancel(e.ctx)
@@ -197,7 +204,7 @@ func (p *proc) stop() {
 }
 
 func (e *e2e) scrub(s, dir string) string {
-	for _, r := range []string{dir, e.dir, os.TempDir(), e.repo} {
+	for _, r := range []string{dir, e.dir, e.repo, os.TempDir()} {
 		if r != "" {
 			s = strings.ReplaceAll(s, r, "<tmp>")
 		}
@@ -305,10 +312,15 @@ func (e *e2e) cliSwap(tag string, refund bool) {
 	makerKeyPath, mkKey := e.keyFile(dir, RoleMaker, w.makerKey)
 	takerKeyPath, tkKey := e.keyFile(dir, RoleTaker, w.takerKey)
 	if w.mine {
-		// the taker funds from a matured coinbase of its own
-		e.mineTo(tkKey.Address(Testnet), 1)
+		// the taker funds from matured coinbases of her own: as many as the funding needs, because regtest's subsidy
+		// halves every few hundred blocks, and on a tall chain one coinbase no longer covers it (at height 3,745 it
+		// was 76,293 zatoshi against a 200,000-zatoshi funding)
+		n := 0
+		for ; n < 40 && e.balance(tkKey) < w.wantZat+4*MinimumFee; n++ {
+			e.mineTo(tkKey.Address(Testnet), 1)
+		}
 		e.mine(101)
-		e.logf("%s: taker's Zcash coin is a coinbase to %s; maker posts 50000 DERO for %d zatoshi", tag, tkKey.Address(Testnet), w.wantZat)
+		e.logf("%s: the taker's Zcash coins are %d coinbases to %s, %d zatoshi; maker posts 50000 DERO for %d zatoshi", tag, n, tkKey.Address(Testnet), e.balance(tkKey), w.wantZat)
 	} else {
 		e.logf("%s: the taker funds from %s, holding %d zatoshi confirmed; the maker posts 50000 DERO for %d zatoshi, claimed to %s", tag, tkKey.Address(Testnet), e.balance(tkKey), w.wantZat, mkKey.Address(Testnet))
 	}

@@ -56,6 +56,10 @@ type Network struct {
 	Htlc  string `json:"htlc"`  // contracts/htlc.bas: the DERO leg of the Monero swap
 	Swap  string `json:"swap"`  // contracts/swap.bas: the DERO leg of the transparent-Zcash swap
 	Board string `json:"board"` // contracts/board.bas: the Zcash market's offers
+	// ZecTreasury is the transparent Zcash address (P2PKH or P2SH: t1…/t3… on mainnet, tm…/t2… on testnet, and on
+	// regtest through the simulator's block) that the maker's claim in a transparent-Zcash swap pays the 0.5 % swap
+	// fee to (tools/zecswap, docs/ZEC_SWAP.md §7). Empty or invalid on mainnet, the companion refuses to start a swap.
+	ZecTreasury string `json:"zecTreasury"`
 	// The treasury addresses a listed market may pay (GAP-005), current first. A market's treasury is fixed at its
 	// install, so the app checks it against this published set instead of the factory's tstr pointer, which an older
 	// factory's owner could move until Renounce (factory.bas v2 fixes it at install). A record without it renders

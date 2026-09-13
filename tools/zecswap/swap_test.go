@@ -83,8 +83,12 @@ func (w *world) node(role string) *fakeZcash {
 	return w.zc
 }
 
+// testTreasury is the fake world's zecTreasury: a P2SH address, so every swap test and the crash fuzz claim with the
+// two-output transaction and pay the fee to a script hash.
+var testTreasury = EncodeAddress(Testnet, P2SH, [20]byte{0xd3, 0x2a, 0x7e})
+
 func (w *world) config(role string) Config {
-	c := Config{Policy: w.p, Board: testBoard, Escrow: testEscrow, Log: w.logf}
+	c := Config{Policy: w.p, Board: testBoard, Escrow: testEscrow, Treasury: testTreasury, Log: w.logf}
 	if role == RoleMaker {
 		c.MyDero, c.Key, c.GiveAmount, c.WantAmount = makerAddr, keySource(makerKeyN), testGive, testWant
 	} else {
@@ -313,6 +317,23 @@ func (w *world) check(name string, makerWant, takerWant []string) {
 		}
 		if hc2 := hc.ScriptPubKey(); w.zc.OutputsTo(hc2) > 1 {
 			t.Fatalf("%s: the script was funded more than once", name)
+		}
+		// the swap fee: a claim pays the treasury exactly SwapFee of the funding as its second output; a refund, none
+		if tr := w.config(RoleMaker).Treasury; tr != "" {
+			tspk, _ := TreasuryScript(tr, Testnet)
+			var paid uint64
+			n := 0
+			for _, o := range spender.Out {
+				if bytes.Equal(o.ScriptPubKey, tspk) {
+					paid, n = paid+o.Value, n+1
+				}
+			}
+			switch {
+			case kind == SpendClaim && (n != 1 || len(spender.Out) != 2 || !bytes.Equal(spender.Out[1].ScriptPubKey, tspk) || paid != SwapFee(tk.WantAmount)):
+				t.Fatalf("%s: the claim paid the treasury %d zatoshi in %d outputs of %d; want %d in output 1", name, paid, n, len(spender.Out), SwapFee(tk.WantAmount))
+			case kind == SpendRefund && n != 0:
+				t.Fatalf("%s: the refund paid the treasury %d zatoshi: a failed swap is never charged", name, paid)
+			}
 		}
 	}
 	if len(w.fundings) > 1 || len(w.claims) > 1 {

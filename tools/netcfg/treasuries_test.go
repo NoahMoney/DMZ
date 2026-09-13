@@ -27,6 +27,36 @@ func TestConfigJSCarriesTheTreasuries(t *testing.T) {
 	}
 }
 
+// zecTreasury, the transparent-Zcash swap fee's payee, loads and saves in every block, the empty mainnet one included:
+// an empty one is what makes the companion refuse a mainnet swap, so the file keeps it in sight. The committed record
+// carries it in every block.
+func TestZecTreasuryRoundTrips(t *testing.T) {
+	var n Network
+	if err := json.Unmarshal([]byte(`{"daemon":"d","zecTreasury":"tmX","templates":{}}`), &n); err != nil || n.ZecTreasury != "tmX" {
+		t.Fatalf("zecTreasury did not load: %q %v", n.ZecTreasury, err)
+	}
+	out, _ := json.Marshal(&n)
+	if !strings.Contains(string(out), `"zecTreasury":"tmX"`) {
+		t.Fatalf("zecTreasury did not save: %s", out)
+	}
+	n.ZecTreasury = ""
+	if out, _ = json.Marshal(&n); !strings.Contains(string(out), `"zecTreasury":""`) {
+		t.Fatalf("an empty zecTreasury left the file: %s", out)
+	}
+	f, err := Load("../../deploy/networks.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range Names {
+		if f.Networks[name] == nil {
+			t.Fatalf("no %s block", name)
+		}
+	}
+	if f.Networks["simulator"].ZecTreasury == "" {
+		t.Fatal("the simulator block, which regtest swaps read, has no zecTreasury")
+	}
+}
+
 // Older records load and save unchanged: the field is optional on the way in and omitted on the way out when
 // empty, so a networks.json written before GAP-005 round-trips byte for byte on this key.
 func TestTreasuriesRoundTripAndOlderRecords(t *testing.T) {

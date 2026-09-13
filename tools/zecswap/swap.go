@@ -44,6 +44,10 @@ type Config struct {
 	Key func(net Network) (*Key, error)
 	// Payout is the transparent P2PKH address the claim (maker) or the refund (taker) pays; "" is the key's own.
 	Payout string
+	// Treasury is the network's zecTreasury (deploy/networks.json): the transparent address the maker's claim pays the
+	// 0.5 % swap fee to (fee.go). "" pays none, which newSwap allows only off mainnet. The taker's companion only
+	// states the fee; nothing she signs or pays depends on it.
+	Treasury string
 	// Maker, new offer: the asset and the two amounts.
 	GiveAsset  string
 	GiveAmount uint64
@@ -105,6 +109,10 @@ func newSwap(role string, cfg Config, st *State, dero Dero, zc Zcash) (*Swap, er
 		cfg.Policy = DefaultPolicy()
 	}
 	if err := cfg.Policy.Validate(); err != nil {
+		return nil, err
+	}
+	// the swap fee's treasury: on mainnet a valid transparent mainnet address, or no swap starts; never an invalid one
+	if err := CheckTreasury(cfg.Treasury, cfg.DeroMainnet || cfg.ZcashChain == "main"); err != nil {
 		return nil, err
 	}
 	if st.Role != role {
@@ -749,6 +757,7 @@ func (s *Swap) makerSetup(ctx context.Context) error {
 	}
 	st.Board, st.Escrow, st.MyDero, st.MyRaw, st.MakerRaw, st.DeroMainnet = cfg.Board, cfg.Escrow, cfg.MyDero, me, me, cfg.DeroMainnet
 	st.ClaimPkh, st.Payout = hex.EncodeToString(claimPkh[:]), hex.EncodeToString(payout[:])
+	st.Treasury = cfg.Treasury // the swap fee's payee is fixed here: a later edit of the record does not move it
 	st.WantAddr = EncodeAddress(ci.Net, P2PKH, claimPkh)
 	if st.SwapID == "" {
 		var id [8]byte
@@ -967,16 +976,58 @@ func (s *Swap) buildClaim(f Funding, h HTLC, branch uint32) (*Tx, error) {
 	if err != nil {
 		return nil, err
 	}
+	treasury, addr, err := s.treasury()
+	if err != nil {
+		return nil, err
+	}
 	var claim *Tx
 	err = s.withKey(func(k *Key) error {
 		payout, err := s.payoutFor(k)
 		if err != nil {
 			return err
 		}
-		claim, err = BuildClaim(SpendRequest{Key: k, HTLC: h, Prev: op, Value: f.Value, Payout: payout, BranchID: branch, Version: s.cfg.TxVersion}, secret)
+		claim, err = BuildClaim(SpendRequest{Key: k, HTLC: h, Prev: op, Value: f.Value, Payout: payout, BranchID: branch, Version: s.cfg.TxVersion, Treasury: treasury}, secret)
 		return err
 	})
-	return claim, err
+	if err != nil {
+		return nil, err
+	}
+	fee, _ := claim.Fee()
+	s.logf("claim %s: %d zatoshi to the payout, after the network fee of %d; %s", DisplayHex(claim.TxID()), claim.Out[0].Value, fee, feeNote(f.Value, treasury, addr))
+	return claim, nil
+}
+
+// treasury is the script this maker's claim pays the swap fee to: the address fixed at setup (for a state written
+// before the fee existed, the configured one), checked against the network the node reported. There is none only off
+// mainnet, with no zecTreasury in the record.
+func (s *Swap) treasury() ([]byte, string, error) {
+	addr := s.st.Treasury
+	if addr == "" {
+		addr = s.cfg.Treasury
+	} else if s.cfg.Treasury != "" && s.cfg.Treasury != addr {
+		s.sayOnce("treasury"+addr, "this swap's fee goes to the treasury fixed at its setup, %s; the deployment record now names %s", addr, s.cfg.Treasury)
+	}
+	if addr == "" {
+		if s.net() == Mainnet {
+			return nil, "", fmt.Errorf("zecswap: no %s on mainnet: the claim is not built without the swap fee's treasury", TreasuryField)
+		}
+		return nil, "", nil
+	}
+	spk, err := TreasuryScript(addr, s.net())
+	return spk, addr, err
+}
+
+// feeNote says what a claim of a funding of value pays the treasury: the maker logs it with his claim, and the
+// taker's companion states it when she accepts.
+func feeNote(value uint64, treasury []byte, addr string) string {
+	if treasury == nil {
+		return "no swap fee: this network's deployment record names no " + TreasuryField + " (allowed only off mainnet)"
+	}
+	o, ok := TreasuryOutput(value, treasury)
+	if !ok {
+		return fmt.Sprintf("no swap fee output: 0.5%% of %d zatoshi is %d, below zebrad's dust threshold of %d for that output, so the claim leaves it out", value, o.Value, DustThreshold(o))
+	}
+	return fmt.Sprintf("the swap fee, 0.5%% of %d zatoshi = %d zatoshi, goes to the DMZ treasury %s out of the ZEC the maker receives", value, o.Value, addr)
 }
 
 // sendClaim sends the stored claim — the same bytes every time — while the cutoff allows, never after it, and
@@ -1571,6 +1622,14 @@ func (s *Swap) takerSetup(ctx context.Context) error {
 	}
 	st.HaveOffer, st.Hash, st.GiveAsset, st.GiveAmount, st.WantAmount, st.WantAddr, st.OfferExpiry, st.MakerRaw = true, o.Hash, o.GiveAsset, o.GiveAmount, o.WantAmount, o.WantAddr, o.Expiry, o.Maker
 	st.ClaimPkh, st.RefundPkh, st.Payout, st.CLTV = hex.EncodeToString(claimPkh[:]), hex.EncodeToString(refundPkh[:]), hex.EncodeToString(payout[:]), cltv
+	// the swap fee is the maker's, paid in his claim; she is told what it is, and nothing she funds or refunds changes
+	var treasury []byte
+	if s.cfg.Treasury != "" {
+		if treasury, err = TreasuryScript(s.cfg.Treasury, ci.Net); err != nil {
+			return decline(err.Error())
+		}
+	}
+	s.logf("%s. Your funding of %d zatoshi and your refund do not change; a refund pays no fee", feeNote(o.WantAmount, treasury, s.cfg.Treasury), o.WantAmount)
 	return s.save("accepting")
 }
 
