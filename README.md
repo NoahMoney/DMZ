@@ -21,7 +21,7 @@ here has run on DERO, Monero or Zcash mainnet.**
 | Token markets (AMM and bonding curve) | **Simulator** | `pool.bas`, `launch.bas`, priced in DERO or in a DERO token |
 | Assets (NFA, ART-NFA-MS1) | **Simulator** | `nfa.bas`: one contract per asset, its own marketplace, priced in any quote |
 | Founders Pass | **Simulator** | `founders.bas` v2: 20 passes, a reward pool per asset, payout addresses for XMR and ZEC (§6) |
-| DERO ↔ XMR atomic swap | **Real Monero node software, regtest** | `htlc.bas` v3 and `tools/xmrswap` against monerod and monero-wallet-rpc 0.18.5.1 in regtest, with the DERO simulator. All four exits (Claim, Refund, Punish, Reclaim), a real reorganisation, and a whole swap from the command line as two separate processes (`research/regtest/`). **Not yet on Monero stagenet, and its proof is unaudited** |
+| DERO ↔ XMR atomic swap | **Real Monero node software, regtest; command line only** | No screen in the app: both sides run `tools/xmrswap`. `htlc.bas` v3 and `tools/xmrswap` against monerod and monero-wallet-rpc 0.18.5.1 in regtest, with the DERO simulator. All four exits (Claim, Refund, Punish, Reclaim), a real reorganisation, and a whole swap from the command line as two separate processes (`research/regtest/`). **Not yet on Monero stagenet, and its proof is unaudited** |
 | DERO ↔ transparent ZEC swap | **Public Zcash testnet** | `swap.bas` and `board.bas` with `tools/zecswap`. A whole swap and a refund ran on the public Zcash testnet on 2026-09-13 (DERO leg on the simulator): the swap took about 17 minutes from offer to both sides paid, and in the refund the maker never claimed, the taker's ZEC came back at `cltv`, and the maker's DERO came back after its deadline (`research/regtest/zecswap-testnet.log`). Before that: three swaps and three real reorganisations against zebrad 6.3.0 in regtest, and a swap and a refund from the command line |
 | Wrapped XMR / ZEC (the federation) | **Simulator only, not deployed on mainnet** | `vault.bas` is tested; `tools/vaultsigner`'s only working backend is a JSON file (§4) |
 | Chat, profiles, follows | **Simulator** | `chat.bas`, `social.bas` |
@@ -122,7 +122,8 @@ kills both companions at random points in `TestCrashFuzz` to show the state mach
 The two parties talk through a sealed channel: every message is AES-256-GCM under a per-swap key the maker hands the
 taker out of band, over a directory transport. A reader of the directory learns that messages pass and their sizes,
 not their contents, and nobody without the key can write one that opens. So today the swap works between two people
-who can already exchange that key; there is no way to find a stranger to swap with.
+who can already exchange that key; there is no way to find a stranger to swap with. The application has no screen
+for this swap: both sides run `xmrswap` from the command line, against their own Monero and DERO nodes and wallets.
 
 ### Transparent ZEC ↔ a DERO-side asset, without a custodian
 
