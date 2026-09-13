@@ -12,7 +12,8 @@ import (
 // contracts are its string fields other than the daemon address and the legacy single-vault spelling (vaults are
 // checked from `vaults`). When the swap contracts were added to the record the verifier went on checking only
 // factory, social, founders and chat, so an escrow running foreign code would have passed: this test is what stops
-// that happening again.
+// that happening again. The treasury fields are foreign-chain addresses, not contracts: each companion validates its
+// own (zecswap's CheckTreasury, xmrswap's equivalent) and refuses mainnet without one.
 func TestRecordContractsCoverTheRecord(t *testing.T) {
 	listed := map[string]bool{}
 	for _, c := range recordContracts(&netcfg.Network{}) {
@@ -25,7 +26,7 @@ func TestRecordContractsCoverTheRecord(t *testing.T) {
 			continue
 		}
 		tag := strings.Split(f.Tag.Get("json"), ",")[0]
-		if tag == "daemon" || tag == "vault" {
+		if tag == "daemon" || tag == "vault" || tag == "zecTreasury" || tag == "xmrTreasury" {
 			continue
 		}
 		if !listed[tag] {
