@@ -14,7 +14,7 @@ v2 is `contracts/founders.bas`, and `contracts/v2/` is gone. Section by section:
   hash: simdeploy drops the old one and refuses `-legacy founders:…`, and the app shows a pass only when its storage
   says `v` = 2, so a v1 pass is never read with v2's keys. **Not done:** `docs/audit/CONTRACT_REVIEW_PACKAGE.md`
   still describes v1 (§1.1, §3.9).
-- **§2, done for DERO and DERO tokens.**
+- **§2, done for DERO and DERO tokens; the XMR and ZEC payouts are built (branch `swap-payouts`).**
   - The bot claims both legs of every market, whatever its quote, and keeps a journal per asset (layout `v` 2; a
     v1 journal with records in it is refused, not converted).
   - It deposits `share` bps of each asset with `Deposit(asset)` and reconciles against `ad_<i>`.
@@ -24,8 +24,31 @@ v2 is `contracts/founders.bas`, and `contracts/v2/` is gone. Section by section:
   - Two limits of the counters. A claim is sent only when the quote leg holds something, since only `fc` proves a
     claim. The asset leg is counted at the `fa` read before the send, since no counter exists for it, so asset-leg
     fees arriving in the blocks the claim waits for reach the treasury uncounted.
-  - **Not done: the XMR and ZEC payouts** (period snapshots, address validation, payment records). No XMR or ZEC fee
-    is collected yet. The TODO is at `sweep` in `tools/treasurybot/main.go`.
+  - **XMR and ZEC payouts** (`tools/treasurybot/payout*.go`, off unless `-xmr-wallet` / `-zec-node` is given):
+    - income: unlocked incoming transfers to `xmrTreasury` (deploy/networks.json) read from the treasury's own
+      monero-wallet-rpc, and outputs paying `zecTreasury` read from the treasury's own Zcash node(s), each counted
+      once, at 10 confirmations;
+    - a period ends at every `-period-blocks` DERO height, read once stable. `share` bps of its income is divided
+      equally among the pass units registered at that height (`hu_<addr>` over `hst`, read from storage at that
+      height's last topoheight). The remainder below `hst` is carried; with no pass registered all of it is carried to
+      the first period with one. The rest stays in the treasury's wallet;
+    - payout addresses (`xm_`/`zc_`) are read at the snapshot and checked fully (checksum, network prefix; Zcash
+      transparent only; integrated Monero addresses refused). A holder with none keeps its part owed, and a part below
+      `-xmr-min-part` / `-zec-min-part` is carried. The network fee is the treasury's;
+    - XMR is paid with one `transfer` per batch of up to 15 holders (built with `do_not_relay`, relayed from the
+      recorded `tx_metadata`); ZEC with a transparent transaction built and signed with zecswap's builder and signer;
+    - an append-only journal per asset records each period (income, snapshot, split) and each payout's intent before
+      it is built, its signed transaction before broadcast, then sent and paid. On restart a signed payout is looked
+      up and the same bytes are broadcast again, never rebuilt; only a Zcash payout past its expiry that no node
+      knows is voided and repaid. Tests inject a crash after every step for both coins;
+    - on a mainnet config each asset refuses to pay, and says why, unless every check passes (fee address in
+      networks.json, the network, the address, the wallet's login and loopback, the key file outside the repository
+      and controlling `zecTreasury`, the node's login).
+    - The bot is a trusted party: no contract forces a single XMR or ZEC payment. Its journals and the two chains
+      are how anyone checks it.
+    - Not done: the treasury's mainnet addresses are not chosen (`xmrTreasury` is empty in every block of
+      `deploy/networks.json`, and `zecTreasury` everywhere but the simulator's), so a mainnet bot refuses both assets;
+      and the bot's run line in `deploy/README.md` does not carry the new flags yet.
 - **§3, done.**
   - simdeploy: the operator's numbers as defaults, the approved description, v2's install refusals checked before
     anything is paid.

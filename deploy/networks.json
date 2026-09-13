@@ -12,6 +12,7 @@
     "swap": "",
     "board": "",
     "zecTreasury": "",
+    "xmrTreasury": "",
     "feeBps": 50,
     "pfeeBps": 5000,
     "launchPfeeBps": 5000,
@@ -50,6 +51,7 @@
     "swap": "8d951df3decb1045cb34f67f62e0b6789da50f0507e453888b7f565545802a8f",
     "board": "894af60be95f2c861d18dd91ed024430b2ae7fdf7d01c30699babbf9c86611ce",
     "zecTreasury": "tmBMAUrFTiA6SZPrXuXyf4EYZsdhN8shfm9",
+    "xmrTreasury": "",
     "treasuries": [
       "dero1qyx7qyvrtrhvaszeej487k2g689fav7h38ay37fja9qf40ycgl0m2qgayajpd"
     ],
@@ -119,6 +121,7 @@
     "swap": "8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa",
     "board": "955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9",
     "zecTreasury": "",
+    "xmrTreasury": "",
     "treasuries": [
       "dero1qy067pxeld72w0s7kqe99kwal28j54mchpnsj3wlm083wgju6e3uzqgrkwar0"
     ],

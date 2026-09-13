@@ -60,6 +60,9 @@ type Network struct {
 	// regtest through the simulator's block) that the maker's claim in a transparent-Zcash swap pays the 0.5 % swap
 	// fee to (tools/zecswap, docs/ZEC_SWAP.md §7). Empty or invalid on mainnet, the companion refuses to start a swap.
 	ZecTreasury string `json:"zecTreasury"`
+	// XmrTreasury is the Monero address or subaddress the 0.5 % swap fee pays (tools/xmrswap). tools/treasurybot counts what
+	// reaches it and pays the passes their share. Empty: not set for this network.
+	XmrTreasury string `json:"xmrTreasury"`
 	// The treasury addresses a listed market may pay (GAP-005), current first. A market's treasury is fixed at its
 	// install, so the app checks it against this published set instead of the factory's tstr pointer, which an older
 	// factory's owner could move until Renounce (factory.bas v2 fixes it at install). A record without it renders

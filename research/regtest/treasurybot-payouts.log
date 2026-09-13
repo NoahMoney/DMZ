@@ -1,0 +1,79 @@
+# tools/treasurybot: one live XMR payout round and one live ZEC payout round, 2026-09-13
+#
+# Nodes: monerod 0.18.5.1 --regtest (nettype fakechain) with two monero-wallet-rpc (treasury on 28083, payer on
+# 28084, --disable-rpc-login); zebrad 6.3.0 on regtest (started and stopped again by tools/regtest/zcash-up.sh and
+# zcash-down.sh); the DERO simulator (daemon 127.0.0.1:20000) and its Founders Pass v2 c588e98e… (share 5000 bps).
+# Each asset step ran under tools/withlock.sh (xmrreg, zecreg). The steps are TestLiveRegtestRound in
+# tools/treasurybot/payout_live_test.go (TREASURYBOT_LIVE=setup|xmr|zec|cleanup); journals and Zcash keys were kept
+# in a scratch directory outside the repository (<tmp>). Paths are scrubbed; no key, login or tx_metadata is shown.
+#
+# What the test drives is the bot's own code: planPayouts and startPayouts (the flags' checks, get_address_index,
+# the nodes' chain), then assetPayer.round twice: the first closes the period (income, snapshot at a DERO height,
+# split) and sends the payout; the second, after 10 blocks, closes it as paid. The result is then checked from the
+# holder's side: the payer wallet's own record of the incoming XMR, and the mined ZEC transaction's output.
+#
+# DERO spent from simulator wallet 30016 (the only wallet used): Mint(1) = 100000 atomic units (1 DERO, to the pass's
+# treasury), plus the gas of Mint, Register, SetXmr, SetZec, two clearing calls and Withdraw. Its balance went from
+# 199879 to 97442. The pass is kept by 30016, unregistered: the cleanup cleared both payout addresses and withdrew
+# position 0, so hst is 0 again, as it was before.
+#
+# The XMR fee is a real 2 XMR transfer from the payer wallet to the treasury's dedicated subaddress. The ZEC fee is a
+# regtest coinbase mined to zecTreasury (no swap has paid a ZEC fee on this chain; zebrad has no wallet), 38146
+# zatoshi at this height, spendable after 100 blocks. The ZEC fee of the payout, 10000 zatoshi, is on the bot's
+# "payout 1 sent" line; the "fee 0" on the later "live:" line is a display bug of that run's test (it read the fee
+# from a parsed transaction whose inputs carry no values) and was removed from the test afterwards.
+#
+# The run was made on the branch's code before it was rebased onto main c707ff4 (the ZEC swap fee); the rebase
+# changed only netcfg's field plumbing for zecTreasury, not the payout code.
+
+== setup
+=== RUN   TestLiveRegtestRound
+live: DERO: founders c588e98ec905… v2 share 5000 bps hst 0; minting one pass for 100000 atomic units
+live: DERO Mint: tx 3d66fc61b69c7adc2997b22f70c466bcef699256a233bc430747f1b9520d7d36, block 6157
+live: DERO Register: tx 58e685db94a9b6f449e7fcd0e57641c360797892a41c30ad45976d55c88ed0b3, block 6159
+live: DERO: position 0 registered; hst now 1
+--- PASS: TestLiveRegtestRound (29.57s)
+PASS
+ok  	veil/tools/treasurybot	30.620s
+== xmr
+=== RUN   TestLiveRegtestRound
+live: XMR: treasury fee subaddress 86SDVZKpJWDW…, holder's subaddress 87BMTiDeWuYU…
+live: DERO SetXmr: tx 69582a357f5a83bedc3a00b9f7160c4d56d8d1f0abbb9370541f2e0e4be587b6, block 6690
+live: XMR: a 2 XMR swap fee paid to the treasury subaddress, tx 8de4cde05e443ca642652d726837066283e41614558c2488535ca48980231ad7
+live: DERO: stable height 6690, past the period boundary 6690
+live: config: [ZEC payouts off: no -zec-node]
+XMR payouts on: journal <tmp>.xmr.jsonl, period 5 DERO blocks, share 5000 bps, minimum part 100000000
+XMR payouts: period 6690 (topo 6690): 2000000000000 counted in 1 payments; 1000000000000 per pass unit to 1 units, 0 carried
+XMR payouts: payout 1 sent: tx 12a5504341974697f1e40eade3848e270bcaa62e57ad9530973967a4389bb674, 1000000000000 to 1 holders, fee 1818000000 (the treasury's)
+XMR payouts: income 2000000000000, treasury 1000000000000, paid 0, in flight 1000000000000, owed (no payable address) 0, carried 0
+XMR payouts: payout 1 paid: tx 12a5504341974697f1e40eade3848e270bcaa62e57ad9530973967a4389bb674, 1000000000000 to 1 holders
+XMR payouts: income 2000000000000, treasury 1000000000000, paid 1000000000000, in flight 0, owed (no payable address) 0, carried 0
+live: XMR: the holder's wallet lists payout 12a5504341974697f1e40eade3848e270bcaa62e57ad9530973967a4389bb674 as "in", 1000000000000 piconero at block 21540, 10 confirmations (its part: 1000000000000)
+XMR payouts: ledger: income 2000000000000, treasury 1000000000000, paid 1000000000000, carried 0
+--- PASS: TestLiveRegtestRound (133.45s)
+PASS
+== zec
+=== RUN   TestLiveRegtestRound
+live: ZEC: treasury tmCW7nXBTDrrC4RHa56GstvFyhaqZdxs4A2, holder tmCKwc5T3dptbopKmNxTMBgBvFp19JgNkWs
+live: DERO SetZec: tx 478ef605ce2524517da18070ddeb9e4fcff1e23ab1327c123aeee56df4ca4e91, block 6699
+live: ZEC: a coinbase paid to the treasury stands in for the swap fees
+live: DERO: stable height 6700, past the period boundary 6700
+live: config: [XMR payouts off: no -xmr-wallet]
+ZEC payouts on: journal <tmp>.zec.jsonl, period 5 DERO blocks, share 5000 bps, minimum part 10000
+ZEC payouts: period 6700 (topo 6700): 38146 counted in 1 payments; 19073 per pass unit to 1 units, 0 carried
+ZEC payouts: payout 1 sent: tx 402da32a63d7d76bb4761f729adf64503e4ef7f328eff5d673ad14d4d849eb0d, 19073 to 1 holders, fee 10000 (the treasury's)
+ZEC payouts: income 38146, treasury 19073, paid 0, in flight 19073, owed (no payable address) 0, carried 0
+ZEC payouts: payout 1 paid: tx 402da32a63d7d76bb4761f729adf64503e4ef7f328eff5d673ad14d4d849eb0d, 19073 to 1 holders
+ZEC payouts: income 38146, treasury 19073, paid 19073, in flight 0, owed (no payable address) 0, carried 0
+live: ZEC: payout 402da32a63d7d76bb4761f729adf64503e4ef7f328eff5d673ad14d4d849eb0d mined at 4394, 10 confirmations, pays the holder 19073 zatoshi (its part: 19073), fee 0
+ZEC payouts: ledger: income 38146, treasury 19073, paid 19073, carried 0
+--- PASS: TestLiveRegtestRound (147.30s)
+PASS
+== cleanup
+=== RUN   TestLiveRegtestRound
+live: DERO SetXmr: tx 96dc7d06bf52379b2e10a005cc4e03be4f8ce501edd5e71bbc0244050d73a686, block 6710
+live: DERO SetZec: tx f12c340243dc2a9de6704f743cfdf346a1dcb61b342e159515cb13cef172f516, block 6712
+live: DERO Withdraw: tx 7c10649ab3f0b0534cfa5dd3c31edd3cb7175897a785c0e9f39d4d28b5b3f7c6, block 6714
+live: DERO: position 0 withdrawn; hst now 0
+--- PASS: TestLiveRegtestRound (52.55s)
+PASS

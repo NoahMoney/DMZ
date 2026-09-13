@@ -18,9 +18,22 @@
 // The wallet's RPC login, when it asks for one, comes from VEIL_RPC_LOGIN (user:password), the variable netwallet
 // starts it with. On a mainnet config the bot refuses, dry run included, before its first call when the variable is
 // unset or when -wallet carries a login in its address (X-27).
+//
+// XMR and ZEC (payout.go). With -xmr-wallet and/or -zec-node the bot also pays the passes `share` bps of the swap
+// fees that reach the treasury's Monero and Zcash addresses (deploy/networks.json xmrTreasury, zecTreasury), period by
+// period, to the payout addresses holders store on the pass with SetXmr and SetZec:
+//
+//	go run ./treasurybot ... -xmr-wallet 127.0.0.1:18083 -xmr-net mainnet \
+//	    -zec-node 127.0.0.1:8232 -zec-net mainnet -zec-cookie <node cookie> -zec-key <key file outside the repository>
+//
+// The bot is a trusted party for these as for the DERO deposits: no contract forces a single XMR or ZEC payment. The
+// treasury's key holder runs it, and can stop it. What anyone can check is its append-only journal per asset (every
+// period's income, snapshot and split, every payment's txid) against the two chains. Each asset fails closed on its
+// own: missing or invalid configuration switches that asset off and says why, and the DERO side is unchanged.
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -111,6 +124,11 @@ func main() {
 	if err := checkWalletLogin(network); err != nil {
 		log.Fatalf("mainnet: %v", err)
 	}
+	// XMR/ZEC: every check that needs no network call, before the first one; each asset refuses on its own
+	xplan, zplan, notes := planPayouts(payoutFlagsFromCommandLine(network))
+	for _, n := range notes {
+		fmt.Println(n)
+	}
 	c := &rpc.Client{Daemon: *daemon, Timeout: *timeout}
 	if testnet, name := c.Info(); (network == "mainnet") == testnet {
 		log.Fatalf("config.js says network %q but the daemon at %s reports %q (testnet=%v)", network, *daemon, name, testnet)
@@ -159,8 +177,20 @@ func main() {
 	if err := jn.reconcile(ch); err != nil && !errors.Is(err, errDry) { // finish what a previous run started before claiming anything new
 		log.Fatal(err)
 	}
+	ctx := context.Background()
+	payers := startPayouts(ctx, xplan, zplan, deroPasses{daemon: *daemon, founders: founders}, share, dry, *jnPath, os.Stdout)
+	defer func() {
+		for _, p := range payers {
+			p.release()
+		}
+	}()
 	for {
 		sweep(c, factory, me, share, *minUnits, jn, ch)
+		for _, p := range payers {
+			if err := p.round(ctx); err != nil { // an open payout stays open; the next round settles it first
+				log.Printf("%s payouts: %v", p.net.Name(), err)
+			}
+		}
 		if *once {
 			return
 		}
@@ -171,17 +201,8 @@ func main() {
 // market is one listed market and its two legs' asset ids.
 type market struct{ scid, quote, asset string }
 
-// TODO(founders v2: XMR and ZEC payouts). The passes are also owed `share` bps of the 0.5 % swap fees taken in XMR
-// and ZEC (MT-K02(b), X-29). The treasury's bot is to pay them off the DERO chain, to the addresses holders store on
-// the pass with SetXmr and SetZec (xm_<addr>, zc_<addr>), split by hu_<addr> over hst. Not built, because no XMR or
-// ZEC fee is collected yet: tools/xmrswap and tools/zecswap take none. docs/FOUNDERS_V2_NOTES.md §2 has the design:
-//   - a snapshot per payout period, taken at the period's end, with the fee total, hst, every hu_ and stored address,
-//     and the height they were read at;
-//   - full address validation, which the contract cannot do: checksum, the network byte, and for Monero the length;
-//   - floored shares with the remainder carried to the next period;
-//   - a record of every payment.
-//
-// Until it is built, this bot pays no XMR or ZEC to anyone, and no contract forces it to.
+// sweep is the DERO side. The passes' share of the XMR and ZEC swap fees is paid off the DERO chain by the payers
+// main runs after it (payout.go), to the addresses holders store with SetXmr and SetZec; no contract forces either.
 func sweep(c *rpc.Client, factory, me string, share, minUnits uint64, jn *journal, ch chain) {
 	reg := c.GetSC(factory, false)
 	var markets []market
