@@ -270,9 +270,9 @@ them, each deposit in the asset it was made in. v2 replaced v1 here on 2026-09-1
 2^32-scaled accumulator with eras, `Distribute`, `PayBatch` and the `minhst` floor). v2 was built on the operator's
 rulings of that day:
 - every fee is taken in the asset being traded, and the passes are paid in that asset, never converted to DERO;
-- the 0.5 % swap fees are taken in XMR and ZEC off the DERO chain: the maker of a completed swap pays the treasury
-  from the coin he receives. The treasury's bot pays holders their share directly, to the addresses stored with
-  `SetXmr` and `SetZec` (`tools/treasurybot`, `payout.go`). This contract pays neither;
+- the 0.5 % swap fees were to be taken in XMR and ZEC off the DERO chain, and the treasury's bot was to pay holders
+  their share to the addresses stored with `SetXmr` and `SetZec`. The operator's ruling of 2026-09-15 removed the
+  swaps, that fee and those payments: the stored addresses are data only, and this contract pays neither coin;
 - the bot deposits with any number of registered passes (MT-J14). While none is registered, it holds what it owes
   and deposits it after one registers (`tools/treasurybot`);
 - 20 editions, 4 reserved.

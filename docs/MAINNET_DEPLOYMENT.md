@@ -268,18 +268,9 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
       holds what it owes in the journal; the first sweep after a registration deposits it. It refuses a pass whose
       `v` is not 2. It sends no `PayBatch` (v1's): each position's `Claim` is sent from the app, by its holder or
       by anyone.
-    - **The XMR and ZEC share of the swap fees.** The bot pays it only when `deploy/networks.json`'s mainnet
-      `xmrTreasury` and `zecTreasury` are set (until then the swap companions also refuse every mainnet swap) and it
-      is given the treasury's own nodes. Without these it pays neither asset and says why:
-      - XMR: `-xmr-wallet <host:port> -xmr-net mainnet`, a monero-wallet-rpc on this machine with the wallet that
-        owns `xmrTreasury` open (a dedicated subaddress, so only fees are counted);
-      - ZEC: `-zec-node <host:port> -zec-cookie <file> -zec-net mainnet -zec-key <file>`, where the key controls the
-        transparent `zecTreasury` and its file is outside the repository;
-      - `-xmr-journal` and `-zec-journal` outside the tree: the XMR journal holds each payout's transaction key.
-      A period ends every `-period-blocks` (4,800, about a day) once that height is stable. `share` bps of the
-      period's fee income is split equally among the passes registered at that height and paid to the addresses
-      they stored. A pass with no valid address keeps its part owed, and a part below `-xmr-min-part` or
-      `-zec-min-part` is carried. The journal records each payment before sending, so a restart never pays twice.
+    - It makes no XMR or ZEC payment and takes no Monero or Zcash node: the addresses a pass stores with `SetXmr` /
+      `SetZec` are data only, and nothing reads them. The wrapped wXMR and wZEC are DERO tokens, so their fees are
+      claimed and deposited like any other asset's.
     - Its calls' fees, computed from the code (the rehearsal ran it only as a dry run, so none is measured):
       - `ClaimFees` and `Deposit` go through `simrpc.Send`, which pays the node's gas estimate plus 200 atomic units
         (`tools/treasurybot/chain.go:34`, `:41`; `tools/simrpc/simrpc.go:334`).

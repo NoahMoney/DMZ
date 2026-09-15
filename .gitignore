@@ -39,9 +39,6 @@ coord-identity*.key
 bob.json
 alice.json
 *.json.lock
-# tools/treasurybot's XMR/ZEC payout journals (the XMR one holds each payout's tx_metadata) and their locks
-treasurybot-*.jsonl
-*.jsonl.lock
 xmrswap-used.json
 swap-channel/
 *.keys

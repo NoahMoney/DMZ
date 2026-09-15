@@ -188,7 +188,7 @@ it ships with.
 | Every signature | Your own wallet, over XSWD on localhost | The application never holds a key and cannot sign |
 | A market is what it claims | The template hash the app checks, and the treasury it names | A contract whose code does not match is shown as unverified |
 | An atomic swap | Your own nodes, your own companion, and being online (or having a machine online) at your window | Miss your window and the other side's exit opens. A node that lies to you **and** works with your counterparty can cost you your side of the swap, so run your own (`docs/CROSS_CHAIN_TRUST_MODEL.md` §5). No lock is ever frozen |
-| Founders Pass payouts | The treasury and its bot | If the bot stops, nothing new is deposited and no XMR or ZEC is paid; what was deposited stays claimable from the contract. The bot's journal lists each period's income, the pass snapshot it was split by, and every payment's txid, and each payment is public on its chain |
+| Founders Pass payouts | The treasury and its bot | If the bot stops, nothing new is deposited; what was deposited stays claimable from the contract. The bot deposits the pass share of every fee asset it claims (DERO, wXMR, wZEC and DERO tokens) into `founders.bas`, and each deposit is public on the pass. There are no XMR or ZEC payments; a stored payout address is data only |
 | Wrapped XMR / ZEC (simulator) | **k of n named signers** | A quorum can take the reserve |
 | Your first transaction on DERO | Whoever sells you DERO for its fee | Every DERO fee is paid in DERO, so someone arriving with only XMR or ZEC needs a little DERO first — today, from an exchange |
 | An NFA staying what you bought | Its creator, and its owner while `ownerCanUpdate` is set | They can rewrite its file, signature, cover, icon and tag URLs (`nfa.bas`, `Update`); its name, hashes and collection cannot change |
@@ -213,7 +213,7 @@ two apart.
 | XMR ↔ DERO and ZEC ↔ DERO swaps | XMR or ZEC | 0.5% of what the maker receives, paid by the maker to the treasury in the same transaction; none on a refund (see below) |
 | Network fee | **always DERO** | miners |
 
-**The Founders Pass.** Twenty passes (four reserved), 1 DERO each, with a share of 10,000 bps fixed at install: all of the trading and swap fees the treasury takes go to the registered passes, split equally, so with 20 passes each registered pass earns at least 5%. The
+**The Founders Pass.** Twenty passes (four reserved), 1 DERO each, with a share of 10,000 bps fixed at install: all of the trading fees the treasury takes go to the registered passes, split equally, so with 20 passes each registered pass earns at least 5%. The
 treasury's bot claims each market's protocol share and deposits the pass share of it into `founders.bas` **in the
 asset the fee was taken in** — DERO, or the DERO token the market is quoted in — never converted. Each registered
 pass then claims its part of each asset from the contract. A deposit is shared by the passes registered when it is
@@ -230,13 +230,9 @@ every deposit and no contract forces it. Registration, chat and NFA fees are not
   anyone can list every DMZ Zcash swap from the payments to it.
 - **What enforces it.** The swap programs, not a contract: a modified maker program can leave it out.
 
-**The passes' share of it.** The treasury's bot pays it in XMR and ZEC, directly on those chains, once per period
-(4,800 DERO blocks, about a day). `share` bps of the period's fee income is split equally among the passes
-registered when the period ends. Each part goes to the address the pass stored with `SetXmr` or `SetZec`: a Monero
-subaddress, and a transparent Zcash address. A stored address is public on DERO. A pass with no valid address keeps
-its part owed until it stores one; a part below the network fee is carried forward. The bot writes each payment to
-its journal before sending it, so a restart never pays twice. It pays only when it is given the treasury's own
-Monero wallet and Zcash node, and no contract forces it to.
+**No XMR or ZEC payments.** The treasury's bot deposits the pass share of every fee asset it claims (DERO, wXMR,
+wZEC and DERO tokens) into `founders.bas`, and pays nothing on the Monero or Zcash chains. The Monero and Zcash
+addresses a pass can store with `SetXmr` and `SetZec` are data only: nothing reads them and nothing pays to them.
 
 ---
 
