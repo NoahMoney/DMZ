@@ -66,7 +66,7 @@ var (
 
 	passName    = flag.String("pass-name", "DMZ Founders Pass", "founders pass name")
 	passDescr   = flag.String("pass-descr", passDescrDefault, "founders pass description — IMMUTABLE once installed; pass it explicitly on any real deployment")
-	passImage   = flag.String("pass-image", "", "founders pass image URL (https)")
+	passImage   = flag.String("pass-image", "", "founders pass image, set as both its icon and its file header: dmz:<64 hex> naming a pass-image profile doc (tools/profiledoc, docs/PROFILE_DOCS.md), or an https URL")
 	passPrice   = flag.Uint64("pass-price", 100000, "mint price in atomic units (100000 = 1 DERO, the operator's number, MT-J16)")
 	passMax     = flag.Uint64("pass-max", 20, "editions (20, MT-J16)")
 	passStart   = flag.Uint64("pass-start", 0, "mint opens at this block height")
@@ -161,6 +161,8 @@ func checkPassHeaders() error {
 		return fmt.Errorf("-pass-descr is %d bytes; founders.bas takes at most 240", len(*passDescr))
 	case len(*passImage) > 200:
 		return fmt.Errorf("-pass-image is %d bytes; founders.bas takes at most 200", len(*passImage))
+	case !passImageOK(*passImage):
+		return fmt.Errorf("-pass-image %q is neither dmz:<64 hex> nor an https URL", *passImage)
 	case *passMax == 0 || *passMax > 100000:
 		return fmt.Errorf("-pass-max is %d; founders.bas takes 1 to 100000", *passMax)
 	case *passPrice > 10000000000000:

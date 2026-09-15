@@ -33,7 +33,8 @@
   // this from "the fold changed something" warned about every honest ticker containing a 0 or a 1, because
   // tickerKey folds those to O and I deliberately so that S0L and SOL group together.
   const hasHomoglyph = (t) => { for (const ch of String(t || "").normalize("NFKC").toUpperCase()) { if (ch > "\u007f" && CONF_FROM.indexOf(ch) >= 0) return true; } return false; };
-  const safeUrl = (u) => (typeof u === "string" && /^https:\/\/[^\s"'<>\\]{3,300}$/i.test(u) ? u : "");
+  // an https URL, or dmz:<scid> naming a profile doc (app/profile.js), which is read through the user's own node
+  const safeUrl = (u) => (typeof u === "string" && (/^https:\/\/[^\s"'<>\\]{3,300}$/i.test(u) || /^dmz:[0-9a-f]{64}$/.test(u)) ? u : "");
 
   // ---- icons (inline SVG paths, 24-unit grid) ----
   const P = { star: "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z", check: "M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z", copy: "M16 1H4a2 2 0 0 0-2 2v12h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z", shield: "M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3zm-1.5 14.5-3.5-3.5 1.4-1.4 2.1 2.1 5.1-5.1 1.4 1.4-6.5 6.5z", chevron: "M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z", bolt: "M11 21h-1l1-7H7.5c-.6 0-.6-.3-.4-.7L13 3h1l-1 7h3.5c.5 0 .6.3.4.7L11 21z", warn: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z", lock: "M12 2a5 5 0 0 1 5 5v2h1a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h1V7a5 5 0 0 1 5-5zm0 2a3 3 0 0 0-3 3v2h6V7a3 3 0 0 0-3-3z", eye: "M12 5c5 0 9 3.5 10.5 7-1.5 3.5-5.5 7-10.5 7S3 15.5 1.5 12C3 8.5 7 5 12 5zm0 3.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z", share: "M18 16a3 3 0 0 0-2.1.8L8.9 12.7a3 3 0 0 0 0-1.4l7-4.1A3 3 0 1 0 15 5c0 .2 0 .5.1.7L8.1 9.8a3 3 0 1 0 0 4.4l7 4.1A3 3 0 1 0 18 16z", x: "M18.3 5.7 12 12l6.3 6.3-1.4 1.4L12 13.4l-6.3 6.3-1.4-1.4L10.6 12 4.3 5.7l1.4-1.4L12 10.6l6.3-6.3z", arrow: "M5 17.6 15.6 7H8V5h11v11h-2V8.4L6.4 19z", wallet: "M20 7H4a1 1 0 0 1 0-2h15V3H4a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1zm-3 8a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z", flame: "M12 2c1 4 4 5.5 4 10a4 4 0 0 1-8 0c0-1.5.5-2.5 1.2-3.4.2 1.4 1 2.4 1.8 2.4 1.2 0 1.5-1.4 1-3C11.4 6.5 12 4 12 2zm0 20c-4 0-7-3-7-7 0-2.4 1.1-4.5 2.6-6.2C7.2 10.5 7 12 7 13a5 5 0 0 0 10 0c0-2.2-.9-4-2-5.6 2.6 1.8 4 4.6 4 7.6 0 4-3 7-7 7z", trend: "M3 17l6-6 4 4 8-8v5h2V3h-9v2h5l-7 7-4-4-7 7z", rocket: "M13 2c4 0 8 4 8 9l-4 4-1-4-4-1zm-1 5 4 4-6 6-4-4zM5 14l4 4-2 2H3v-4zm2-4 3 3-2 2-3-3z", cap: "M12 2 1 7l11 5 9-4.1V15h2V7zm-7 9.6V16c0 2 3.1 4 7 4s7-2 7-4v-4.4l-7 3.2z", feed: "M4 4h16v3H4zm0 6.5h16v3H4zM4 17h10v3H4z", sparkle: "M12 2l2.2 6.3L20 10l-5.8 1.7L12 18l-2.2-6.3L4 10l5.8-1.7z", gem: "M12 2 2 9l10 13L22 9zM5.6 9 12 4.6 18.4 9 12 18.2z" };
@@ -62,15 +63,18 @@
   // record. The chain is read from the record that ships with the app, never guessed from a ticker anyone can type.
   const netOf = (a) => { const s = (String(a && a.sym || "") + " " + String(a && a.chain || "")).toUpperCase(); if (/XMR|MONERO/.test(s)) return ["XM", "net xmr"]; if (/ZEC|ZCASH/.test(s)) return ["ZC", "net zec"]; return [(String(a && a.sym || "").toUpperCase().replace(/[^A-Z0-9]/g, "") + "??").slice(0, 2), "net"]; };
   // identity avatar: a plate carrying the ticker and, on its leading edge, the tint of the chain the market
-  // settles on — a wrapped asset's own vault or the vault its quote comes from. Images only when allowed, https
-  // only, no referrer. Nothing here is a colour the system did not already name.
+  // settles on — a wrapped asset's own vault or the vault its quote comes from. Nothing here is a colour the
+  // system did not already name.
   function avatar(x, size = "") {
     const isAsset = typeof x === "object", id = isAsset ? x.scid || x.ticker || "" : String(x || "");
     // No image is fetched from a creator's host, ever: the app makes no request but to the user's own node and
     // wallet. An opt-in toggle used to load them here, and any page on this origin could switch it on (FE-7).
+    // The one image an avatar shows comes from a profile doc its icon header names (dmz:<scid>): read through the
+    // node, checked byte for byte, WebP or PNG only, from a data: URI (app/profile.js). Until then, the plate.
     const label = clean(isAsset ? (x.ticker || "?").slice(0, 3) : V.data.displayName(id).slice(0, 2).toUpperCase(), 3);
     const v = isAsset ? V.data.vaultOf(x) : null;
-    return h("div", { class: "avatar " + size + (v ? " " + netOf(v)[1].slice(4) : ""), "aria-hidden": "true" }, label);
+    const el = h("div", { class: "avatar " + size + (v ? " " + netOf(v)[1].slice(4) : ""), "aria-hidden": "true" }, label);
+    return isAsset && V.profile ? V.profile.mount(el, x) : el;
   }
   const pill = (txt, cls = "") => h("span", { class: "pill " + cls }, txt);
   // direction is a number in a numeric column, not a boxed control: .chg carries colour and tabular figures only

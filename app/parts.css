@@ -241,3 +241,21 @@ details.more[open] summary .svgi{transform:rotate(180deg)}
 .tk-links .l{color:var(--fg3);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
 .tk-panel{display:none}
 @media (min-width:1180px){.tk-panel{display:block;margin-bottom:14px}}
+/* ==== profile-docs ==== */
+/* A logo from a profile doc (app/profile.js) takes the text plate's box and keeps its network edge. */
+.avatar.pd-img{background:var(--bg)}
+.avatar.pd-img img{display:block;width:100%;height:100%;object-fit:cover}
+/* the pass image carries words, so the pass screen shows it at a size where they can be read */
+.hero .avatar.big.pd-pass{width:min(100%,176px);height:auto;aspect-ratio:1}
+.row:has(>.avatar.big.pd-pass){flex-wrap:wrap}
+/* project links: a label and the domain, a hairline under each. Not buttons, not pills. */
+.pd-links{display:flex;flex-wrap:wrap;gap:2px 18px}
+.pd-link{display:inline-flex;align-items:baseline;gap:7px;min-width:0;max-width:100%;padding:6px 0;color:var(--fg2);text-decoration:none;border-bottom:1px solid var(--edge)}
+.pd-link:hover{color:var(--fg);border-bottom-color:var(--edge2)}
+.pd-link:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.pd-k{font-size:10.5px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:var(--fg3)}
+.pd-host{font-family:var(--mono);font-size:.85em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pd-prev{align-items:flex-end;gap:14px;flex-wrap:wrap}
+.pd-prev.pass .avatar.big{width:min(100%,192px);height:auto;aspect-ratio:1}
+.pd-ref,.pd-hash{font-family:var(--mono);font-size:12px;color:var(--fg2);word-break:break-all}
+.pd-ed input[type=file]{padding:9px}
