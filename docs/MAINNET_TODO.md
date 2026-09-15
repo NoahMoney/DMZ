@@ -21,6 +21,68 @@ This is the working checklist for the final mainnet pass. Every item has an owne
 
 ---
 
+## Phase Y: the wrapped launch (opened 2026-09-15)
+
+**The operator's rulings of 2026-09-15 set this phase.** Where they conflict with Phase X and the sections below,
+they win.
+- Mainnet waits until wZEC and wXMR work end to end ("Wait for both wrapped").
+- The atomic swaps are removed: "they should both be removed, we should have a wrap and perhaps a market the wrapped
+  tokens can be traded on 1:1".
+- The pass share is 10,000 bps ("5% per pass"), and the pass image is `founders.png`, identical for every pass.
+- No holder-concentration figures.
+- A final UI/UX pass.
+- "Create a large to do list in phases and make sure you complete it all, in the final stretch audit your work and
+  make sure security is at a very high level to deter attacks."
+
+| ID | Item | Owner, and after what | Status | Done when |
+|---|---|---|---|---|
+| **Y0** | **Coordination** | | | |
+| Y0-1 | `tests/run.sh` stopped before any test: its no-float check matched a comment in `tools/treasurybot/snapshot.go` | coordinator | **done** | the DVM suite runs and passes on main |
+| Y0-2 | This list | coordinator | **done** | — |
+| Y0-3 | A map of every swap surface and dependency, and an ordered removal plan that respects the branches in flight (workflow `dmz-swap-removal-map`) | coordinator | wip | the plan, with its critic's corrections folded in |
+| **Y1** | **The UI/UX pass (the operator's 44-point brief)** | | | |
+| Y1-1 | Brand: the wordmark as a vector, the 16 px mark, the favicon, `docs/brand/` | brand | **done** `4ec9bfb` | — |
+| Y1-2 | Community sentiment: `rate.bas`, one standing vote per address and market, counts shown and percentages only from 5 votes, never a verdict | sentiment | merging | DVM, node, UI and verifydeploy green on main |
+| Y1-3 | The market page and charts: 1m–1W and ALL from real history, responsive, keyboard crosshair, extreme-price formatting, the trade Review block | ui-market | rework (swaps out) | merged, and its UI pass read |
+| Y1-4 | Discovery: the cards, pairs, the sections from real metrics, search, the scaled list, navigation, the warnings audit | ui-discovery | wip | merged, UI pass read, warnings table recorded |
+| Y1-5 | Deposit & Withdraw through the wrap only (the hub "move"), and a tracker of vault deposits and withdrawals read from the contract | ui-swaps (redirected) | wip | merged; the swap screens gone |
+| Y1-6 | Create → Configure → Review → Pay → Launch for coins, pools, holder NFTs and NFAs | ui-launch | wip | merged; one coin launched end to end through it |
+| Y1-7 | On-chain profile docs (logos, links, the pass image): read only through the user's node, no SVG, no third-party fetch | profile-docs | wip | merged; the pass image encoded and committed |
+| Y1-8 | The promotion auction, `promo.bas`: the bid asset fixed at install (DERO or a wrapped asset), K slots per epoch, outbid refunds in the same call, proceeds claimable only to the treasury | promo | wip | DVM, UI and verifydeploy green |
+| Y1-9 | Scale: tiered refresh, incremental registry reads, bounded memory, backoff; measured at 50–5,000 markets | perf-scale | wip | `docs/PERFORMANCE.md` before and after, merged |
+| Y1-10 | One transaction path for the new contracts: a verified-contract allowlist entry in `app.js` for `promo` and `rate`, instead of each screen's own path | coordinator, after Y1-2, Y1-8, Y1-9 | open | votes and bids sent through `V.app.tx` with its gates |
+| Y1-11 | A second inspection of the rendered app: design critics per screen at desktop and phone, then fix, re-render and reread | workflow, after Y1-3 to Y1-9 | open | every finding fixed or ruled out |
+| **Y2** | **Remove the atomic swaps (the Y0-3 plan)** | | | |
+| Y2-1 | App: `xmr.js`, `zswap.js`, the swap pairing, `V.zswapOffers`, and the swap navigation | ui-swaps, ui-discovery, ui-market | wip | no swap surface in the app; UI passes green |
+| Y2-2 | The Founders Pass description: no swap fees and no bot XMR/ZEC promise, ≤240 bytes, shown to the operator before install | coordinator | open | `simdeploy`'s default, the tests and the runbook agree |
+| Y2-3 | `app/notice.js` rewritten for the wrap-only product, with the federation named | coordinator, after Y1-5 | open | the notice, every screen and the README agree |
+| Y2-4 | Deployment: `htlc`, `swap` and `board` out of simdeploy, verifydeploy, netcfg, networks.json, genconfig and the runbooks; `xmrTreasury` and `zecTreasury` out | coordinator, after Y1-2, Y1-8 | open | verifydeploy clean on a fresh simulator |
+| Y2-5 | The treasury bot: the swap-fee XMR/ZEC payouts removed; vault fees and promotion proceeds deposited per asset | coordinator or an agent | open | the bot's tests green; conservation per asset |
+| Y2-6 | Code: xmrswap, zecswap, swapstatus, simhtlc, simswap, `htlc.bas`, `swap.bas`, `board.bas`, the Monero proof and the swap harnesses deleted, once the vault backends have extracted what they need | coordinator, after Y3-1, Y3-2 | open | the tree builds; `check.sh` green |
+| Y2-7 | Docs: the swap specs retired; README, the gate, the test plan and the threat model rewritten; swap rows here marked superseded | coordinator | open | no current document describes a swap as part of DMZ |
+| **Y3** | **Finish the wrap** | | | |
+| Y3-1 | Zcash custody: transparent P2SH k-of-n, deterministic transactions, every signer checks before it signs (`tools/vaultsigner`, `tools/zcashtx`) | wrap-zcash | wip | a regtest e2e with 2-of-3 signers, one signer offline |
+| Y3-2 | Monero custody: wallet-rpc multisig k-of-n; every txset decoded and checked before sign_multisig (`tools/monerorpc`) | wrap-monero | wip | a regtest e2e with 2-of-3 signers, one signer offline |
+| Y3-3 | The vault contract: a line-by-line audit, v4 if needed, the mainnet parameters and the bond-to-cap table | wrap-vault | wip | the findings table, the DVM suite, the parameters |
+| Y3-4 | Signer coordination (authenticated and encrypted, no trusted server) and `docs/SIGNER_RUNBOOK.md` | wrap-coord | wip | adversarial message tests; a multi-process test |
+| Y3-5 | Integration: the four merged; both wraps end to end on the simulator and regtest, including a restart mid-payment | coordinator, after Y3-1 to Y3-4 | open | e2e logs for both assets |
+| Y3-6 | Proof of reserves in the app: reserve against supply per vault, from published xpubs and the view key | agent, after Y3-5 | open | shown on the Wrap screen; checkable by anyone |
+| Y3-7 | The vault deployment runbook: install, bonds, ceremony, SetLimits, Seal, verifydeploy | wrap-vault, then the coordinator | open | a rehearsal on the simulator follows it word for word |
+| Y3-8 | **The operator's decisions:** the signers (named people and hosts), k-of-n, bonds and caps, the treasury | op | decide | recorded under §J |
+| **Y4** | **A rehearsal of the whole system** | | | |
+| Y4-1 | A fresh simulator with everything installed through simdeploy: the base set, the vaults, promo, rate, and the pass with its image doc | coordinator | open | verifydeploy clean |
+| Y4-2 | Every UI pass green (normal, mainnet-shaped, wallet), every PNG read | coordinator | open | — |
+| Y4-3 | The private DERO testnet redeployed with the final contracts; testnetcheck day 0 | coordinator | open | day 0 PASS |
+| Y4-4 | `tools/check.sh`, every step green | coordinator | open | — |
+| **Y5** | **The security audit (the final stretch)** | | | |
+| Y5-1 | A multi-agent adversarial audit that loops until it finds nothing new, over: the contracts; vaultsigner, both backends and the coordination; the app (XSS and CSP, profile parsing, links, transaction confirmation, phishing surfaces); deployment and supply chain; economics (fee routing, auction and vote manipulation) | workflow | open | two dry rounds in a row |
+| Y5-2 | Every confirmed finding fixed with a regression test, then audited again | coordinator and agents | open | — |
+| Y5-3 | The external review package brought up to date: the contracts, the vault, and the multisig use | ext | open | sent |
+| Y5-4 | The verdict in `MAINNET_SECURITY_GATE.md` rewritten | coordinator | open | — |
+| **Y6** | **The final record** | | | |
+| Y6-1 | README, HISTORY and memory match the product as it stands | coordinator | open | — |
+| Y6-2 | **The operator's launch checklist:** signers, bonds, the image doc, the mainnet deployment, the external review | op | open | — |
+
 ## Phase X: ready for the mainnet test stage
 
 *Opened 2026-09-12 at the operator's instruction: "create a large to do list and get busy, refine it. make sure

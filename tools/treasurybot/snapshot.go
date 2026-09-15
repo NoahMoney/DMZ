@@ -102,7 +102,7 @@ func (d deroPasses) Snapshot(h uint64, key string, extra []string) (snapshot, er
 		Keys map[string]interface{} `json:"stringkeys"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber() // a uint64 above 2^53 is never rounded through float64
+	dec.UseNumber() // a uint64 above 2^53 is never rounded through a 64-bit float
 	if err := dec.Decode(&st); err != nil {
 		return snapshot{}, err
 	}
