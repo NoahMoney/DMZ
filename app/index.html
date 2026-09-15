@@ -8,6 +8,8 @@
 <meta name="color-scheme" content="dark">
 <meta name="veil-commit" content="14">
 <title>DMZ</title>
+<link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACT0lEQVR4AeyTP0hbURTGvwQaLCRL3xAtXdqmU7amYLGLbY2F1rbY0qFxdLBzW4ROFd3ULE4OYlRQF8XFqIi6GVAnBUXddFAy6KC8ISjEdy6++O67775/agIi5Lz79zv3l/udGwRQLGN0aGdxPwLgJm558F/Lz0GUG0A7HxxEJQA4iEoBlCAqCcAgBIB0bzdCoRAt3mg8CAXR3p8QcgoALakUpiYnEI1Ghc1+J5SaKvQt1aOp9ZmQQgCgHYnES8zPzYBaGl8n4rWPMLDSgHitYpnGEoB20g3QTbSkftLQVzS1PtX++VsoNQ+leikAKagW0r09SHusC93v9v5XoD7lkoUtgC7yUheKjd96PmPrCoAEVA9OdRF/rWBgNSn1e3/nlFJx4RqAVHZ1wfxerIdSXUVbhchlD9BWtyDMewIgdTDIS8hjet8yv4vFIjJdm/jXvAz15JxScMFn45bEwdHxMb59/4HRsXG26OS3enLGDs50bkHjwItYjOmMH1cAO7u7WN/YwLv3SayurTF93OF9k99tdYvIZQ/Z/g+NjZidmWZ948cVwMdPn/HlazPy+TzTMr+X5O87d+k3QQQCAfz98xvDQ4MIh8NMb/y4AlBVFYVCoaRz63ckEsHIUIYBlMSmjisAk8ZyaPabNs1mp5FMNlBXGjcCQFdt9Fs/LRZ7rnel7bUBjH5LT7FZ8A3g9L5tzuSWfAFY+c1l9TDwBfDrzdX79nCW5VZfAHvbp5bJ/EwKANWPn8AcfhKTxpyHxjRvDAHAuFiO/j3A3b8Bpzq6AAAA//+xj9jQAAAABklEQVQDAFmH3SGc4o1PAAAAAElFTkSuQmCC" sizes="32x32">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' role='img' aria-label='DMZ'%3E%3Cpath fill='%23000000' d='M0 0 54 0 64 10 64 64 0 64Z'/%3E%3Cpath fill='%23E8E6E4' fill-rule='evenodd' d='M8 12 28 28 19.99 34.4 18 32.81 18 52 8 52ZM46 39.21 56 31.21 56 52 46 52Z'/%3E%3Cpath fill='%23C2FB55' d='M56 12 56 24.81 26 48.81 26 36Z'/%3E%3C/svg%3E" type="image/svg+xml">
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="ui.css">
 <link rel="stylesheet" href="parts.css">
@@ -16,7 +18,7 @@
 <body>
 <div id="app" class="app">
   <header class="top">
-    <div class="brand" id="brand"><svg class="mark" viewBox="0 0 154 40" role="img" aria-label="DMZ"><path fill="var(--fg)" fill-rule="evenodd" d="M0 6 6 0h18l10 10v20l-10 10H6L0 34Z M10 11h10l4 4v10l-4 4H10Z"/><path fill="var(--fg)" d="M44 40V6l6-6h6l14 24L84 0h6l6 6v34h-10V16L74 37h-8L54 16v24Z"/><path fill="var(--acc)" d="M57 40h11L84 0H73Z"/><path fill="var(--fg)" d="M104 0h50v10l-32 20h32v10h-50v-10l32-20h-32Z"/><path fill="var(--graphite)" d="M136 10h18l-32 20h-18Z"/></svg></div>
+    <div class="brand" id="brand"><svg class="mark" viewBox="0 0 828 264" role="img" aria-label="DMZ"><path fill-rule="evenodd" d="M0 16 110 16 214 99.2 214 180.8 110 264 0 264ZM52 68 91.76 68 162 124.19 162 155.81 91.76 212 52 212ZM238 0 368.09 104.07 326.47 137.37 290 108.19 290 264 238 264ZM491 144.05 543 102.45 543 264 491 264ZM573 16 828 16 776 68 573 68ZM671.6 212 828 212 776 264 619.6 264Z"/><path class="mk-l" d="M543 0 543 66.59 350 220.99 350 154.4Z"/><path class="mk-g" d="M702.46 68 776 68 580 264 557 264 557 213.46Z"/></svg></div>
     <div class="gsearch"><input id="gsearch" type="search" placeholder="Search markets, tickers, contract ids" autocomplete="off" spellcheck="false" aria-label="search"></div>
     <div class="top-right">
       <span id="net" class="pill dim">offline</span>
@@ -30,7 +32,7 @@
   <main id="screen" class="screen"></main>
 
   <nav class="tabs" role="tablist" aria-label="Main">
-    <div class="side-brand"><svg class="mark" viewBox="0 0 154 40" role="img" aria-label="DMZ"><path fill="var(--fg)" fill-rule="evenodd" d="M0 6 6 0h18l10 10v20l-10 10H6L0 34Z M10 11h10l4 4v10l-4 4H10Z"/><path fill="var(--fg)" d="M44 40V6l6-6h6l14 24L84 0h6l6 6v34h-10V16L74 37h-8L54 16v24Z"/><path fill="var(--acc)" d="M57 40h11L84 0H73Z"/><path fill="var(--fg)" d="M104 0h50v10l-32 20h32v10h-50v-10l32-20h-32Z"/><path fill="var(--graphite)" d="M136 10h18l-32 20h-18Z"/></svg></div>
+    <div class="side-brand"><svg class="mark" viewBox="0 0 828 264" role="img" aria-label="DMZ"><path fill-rule="evenodd" d="M0 16 110 16 214 99.2 214 180.8 110 264 0 264ZM52 68 91.76 68 162 124.19 162 155.81 91.76 212 52 212ZM238 0 368.09 104.07 326.47 137.37 290 108.19 290 264 238 264ZM491 144.05 543 102.45 543 264 491 264ZM573 16 828 16 776 68 573 68ZM671.6 212 828 212 776 264 619.6 264Z"/><path class="mk-l" d="M543 0 543 66.59 350 220.99 350 154.4Z"/><path class="mk-g" d="M702.46 68 776 68 580 264 557 264 557 213.46Z"/></svg></div>
     <button class="tab" data-tab="home" role="tab" type="button"><i class="ic ic-home"></i><span>Home</span></button>
     <button class="tab" data-tab="markets" role="tab" type="button"><i class="ic ic-markets"></i><span>Markets</span></button>
     <button class="tab tab-main" data-tab="trade" role="tab" type="button"><i class="ic ic-trade"></i><span>Trade</span></button>

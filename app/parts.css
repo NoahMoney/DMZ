@@ -203,3 +203,14 @@ details.more[open] summary .svgi{transform:rotate(180deg)}
 .step.wait .sst{color:var(--fg3)}
 /* a step not reached yet is stated in the tertiary ink, not faded: opacity multiplies contrast away */
 .step.todo .t{color:var(--fg3)}
+
+/* ==== brand ==== */
+/* The wordmark (docs/brand/README.md). index.html carries its small cut, whose cuts are opened for 19–26 px.
+   The letterforms take the theme's ink through currentColor; the lime and the grey are the logo's own measured
+   colours, defined here because they belong to the mark and to nothing else, and never re-coloured. */
+.mark{--mk-lime:#c2fb55;--mk-grey:#383d45;color:var(--fg);fill:currentColor}
+.mark .mk-l{fill:var(--mk-lime)}
+.mark .mk-g{fill:var(--mk-grey)}
+/* the new mark is narrower for its height than the old one, so it stands a little taller to keep its footprint */
+.top .brand .mark{height:22px}
+.tabs .side-brand .mark{height:26px}
