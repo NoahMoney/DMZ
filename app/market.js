@@ -9,7 +9,8 @@
   // Other files' interfaces are feature-checked: absent, or throwing, the region they fill is not drawn.
   M.ask = (f) => { try { return f(); } catch (e) { return null; } };
   // The pair a market is named by: U.pair where ui.js provides it, else the market's own pair, else TICKER / QUOTE.
-  M.pairOf = (s) => { const p = typeof U.pair === "function" ? M.ask(() => U.pair(s)) : s.pair || s.ticker; return p && String(p).includes("/") ? String(p) : (p || s.ticker) + " / " + D.qsym(s); };
+  // U.pair returns an element; text needs U.pairText (String() of the element read "[object HTMLSpanElement]")
+  M.pairOf = (s) => { const t = typeof U.pairText === "function" ? M.ask(() => U.pairText(s)) : null; if (typeof t === "string" && t.includes("/")) return t; const p = s.pair || s.ticker; return p && String(p).includes("/") ? String(p) : (p || s.ticker) + " / " + D.qsym(s); };
   // a section is a named region, not a card: a hairline, a label, and — where the section has one — its headline
   // number on the same line
   M.head = (l, right) => h("div", { class: "between mt", style: "border-top:1px solid var(--edge);padding-top:13px" }, h("span", { class: "eyebrow" }, l), right || null);

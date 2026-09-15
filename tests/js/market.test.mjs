@@ -179,8 +179,8 @@ test("market.js: the pair through U.pair, a wrapped side marked 1:1, a deposit l
   const xq = { ticker: "BRW", quote: VAULTS[0].scid, quoteSym: "wXMR", pair: "BRW / wXMR" }, dero = { ticker: "BRW" }, wb = { ticker: "wZEC", asset: VAULTS[1].scid, wrappedBase: true };
   assert.equal(M.pairOf(dero), "BRW / DERO");
   assert.equal(M.pairOf(xq), "BRW / wXMR");
-  window.Veil.ui.pair = (s) => "XMR / " + s.ticker;
-  try { assert.equal(M.pairOf(xq), "XMR / BRW", "U.pair names the pair wherever ui.js provides it"); } finally { delete window.Veil.ui.pair; }
+  window.Veil.ui.pairText = (s) => "XMR / " + s.ticker;
+  try { assert.equal(M.pairOf(xq), "XMR / BRW", "U.pairText names the pair wherever ui.js provides it"); } finally { delete window.Veil.ui.pairText; }
   const m = M.wrapMark(xq);
   assert.equal(m.textContent, "wrapped · 1:1");
   assert.match(m.attrs.title, /XMR held by its k-of-n federation/);
