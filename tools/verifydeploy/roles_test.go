@@ -270,7 +270,7 @@ func TestFoundersV2Roles(t *testing.T) {
 	if r := find(rows, "terms"); !strings.Contains(r.Value, "v=2") || !strings.Contains(r.Value, "share=5000") || !strings.Contains(r.Value, "reserve=4") {
 		t.Fatalf("terms: %+v", r)
 	}
-	if r := find(rows, "payout addresses"); r.Value != "2 Monero, 1 Zcash" || r.Live || !strings.Contains(r.State, "nothing pays to them") {
+	if r := find(rows, "payout addresses"); r.Value != "2 Monero, 1 Zcash" || r.Live || !strings.Contains(r.State, "read by no function") || !strings.Contains(r.State, "nothing pays them") {
 		t.Fatalf("payout addresses: %+v", r)
 	}
 	if r := find(rows, "treasury"); r.Policy != pPayee || !strings.Contains(r.State, "mint proceeds") {

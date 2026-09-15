@@ -219,7 +219,7 @@ wallet.
 | the app's mainnet bundle shows "Mainnet" in the status pill against a mainnet node, with no network banner under the header; and the mainnet-shaped UI pass is green: no screen mentions a wrapped asset without saying it is not offered, the Wrap tab draws no control, and a mainnet-labelled build reading a non-mainnet node says so on every screen and refuses to sign | manual, and `tools/withlock.sh ui env PW_DIR=<playwright> node tools/uitest/ui.mjs <url> .sim/ui-mainnet --mainnet` (read the PNGs) |
 | every step of `docs/MAINNET_TEST_PLAN.md` ran on the simulator and on the test networks, and its mainnet stage ran at the smallest amounts, each reconciled chain against wallets against companion state against the app | the plan's reconciliation records |
 | `tools/verifyvendor` green: every vendored checkout at its pinned commit with only the locked changes, binaries matching `deploy/binaries.lock` | `go run ./verifyvendor -root ..` — see the note below |
-| the Founders Pass `name`, `descr`, `maxsupply`, `reserve`, `share` and `mfee` were passed explicitly on the command line and read back from chain with `DERO.GetSC` after install: none can be changed afterwards, and the app renders `descr` under the mint button. The command below carries the operator's recorded answers (MT-J16): 1 DERO, 20 editions, reserve 4, share 10000 bps (all of the trading and swap fees the treasury takes, so each registered pass earns at least 5%: the operator's ruling of 2026-09-15), market fee 250 bps. MT-J16 said 5 reserved, but `founders.bas` refuses `reserve > maxsupply / 5`, so 5 cannot install at 20 editions and the operator is re-confirming (MX-02, MISS-03). The image URL has no answer yet | operator checklist + block explorer |
+| the Founders Pass `name`, `descr`, `maxsupply`, `reserve`, `share` and `mfee` were passed explicitly on the command line and read back from chain with `DERO.GetSC` after install: none can be changed afterwards, and the app renders `descr` under the mint button. The command below carries the operator's recorded answers (MT-J16): 1 DERO, 20 editions, reserve 4, share 10000 bps (all of the trading fees the treasury takes, so each registered pass earns at least 5%: the operator's ruling of 2026-09-15), market fee 250 bps. MT-J16 said 5 reserved, but `founders.bas` refuses `reserve > maxsupply / 5`, so 5 cannot install at 20 editions and the operator is re-confirming (MX-02, MISS-03). The image URL has no answer yet | operator checklist + block explorer |
 | the wallet that installs never mines and never receives block rewards; the treasury never transacts during the install | operator checklist (see Wallets) |
 | every fund-moving tool was started with `-yes` on purpose (`simdeploy`, `telainstall` and `vaultsigner` exit on mainnet without it; `treasurybot` runs as a dry run) | operator checklist |
 
@@ -263,7 +263,7 @@ set VEIL_RPC_LOGIN=<the wallets' login, as above>
 go run ./simdeploy -network mainnet -yes -daemon 127.0.0.1:10102 -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
   -app <an empty scratch directory> -regfee 10000 ^
   -pass-name "DMZ Founders Pass" -pass-image "<the operator's image URL (https), supplied before launch>" ^
-  -pass-descr "Register a pass for a fixed share of DMZ's trading and swap fees, paid in the asset each fee was taken in: DERO and DERO tokens through this contract, XMR and ZEC by the treasury's bot. The bot makes each payment; no contract forces it." ^
+  -pass-descr "Register a pass for a fixed share of DMZ's trading fees, paid in the asset each fee was taken in: DERO, wXMR, wZEC and DERO tokens, deposited into this contract by the treasury's bot. The bot makes each deposit; no contract forces it." ^
   -pass-price 100000 -pass-max 20 -pass-reserve 4 -pass-share 10000 -pass-mfee 250 ^
   -swap-wmin 1600 -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 <G2, operator decision MT-J13>
 ```
@@ -277,8 +277,8 @@ The wallets' login comes from `VEIL_RPC_LOGIN`, never the command line: on mainn
 first call without it, and refuses a login written into `-w0` or `-w2`.
 
 The Founders Pass numbers are the operator's answers (MT-J16, confirmed 2026-09-13): name "DMZ Founders Pass", price
-1 DERO, 20 editions, reserve 4 (the most `founders.bas` allows at 20: `-pass-max / 5`), share 10000 bps (all of the trading and swap fees the treasury takes, so each registered pass earns at least 5%: the operator's ruling of 2026-09-15), market fee
-250 bps, and the description above, approved for founders.bas v2 (236 of 240 bytes). Prices are atomic units (1 DERO
+1 DERO, 20 editions, reserve 4 (the most `founders.bas` allows at 20: `-pass-max / 5`), share 10000 bps (all of the trading fees the treasury takes, so each registered pass earns at least 5%: the operator's ruling of 2026-09-15), market fee
+250 bps, and the description above, the operator's approved text for founders.bas v2 of 2026-09-15 (234 of 240 bytes). Prices are atomic units (1 DERO
 = 100,000), so 1 DERO is `-pass-price 100000`; `-pass-price 1` would sell the pass for 0.00001 DERO, for ever.
 **The image URL comes from the operator before launch.** It is written once, at install, and nothing can add it
 later: an empty `-pass-image` installs a pass with no image for good. The install attaches no DERO (v2 refuses any),

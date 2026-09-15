@@ -20,9 +20,9 @@
 // unset or when -wallet carries a login in its address (X-27).
 //
 // It makes no XMR or ZEC payment. The Monero and Zcash addresses a holder may store on the pass with SetXmr and
-// SetZec are data only: nothing reads them and nothing pays to them. The wrapped wXMR and wZEC are DERO tokens, and
-// their fees are claimed and deposited like any other asset's. (The XMR/ZEC payouts of bb1ee34 shared a swap fee that
-// the operator's ruling of 2026-09-15 removed with the atomic swaps.)
+// SetZec are data only: nothing pays them, and the app only shows a holder their own. The wrapped wXMR and wZEC are
+// DERO tokens, and their fees are claimed and deposited like any other asset's. (The XMR/ZEC payouts of bb1ee34
+// shared a swap fee that the operator's ruling of 2026-09-15 removed with the atomic swaps.)
 package main
 
 import (

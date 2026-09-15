@@ -28,10 +28,10 @@ const foundersV2File = "founders.bas"
 // app/config.js templates.founders carries (tools/verifydeploy and tools/release recompute it from the source).
 const foundersV2CanonSha256 = "348f872ed49ec218f361c4a70a5f6cd96ada38c3d3d8a0b960fba473c02746d3"
 
-// The description the operator approved for v2 (2026-09-13). 236 bytes, inside founders.bas's 240.
-const foundersV2Descr = "Register a pass for a fixed share of DMZ's trading and swap fees, paid in the asset each fee was taken in: " +
-	"DERO and DERO tokens through this contract, XMR and ZEC by the treasury's bot. The bot makes each payment; no " +
-	"contract forces it."
+// The description the operator approved for v2 (2026-09-15, option B). 234 bytes, inside founders.bas's 240.
+const foundersV2Descr = "Register a pass for a fixed share of DMZ's trading fees, paid in the asset each fee was taken in: " +
+	"DERO, wXMR, wZEC and DERO tokens, deposited into this contract by the treasury's bot. The bot makes each " +
+	"deposit; no contract forces it."
 
 var (
 	v2TokA = crypto.Hash{0xa1, 0x01} // stand-ins for DERO tokens: a wrapped XMR, a launch token
@@ -1204,8 +1204,8 @@ func TestFoundersV2StrayValue(t *testing.T) {
 // ---- install gas, the description, the code's hash, no owner ----------------------------------------------------
 
 func TestFoundersV2InstallGas(t *testing.T) {
-	if len(foundersV2Descr) != 236 {
-		t.Fatalf("the approved description is %d bytes, not 236", len(foundersV2Descr))
+	if len(foundersV2Descr) != 234 {
+		t.Fatalf("the approved description is %d bytes, not 234", len(foundersV2Descr))
 	}
 	code := readContract(t, foundersV2File)
 	for _, x := range []struct {

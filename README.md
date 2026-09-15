@@ -232,7 +232,8 @@ every deposit and no contract forces it. Registration, chat and NFA fees are not
 
 **No XMR or ZEC payments.** The treasury's bot deposits the pass share of every fee asset it claims (DERO, wXMR,
 wZEC and DERO tokens) into `founders.bas`, and pays nothing on the Monero or Zcash chains. The Monero and Zcash
-addresses a pass can store with `SetXmr` and `SetZec` are data only: nothing reads them and nothing pays to them.
+addresses a pass can store with `SetXmr` and `SetZec` are data only: nothing pays them, and the app only shows a
+holder their own.
 
 ---
 

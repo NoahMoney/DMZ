@@ -75,17 +75,17 @@ var (
 	passMfee    = flag.Uint64("pass-mfee", 250, "marketplace fee in bps, deposited for the registered passes")
 )
 
-// passDescrDefault is the Founders Pass description the operator approved for founders.bas v2 (2026-09-13, MT-J16,
-// X-29), 236 of the contract's 240 bytes. founders.bas stores its headers once and defines no setter, so whatever
-// goes in here is on chain for the life of the contract, and app/nfts.js renders it under the mint button. It says
-// what v2 and the treasury's bot do: each fee is paid in the asset it was taken in, DERO and DERO tokens through the
-// contract (Deposit, then each position's Claim), XMR and ZEC by the bot to the addresses holders store (SetXmr,
-// SetZec), and no contract forces the bot to make any of those payments. app/notice.js, the page the app declares
-// authoritative, says the same in more words. The v1 wording, "Fees in any asset other than DERO do not reach
-// holders", is false of v2 and must not be installed with it.
-const passDescrDefault = "Register a pass for a fixed share of DMZ's trading and swap fees, paid in the asset each fee was taken in: " +
-	"DERO and DERO tokens through this contract, XMR and ZEC by the treasury's bot. The bot makes each payment; no " +
-	"contract forces it."
+// passDescrDefault is the Founders Pass description the operator approved for founders.bas v2 (2026-09-15, option B,
+// MT-J16, X-29), 234 of the contract's 240 bytes. founders.bas stores its headers once and defines no setter, so
+// whatever goes in here is on chain for the life of the contract, and app/nfts.js renders it under the mint button.
+// It says what v2 and the treasury's bot do: each trading fee is paid in the asset it was taken in, DERO or a DERO
+// token (wXMR and wZEC are DERO tokens), deposited into the contract by the bot (Deposit, then each position's Claim),
+// and no contract forces the bot to make any deposit. The v1 wording, "Fees in any asset other than DERO do not reach
+// holders", is false of v2 and must not be installed with it; so is the 2026-09-13 wording, which promised swap fees
+// and XMR and ZEC payments that went with the atomic swaps.
+const passDescrDefault = "Register a pass for a fixed share of DMZ's trading fees, paid in the asset each fee was taken in: " +
+	"DERO, wXMR, wZEC and DERO tokens, deposited into this contract by the treasury's bot. The bot makes each " +
+	"deposit; no contract forces it."
 
 // checkSwapWmin refuses, before anything is installed, a minimum width swap.bas Initialize would refuse
 // (swap.bas line 6, `wmin == 0 || wmin > 1000000`; TestSwapWminBoundsAreTheContracts holds the two in step).

@@ -14,7 +14,7 @@ steps come from, with the reasons behind each.*
 |---|---|---|---|
 | `factory.bas` | one contract (v2) | treasury address, registration fee, both fixed by `Initialize` for the factory's life | **no owner exists**: v2 stores none and has no setter, so nothing can change the treasury or the fee, and there is nothing to renounce (MT-J15(b), 2026-09-11) |
 | `social.bas` | one contract | none | no role exists |
-| `founders.bas` | one contract (v2: a reward pool per asset) | name, description, image, price, supply, reserve, share, market fee, treasury (MT-J16: "DMZ Founders Pass", the description approved for v2, the operator's image, 1 DERO, 20 editions, 4 reserved, share 10,000 bps (2026-09-15: all of the trading and swap fees, at least 5% per registered pass), market fee 250 bps) | no owner; no function changes any of them after install |
+| `founders.bas` | one contract (v2: a reward pool per asset) | name, description, image, price, supply, reserve, share, market fee, treasury (MT-J16: "DMZ Founders Pass", the description approved for v2, the operator's image, 1 DERO, 20 editions, 4 reserved, share 10,000 bps (2026-09-15: all of the trading fees, at least 5% per registered pass), market fee 250 bps) | no owner; no function changes any of them after install |
 | `chat.bas` | one contract | treasury, fee per message, maximum length | fixed at install |
 | `rate.bas` | one contract, community sentiment | treasury, fee per vote: 10,000 (0.1 DERO, `-rate-fee`), paid to the treasury | fixed at install; no owner, moderator or setter; a vote is changed or cleared only by its own voter |
 | `htlc.bas` | one contract (v3), the Monero swap's DERO leg | `w1min` and `w2min`, the least t1 − lock height and t2 − t1 (400 each, from the Monero profile), and `g2`, the Punish window: 4,800 blocks (24 h), the operator's answer to MT-J13 on 2026-09-12 | fixed at install; no owner, admin, fee or update path |
@@ -148,7 +148,7 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
      -w0 127.0.0.1:10103 -w2 127.0.0.1:10104 ^
      -app <an empty scratch directory> -regfee 10000 ^
      -pass-name "DMZ Founders Pass" -pass-image "<the operator's image URL (https), supplied before launch>" ^
-     -pass-descr "Register a pass for a fixed share of DMZ's trading and swap fees, paid in the asset each fee was taken in: DERO and DERO tokens through this contract, XMR and ZEC by the treasury's bot. The bot makes each payment; no contract forces it." ^
+     -pass-descr "Register a pass for a fixed share of DMZ's trading fees, paid in the asset each fee was taken in: DERO, wXMR, wZEC and DERO tokens, deposited into this contract by the treasury's bot. The bot makes each deposit; no contract forces it." ^
      -pass-price 100000 -pass-max 20 -pass-reserve 4 -pass-share 10000 -pass-mfee 250 ^
      -swap-wmin 1600 -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 4800
    ```
@@ -171,7 +171,7 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
      page read as a reply (X-27).
    - **Prices are atomic units** (1 DERO = 100,000). MT-J16's "1 DERO" is `-pass-price 100000`; `-pass-price 1`
      would sell the pass for 0.00001 DERO, for ever. `-pass-reserve` is at most `-pass-max / 5`: 4 of 20, the
-     operator's answer of 2026-09-13. The description is the one approved for founders.bas v2 (236 of 240 bytes).
+     operator's answer of 2026-09-13. The description is the one the operator approved for founders.bas v2 on 2026-09-15 (234 of 240 bytes).
    - **`-pass-image` is the URL the operator supplies before launch.** It is written once, at install, and no
      function can add or change it: an empty value installs a pass with no image for good. The install attaches no
      DERO (founders.bas v2 refuses any), and the 4 reserved editions are minted to the `-w0` wallet.
@@ -269,8 +269,8 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
       `v` is not 2. It sends no `PayBatch` (v1's): each position's `Claim` is sent from the app, by its holder or
       by anyone.
     - It makes no XMR or ZEC payment and takes no Monero or Zcash node: the addresses a pass stores with `SetXmr` /
-      `SetZec` are data only, and nothing reads them. The wrapped wXMR and wZEC are DERO tokens, so their fees are
-      claimed and deposited like any other asset's.
+      `SetZec` are data only; nothing pays them, and the app only shows a holder their own. The wrapped wXMR and wZEC
+      are DERO tokens, so their fees are claimed and deposited like any other asset's.
     - Its calls' fees, computed from the code (the rehearsal ran it only as a dry run, so none is measured):
       - `ClaimFees` and `Deposit` go through `simrpc.Send`, which pays the node's gas estimate plus 200 atomic units
         (`tools/treasurybot/chain.go:34`, `:41`; `tools/simrpc/simrpc.go:334`).

@@ -229,7 +229,7 @@ var roleTable = []kindSpec{
 		// receives Mint proceeds, and every number is written by InitializePrivate alone. Each row reads its value
 		// from the contract's storage. v1's minhst floor is gone, and no row looks for it.
 		Kind:  "founders",
-		About: "no owner (v2): the treasury receives mint proceeds; each registered position claims its share of every deposit in the asset deposited; holders' XMR and ZEC payout addresses are data only: nothing reads or pays them",
+		About: "no owner (v2): the treasury receives mint proceeds; each registered position claims its share of every deposit in the asset deposited; holders' XMR and ZEC payout addresses are data only: no function reads them and nothing pays them; the app only shows a holder their own",
 		Roles: []roleSpec{
 			{
 				Role: "creator", Keys: []string{"creator"}, Policy: pInert, Writers: []string{"InitializePrivate"},
@@ -264,7 +264,7 @@ var roleTable = []kindSpec{
 						}
 					}
 					return fmt.Sprintf("%d Monero, %d Zcash", xm, zc), false,
-						"data only: each written by its own holder (SetXmr, SetZec) and read by no function; nothing pays to them, neither a contract nor the treasury's bot"
+						"data only: each written by its own holder (SetXmr, SetZec) and read by no function; nothing pays them, neither a contract nor the treasury's bot, and the app only shows a holder their own"
 				},
 			},
 			initGuard("founders.bas", 56, guardText, 95, `STORE("initd", 1)`, "InitializePrivate"),

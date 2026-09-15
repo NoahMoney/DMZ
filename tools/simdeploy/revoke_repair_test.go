@@ -129,13 +129,14 @@ func TestCheckHashFlagsRefusesARevocationThatMatchesNothing(t *testing.T) {
 // UX-02: the compiled-in Founders Pass description goes on chain permanently. tests/templates_test.go checks the
 // same two substrings from outside the package; this one holds the sentence itself against what v2 and the bot do.
 func TestFoundersPassDescriptionPromisesOnlyWhatTheContractsDo(t *testing.T) {
-	for _, s := range []string{"every fee", "paid in DERO", "do not reach holders"} {
+	// the swaps are gone, and the bot's XMR and ZEC payments with them
+	for _, s := range []string{"every fee", "paid in DERO", "do not reach holders", "swap", "XMR and ZEC by"} {
 		if strings.Contains(passDescrDefault, s) {
 			t.Errorf("the default description still says %q: %s", s, passDescrDefault)
 		}
 	}
-	// v2 pays each asset in itself (per-asset pools), and the XMR/ZEC payments are the bot's, forced by nothing
-	for _, s := range []string{"paid in the asset each fee was taken in", "XMR and ZEC by the treasury's bot", "no contract forces it"} {
+	// v2 pays each asset in itself (per-asset pools), and every deposit is the bot's, forced by nothing
+	for _, s := range []string{"paid in the asset each fee was taken in", "deposited into this contract by the treasury's bot", "no contract forces it"} {
 		if !strings.Contains(passDescrDefault, s) {
 			t.Errorf("the default description does not say %q: %s", s, passDescrDefault)
 		}

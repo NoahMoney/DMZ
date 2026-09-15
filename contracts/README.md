@@ -16,7 +16,7 @@ transaction. It moves a little with the install arguments, so each figure names 
 | `board.bas` v3 | 6,602 | 2,611 | 2,652 | — | `board_test.go`, `board_v3_test.go` |
 | `chat.bas` | 2,401 | 1,146 | 1,315–1,320 (fee and `maxlen` vary) | — | `chat_test.go` |
 | `factory.bas` v2 | 3,452 | 1,443 | 1,680 (`regfee` 10,000) | — | `registry_test.go` |
-| `founders.bas` v2 (adopted 2026-09-13) | 15,884 | 9,250 | 10,239 at the mainnet shape; 11,144 with every header at its maximum | 3,765,000 | `founders_test.go` `TestFoundersV2InstallGas` |
+| `founders.bas` v2 (adopted 2026-09-13) | 15,884 | 9,250 | 10,235 at the mainnet shape; 11,144 with every header at its maximum | 3,765,000 | `founders_test.go` `TestFoundersV2InstallGas` |
 | `htlc.bas` v3 | 11,206 | 5,104 | 5,168–5,180: 5,169 at `w1min` 2, `w2min` 1, `g2` 50; 5,177 at 400, 400, 2,400 | — | `htlc_test.go`, `htlc_v3_test.go` |
 | `launch.bas` | 17,074 | 15,257 | 15,842–15,891; **16,915** with every metadata field at its maximum | 1,193,400–1,517,200 | `launch_test.go`; `zzquote_test.go` `TestLaunchMaxMetadataInstallGas` |
 | `nfa.bas` | 24,234 | 14,937 | 15,874–15,877 DERO-quoted; 15,940–15,942 wrapped | 1,045,800 DERO-quoted; 1,066,600 wrapped | `nfa_test.go` |
@@ -272,7 +272,8 @@ rulings of that day:
 - every fee is taken in the asset being traded, and the passes are paid in that asset, never converted to DERO;
 - the 0.5 % swap fees were to be taken in XMR and ZEC off the DERO chain, and the treasury's bot was to pay holders
   their share to the addresses stored with `SetXmr` and `SetZec`. The operator's ruling of 2026-09-15 removed the
-  swaps, that fee and those payments: the stored addresses are data only, and this contract pays neither coin;
+  swaps, that fee and those payments. The addresses remain in the contract, which is fixed at install, as data
+  only: nothing pays them, and the app only shows a holder their own. This contract pays neither coin;
 - the bot deposits with any number of registered passes (MT-J14). While none is registered, it holds what it owes
   and deposits it after one registers (`tools/treasurybot`);
 - 20 editions, 4 reserved.
@@ -361,9 +362,10 @@ stranger can grow.
 - Replacing is allowed. An empty string clears, and a holder who has withdrawn everything can still clear, but no
   longer set.
 - **A stored address is public on chain for good, so a fresh subaddress is the one to store.**
-- The contract pays neither coin. It records where the treasury's bot should pay the holders' `share` of the XMR and
-  ZEC swap fees, proportional to registered passes (`hu_<addr>` over `hst`). The bot makes every such payment, and no
-  contract forces it.
+- The contract pays neither coin, and no function reads `xm_` or `zc_`. Nothing pays the stored addresses: they were
+  for the treasury bot's share of the XMR and ZEC swap fees, which went with the atomic swaps (2026-09-15). The app
+  only shows a holder their own. `SetXmr`, `SetZec` and the keys remain because the contract is fixed at install; a
+  stored address is data only.
 - Tests: `TestFoundersV2PayoutAddresses`.
 
 **No owner, no setter, no upgrade.**
@@ -391,7 +393,7 @@ Invariants, tested after every fuzz step:
 - `hst` = the sum of the open positions' units;
 - pass units in wallets = `minted − hst − listed`.
 
-**Install.** Storage gas is 10,239 at the mainnet shape (the approved 236-byte description, no image) and 11,144 with
+**Install.** Storage gas is 10,235 at the mainnet shape (the approved 234-byte description, no image) and 11,144 with
 every header at its maximum, against the 20,000 cap. Compute gas is 3,765,000 (`TestFoundersV2InstallGas`).
 
 **Tests:** `tests/founders_test.go` (v1's tests went with v1; the v2 names are kept):
