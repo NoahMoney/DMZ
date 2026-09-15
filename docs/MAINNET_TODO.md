@@ -42,12 +42,12 @@ they win.
 | Y0-3 | A map of every swap surface and dependency, and an ordered removal plan that respects the branches in flight (workflow `dmz-swap-removal-map`) | coordinator | wip | the plan, with its critic's corrections folded in |
 | **Y1** | **The UI/UX pass (the operator's 44-point brief)** | | | |
 | Y1-1 | Brand: the wordmark as a vector, the 16 px mark, the favicon, `docs/brand/` | brand | **done** `4ec9bfb` | — |
-| Y1-2 | Community sentiment: `rate.bas`, one standing vote per address and market, counts shown and percentages only from 5 votes, never a verdict | sentiment | merging | DVM, node, UI and verifydeploy green on main |
-| Y1-3 | The market page and charts: 1m–1W and ALL from real history, responsive, keyboard crosshair, extreme-price formatting, the trade Review block | ui-market | rework (swaps out) | merged, and its UI pass read |
+| Y1-2 | Community sentiment: `rate.bas`, one standing vote per address and market, counts shown and percentages only from 5 votes, never a verdict | sentiment | **done** `79d6f81` (DVM suite 288 s green on main) | DVM, node, UI and verifydeploy green on main |
+| Y1-3 | The market page and charts: 1m–1W and ALL from real history, responsive, keyboard crosshair, extreme-price formatting, the trade Review block | ui-market | **done** `9f75603` (swap offers removed; a wrapped side is marked 1:1) | merged, and its UI pass read |
 | Y1-4 | Discovery: the cards, pairs, the sections from real metrics, search, the scaled list, navigation, the warnings audit | ui-discovery | wip | merged, UI pass read, warnings table recorded |
 | Y1-5 | Deposit & Withdraw through the wrap only (the hub "move"), and a tracker of vault deposits and withdrawals read from the contract | ui-swaps (redirected) | wip | merged; the swap screens gone |
-| Y1-6 | Create → Configure → Review → Pay → Launch for coins, pools, holder NFTs and NFAs | ui-launch | wip | merged; one coin launched end to end through it |
-| Y1-7 | On-chain profile docs (logos, links, the pass image): read only through the user's node, no SVG, no third-party fetch | profile-docs | wip | merged; the pass image encoded and committed |
+| Y1-6 | Create → Configure → Review → Pay → Launch for coins, pools, holder NFTs and NFAs | ui-launch | **done** `9e43441` (a new coin defaults to XMR, wrapped 1:1, where vaults exist) | merged; one coin launched end to end through it |
+| Y1-7 | On-chain profile docs (logos, links, the pass image): read only through the user's node, no SVG, no third-party fetch | profile-docs | **done** `ff7448f` (the pass image doc is 18,818 storage gas, 0.19 DERO) | merged; the pass image encoded and committed |
 | Y1-8 | The promotion auction, `promo.bas`: the bid asset fixed at install (DERO or a wrapped asset), K slots per epoch, outbid refunds in the same call, proceeds claimable only to the treasury | promo | wip | DVM, UI and verifydeploy green |
 | Y1-9 | Scale: tiered refresh, incremental registry reads, bounded memory, backoff; measured at 50–5,000 markets | perf-scale | wip | `docs/PERFORMANCE.md` before and after, merged |
 | Y1-10 | One transaction path for the new contracts: a verified-contract allowlist entry in `app.js` for `promo` and `rate`, instead of each screen's own path | coordinator, after Y1-2, Y1-8, Y1-9 | open | votes and bids sent through `V.app.tx` with its gates |
