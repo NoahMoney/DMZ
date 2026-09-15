@@ -97,6 +97,7 @@ var (
 const passDescrDefault = "Register a pass for a fixed share of DMZ's trading fees, paid in the asset each fee was taken in: " +
 	"DERO, wXMR, wZEC and DERO tokens, deposited into this contract by the treasury's bot. The bot makes each " +
 	"deposit; no contract forces it."
+
 // errNoXMRVault: -promo-quote is unset and the record has no current XMR vault. simdeploy then installs everything else
 // and leaves promo.bas out (the record keeps "promo": ""), since the runbook installs the vault first; an explicit
 // -promo-quote that cannot be used stops the run instead.
