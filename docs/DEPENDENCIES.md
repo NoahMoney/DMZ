@@ -216,7 +216,7 @@ revisions of the same fork.
 | Module | Version | Pinned | Known vulnerabilities, reachability (govulncheck, source mode, every package except genesistx and netwallet) |
 |---|---|---|---|
 | filippo.io/edwards25519 | v1.1.1 | go.sum | none. GO-2026-4503 (invalid result or undefined behaviour) affects versions below v1.1.1 |
-| github.com/decred/dcrd/dcrec/secp256k1/v4 | v4.3.0 (marked `// indirect` but imported by `zecswap/sign.go`) | go.sum | none |
+| github.com/decred/dcrd/dcrec/secp256k1/v4 | v4.3.0 (imported by `zcashtx/sign.go` and `vaultsigner/zcashvault`, the vault's Zcash signer and its BIP 32 derivation; and by `zecswap/sign.go` until the swaps are removed) | go.sum | none |
 | github.com/decred/dcrd/crypto/blake256 | v1.0.1 | go.sum | none |
 | golang.org/x/crypto | v0.33.0 | go.sum | 21 apply to the version, all in ssh (with ssh/agent and ssh/knownhosts) or openpgp. The tools compile only `ripemd160` and `sha3`: **not reachable** |
 | golang.org/x/net | v0.21.0 | go.sum | 14 apply. The standard library vendors its own copy; this module's packages are not compiled: **not reachable** |

@@ -61,12 +61,18 @@ var (
 	fund     = flag.String("fund", "", "send this many DERO units from the funder wallet to owner, user and signers")
 )
 
-const (
-	owner         = "127.0.0.1:30007"
-	treasury      = "127.0.0.1:30002"
-	user          = "127.0.0.1:30006"
-	funderDefault = "127.0.0.1:30001"
+const funderDefault = "127.0.0.1:30001"
+
+// The wallets a run uses. The defaults are the long-standing ones; a run that shares the simulator with another agent
+// names its own (the Zcash vault run uses user 30021).
+var (
+	ownerF    = flag.String("owner", "127.0.0.1:30007", "owner (deployer) wallet")
+	treasuryF = flag.String("treasury", "127.0.0.1:30002", "treasury wallet")
+	userF     = flag.String("user", "127.0.0.1:30006", "user wallet (registers, burns, reclaims)")
+	viewkey   = flag.String("viewkey", "", "k signer wallets vote SetViewKey with this string (the vault's published foreign viewing key or descriptor)")
 )
+
+var owner, treasury, user string
 
 var signers = []string{"127.0.0.1:30003", "127.0.0.1:30004", "127.0.0.1:30005"}
 
@@ -96,8 +102,21 @@ func saveSim(f simFile) {
 
 func main() {
 	flag.Parse()
+	owner, treasury, user = *ownerF, *treasuryF, *userF
 	c := &rpc.Client{Daemon: *daemon, Timeout: 180 * time.Second}
 	switch {
+	case *viewkey != "":
+		// k signers publish the foreign viewing key (for a transparent Zcash vault, its descriptor), which is what lets
+		// anyone derive every vault address and sum the reserve
+		if len(*vault) != 64 {
+			log.Fatal("-vault required")
+		}
+		for _, w := range signers[:2] {
+			a := rpc.Address(w)
+			txid, _, _ := c.Send(w, a, "", *vault, nil, []rpc.Arg{rpc.S("entrypoint", "SetViewKey"), rpc.S("key", *viewkey)})
+			fmt.Printf("SetViewKey from %s, tx %s\n", a[:16], txid[:8])
+		}
+		fmt.Printf("viewkey = %q\n", c.GetSC(*vault, false).Str("viewkey"))
 	case *paying >= 0:
 		// One signer says on chain that it is about to send the coins. Veto then refuses for 2000 blocks, so the
 		// quorum cannot return the units for a payment already in flight.

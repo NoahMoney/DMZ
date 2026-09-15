@@ -161,10 +161,24 @@ Pipeline specification §C1–C6), `research/wrapper/RUNBOOKS.md`, `contracts/RE
 
 ### 5.1 Decisions already taken (do not reopen without evidence)
 
-- **Zcash:** Orchard-only unified address (no transparent receiver); spend authority split with re-randomized
-  FROST (ZIP 312; `research/crosschain/poc/frost-zec` demonstrates 2-of-3 RedPallas); the full viewing key is
-  published for proof of reserves; confirmations 10 on testnet/mainnet (Zebra's 100-block reorg limit is the
-  finality reference).
+- **Zcash (the coordinator's decision of 2026-09-15, which replaces Orchard + FROST for launch):** the reserve is
+  held in **transparent pay-to-script-hash k-of-n multisig** (`OP_k <keys> OP_n OP_CHECKMULTISIG`, the n compressed
+  keys sorted, BIP 67). Each signer holds its own BIP 32 seed and publishes one account key; every vault address is
+  derived from the n account keys by non-hardened steps, so the signers, the app and any auditor derive the same
+  P2SH address for vault index j (`tools/vaultsigner/zcashvault`, §5.4).
+  - *Why:* it is the most battle-tested threshold custody there is; it reuses the ZIP 244-vector-checked v5
+    transparent builder and ECDSA signer in Go (`tools/zcashtx`, copied from `tools/zecswap` at c58e3e3) with no new
+    dependency; anyone can audit the reserve on chain from the descriptor the signers publish under `viewkey`; and
+    its privacy equals that of the transparent ZEC swaps DMZ already ran.
+  - *What it costs:* deposits and the reserve are **public** — every deposit address, amount and time, and every
+    withdrawal, is visible on the Zcash chain and tied to the vault by the published descriptor; **withdrawal
+    destinations must be transparent addresses** (`t1…`/`t3…`; a shielded or unified destination is vetoed and the
+    burn returned); and each release's ZIP 317 network fee comes out of the withdrawal, because what leaves the
+    reserve must be exactly what `Released` removes from `sup`.
+  - *Finality:* Zebra's 100-block consensus reorganisation limit: a deposit is minted, and a payment certified with
+    `Released`, only at or below tip − 100, read from every configured node.
+  - *The upgrade:* Orchard with re-randomized FROST (ZIP 312; `research/crosschain/poc/frost-zec` demonstrates 2-of-3
+    RedPallas) remains the documented path to shielded custody. It needs a new vault and a migration of the reserve.
 - **Monero:** native wallet-rpc multisig k-of-n at launch (experimental flag, all signers under contract, treated
   as trusted-not-malicious, low cap), migrating to FROSTLASS / FCMP++ multisig when released; per-index
   subaddresses as deposit addresses; confirmations 10; the private view key is published.
@@ -269,26 +283,65 @@ rather than guess: `Height()`, `Finalized()`, `Deposits()`, `Verify(d Deposit)`,
 8. Known limits to write into the trust statement: multisig is experimental upstream; the 2021 multisig
    vulnerabilities; the FCMP++ migration will require a new vault (funds move to a new multisig).
 
-### 5.4 Zcash backend, step by step
+### 5.4 Zcash backend, as built (transparent P2SH k-of-n, 2026-09-15)
 
-1. Nodes: Zebra (testnet) plus `lightwalletd`, or zebra's own indexing; script under `tools/foreign/zcash/`.
-2. Scanning: a Rust sidecar (`tools/foreign/zcash/scan`, using `zcash_client_backend` and the published
-   **full viewing key**) that exposes over a loopback HTTP/JSON interface: `height`, `finalized` (tip − 100),
-   `address(index)` (diversified Orchard receiver in a unified address with only that receiver), `deposits`
-   (notes received per diversifier index with txid, height, value in zatoshi), `reserve` (unspent notes). The Go
-   backend calls it; the sidecar holds no spending material.
-3. Spending: the FROST participants are the signers; extend `research/crosschain/poc/frost-zec` into
-   `tools/foreign/zcash/frost` (reddsa `frost` + rerandomized) as a second sidecar that holds one key share per
-   signer and performs the two-round signing over a transaction built deterministically by the proposer with
-   `zcash_primitives` (Orchard bundle). The DKG ceremony (ZIP 312 / frost-core DKG) is a runbook; verify the
-   group key equals the published FVK's `ak`.
-4. `Release`: proposer builds the transaction (inputs: oldest notes first; change to the vault's own address;
-   fee per ZIP 317), the FROST rounds produce the spend authorizations, the proposer broadcasts; idempotency by
-   a memo `dmz:j=<j>` in the output (the memo is visible to the FVK holders only) and a local ledger.
-5. Tests: regtest (Zebra regtest or zcashd regtest) integration behind `-tags zcash`; golden vectors for address
-   derivation (index → unified address) that the Go side checks against the Rust side (DESIGN §C6
-   second-language re-derivation); a reorg test that mines a competing chain below the confirmation depth.
-6. Known limits: re-randomized FROST is outside the NCC audit; wallet integration of FROST is young.
+`vaultsigner -backend zcash -zcash-config <file> -coord <coordination config>`; code in `tools/vaultsigner/zcashvault`
+(the backend) and `tools/zcashtx` (transactions, ZIP 244, ZIP 317, the node client), wired by
+`tools/vaultsigner/zcash_backend.go`; ceremony and audit tool `tools/zcashkey`. Evidence:
+`research/regtest/vault-zcash-e2e.log`.
+
+1. **Keys.** `zcashkey -new` writes a 32-byte seed, owner-only (a protected DACL on Windows), refusing any path
+   inside a git work tree; it prints only the account key `m/44'/coin'/0'` (coin 133 mainnet, 1 test networks).
+   Vault address j is `account/branch/0/j` under every signer's key, the change address `account/branch/1/0`, with
+   `branch` the vault scid's top 31 bits, so two vaults never share an address. BIP 32 is checked against its test
+   vectors 1–5; derivation is decred secp256k1, the module's existing dependency.
+2. **Descriptor.** Network, k and the sorted account keys; `NewDescriptor` refuses k ≥ n, k < 2, more than 15 keys,
+   an xprv, a key of the other network, and a repeated key (one signer would fill two CHECKMULTISIG slots). Its text
+   (366 characters for 2-of-3) is published with `SetViewKey`; `zcashkey -audit` sums the reserve from it.
+3. **Nodes.** One or more zebrad (or zcashd) JSON-RPC nodes. The tip is the lowest any node reports; the finalized
+   height is that tip less 100, and every node must name the same block there, or nothing is read. `Deposits` are
+   every output ever paid to an attested index address (spent or not — the vault may spend a deposit before minting
+   it) in blocks at or below the finalized height, reported identically by every node; an index whose attested
+   address is not the derived one is left out and named. `Verify` re-reads the transaction from every node. `Reserve`
+   is the lowest total any node shows (a lying node can cause a halt vote, never hide a shortfall).
+4. **Release, the same transaction from every signer.** v5; `nLockTime = j` with every input final (a marker, found
+   again on the chain after a lost ledger); expiry `epoch + 100 + 10 + 40`, where the epoch is the finalized height
+   rounded down to 10 blocks; input 0 is the **anchor** — the unspent change output of the vault's previous release,
+   or, before the first, the oldest reserve output — then the reserve's other finalized outputs largest first (an
+   output worth less than its own ZIP 317 cost is never selected; at most 200 inputs); output 0 pays the destination
+   `w_<j>_v` less ZIP 317's fee for the transaction with maximum-size signatures, output 1 returns the rest to the
+   change address (at least 0.0001 ZEC, so the change chain never ends). Because every release spends the change
+   chain's head, any two releases conflict directly or through the chain: **Zcash consensus**, not this code, refuses
+   the second payment.
+5. **Signing.** Each signer builds the transaction itself, checks it against the contract's withdrawal
+   (`checkRelease`: destination, amount less the fee, the exact fee, change to the vault, the marker, final
+   sequences, every input a vault address), records it in its release ledger (fsync, rename) **before** signing, signs
+   its inputs (RFC 6979, low-S), and publishes the signatures in the round `zcashvault/<vault>/<j>/<txid>`. A signature
+   counts only if it verifies under the named signer's key against this signer's own digest; with k, any signer
+   assembles, re-checks every input as CHECKMULTISIG would, records the signed transaction, publishes it in
+   `…/<j>/final` and broadcasts to every node. A signer signs a different transaction for j only when the earlier one
+   provably cannot be mined (its expiry is final, or an input is spent by a final transaction) or the two share an
+   input directly or through the change chain.
+6. **VerifyRelease** certifies only a transaction every node shows mined in the same block at or below the finalized
+   height, with k valid signatures on every input and `checkRelease` holding.
+7. **Tests.** `go test ./zcashtx ./vaultsigner/...`: the ZIP 244 vectors and zebrad-captured v5/v6 transactions;
+   BIP 32 vectors 1–5; descriptor, redeem-script and CHECKMULTISIG checks; construction determinism, selection and
+   every signing refusal; 2-of-3 releases, an offline signer, forged and replayed signatures, a lost ledger, a lost
+   broadcast, an expired release, a replacement through the change chain, a restart after signing, lying and dead
+   nodes, and deposits that must not be reported — on an in-memory chain that validates every spend with its own
+   script check. The live run is `TestRegtestEndToEnd` (`ZCASHVAULT_REGTEST=1`, zebrad regtest plus the DERO
+   simulator, three daemons).
+8. **Still open before real funds:** an external review of `tools/vaultsigner/zcashvault` and `tools/zcashtx`; the
+   signer ceremony on separate machines (`docs/SIGNER_RUNBOOK.md` §3–§4); a pilot on the Zcash testnet through
+   `-coord` with at least two nodes per signer; the reserve's consolidation (a withdrawal needing more than 200 inputs
+   waits; nothing yet merges small outputs); refunding a deposit below `mindep` (transparent senders are visible, so
+   `Refunded` could return it, but no daemon does); and the header gate (`tools/zecspv`) is not used, so the nodes are
+   trusted for work.
+
+The Orchard + FROST plan it replaces for launch is kept as the upgrade path: a Rust scanning sidecar with the
+published full viewing key, FROST participants with one share each (reddsa `frost` + rerandomized, ZIP 312), a DKG
+ceremony, and `Release` with a `dmz:j=<j>` memo. Re-randomized FROST is outside the NCC audit and wallet integration
+of FROST is young; that is why it waits.
 
 ### 5.5 Daemon and contract work that goes with the backends
 
@@ -303,9 +356,10 @@ rather than guess: `Height()`, `Finalized()`, `Deposits()`, `Verify(d Deposit)`,
   viewing-key publication (`SetViewKey`) have all shipped in v3. Still open (new template, tests first):
   `RequestDeposit` intents with expiry so a deposit is attributed to exactly one account (DESIGN §C2),
   encrypted destinations (S19), and `Compensate` (W6: a slashed bond goes to the treasury, so victims are never
-  made whole). Each is a backlog item with its own test file — but `vault.bas` is 18,895 bytes and installs for
-  19,229 of the 20,000 storage gas one transaction may spend, so there are 771 units of headroom, comments
-  included. Any addition must buy its bytes back somewhere, or the wrapper splits into two contracts.
+  made whole). Each is a backlog item with its own test file — but `vault.bas` is 22,196 bytes on disk and
+  installs (canonicalised by `tools/simvault`) for 16,392 of the 20,000 storage gas one transaction may spend
+  (measured 2026-09-15, `research/regtest/vault-zcash-e2e.log`), so an addition has about 3,600 units of headroom.
+  Measure again after any change; past the limit the wrapper splits into two contracts.
 - Formal model: update `research/wrapper/formal/` (TLA+) for every new vote family; run TLC.
 
 ### 5.6 The standard for "flawless"

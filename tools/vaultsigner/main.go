@@ -7,9 +7,9 @@
 //
 // Backends: `sim` reads and appends to a JSON file. It simulates a foreign chain, it does not observe one — a
 // deposit in it is a line somebody typed and a release in it is a line this signer typed — so it is refused on
-// every DERO network but the simulator. The real backends (zcash, monero, solana) implement the same interface
-// and none of them is built, so there is no configuration in which a testnet or mainnet vault can be signed for
-// today. -backend has no default: which of those two a signer is running is the operator's statement to make,
+// every DERO network but the simulator. The real backends implement the same interface: zcash is built
+// (transparent P2SH k-of-n, zcash_backend.go and ./zcashvault, -zcash-config); monero and solana are not.
+// -backend has no default: which backend a signer is running is the operator's statement to make,
 // not this tool's to assume. Release MUST be idempotent for a given j (look the payment up before paying):
 // the signer records an intent before it pays and may call Release again after a crash.
 //
@@ -42,7 +42,7 @@ var (
 	daemon    = flag.String("daemon", "127.0.0.1:20000", "daemon rpc")
 	wallet    = flag.String("wallet", "127.0.0.1:30003", "this signer's wallet rpc")
 	vault     = flag.String("vault", "", "vault.bas scid")
-	backend   = flag.String("backend", "", "required, no default: the foreign backend. sim is a JSON file and is accepted only with -network simulator; zcash, monero and solana are planned and exit")
+	backend   = flag.String("backend", "", "required, no default: the foreign backend. sim is a JSON file and is accepted only with -network simulator; zcash is transparent P2SH k-of-n (needs -zcash-config); monero and solana are planned and exit")
 	network   = flag.String("network", "simulator", "DERO network the vault lives on: simulator, testnet, mainnet (selects the foreign-chain parameters)")
 	simPath   = flag.String("sim", "../research/crosschain/poc/sim-foreign.json", "sim backend file")
 	statePath = flag.String("state", "", "local vote memory and release intents (default: vaultsigner-<vault prefix>-<signer suffix>.json)")
@@ -138,6 +138,9 @@ func pickBackend(network, backend string, confs *int64, simPath string) (Backend
 		p := params[backend]
 		if *confs == 0 || (network == "mainnet" && *confs < p.Confirmations) {
 			*confs = p.Confirmations // the network table is the floor on mainnet, the default everywhere
+		}
+		if backend == "zcash" { // transparent P2SH k-of-n: zcash_backend.go, tools/vaultsigner/zcashvault
+			return newZcashBackend(network)
 		}
 		return nil, fmt.Errorf("backend %q (%s, rpc %s, %d confirmations) is not implemented yet: docs/HANDOVER.md section 5 is the build plan", backend, p.Name, p.RPC, p.Confirmations)
 	}

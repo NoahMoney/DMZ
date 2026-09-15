@@ -1,0 +1,598 @@
+2026-09-15T10:42:21Z == wrapped ZEC end to end: zebrad regtest http://127.0.0.1:28232/, DERO simulator 127.0.0.1:20000, 2-of-3 transparent P2SH
+2026-09-15T10:42:21Z zcash: chain regtest (genesis is regtest's), height 4922, next block branch 37a5165b
+2026-09-15T10:42:21Z funder tmMEcknnJ2wymgMGpn8hNAH89iWzKMJiXsP holds 404965000 zatoshi in mature outputs (a regtest harness key; never printed)
+2026-09-15T10:42:21Z funder tmJ4QeGg24AEG83Jb2RMJJGmrfJYygNnUCZ holds 149990000 zatoshi in mature outputs (a regtest harness key; never printed)
+2026-09-15T10:42:21Z signer 1: seed written owner-only outside the repository (never printed); account key tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377
+2026-09-15T10:42:21Z signer 2: seed written owner-only outside the repository (never printed); account key tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4
+2026-09-15T10:42:21Z signer 3: seed written owner-only outside the repository (never printed); account key tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:46:12Z   simvault.exe: vault installed: ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb (height 16466, storage gas 16392)
+2026-09-15T10:46:12Z   simvault.exe: signer deto1qy2nxgts7wd added, tx 98a147da…
+2026-09-15T10:46:12Z   simvault.exe: signer deto1qyzj2ldw7cj added, tx ca785147…
+2026-09-15T10:46:12Z   simvault.exe: signer deto1qy3kdan2gr7 added, tx 75f8ca23…
+2026-09-15T10:46:12Z   simvault.exe: bond 20000 from deto1qy2nxgts7wd…, tx be6948a1…
+2026-09-15T10:46:12Z   simvault.exe: bond 20000 from deto1qyzj2ldw7cj…, tx 3e81aee3…
+2026-09-15T10:46:12Z   simvault.exe: bond 20000 from deto1qy3kdan2gr7…, tx 2b9dc708…
+2026-09-15T10:46:12Z   simvault.exe: sealed, tx 68b2f130…
+2026-09-15T10:46:12Z   simvault.exe: user deto1qy5gpycungn… registered (index 0), tx 4eac5450…
+2026-09-15T10:46:12Z   simvault.exe: sim foreign chain reset at height 100: <tmp>\sim.json
+2026-09-15T10:46:12Z   simvault.exe: VAULT=ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:46:12Z vault ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb installed (2-of-3; cap 1000 ZEC, capratio 2e6, minburn 0.01 ZEC, wfee 0.0001 ZEC, mindep 0.001 ZEC)
+2026-09-15T10:46:12Z descriptor: dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:46:12Z change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4
+2026-09-15T10:47:05Z   simvault.exe: SetViewKey from deto1qy2nxgts7wd, tx 738ce884
+2026-09-15T10:47:05Z   simvault.exe: SetViewKey from deto1qyzj2ldw7cj, tx e9bb5812
+2026-09-15T10:47:05Z   simvault.exe: viewkey = "dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5"
+2026-09-15T10:47:07Z SetViewKey: the descriptor is published on chain under viewkey (366 characters); anyone can derive every address
+2026-09-15T10:47:12Z -- attest: signers [1 2 3] run one pass each
+2026-09-15T10:47:52Z   signer 1: 2026/09/15 20:47:14 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:47:52Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:47:52Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:47:52Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:47:52Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:47:52Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:47:52Z   signer 1: 20:47:39 Attest [{j U 0} {addr S t2SmQQTRqD3BeKiAMJBuZYz82L4rq6pufFq}] tx 15668bf8… height 16489
+2026-09-15T10:47:52Z   signer 1: 20:47:47 vault: indexes 1, supply 0 / cap 100000000000, withdrawals 0, halted false (lapses 0), reserve 0 (in flight 0)
+2026-09-15T10:48:16Z   signer 2: 2026/09/15 20:47:52 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:48:16Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:48:16Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:48:16Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:48:16Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:48:16Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:48:16Z   signer 2: 20:48:15 Attest [{j U 0} {addr S t2SmQQTRqD3BeKiAMJBuZYz82L4rq6pufFq}] tx 40fa322c… height 16491
+2026-09-15T10:48:16Z   signer 2: 20:48:15 vault: indexes 1, supply 0 / cap 100000000000, withdrawals 0, halted false (lapses 0), reserve 0 (in flight 0)
+2026-09-15T10:48:19Z   signer 3: 2026/09/15 20:48:19 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:48:19Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:48:19Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:48:19Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:48:19Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:48:19Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:48:19Z   signer 3: 20:48:19 vault: indexes 1, supply 0 / cap 100000000000, withdrawals 0, halted false (lapses 0), reserve 0 (in flight 0)
+2026-09-15T10:48:19Z index 0 attested by the quorum: t2SmQQTRqD3BeKiAMJBuZYz82L4rq6pufFq (the address every party derives from the descriptor)
+2026-09-15T10:48:19Z zcash: deposit 6cf494eff13b6f1af7583003af73341ff2a9e068fb33ca032e79582e96889abf pays 20000000 zatoshi to index 0's address
+2026-09-15T10:49:45Z -- mint, round 1: signers [1 2 3] run one pass each
+2026-09-15T10:50:30Z   signer 1: 2026/09/15 20:49:59 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:50:30Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:50:30Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:50:30Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:50:30Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:50:30Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:50:30Z   signer 1: 20:50:25 Mint [{j U 0} {txid H 6cf494eff13b6f1af7583003af73341ff2a9e068fb33ca032e79582e96889abf} {vout U 0} {amount U 20000000}] tx a7ffc8fc… height 16498
+2026-09-15T10:50:30Z   signer 1: 20:50:25 vault: indexes 1, supply 0 / cap 100000000000, withdrawals 0, halted false (lapses 0), reserve 20000000 (in flight 0)
+2026-09-15T10:50:47Z   signer 2: 2026/09/15 20:50:30 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:50:47Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:50:47Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:50:47Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:50:47Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:50:47Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:50:47Z   signer 2: 20:50:47 Mint [{j U 0} {txid H 6cf494eff13b6f1af7583003af73341ff2a9e068fb33ca032e79582e96889abf} {vout U 0} {amount U 20000000}] tx 38f7e9a2… height 16500
+2026-09-15T10:50:47Z   signer 2: 20:50:47 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 0, halted false (lapses 0), reserve 20000000 (in flight 0)
+2026-09-15T10:50:47Z   signer 3: 2026/09/15 20:50:47 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:50:47Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:50:47Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:50:47Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:50:47Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:50:47Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:50:47Z   signer 3: 20:50:47 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 0, halted false (lapses 0), reserve 20000000 (in flight 0)
+2026-09-15T10:50:48Z minted: sup 20000000; mint_6cf494eff13b6f1a… closed at DERO height 16500
+2026-09-15T10:56:14Z   simvault.exe: burn 3000000 → tmDYKp5v6MX9F87m5ipU1c9Ufd1QYyAhtJf: tx ae12440c6e9ebd5f82d9ec02473cc14d8b5e96815a53ed8695082b767acee383 height 16517 gas 458200; wrapped balance 20000000 → 17000000
+2026-09-15T10:56:14Z burn: withdrawal 0, 3000000 wrapped units less the 10000 fee, to tmDYKp5v6MX9F87m5ipU1c9Ufd1QYyAhtJf
+2026-09-15T10:56:18Z -- withdrawal 0, round 1: signers [1 2 3] run one pass each
+2026-09-15T10:56:21Z   signer 1: 2026/09/15 20:56:21 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:21Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:21Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:21Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:56:21Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:21Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:56:21Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:21Z   signer 1: 20:56:21 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:21Z   signer 2: 2026/09/15 20:56:21 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:21Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:21Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:21Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:56:21Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:21Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:56:21Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:21Z   signer 2: 20:56:21 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:22Z   signer 3: 2026/09/15 20:56:21 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:22Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:22Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:22Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:56:22Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:22Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:56:22Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:22Z   signer 3: 20:56:22 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:22Z -- withdrawal 0, round 2: signers [1 2 3] run one pass each
+2026-09-15T10:56:22Z   signer 1: 2026/09/15 20:56:22 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:22Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:22Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:22Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:56:22Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:22Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:56:22Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:22Z   signer 1: 20:56:22 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:22Z   signer 2: 2026/09/15 20:56:22 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:22Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:22Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:22Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:56:22Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:22Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:56:22Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:22Z   signer 2: 20:56:22 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:23Z   signer 3: 2026/09/15 20:56:22 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:23Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:23Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:23Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:56:23Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:23Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:56:23Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:23Z   signer 3: 20:56:23 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:23Z -- withdrawal 0, round 3: signers [1 2 3] run one pass each
+2026-09-15T10:56:23Z   signer 1: 2026/09/15 20:56:23 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:23Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:23Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:23Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:56:23Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:23Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:56:23Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:23Z   signer 1: 20:56:23 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:23Z   signer 2: 2026/09/15 20:56:23 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:23Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:23Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:23Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:56:23Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:23Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:56:23Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:23Z   signer 2: 20:56:23 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:23Z   signer 3: 2026/09/15 20:56:23 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:23Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:23Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:23Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:56:23Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:23Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:56:23Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:23Z   signer 3: 20:56:23 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:23Z -- withdrawal 0, round 4: signers [1 2 3] run one pass each
+2026-09-15T10:56:23Z   signer 1: 2026/09/15 20:56:23 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:23Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:23Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:23Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:56:23Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:23Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:56:23Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:23Z   signer 1: 20:56:23 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:29Z   signer 2: 2026/09/15 20:56:23 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:29Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:29Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:29Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:56:29Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:29Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:56:29Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:29Z   signer 2: 20:56:29 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:30Z   signer 3: 2026/09/15 20:56:30 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:30Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:30Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:30Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:56:30Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:30Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:56:30Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:30Z   signer 3: 20:56:30 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:30Z -- withdrawal 0, round 5: signers [1 2 3] run one pass each
+2026-09-15T10:56:30Z   signer 1: 2026/09/15 20:56:30 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:30Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:30Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:30Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:56:30Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:30Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:56:30Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16512)
+2026-09-15T10:56:30Z   signer 1: 20:56:30 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:35Z   signer 2: 2026/09/15 20:56:32 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:35Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:35Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:35Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:56:35Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:35Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:56:35Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16513)
+2026-09-15T10:56:35Z   signer 2: 20:56:35 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:45Z   signer 3: 2026/09/15 20:56:40 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:45Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:45Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:45Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:56:45Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:45Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:56:45Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16513)
+2026-09-15T10:56:45Z   signer 3: 20:56:40 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:45Z -- withdrawal 0, round 6: signers [1 2 3] run one pass each
+2026-09-15T10:56:58Z   signer 1: 2026/09/15 20:56:50 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:58Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:58Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:58Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:56:58Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:58Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:56:58Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:56:58Z   signer 1: 20:56:58 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:59Z   signer 2: 2026/09/15 20:56:58 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:59Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:59Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:59Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:56:59Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:59Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:56:59Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:56:59Z   signer 2: 20:56:58 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:56:59Z   signer 3: 2026/09/15 20:56:59 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:56:59Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:56:59Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:56:59Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:56:59Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:56:59Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:56:59Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:56:59Z   signer 3: 20:56:59 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:00Z -- withdrawal 0, round 7: signers [1 2 3] run one pass each
+2026-09-15T10:57:00Z   signer 1: 2026/09/15 20:57:00 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:00Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:00Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:00Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:00Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:00Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:00Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:00Z   signer 1: 20:57:00 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:02Z   signer 2: 2026/09/15 20:57:00 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:02Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:02Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:02Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:57:02Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:02Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:57:02Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:02Z   signer 2: 20:57:02 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:02Z   signer 3: 2026/09/15 20:57:02 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:02Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:02Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:02Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:57:02Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:02Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:57:02Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:02Z   signer 3: 20:57:02 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:02Z -- withdrawal 0, round 8: signers [1 2 3] run one pass each
+2026-09-15T10:57:03Z   signer 1: 2026/09/15 20:57:02 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:03Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:03Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:03Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:03Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:03Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:03Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:03Z   signer 1: 20:57:03 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:05Z   signer 2: 2026/09/15 20:57:03 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:05Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:05Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:05Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:57:05Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:05Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:57:05Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:05Z   signer 2: 20:57:05 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:05Z   signer 3: 2026/09/15 20:57:05 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:05Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:05Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:05Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:57:05Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:05Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:57:05Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:05Z   signer 3: 20:57:05 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:05Z -- withdrawal 0, round 9: signers [1 2 3] run one pass each
+2026-09-15T10:57:05Z   signer 1: 2026/09/15 20:57:05 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:05Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:05Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:05Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:05Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:05Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:05Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:05Z   signer 1: 20:57:05 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:05Z   signer 2: 2026/09/15 20:57:05 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:05Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:05Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:05Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:57:05Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:05Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:57:05Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:05Z   signer 2: 20:57:05 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:05Z   signer 3: 2026/09/15 20:57:05 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:05Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:05Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:05Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:57:05Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:05Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:57:05Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:05Z   signer 3: 20:57:05 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:05Z -- withdrawal 0, round 10: signers [1 2 3] run one pass each
+2026-09-15T10:57:05Z   signer 1: 2026/09/15 20:57:05 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:05Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:05Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:05Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:05Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:05Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:05Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:05Z   signer 1: 20:57:05 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:06Z   signer 2: 2026/09/15 20:57:06 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:06Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:06Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:06Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:57:06Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:06Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:57:06Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:06Z   signer 2: 20:57:06 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:06Z   signer 3: 2026/09/15 20:57:06 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:06Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:06Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:06Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:57:06Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:06Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:57:06Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:06Z   signer 3: 20:57:06 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:06Z -- withdrawal 0, round 11: signers [1 2 3] run one pass each
+2026-09-15T10:57:06Z   signer 1: 2026/09/15 20:57:06 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:06Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:06Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:06Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:06Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:06Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:06Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:06Z   signer 1: 20:57:06 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:06Z   signer 2: 2026/09/15 20:57:06 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:06Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:06Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:06Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:57:06Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:06Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:57:06Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16514)
+2026-09-15T10:57:06Z   signer 2: 20:57:06 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:25Z   signer 3: 2026/09/15 20:57:17 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:25Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:25Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:25Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:57:25Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:25Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:57:25Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16515)
+2026-09-15T10:57:25Z   signer 3: 20:57:25 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:25Z -- withdrawal 0, round 12: signers [1 2 3] run one pass each
+2026-09-15T10:57:25Z   signer 1: 2026/09/15 20:57:25 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:25Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:25Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:25Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:25Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:25Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:25Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16515)
+2026-09-15T10:57:25Z   signer 1: 20:57:25 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:26Z   signer 2: 2026/09/15 20:57:25 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:26Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:26Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:26Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:57:26Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:26Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:57:26Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16515)
+2026-09-15T10:57:26Z   signer 2: 20:57:25 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:32Z   signer 3: 2026/09/15 20:57:26 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:32Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:32Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:32Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:57:32Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:32Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:57:32Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16515)
+2026-09-15T10:57:32Z   signer 3: 20:57:32 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:32Z -- withdrawal 0, round 13: signers [1 2 3] run one pass each
+2026-09-15T10:57:33Z   signer 1: 2026/09/15 20:57:32 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:33Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:33Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:33Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:33Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:33Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:33Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16515)
+2026-09-15T10:57:33Z   signer 1: 20:57:33 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:33Z   signer 2: 2026/09/15 20:57:33 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:33Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:33Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:33Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:57:33Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:33Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:57:33Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16515)
+2026-09-15T10:57:33Z   signer 2: 20:57:33 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:34Z   signer 3: 2026/09/15 20:57:33 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:34Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:34Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:34Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:57:34Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:34Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:57:34Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16515)
+2026-09-15T10:57:34Z   signer 3: 20:57:34 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:38Z -- withdrawal 0, round 14: signers [1 2 3] run one pass each
+2026-09-15T10:57:39Z   signer 1: 2026/09/15 20:57:38 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:39Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:39Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:39Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:39Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:39Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:39Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:39Z   signer 1: 20:57:39 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:39Z   signer 2: 2026/09/15 20:57:39 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:39Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:39Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:39Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:57:39Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:39Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:57:39Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:39Z   signer 2: 20:57:39 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:39Z   signer 3: 2026/09/15 20:57:39 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:39Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:39Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:39Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:57:39Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:39Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:57:39Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:39Z   signer 3: 20:57:39 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:40Z -- withdrawal 0, round 15: signers [1 2 3] run one pass each
+2026-09-15T10:57:40Z   signer 1: 2026/09/15 20:57:40 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:40Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:40Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:40Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:40Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:40Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:40Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:40Z   signer 1: 20:57:40 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:40Z   signer 2: 2026/09/15 20:57:40 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:40Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:40Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:40Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:57:40Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:40Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:57:40Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:40Z   signer 2: 20:57:40 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:40Z   signer 3: 2026/09/15 20:57:40 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:40Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:40Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:40Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:57:40Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:40Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:57:40Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:40Z   signer 3: 20:57:40 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:40Z -- withdrawal 0, round 16: signers [1 2 3] run one pass each
+2026-09-15T10:57:40Z   signer 1: 2026/09/15 20:57:40 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:40Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:40Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:40Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:40Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:40Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:40Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:40Z   signer 1: 20:57:40 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:40Z   signer 2: 2026/09/15 20:57:40 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:40Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:40Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:40Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:57:40Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:40Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:57:40Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:40Z   signer 2: 20:57:40 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:40Z   signer 3: 2026/09/15 20:57:40 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:40Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:40Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:40Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:57:40Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:40Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:57:40Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:40Z   signer 3: 20:57:40 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:40Z -- withdrawal 0, round 17: signers [1 2 3] run one pass each
+2026-09-15T10:57:40Z   signer 1: 2026/09/15 20:57:40 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:40Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:40Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:40Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:40Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:40Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:40Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:40Z   signer 1: 20:57:40 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:41Z   signer 2: 2026/09/15 20:57:40 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:41Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:41Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:41Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:57:41Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:41Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:57:41Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:41Z   signer 2: 20:57:41 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:42Z   signer 3: 2026/09/15 20:57:42 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:42Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:42Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:42Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:57:42Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:42Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:57:42Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:42Z   signer 3: 20:57:42 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:42Z -- withdrawal 0, round 18: signers [1 2 3] run one pass each
+2026-09-15T10:57:42Z   signer 1: 2026/09/15 20:57:42 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:42Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:42Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:42Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:42Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:42Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:42Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:42Z   signer 1: 20:57:42 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:42Z   signer 2: 2026/09/15 20:57:42 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:42Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:42Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:42Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:57:42Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:42Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:57:42Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:42Z   signer 2: 20:57:42 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:44Z   signer 3: 2026/09/15 20:57:43 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:44Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:44Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:44Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T10:57:44Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:44Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T10:57:44Z   signer 3: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:44Z   signer 3: 20:57:44 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:57:44Z -- withdrawal 0, round 19: signers [1 2 3] run one pass each
+2026-09-15T10:57:45Z   signer 1: 2026/09/15 20:57:44 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:57:45Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:57:45Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:57:45Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T10:57:45Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:57:45Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T10:57:45Z   signer 1: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:57:45Z   signer 1: 20:57:45 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T10:58:00Z   signer 2: 2026/09/15 20:57:45 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T10:58:00Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T10:58:00Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T10:58:00Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T10:58:00Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T10:58:00Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T10:58:00Z   signer 2: withdrawal 0 waits for DERO finality (burned at 16517, stable height 16516)
+2026-09-15T10:58:00Z   signer 2: 20:58:00 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T11:01:08Z   signer 3: 2026/09/15 20:58:01 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T11:01:08Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T11:01:08Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T11:01:08Z   signer 3: signer deto1qy3kdan2gr7nj275vhlf2kaxhqt5fzjw8phj0f8l7dcms9yqdwzywqg69qdgc
+2026-09-15T11:01:08Z   signer 3: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T11:01:08Z   signer 3: state  <tmp>\state3.json (0 intents)
+2026-09-15T11:01:08Z   signer 3: 2026/09/15 21:01:01 wallet 127.0.0.1:30005 did not sync to 16527
+2026-09-15T11:01:13Z -- withdrawal 0, round 20: signers [1 2 3] run one pass each
+2026-09-15T11:01:19Z   signer 1: 2026/09/15 21:01:19 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T11:01:19Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T11:01:19Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T11:01:19Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T11:01:19Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T11:01:19Z   signer 1: state  <tmp>\state1.json (0 intents)
+2026-09-15T11:01:19Z   signer 1: 2026/09/15 21:01:19 withdrawal 0: zcashvault: withdrawal 0: 1 of 2 signatures for 57c928f70157f006a9d7e9be308bbf0dbd21f4d2dbef0556a80bccc09667cc7d; waiting for the co-signers
+2026-09-15T11:01:19Z   signer 1: 21:01:19 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T11:01:20Z   signer 2: 2026/09/15 21:01:19 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T11:01:20Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T11:01:20Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T11:01:20Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T11:01:20Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T11:01:20Z   signer 2: state  <tmp>\state2.json (0 intents)
+2026-09-15T11:01:20Z   signer 2: 2026/09/15 21:01:20 withdrawal 0: 57c928f70157f006a9d7e9be308bbf0dbd21f4d2dbef0556a80bccc09667cc7d assembled from 2 signatures and broadcast
+2026-09-15T11:01:20Z   signer 2: 2026/09/15 21:01:20 withdrawal 0: withdrawal 0: cannot verify the payment 57c928f70157f006a9d7e9be308bbf0dbd21f4d2dbef0556a80bccc09667cc7d (attempt 1 of 20): zcashvault: node zebrad-regtest shows 57c928f70157f006a9d7e9be308bbf0dbd21f4d2dbef0556a80bccc09667cc7d unmined
+2026-09-15T11:01:20Z   signer 2: 21:01:20 vault: indexes 1, supply 20000000 / cap 100000000000, withdrawals 1, halted false (lapses 0), reserve 20000000 (in flight 2990000)
+2026-09-15T11:01:20Z   signer 3: 2026/09/15 21:01:20 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T11:01:20Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T11:01:20Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T11:01:20Z   signer 3: 2026/09/15 21:01:20 <tmp>\state3.json.lock was touched 3m19s ago: another signer is running on this state (wait 26m41s, or stop it)
+2026-09-15T11:01:21Z zcash: release 57c928f70157f006a9d7e9be308bbf0dbd21f4d2dbef0556a80bccc09667cc7d for withdrawal 0 mined; mining the finality depth
+2026-09-15T11:02:26Z -- withdrawal 0, round 21: signers [1 2 3] run one pass each
+2026-09-15T11:05:36Z   signer 1: 2026/09/15 21:02:27 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T11:05:36Z   signer 1: zcash regtest, transparent P2SH 2-of-3, this signer is key 2, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T11:05:36Z   signer 1: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T11:05:36Z   signer 1: signer deto1qy2nxgts7wdn28ckc4l2tewphjcppqjfj69ddkxjn0ay8hlsjx73jqgmat5s8
+2026-09-15T11:05:36Z   signer 1: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T11:05:36Z   signer 1: state  <tmp>\state1.json (1 intents)
+2026-09-15T11:05:36Z   signer 1: 2026/09/15 21:05:31 wallet 127.0.0.1:30003 did not sync to 16541
+2026-09-15T11:08:45Z   signer 2: 2026/09/15 21:05:40 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T11:08:45Z   signer 2: zcash regtest, transparent P2SH 2-of-3, this signer is key 1, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T11:08:45Z   signer 2: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T11:08:45Z   signer 2: signer deto1qyzj2ldw7cjpprhf84ljmxdw54w72jekfkwt0nqsyyzgatttg37d2qgefmama
+2026-09-15T11:08:45Z   signer 2: vault  ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb
+2026-09-15T11:08:45Z   signer 2: state  <tmp>\state2.json (1 intents)
+2026-09-15T11:08:45Z   signer 2: 2026/09/15 21:08:43 wallet 127.0.0.1:30004 did not sync to 16551
+2026-09-15T11:08:45Z   signer 3: 2026/09/15 21:08:45 one Zcash node only (zebrad-regtest): if it lies, nothing here can tell; name a second node you run
+2026-09-15T11:08:45Z   signer 3: zcash regtest, transparent P2SH 2-of-3, this signer is key 3, change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4, finality depth 100, nodes zebrad-regtest
+2026-09-15T11:08:45Z   signer 3: view key (publish with SetViewKey): dmz-zec-p2sh/1 net=regtest k=2 tpubDCDdwMRbQWWR2Rik2BPKMmjLwaCKB5aKU68a5ZR5FAFja1fqamHbsFTGKzh2HEYRx6iEzmMH1gzvg8rbcKPkP7qb6mUhA5fGPTa41x51nz4,tpubDCd6KY2ouz7TbKU31WpVFzsbNaUnBYkBdam3BgCh3XhdMcnbGNtTAQ2syvbMiKAWnKMbpwTXd6tAg7QEzppivZgg52K3KetQqZFUmU2m377,tpubDD6kxo7phfiwLQ4uVLbdWAcbeEvSEnWB9YQ6qSzdoJWbXDLcYTedFetWCUm4t1MLkZLQGT7z5cLVFH5cgD6jAwxDQ6yfQfmR4kjDERaAuo5
+2026-09-15T11:08:45Z   signer 3: 2026/09/15 21:08:45 <tmp>\state3.json.lock was touched 10m44s ago: another signer is running on this state (wait 19m16s, or stop it)
+2026-09-15T11:08:45Z withdrawal 0 Released on DERO with ftx 57c928f70157f006a9d7e9be308bbf0dbd21f4d2dbef0556a80bccc09667cc7d: 1 inputs, 2980000 zatoshi to tmDYKp5v6MX9F87m5ipU1c9Ufd1QYyAhtJf (w_v 2990000 less the ZIP 317 fee 10000), 17010000 back to the vault's change; lock-time marker 0; sup 20000000 -> 17010000
+2026-09-15T11:12:00Z == run stopped by hand (its process tree killed; the locks released normally): the simulator's signer wallets 30003, 30004 and 30005 stopped syncing at DERO heights 16540, 16550 and 16526 (their own last transactions) while the daemon went on past 16566 and the user wallet 30021 kept pace; simulator.exe, which hosts them, was at 31% of one core, so they were hung, not decoding. The DERO simulator was not restarted. Withdrawal 1 (signer 3 offline) was therefore never reached in this run.
+2026-09-15T11:12:00Z note (read from both chains after the stop, not by the test): vault ea0d99cd467551d008a89d585523b08d087c9696041ed8b628686723cb33d6fb withdrawal 0: w_0_st 1 (Released), w_0_v 2990000 (3000000 burned less the 10000 wfee), w_0_ftx 57c928f70157f006a9d7e9be308bbf0dbd21f4d2dbef0556a80bccc09667cc7d, Released votes by signers 1 and 2 on that txid (rc count 2), sup 20000000 -> 17010000
+2026-09-15T11:12:00Z note: zcash release 57c928f70157f006a9d7e9be308bbf0dbd21f4d2dbef0556a80bccc09667cc7d, mined at 5036 (102 confirmations at the stop), lock-time marker 0, expiry 5080: output 0 pays tmDYKp5v6MX9F87m5ipU1c9Ufd1QYyAhtJf 2980000 (w_0_v less the ZIP 317 fee 10000; that address holds exactly this output), output 1 returns 17010000 to the change address t2V9Z5F1yRA7xrUqjV8kHGxC5jnCrQaXTk4: the reserve equals sup exactly

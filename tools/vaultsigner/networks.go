@@ -14,12 +14,12 @@ type chainParams struct {
 var chainTable = map[string]map[string]chainParams{
 	"mainnet": {
 		"monero": {"Monero mainnet", "127.0.0.1:18082", 10, []string{"4", "8"}, 12},
-		"zcash":  {"Zcash mainnet", "127.0.0.1:8232", 10, []string{"u1", "zs1", "t1", "t3"}, 8},
+		"zcash":  {"Zcash mainnet", "127.0.0.1:8232", 10, []string{"t1", "t3"}, 8}, // transparent P2SH custody pays transparent addresses only (HANDOVER §5.1)
 		"solana": {"Solana mainnet-beta", "https://api.mainnet-beta.solana.com", 32, nil, 9},
 	},
 	"testnet": {
 		"monero": {"Monero stagenet", "127.0.0.1:38082", 10, []string{"5", "7"}, 12},
-		"zcash":  {"Zcash testnet", "127.0.0.1:18232", 10, []string{"utest1", "ztestsapling1", "tm", "t2"}, 8},
+		"zcash":  {"Zcash testnet", "127.0.0.1:18232", 10, []string{"tm", "t2"}, 8},
 		"solana": {"Solana devnet", "https://api.devnet.solana.com", 32, nil, 9},
 	},
 	"simulator": {

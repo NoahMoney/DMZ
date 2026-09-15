@@ -17,9 +17,15 @@ the test that proves it) or named as a trusted party. Nothing here is "trustless
 ### 1. What a wrapped unit is
 
 One wXMR is a claim on one piclonero held by a federation of k-of-n signers in a Monero wallet they control
-together; one wZEC is the same claim on one zatoshi in an Orchard address whose spend authority is shared
-(2-of-3 RedPallas in the prototype, `poc/frost-zec`). The claim is redeemed by burning the wrapped unit on DERO,
-which records a withdrawal the federation pays on the foreign chain.
+together; one wZEC is the same claim on one zatoshi held in transparent pay-to-script-hash k-of-n multisig
+addresses (`OP_CHECKMULTISIG`, one key per signer, derived from the signers' published account keys: anyone holding
+the descriptor published under `viewkey` derives every vault address and sums the reserve on the public Zcash chain;
+`tools/vaultsigner/zcashvault`). Zcash deposits and the reserve are therefore public, like any transparent address,
+and a wZEC withdrawal can pay only a transparent Zcash address. Orchard with re-randomized FROST (ZIP 312) is the
+documented upgrade, not what runs (docs/HANDOVER.md §5.1). The claim is redeemed by burning the wrapped unit on DERO,
+which records a withdrawal the federation pays on the foreign chain. On Zcash the destination receives the
+withdrawal's `w_<j>_v` less the network fee of the paying transaction (ZIP 317's conventional fee, typically
+0.0001–0.00015 ZEC), because what leaves the reserve must be exactly what `Released` removes from `sup`.
 
 ### 2. Trusted parties, in the order they can hurt you
 

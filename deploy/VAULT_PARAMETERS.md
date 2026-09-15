@@ -46,6 +46,20 @@ These are hard-coded in `vault.bas` and are in **DERO blocks** (18 s), so they a
 | reclaim window | 20 000 blocks after `w_<j>_rel` | `Reclaim` line 14 | an **unmarked** burn may be taken back by the burner after this |
 | vote bucket | 2 000 blocks | every `votek` scope | operational votes are scoped by height bucket and epoch |
 
+## What the Zcash backend adds (transparent P2SH k-of-n, docs/HANDOVER.md §5.4)
+
+These are properties of `tools/vaultsigner/zcashvault`, not contract parameters, but they decide what the contract's
+numbers mean on Zcash.
+
+| Property | Value | What it means for the parameters above |
+|---|---|---|
+| finality | tip − 100 (Zebra's reorganisation limit) | a deposit is minted, and a payment recorded by `Released`, only 100 blocks (about 2 h) after it is mined; `wdelay` need not cover it, since nothing is voted before it |
+| network fee | ZIP 317's conventional fee of the release, with maximum-size signatures: 10 000 zatoshi for one or two inputs of a 2-of-3 vault, 5 000 more per ~150 bytes | taken from the withdrawal: the destination receives `w_<j>_v` less it. With `minburn` 1 000 000 and `wfee` 10 000 the smallest withdrawal pays out at least 970 000 zatoshi |
+| smallest selectable output | its own ZIP 317 cost (10 000 zatoshi for a 2-of-3 input) | deposits between `mindep` (100 000) and that are counted in the reserve but never spent alone; `mindep` must stay above it |
+| inputs per release | at most 200 | a withdrawal larger than the 200 largest final outputs waits; keep `mindep` high enough that a flood of minimum deposits cannot fragment the reserve past that |
+| change floor | 10 000 zatoshi stays at the change address | the vault's very last withdrawal may pay up to that much less |
+| destinations | transparent only (`t1`/`t3` mainnet, `tm`/`t2` test networks) | a burn to any other string is vetoed and returned |
+
 ## Choosing `wdelay` and `winmax` for a real chain
 
 Neither has a right answer the code can supply. `wdelay` is the honest signers' window to notice a bad burn and

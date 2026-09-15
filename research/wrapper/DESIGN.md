@@ -2,6 +2,15 @@
 
 The design record behind `contracts/vault.bas` v2 and `tools/vaultsigner`. Read `README.md` first.
 
+**2026-09-15: launch custody for ZEC is transparent P2SH k-of-n multisig, not Orchard + FROST** (the coordinator's
+decision, recorded with its reasons and costs in `docs/HANDOVER.md` §5.1; built in `tools/vaultsigner/zcashvault`,
+§5.4). Where this record describes an Orchard-only unified address, a published full viewing key or FROST spend
+authority for ZEC, read it as the documented upgrade path. What changes for the analysis below: the ZEC deposit leg
+is transparent and public (§C2's "a transparent payment to the vault is impossible by construction" no longer holds —
+every vault address is a transparent P2SH, and a deposit's sender is visible), the published "viewing key" is the
+vault's descriptor (the n signers' account keys), withdrawal destinations must be transparent, and custody is
+k-of-n ECDSA multisig with each key held whole by one signer rather than a threshold signature over a split key.
+
 
 ---
 

@@ -22,7 +22,8 @@ func TestPickBackendRefusesTheFileBackendOffTheSimulator(t *testing.T) {
 		{"simulator", "", false, "-backend is required"},
 		{"mainnet", "", false, "-backend is required"},
 		{"mainnet", "monero", false, "not implemented yet"},
-		{"mainnet", "zcash", false, "not implemented yet"},
+		{"mainnet", "zcash", false, "-zcash-config"}, // built; it refuses to start without its configuration
+		{"simulator", "zcash", false, "-zcash-config"},
 		{"testnet", "monero", false, "not implemented yet"},
 		{"simulator", "monero", false, "not implemented yet"},
 		{"mainnet", "solana", false, "not implemented yet"},

@@ -27,6 +27,7 @@ manual override anywhere in the contract and no override flag in the daemon.
 | [halt and resume](#halt-and-resume) | what a halt is, what it blocks, and how it clears |
 | [cap and bonds](#cap-and-bonds) | raising or lowering the cap, bonding, slashing, replacing a signer |
 | [incident reserve shortfall](#incident-reserve-shortfall) | the foreign reserve is below the wrapped supply |
+| [Zcash key ceremony and configuration](#zcash-key-ceremony-and-configuration) | a Zcash vault's seeds, descriptor, published view key, reserve audit and backend configuration |
 | [`docs/SIGNER_RUNBOOK.md`](../../docs/SIGNER_RUNBOOK.md) | one signer's host, keys, ceremony, service, coordination channel, rotation and key-compromise response |
 
 State keys worth knowing (all readable with `DERO.GetSC`): `sup` wrapped supply, `cap`, `capratio` the
@@ -50,14 +51,22 @@ vault owes — voting to resume by itself once it is not.
 
 ### Start
 
-**There is no command line here that runs a signer on mainnet, because there is no foreign backend to run one
-with.** `sim` is a JSON file on the signer's own disk: a "deposit" is a line in it and a "payout" is an append.
-It is the only backend that exists, it is accepted only with `-network simulator`, and `-backend` has no default
-so that no one can reach it by omission. `zcash`, `monero` and `solana` are names in a switch that exit with a
-pointer to the build plan in `docs/HANDOVER.md` section 5. Until one of them is built and has settled a deposit
-and a withdrawal on a real network, a federation vault holds nothing and this runbook describes a rehearsal.
+Two backends run. `zcash` holds the reserve in transparent P2SH k-of-n multisig addresses on Zcash
+([Zcash key ceremony and configuration](#zcash-key-ceremony-and-configuration)); it has settled one deposit and one
+withdrawal on zebrad regtest with three live daemons (`research/regtest/vault-zcash-e2e.log`) and nowhere else yet,
+so a testnet pilot comes before anything that holds value. `sim` is a JSON file on the signer's own disk: a "deposit" is a line in it and
+a "payout" is an append; it is accepted only with `-network simulator`. `-backend` has no default so that no one
+can reach either by omission. `monero` and `solana` are names in a switch that exit with a pointer to the build plan
+in `docs/HANDOVER.md` section 5.
 
-The simulator command line, which is the only one that starts a signer:
+A Zcash signer, on the network its vault lives on (never mainnet without the operator's go and `-yes`):
+
+```
+vaultsigner -network testnet -backend zcash -zcash-config <zcash.json> -coord <coord.json> \
+            -daemon 127.0.0.1:<rpc> -wallet 127.0.0.1:<wallet rpc> -vault <scid> [-state <file>] [-interval 20s]
+```
+
+The simulator command line:
 
 ```
 vaultsigner -network simulator -backend sim -daemon 127.0.0.1:<rpc> -wallet 127.0.0.1:<wallet rpc> \
@@ -314,3 +323,83 @@ next.
    pass. Nobody signs off. Publish the count regardless.
 
 Never mint against the shortfall, never change the cap to hide it, never describe the halt as "maintenance".
+
+
+---
+
+# zcash key ceremony and configuration
+
+## Zcash key ceremony and configuration
+
+The `zcash` backend holds the reserve in transparent pay-to-script-hash k-of-n multisig addresses (docs/HANDOVER.md
+§5.1, §5.4). Each signer holds one BIP 32 seed; the vault is defined by the n signers' **account keys** and k. The
+ceremony order and the custody rules around it are `docs/SIGNER_RUNBOOK.md` §3–§4; these are the Zcash commands.
+
+### 1. Each signer, on its offline machine
+
+```
+zcashkey -new <seed file> -network <testnet|mainnet>
+```
+
+- The seed is 32 random bytes written as hex to a file only this account can read (0600, or a protected owner-only
+  DACL on Windows). The tool refuses a path that exists and any path inside a git work tree, and prints only the
+  account key, `m/44'/133'/0'` on mainnet or `m/44'/1'/0'` on a test network.
+- Back the seed file up like the coordination identity file. The account key (`xpub…`/`tpub…`) is public: send it.
+- Never type the seed anywhere; `zcashkey -xpub <seed file> -network …` prints the account key again when needed.
+
+### 2. Everyone, once the vault is installed and every account key is in
+
+```
+zcashkey -descriptor -network <net> -k <k> -xpubs <key1,key2,…,keyn> -vault <scid> -indexes 3
+```
+
+Every signer runs it and reads out the `change` address and deposit addresses 0–2 on the call; all must read the
+same strings. The tool refuses k ≥ n, a repeated account key, an extended private key and a key for the other
+network. The `view key` line is the descriptor (or its SHA-256 when it is longer than the contract's 400 characters);
+after `Seal` the signers vote it with `SetViewKey`, and from then on anyone can derive every vault address and count
+the reserve:
+
+```
+zcashkey -audit -viewkey "<the vault's viewkey>" -vault <scid> -indexes <the vault's un> -zcash <node url> [-cookie <file>]
+```
+
+The reserve it prints must be at least `sup` less the open withdrawals (`w_<j>_v` with `w_<j>_st == 0`). Each signer's
+daemon checks the same thing every pass and votes `Halt(1)` while it does not hold.
+
+### 3. Each signer's backend configuration
+
+`zcash.json`, beside the daemon's state, readable by the signer's account only (it names the seed file's path, not the
+seed):
+
+```json
+{
+  "network": "testnet",
+  "k": 2,
+  "xpubs": ["tpub…", "tpub…", "tpub…"],
+  "seed": "<path to this signer's seed file>",
+  "account": 0,
+  "nodes": [
+    {"name": "own-zebrad", "url": "http://127.0.0.1:18232/", "cookie": "<path to its cookie>"},
+    {"name": "second-zebrad", "url": "http://127.0.0.1:18242/", "cookie": "<path>"}
+  ],
+  "ledger": "<path to this signer's release ledger>"
+}
+```
+
+- Every signer of a vault must use the same `network`, `k`, `xpubs` and the defaults for `finalityDepth` (100),
+  `epoch` (10), `expiryWindow` (40) and `maxInputs` (200), or their transactions differ and nothing is signed.
+- Name at least two nodes the signer runs, on different machines if it can: deposits are credited only when every node
+  shows them identically, and the reserve is the lowest any node shows.
+- `coordinatorDir` (a shared directory) exists for the regtest pilot only; on testnet and mainnet the signatures
+  travel through `-coord` (authenticated and encrypted, DESIGN §C7), and the backend refuses both at once.
+- The **release ledger** records every transaction the signer has signed for each withdrawal, before the signature
+  leaves the process. Back it up with the state file. If it is lost, the backend finds a payment already made by its
+  lock-time marker on the chain, but a signer that lost it must not sign until its peers' transactions are visible.
+
+### 4. Withdrawals, as the daemon sees them
+
+A withdrawal is paid by a transaction every signer builds identically (HANDOVER §5.4). The log shows
+`withdrawal j: … 1 of 2 signatures … waiting for the co-signers` until k signers have signed, then
+`… assembled from 2 signatures and broadcast`; the `Released` vote follows once the payment is 100 blocks deep, which
+is about two hours on mainnet. The destination receives `w_<j>_v` less the release's ZIP 317 fee. A withdrawal to a
+shielded or unified address is vetoed by every signer and the burn returns to its sender.

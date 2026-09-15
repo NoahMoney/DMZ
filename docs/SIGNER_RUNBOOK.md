@@ -10,10 +10,13 @@ when something goes wrong. The design it implements is in `research/wrapper/DESI
 The daemon's own procedures (start, stop, crash recovery, reading the log) are in `research/wrapper/RUNBOOKS.md`;
 this file does not repeat them.
 
-**Status on 2026-09-15.** Only the `sim` backend runs. The `zcash` backend (transparent P2SH k-of-n) and the `monero`
-backend (wallet-rpc multisig) are being built. Where this runbook says "per the backend's procedure", the exact
-commands belong to that backend's own documentation, and a signer must not improvise them. This runbook fixes the
-order, the custody rules and the coordination steps around them.
+**Status on 2026-09-15.** The `sim` backend and the `zcash` backend (transparent P2SH k-of-n,
+`tools/vaultsigner/zcashvault`; one deposit and one withdrawal settled live on zebrad regtest:
+`research/regtest/vault-zcash-e2e.log`) run. The
+`monero` backend (wallet-rpc multisig) is being built. Where this runbook says "per the backend's procedure", the exact
+commands belong to that backend's own documentation (Zcash: `research/wrapper/RUNBOOKS.md`, "Zcash key ceremony"),
+and a signer must not improvise them. This runbook fixes the order, the custody rules and the coordination steps
+around them.
 
 **Nothing here touches mainnet.** Mainnet is the operator's decision, behind the gates in `deploy/README.md`.
 
@@ -85,9 +88,12 @@ copy each key needs on the signer host.
      places. The passphrase is held by a different person from the media (CCSS 1.03).
    - The identity line is public: send it. The file is not: never paste it, photograph it, or put it in a ticket or
      chat.
-4. **Zcash key**, per the backend's procedure.
-   - Generate the HD seed here and back it up exactly like the identity file.
-   - Carry off only the public key that goes into the redeem script.
+4. **Zcash key**, per the backend's procedure: `zcashkey -new <seed file> -network <testnet|mainnet>`.
+   - It writes a fresh 32-byte HD seed, owner-only, refusing any path inside a git work tree, and prints only the
+     account key (`m/44'/133'/0'` on mainnet, `m/44'/1'/0'` on test networks). Back the seed file up exactly like
+     the identity file.
+   - Carry off only the account key (`xpub…`/`tpub…`): every vault address is derived from the n account keys by
+     non-hardened steps, so no other public key ever needs to leave this machine.
 5. **Monero multisig wallet.** It is created during the ceremony (§4), on the signer host, because multisig creation
    is interactive. Back up the wallet file and its password as soon as the ceremony completes.
 6. **Wipe the offline machine**, or shut down the live system. Nothing stays on it.
@@ -139,8 +145,11 @@ confirmed by everyone, before the next begins.
 
    - A relay is trusted with nothing. Payloads are signed and encrypted end to end, and the worst it can do is delay
      them. TLS hides from the network when signers talk.
-6. **Zcash**, per the backend's procedure. Each signer assembles the redeem script from the n public keys in the
-   agreed order and derives the P2SH address itself. Everyone compares the address on the call.
+6. **Zcash**, per the backend's procedure. Each signer runs
+   `zcashkey -descriptor -network <net> -k <k> -xpubs <the n account keys> -vault <scid> -indexes 3` itself and reads
+   out the change address and deposit addresses 0–2; everyone must read the same strings (the keys are sorted inside
+   every script, so the order they were typed in does not matter). The descriptor's `view key` line is what the
+   signers publish with `SetViewKey` in step 8.
 7. **Monero**, per the backend's procedure (`prepare_multisig` → `make_multisig` → `exchange_multisig_keys` until
    `is_multisig` says ready). The rounds may travel over the coordination channel.
    - Each signer confirms that its multisig address equals everyone else's.
