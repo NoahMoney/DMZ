@@ -27,9 +27,9 @@
       supply: inp({ name: "supply", value: "1000000", inputmode: "numeric" }), dec: inp({ name: "dec", value: "3", inputmode: "numeric" }), grad: inp({ name: "grad", value: "100", inputmode: "decimal" }),
       cbps: inp({ name: "cbps", value: "0", inputmode: "decimal" }), tax: inp({ name: "tax", value: "0", inputmode: "decimal" }) };
     // Operator ruling 2026-09-15: XMR and ZEC (wrapped, 1:1) first whenever the build names vaults, then DERO; a build
-    // with none offers DERO alone. DERO stays the one selected at open: a wrapped quote is chosen, never defaulted.
-    let tmode = 0, quote = DERO;
+    // with none offers DERO alone. The first is selected at open: XMR where the build names vaults, else DERO.
     const quotes = vaults().map((v) => Object.assign({}, v, { chip: v.sym + " · wrapped 1:1" })).concat([DERO]), quoteNote = h("div", { class: "note" });
+    let tmode = 0, quote = quotes[0];
     const fed = D.vault && D.vault.k ? D.vault.k + "-of-" + D.vault.na : "k-of-n";
     const modes = U.segmented([{ v: 0, l: "No tax" }, { v: 1, l: "Creator" }, { v: 2, l: "Buyback" }, { v: 3, l: "Stakers" }], 0, (v) => { tmode = v; aria(); fs.onchange(); });
     const aria = () => { modes.setAttribute("role", "radiogroup"); [...modes.children].forEach((b, i) => { b.setAttribute("role", "radio"); b.setAttribute("aria-checked", String(i === tmode)); }); };

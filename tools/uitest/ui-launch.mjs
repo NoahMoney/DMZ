@@ -27,6 +27,9 @@ const primary = "#sheet .wz-act .btn.primary";
 // For ui.mjs: from the filled Configure step to an enabled "Pay and launch" (ui.mjs clicks it next), and, when the
 // Launch step appears, "Open it", which takes the page to the new coin, where ui.mjs goes on.
 export async function hook(page) {
+  // a new coin opens priced in XMR where the build names vaults; ui.mjs goes on to buy it with DERO, so pick DERO
+  const dero = page.locator("#sheet [role=radio]", { hasText: /^DERO$/ });
+  if (await dero.count()) await dero.click();
   await page.locator(primary).click();
   await page.waitForFunction((s) => { const b = document.querySelector(s); return b && /Pay and launch/.test(b.textContent) && !b.disabled; }, primary, { timeout: 90000 });
   page.waitForSelector("#sheet h2.wz-done", { timeout: 300000 }).then(() => page.locator(primary).click()).catch(() => {});
@@ -132,6 +135,10 @@ async function main() {
       if (!/16×/.test(t) || !/Two wallet confirmations/.test(t)) fail("coin preview: " + t.slice(0, 200));
       if (!stub && !/Unavailable in this build/.test(t)) fail("with no V.profile the logo and links are not said to be unavailable");
       if (mainnet && (!/Priced in DERO/.test(t) || (await p.locator("#sheet [role=radiogroup] >> text=DERO").count()))) fail("mainnet coin: DERO is not the only quote");
+      // operator ruling 2026-09-15: with vaults, XMR (wrapped 1:1) is first and selected; DERO last
+      const qs = await p.locator("#sheet [role=radio]").evaluateAll((els) => els.filter((e) => /wrapped|^DERO$/.test(e.textContent)).map((e) => e.textContent + (e.getAttribute("aria-checked") === "true" ? "*" : "")));
+      if (!mainnet && (!/^XMR · wrapped 1:1\*$/.test(qs[0] || "") || qs[qs.length - 1] !== "DERO")) fail("coin quotes with vaults: " + JSON.stringify(qs));
+      if (/\bswap/i.test(t)) fail(w + ": the coin step mentions swaps");
       // errors are tied to their field and say how to fix it; the first is focused
       await p.fill("#sheet input[name=ticker]", "PR V"); await p.locator(primary).click(); await sleep(400);
       const tied = await p.evaluate(() => { const i = document.querySelector("#sheet input[name=ticker]"); return { inv: i.getAttribute("aria-invalid"), said: (i.getAttribute("aria-describedby") || "").split(" ").map((d) => (document.getElementById(d) || {}).textContent || "").join(" "), focus: document.activeElement === i }; });
