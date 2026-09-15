@@ -51,7 +51,8 @@
       return f;
     },
     // The connected wallet's registered units, its positions with what each can claim per named asset (the contract's
-    // arithmetic, exactly), its stored XMR and ZEC payout addresses, and its listings.
+    // arithmetic, exactly), any XMR or ZEC address it stored while those were paid (read only so it can be cleared), and
+    // its listings.
     async myFounders(addr) {
       const f = this.founders; if (!f || !addr) return null;
       const k = await this.fetchKeys(f.scid, ["hu_" + addr, "xm_" + addr, "zc_" + addr]);
@@ -84,69 +85,4 @@
       return { units: isNum(k["hu_" + addr]) ? B(k["hu_" + addr]) : 0n, positions, windowed: from > 0, xmr: text(k["xm_" + addr]), zec: text(k["zc_" + addr]), listings: f.listings.filter((l) => l.seller === addr) };
     },
   });
-
-  // ---- payout addresses (founders.bas SetXmr / SetZec) ----
-  // The contract checks only the length and the characters. These check what the treasury's bot can pay: a Monero
-  // standard address or subaddress of the build's network whose checksum holds, and a TRANSPARENT Zcash address of
-  // the build's network, because the bot can pay only transparent addresses. Each answers { ok } or { why }.
-  const A58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz", M64 = (1n << 64n) - 1n;
-  // Keccak-256 with the original Keccak padding (Monero's cn_fast_hash, not SHA-3), for the address checksum
-  function keccak256(msg) {
-    const s = new Array(25).fill(0n), rate = 136, n = (Math.floor(msg.length / rate) + 1) * rate, p = new Uint8Array(n);
-    p.set(msg); p[msg.length] ^= 1; p[n - 1] ^= 0x80;
-    const rol = (x, k) => (k ? ((x << B(k)) | (x >> B(64 - k))) & M64 : x);
-    for (let o = 0; o < n; o += rate) {
-      for (let i = 0; i < 17; i++) { let w = 0n; for (let j = 7; j >= 0; j--) w = (w << 8n) | B(p[o + i * 8 + j]); s[i] ^= w; }
-      for (let r = 0, R = 1; r < 24; r++) {
-        const C = [0, 1, 2, 3, 4].map((x) => s[x] ^ s[x + 5] ^ s[x + 10] ^ s[x + 15] ^ s[x + 20]);
-        for (let x = 0; x < 5; x++) { const d = C[(x + 4) % 5] ^ rol(C[(x + 1) % 5], 1); for (let y = 0; y < 25; y += 5) s[x + y] ^= d; }
-        for (let t = 0, x = 1, y = 0, cur = s[1]; t < 24; t++) { [x, y] = [y, (2 * x + 3 * y) % 5]; const k = x + 5 * y, tmp = s[k]; s[k] = rol(cur, ((t + 1) * (t + 2) / 2) % 64); cur = tmp; }
-        for (let y = 0; y < 25; y += 5) { const T = s.slice(y, y + 5); for (let x = 0; x < 5; x++) s[y + x] = T[x] ^ (~T[(x + 1) % 5] & M64 & T[(x + 2) % 5]); }
-        for (let j = 0; j < 7; j++) { R = ((R << 1) ^ ((R >> 7) * 0x71)) & 255; if (R & 2) s[0] ^= 1n << B((1 << j) - 1); }
-      }
-    }
-    const out = new Uint8Array(32); for (let i = 0; i < 32; i++) out[i] = Number((s[i >> 3] >> B(8 * (i & 7))) & 255n); return out;
-  }
-  // Monero's base58: 11 characters per 8-byte block, a short last block; null when it is not that
-  const SIZES = [0, 2, 3, 5, 6, 7, 9, 10, 11];
-  function xmr58(a) {
-    const out = [];
-    for (let i = 0; i < a.length; i += 11) {
-      const blk = a.slice(i, i + 11), size = SIZES.indexOf(blk.length); if (size < 1) return null;
-      let v = 0n; for (const c of blk) { const k = A58.indexOf(c); if (k < 0) return null; v = v * 58n + B(k); }
-      if (v >> B(8 * size)) return null;
-      for (let j = size - 1; j >= 0; j--) out.push(Number((v >> B(8 * j)) & 255n));
-    }
-    return new Uint8Array(out);
-  }
-  // prefixes: monero src/cryptonote_config.h (standard 18 / 24 / 53, subaddress 42 / 36 / 63, integrated 19 / 25 / 54)
-  function xmrAddr(s, network) {
-    const a = String(s || "").trim(), main = network === "mainnet", std = main ? [18] : [24, 53], sub = main ? [42] : [36, 63];
-    const where = main ? "Monero mainnet" : "Monero stagenet or testnet";
-    if (!a) return { why: "Enter a Monero address." };
-    if (a.length === 106) return { why: "That is an integrated address, which carries a payment id. Store a subaddress instead." };
-    if (a.length !== 95) return { why: "A Monero standard address or subaddress is 95 characters; that is " + a.length + "." };
-    const b = xmr58(a);
-    if (!b || b.length !== 69) return { why: "Not a Monero address: it is not in Monero's base58." };
-    const sum = keccak256(b.subarray(0, 65));
-    if ([0, 1, 2, 3].some((i) => sum[i] !== b[65 + i])) return { why: "The address's checksum does not match: check it for a typo." };
-    if (!std.includes(b[0]) && !sub.includes(b[0])) return { why: "That is not a " + where + " address, and this build is for " + network + "." };
-    return sub.includes(b[0]) ? { ok: true, sub: true } : { ok: true, sub: false, warn: "Valid, but a primary address. A stored address is public on the DERO chain for good, so a fresh subaddress you use for nothing else is the one to store." };
-  }
-  // transparent Zcash: base58check, 2-byte prefix. Mainnet t1 0x1cb8 / t3 0x1cbd; testnet and regtest tm 0x1d25 / t2 0x1cba
-  async function zecAddr(s, network) {
-    const a = String(s || "").trim(), main = network === "mainnet", want = main ? "t1… or t3…" : "tm… or t2…";
-    if (!a) return { why: "Enter a Zcash transparent address." };
-    if (/^[zu]/i.test(a) || /^tex1/i.test(a)) return { why: "That is not a transparent address. The treasury's bot can pay only a transparent one: " + want };
-    let v = 0n;
-    for (const c of a) { const k = A58.indexOf(c); if (k < 0) return { why: "Not a Zcash transparent address." }; v = v * 58n + B(k); }
-    const b = []; while (v > 0n) { b.unshift(Number(v & 255n)); v >>= 8n; }
-    if (b.length !== 26) return { why: "Not a Zcash transparent address." };
-    const body = new Uint8Array(b.slice(0, 22)), sha = async (x) => new Uint8Array(await crypto.subtle.digest("SHA-256", x)), d = await sha(await sha(body));
-    if (b.slice(22).some((x, i) => x !== d[i])) return { why: "The address's checksum does not match: check it for a typo." };
-    const pre = (body[0] << 8) | body[1], ok = main ? [0x1cb8, 0x1cbd] : [0x1d25, 0x1cba], other = main ? [0x1d25, 0x1cba] : [0x1cb8, 0x1cbd];
-    if (ok.includes(pre)) return { ok: true };
-    return { why: other.includes(pre) ? "That is a " + (main ? "test-network" : "mainnet") + " address, and this build is for " + network + ": use " + want : "Not a Zcash transparent address." };
-  }
-  V.payout = { xmr: xmrAddr, zec: zecAddr, keccak256 };
 })();

@@ -5,7 +5,7 @@
 //   - neither side wears a warning colour: this is proportional information, not a flag;
 //   - voting is a ring-size-2 call, so the voter's address is public in that transaction.
 // Nothing is read and nothing is signed unless the node's copy of the contract hashes to templates/rate.bas, the
-// template this build ships (as xmr.js does for htlc.bas).
+// template this build ships.
 //
 // Interface, for the market page and discovery:
 //   V.sentiment.of(scid)       -> Promise<{ bull, sus, n, mine? } | null>; null: no verified contract, a bad id or no

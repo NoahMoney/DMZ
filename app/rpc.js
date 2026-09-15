@@ -53,6 +53,8 @@
     if (!/^[0-9a-f]{66}$/i.test(rawHex)) return null;
     return bech32Encode("dero", convertBits([1, ...hexToBytes(rawHex)], 8, 5, true));
   }
+  // any address → its raw 33-byte key as hex, what SIGNER() and ADDRESS_RAW store (vault.bas keys uc_/ul_ by it); null if invalid
+  function addressRaw(addr) { const c = typeof addr === "string" && canonAddress(addr); return c ? bytesToHex(convertBits(bech32Decode(c).data, 5, 8, false).slice(1, 34)) : null; }
   const isAddress = (a) => !!canonAddress(a);
   const shortAddr = (a) => (a && a.length > 14 ? a.slice(0, 8) + "…" + a.slice(-5) : a || "");
 
@@ -135,8 +137,17 @@
     async getSC(scid, opt = {}) {
       const p = { scid, variables: !!opt.variables, code: !!opt.code };
       if (opt.keys) p.keysstring = opt.keys;
+      // raw: keys given as hex bytes. A key holding raw bytes (vault.bas "uc_" + SIGNER()) cannot be named through
+      // keysstring, which is JSON text; keysbytes carries it as base64 and the node looks up exactly those bytes.
+      const raw = opt.raw && opt.raw.length ? opt.raw : null;
+      if (raw) p.keysbytes = raw.map((k) => btoa(String.fromCharCode(...hexToBytes(k))));
       if (Number.isSafeInteger(opt.topoheight) && opt.topoheight > 0) p.topoheight = opt.topoheight; // the state as it was then
       const r = await this.call("DERO.GetSC", p);
+      // raws: uint64 values only, as decimal strings (the node returns a string value here unencoded). A node that
+      // does not answer every raw key has not read them, and that is an error, never "absent" (fail closed).
+      const raws = {};
+      if (raw) { if (!Array.isArray(r.valuesbytes) || r.valuesbytes.length !== raw.length) throw new Error("the node did not answer a read by raw key");
+        raw.forEach((k, i) => { const v = r.valuesbytes[i]; if (typeof v === "string" && /^\d{1,20}$/.test(v)) raws[k] = v; }); }
       // uint64 values arrive as JSON numbers (exact only below 2^53: ask for exact ones through `keys`),
       // string values arrive hex-encoded. vars: numbers → BigInt, strings → hex; strs: strings decoded as text.
       const vars = {}, strs = {};
@@ -144,12 +155,12 @@
       // requested keys: uint64 → decimal string, string → hex, missing → "NOT AVAILABLE …"
       const vals = {};
       if (opt.keys && r.valuesstring) opt.keys.forEach((k, i) => { const v = r.valuesstring[i]; if (typeof v === "string" && !v.startsWith("NOT AVAILABLE") && v !== "Unmarshal error") vals[k] = v; });
-      return { vars, strs, vals, balances: r.balances || {}, balance: r.balance, code: r.code || "" };
+      return { vars, strs, vals, raws, balances: r.balances || {}, balance: r.balance, code: r.code || "" };
     },
     async getTx(txid) { const r = await this.call("DERO.GetTransaction", { txs_hashes: [txid] }); return r.txs && r.txs[0]; },
     async gasEstimate(p) { return this.call("DERO.GetGasEstimate", p); },
     async randomAddress() { const r = await this.call("DERO.GetRandomAddress", {}); return r.address && r.address[0]; },
   };
 
-  Object.assign(V, { jsonBig, endpointURL, toBig, hexToBytes, bytesToHex, hexToStr, sha256Hex, bech32Encode, bech32Decode, convertBits, canonAddress, rawToAddress, isAddress, shortAddr, WSRPC, node });
+  Object.assign(V, { jsonBig, endpointURL, toBig, hexToBytes, bytesToHex, hexToStr, sha256Hex, bech32Encode, bech32Decode, convertBits, canonAddress, rawToAddress, addressRaw, isAddress, shortAddr, WSRPC, node });
 })();

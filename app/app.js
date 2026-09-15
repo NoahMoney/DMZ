@@ -155,7 +155,7 @@
     if (!opts.code && !isScid(opts.scid)) { toast("Refusing: bad contract id", "err"); return null; }
     if (opts.asset && !isScid(opts.asset.scid)) { toast("Refusing: bad asset id", "err"); return null; }
     const ring = opts.ring === 16 ? 16 : 2; // 16 only for entrypoints that pay a named address (SIGNER() is blank above 2)
-    if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || D.nfas.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid) || D.allVaults().some((v) => v.scid === opts.scid) || (D.cfg.chat && opts.scid === D.cfg.chat) || (D.cfg.board && opts.scid === D.cfg.board) || (D.cfg.swap && opts.scid === D.cfg.swap) || (V.xmr && V.xmr.verified && opts.scid === V.xmr.verified))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
+    if (!opts.code && !(D.assets.has(opts.scid) || D.nfts.has(opts.scid) || D.nfas.has(opts.scid) || opts.scid === D.cfg.factory || opts.scid === D.cfg.social || (D.founders && opts.scid === D.founders.scid) || D.allVaults().some((v) => v.scid === opts.scid) || (D.cfg.chat && opts.scid === D.cfg.chat))) { toast("Refusing: contract is not a verified listing", "err"); return null; }
     // A contract whose code matched a LEGACY template hash is still listed — its code is immutable and it was
     // verified when that template was current — but it is not running the code this build ships. One kept launch
     // version refunds a buy's overshoot before it checks min_out, and the ...To wrappers turn that failure into a

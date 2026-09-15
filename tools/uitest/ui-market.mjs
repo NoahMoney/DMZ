@@ -26,10 +26,14 @@ export async function marketPass({ browser, url, out, step, fail, sleep, mainnet
     if (mainnet) await p.route(/\/config\.js(\?.*)?$/, shape);
     await p.goto(url, { waitUntil: "load" }); await p.locator("#introOk").click({ timeout: 8000 }).catch(() => {});
     await p.waitForFunction(() => window.Veil && window.Veil.data.lastRefresh > 0, null, { timeout: 60000 }).catch(() => {});
+    // the first-run intro can still be open when the click above gave up (ui-swaps.mjs meets the same): at 390 its
+    // sheet covers the interval chips and every click on them times out, so it is closed before the page is touched
+    const dismiss = async () => { if (await p.evaluate(() => { const b = document.getElementById("introOk"); if (!b || !b.offsetParent) return false; b.click(); return true; })) await sleep(400); };
+    await dismiss();
     const scid = await p.evaluate(() => { const t = window.Veil.data.trending(1); return t.length ? t[0].scid : null; });
     const at = pre + width + "px";
     if (!scid) { step("market " + at + ": no listed market, page not exercised"); await p.close(); continue; }
-    await p.evaluate((s) => { location.hash = "#token/" + s; }, scid); await sleep(2200);
+    await p.evaluate((s) => { location.hash = "#token/" + s; }, scid); await sleep(2200); await dismiss();
     await p.screenshot({ path: `${out}/${pre}market-${width}.png`, fullPage: true });
     await p.locator(".tk-main .chart").first().screenshot({ path: `${out}/${pre}chart-${width}.png` });
     const read = () => p.evaluate(() => {

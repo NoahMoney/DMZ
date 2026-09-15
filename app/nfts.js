@@ -1,4 +1,4 @@
-// DMZ nfts.js — the NFTs tab: the Founders Pass (mint, register to earn, per-asset claims, payout addresses,
+// DMZ nfts.js — the NFTs tab: the Founders Pass (mint, register to earn, per-asset claims, clearing an old address,
 // built-in marketplace, public accounting), then NFAs (app/nfas.js: assets priced in XMR, ZEC or DERO), then the
 // holder-NFT collections. Every number is read from the pass contract; nothing is estimated.
 (function () {
@@ -43,6 +43,8 @@
       // no image is fetched from the creator's host: the app makes no request but to your node and your wallet
       h("div", { class: "stats4 mt" }, stat("Minted", f.minted + " / " + f.maxsupply), stat("Mint price", dero(f.price)), stat("Share", N(f.share) / 100 + "%"), stat("Fee assets", String(f.assets.length))),
       f.descr ? h("div", { class: "note mt8" }, f.descr) : null,
+      // the description names wXMR and wZEC; a build with no vault offers neither, and says so beside it (notice.js words)
+      f.descr && /\bw(XMR|ZEC)\b/i.test(f.descr) && V.notice && V.notice.noWrap() ? h("div", { class: "note mt8" }, V.notice.NOWRAP + " Here only DERO and DERO tokens are deposited.") : null,
     ];
   }
   function mintButton(f, soldOut, open) {
@@ -80,30 +82,16 @@
       h("div", { class: "note mt" }, "Withdrawing closes the position: what it has earned stays claimable, by anyone, for ever. Any passes you leave form a new position that earns from the next deposit on."),
       button("Withdraw", "primary wide mt", () => { const u = BigInt(Math.max(0, parseInt(inp.value || "0", 10) || 0)); if (!u || u > q.u) return toast("Enter 1 to " + q.u, "err"); closeSheet(); tx({ scid: f.scid, entry: "Withdraw", args: [["p", "U", q.p], ["u", "U", u]], describe: "Withdraw passes", probe: { scid: f.scid, keys: ["hst"] } }); }));
   }
-  // The XMR and ZEC payout addresses: shown to a registered holder, and to a former one who still has one stored.
-  // Each address is checked by founders.js (V.payout) before Store is offered: a Monero standard address or
-  // subaddress of this build's network with a good checksum, and a TRANSPARENT Zcash address of this build's network,
-  // because the treasury's bot can pay only a transparent one. Until it passes, the button stays off and says why.
+  // founders.bas keeps SetXmr / SetZec, but no fee is paid in XMR or ZEC any more and nothing reads an address stored
+  // there. A holder who stored one may clear it (an empty address deletes xm_/zc_<address>, founders.bas setp); nothing
+  // else about them is offered, and a wallet with none stored sees nothing here.
   function payoutForm(f) {
-    if (mine.units === Z && !mine.xmr && !mine.zec) return null;
-    const net = D.cfg.network, main = net === "mainnet";
-    const one = (label, entry, key, cur, hint, check) => {
-      const why = h("div", { class: "sub tiny mt8", role: "status" }, "Store is offered once the address checks out.");
-      const btn = button(cur ? "Replace" : "Store", "small", async () => { const v = inp.value.trim(), r = await check(v, net); if (!r.ok) return toast(r.why, "err", 8000); tx({ scid: f.scid, entry, args: [["addr", "S", v]], describe: (cur ? "Replace " : "Store ") + label + " address", probe: { scid: f.scid, keys: [key + me()] } }); }, { disabled: true });
-      const inp = h("input", { placeholder: hint, autocomplete: "off", spellcheck: "false", "aria-label": label + " payout address", style: "flex:1;min-width:0" });
-      inp.oninput = async () => { const v = inp.value.trim(), r = v ? await check(v, net) : null; if (inp.value.trim() !== v) return;
-        btn.disabled = !(r && r.ok); why.textContent = !r ? "Store is offered once the address checks out." : r.ok ? r.warn || "A valid address for " + net + "." : r.why; why.style.color = r && !r.ok ? "var(--down)" : ""; };
-      return h("div", { class: "mt" }, h("div", { class: "between" }, h("span", { class: "label" }, label),
-        cur ? button("Clear", "small ghost", () => tx({ scid: f.scid, entry, args: [["addr", "S", ""]], describe: "Clear " + label + " address", probe: { scid: f.scid, keys: [key + me()] } })) : null),
-        h("div", { class: "mono dim2 mt8", style: "word-break:break-all" }, cur || "None stored."),
-        mine.units > Z ? [h("div", { class: "row mt8" }, inp, btn), why] : null);
-    };
-    return h("div", { class: "mt" }, h("div", { class: "label" }, "XMR and ZEC payout addresses"),
-      h("div", { class: "note mt8" }, "Your share of the fees taken in XMR and ZEC (the 0.5% swap fee the maker of each completed swap pays) is paid by the treasury's bot, off the DERO chain, to the addresses stored here, split between the passes registered when each period ends. The bot makes each payment; no contract forces it, and a pass with no address here keeps its part owed until it stores one. ",
-        h("b", null, "An address stored here is public on the DERO chain for good."), " So store a fresh Monero subaddress that you use for nothing else, not your primary address, and a fresh Zcash transparent address: the bot can pay only a transparent one. " +
-        "The contract checks only the length and the characters; this page also checks the checksum and that the address is for " + net + ". Only a registered holder can store one; you can always clear your own."),
-      one("Monero", "SetXmr", "xm_", mine.xmr, main ? "a fresh subaddress: 95 characters, starting 8" : "a fresh stagenet or testnet subaddress: 95 characters", V.payout.xmr),
-      one("Zcash (transparent)", "SetZec", "zc_", mine.zec, main ? "a transparent address: t1… or t3…" : "a transparent address: tm… or t2…", V.payout.zec));
+    const set = [["Monero", "SetXmr", "xm_", mine.xmr], ["Zcash", "SetZec", "zc_", mine.zec]].filter((x) => x[3]);
+    if (!set.length) return null;
+    return h("div", { class: "mt" }, h("div", { class: "label" }, "Stored XMR and ZEC addresses"),
+      h("div", { class: "note mt8" }, "Nothing reads or pays these any more. Clearing one removes it from the pass contract; the transaction that stored it stays on the DERO chain."),
+      set.map(([label, entry, key, cur]) => h("div", { class: "between mt8" }, h("span", { class: "mono dim2", style: "word-break:break-all;min-width:0" }, label + ": " + cur),
+        button("Clear", "small ghost", () => tx({ scid: f.scid, entry, args: [["addr", "S", ""]], describe: "Clear " + label + " address", probe: { scid: f.scid, keys: [key + me()] } })))));
   }
 
   // Level 3 — listings are rows on the ground, hairline separated: a price, who is selling, one control.
@@ -137,7 +125,7 @@
     return h("div", { class: "card mt" }, h("div", { class: "between" }, h("b", null, "Public accounting"), h("span", { class: "label" }, "On chain")),
       h("div", { class: "note mt8 mb" }, "The share is fixed in the contract and cannot be changed: " + N(f.share) / 100 + "%. It is a share of the trading fees the treasury claims from DMZ pools and launches, deposited here in the asset each fee was taken in, never converted to DERO; the market fee on pass sales is added in DERO. " +
         "The treasury's own bot claims the fees and makes every deposit, and no contract forces it to. A deposit is split at once between the passes registered when it is made; while none is registered, the bot holds the fees and deposits them after one registers. " +
-        "The XMR and ZEC share is the bot's to pay, to the addresses holders store. Fees from NFA sales reach no holder. Only DERO and the tokens with a DMZ market are listed: a token anyone else deposits is not a fee asset."),
+        "Fees from NFA sales reach no holder. Only DERO and the tokens with a DMZ market are listed: a token anyone else deposits is not a fee asset."),
       f.assets.map((a) => kv(a.sym, "deposited " + amt(a, a.ad) + " · claimed " + amt(a, a.aw) + " · owed " + amt(a, a.ap) + (a.au > Z ? " · carried " + amt(a, a.au) : ""))),
       kv("Market fees on pass sales", dero(f.mdep)), kv("Registered passes", f.hst + " of " + f.minted + " minted"),
       kv("Contract", h("button", { class: "mono", type: "button", title: "Copy the contract id", onclick: () => { navigator.clipboard && navigator.clipboard.writeText(f.scid).then(() => toast("Contract id copied", "ok")); } }, V.shortAddr(f.scid))));

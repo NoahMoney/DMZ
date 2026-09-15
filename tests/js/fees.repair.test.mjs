@@ -53,25 +53,78 @@ test("the screens that state the founders share name the asset rule and the trus
   assert.match(nfts, /The share is fixed in the contract and cannot be changed/);
   assert.match(nfts, /makes every deposit, and no contract forces it to/);
   assert.match(nfts, /Fees from NFA sales reach no holder/);
-  assert.match(nfts, /public on the DERO chain for good/);
-  assert.match(nfts, /fresh Monero subaddress/);
-  assert.match(nfts, /no contract forces it, and a pass with no address here keeps its part owed/);
   assert.doesNotMatch(nfts, /PayBatch|"Distribute"/);
   assert.match(app("home.js"), /% of claimed fees, paid in each fee's asset/);
 });
 
-test("notice.js says how fees reach holders, in the description's terms", () => {
-  const src = app("notice.js");
-  for (const s of [
-    "each in the asset the fee was taken in, never converted to DERO",
-    "DERO and DERO tokens are deposited into the pass contract, where each registered pass claims its part",
-    "XMR and ZEC are paid by the treasury's bot to the payout address a holder stored",
-    "The bot makes every deposit and every XMR and ZEC payment, and no contract forces either",
-    "A deposit is shared by the passes registered when it is made",
-    "While no pass is registered nothing is deposited",
-    "the maker of each completed XMR or ZEC swap pays it to the treasury's public address",
-    "a refunded swap pays none",
-  ]) assert.ok(src.includes(s), "notice.js does not say: " + s);
+// 2026-09-15: the swaps are removed, so no fee is taken in XMR or ZEC and nothing pays a holder's XMR or ZEC address.
+// founders.bas keeps SetXmr / SetZec; the pass screen offers only Clear, and only for an address already stored.
+test("the pass screen offers no payout address: only Clear, for an address stored before", () => {
+  const nfts = app("nfts.js"), form = nfts.slice(nfts.indexOf("function payoutForm"), nfts.indexOf("// Level 3"));
+  assert.doesNotMatch(form, /h\("input"|"Store"|"Replace"|V\.payout/, "no field to store or replace an address");
+  assert.match(form, /\.filter\(\(x\) => x\[3\]\);\s+if \(!set\.length\) return null;/, "nothing is drawn for a wallet with none stored");
+  assert.match(form, /button\("Clear", "small ghost", \(\) => tx\(\{ scid: f\.scid, entry, args: \[\["addr", "S", ""\]\]/, "Clear sends the empty address setp deletes");
+  assert.match(form, /Nothing reads or pays these any more/);
+  assert.equal(/V\.payout|xmrAddr|zecAddr/.test(app("founders.js") + nfts), false, "the address checks went with the form");
+  for (const f of appFiles) assert.doesNotMatch(app(f), /0\.5% swap fee|swap fees? it receives|payout address a holder stored|fresh Monero subaddress|XMR and ZEC payment/, "app/" + f);
+  assert.doesNotMatch(nfts, /makes each payment|off the DERO chain|paid by the treasury's bot|XMR and ZEC share|addresses holders store/, "nothing on the pass screen says XMR or ZEC is paid");
+  // the approved description names wXMR and wZEC: a build with no vault says, in notice.js's words, that neither is offered
+  assert.match(nfts, /\/\\bw\(XMR\|ZEC\)\\b\/i\.test\(f\.descr\) && V\.notice && V\.notice\.noWrap\(\) \? h\("div", \{ class: "note mt8" \}, V\.notice\.NOWRAP \+ " Here only DERO and DERO tokens are deposited\."\)/);
+});
+
+// ---- app/notice.js, rendered for a build with the vault and for one with none (the mainnet test's) ----------------
+
+function renderNotice({ vaults, network, share = 10000n, vault = { k: 2n, na: 3n } }) {
+  const handlers = {}, el = {};
+  const flat = (x) => (Array.isArray(x) ? x.map(flat).join(" ") : x === null || x === undefined || x === false ? "" : String(x));
+  const U = { h: (_t, _a, ...kids) => flat(kids), render: (e, ...n) => { e.out = flat(n).replace(/\s+/g, " "); }, router: { on: (n, f) => { handlers[n] = f; }, current: null },
+    kv: (k, v) => k + ": " + v, clean: (s, n) => String(s || "").slice(0, n) };
+  const V = { ui: U, shortAddr: (a) => a, data: { cfg: { network }, vaults: () => vaults, allVaults: () => vaults, vault: vaults.length ? vault : null,
+    founders: share === null ? null : { share }, registry: null, onChange() {} } };
+  new Function("window", app("notice.js"))({ Veil: V });
+  handlers.notice(el);
+  return { text: el.out, N: V.notice };
+}
+const TWO = [{ scid: "e".repeat(64), sym: "XMR", name: "Monero" }, { scid: "8".repeat(64), sym: "ZEC", name: "Zcash" }];
+const NODEP = "Deposits and withdrawals of XMR and ZEC are not available on this network.";
+
+test("notice.js on a build with the vault: no swaps, custody through the vault, and the fee flow in the pass's terms", () => {
+  const { text } = renderNotice({ vaults: TWO, network: "simulator" });
+  for (const want of [/There are no atomic swaps on DMZ\. XMR and ZEC come in and go out only through a vault/, /A vault is custody: k of the n named signers of each vault can move its whole reserve, and the vault contract cannot/,
+    /A k-of-n federation of bonded signers holds the XMR and ZEC behind the wrapped assets\. They can move all of it; the vault contract cannot\. This is custody\./, /Custody: k-of-n federation of named signers holds the XMR and ZEC and can move it; the vault contract cannot/,
+    /The registered Founders Passes receive 100% of the trading fees the treasury claims from DMZ markets, each in the asset the fee was taken in, never converted to DERO: DERO, wXMR, wZEC and DERO tokens\./,
+    /The treasury's bot deposits them into the pass contract, where each registered pass claims its part\. The bot makes every deposit, and no contract forces it\./,
+    /A deposit is shared by the passes registered when it is made/, /While no pass is registered nothing is deposited/,
+    /registration and chat fees, the rate contract's vote fees, the protocol fee on NFA sales, pass mints, and from each vault its index registration and withdrawal fees and slashed signer bonds/,
+    /no support/i, /Code is law/, /space cowboy/]) assert.match(text, want);
+  assert.doesNotMatch(text, /not available on this network|not offered on this network/);
+  // one vault: its own numbers, read from the contract
+  const one = renderNotice({ vaults: TWO.slice(0, 1), network: "simulator" }).text;
+  assert.match(one, /A vault is custody: 2 of the 3 named signers of the vault can move its whole reserve/); assert.match(one, /A 2-of-3 federation of bonded signers holds the XMR/);
+  assert.match(one, /DERO, wXMR and DERO tokens\./);
+  // the share before the pass is read: a share, as the contract stores it, and no invented number
+  assert.match(renderNotice({ vaults: TWO, network: "simulator", share: null }).text, /receive a share of the trading fees the treasury claims from DMZ markets, as stored in the pass contract, each in the asset/);
+});
+
+test("notice.js on a build with no vault: nothing comes in or goes out, and no federation or wrapped unit is named", () => {
+  const { text, N } = renderNotice({ vaults: [], network: "mainnet" });
+  assert.equal(N.NODEP, NODEP);
+  for (const want of [/There are no atomic swaps on DMZ/, new RegExp(NODEP.replace(/\./g, "\\.")), /Wrapped XMR and ZEC are not offered on this network/,
+    /never converted to DERO: DERO and DERO tokens\./, /no contract forces it/, /the protocol fee on NFA sales and pass mints\. It runs the bot/]) assert.match(text, want);
+  // ui.mjs --mainnet refuses these on the notice
+  assert.doesNotMatch(text, /federation holds the|bonded signers hold/);
+  assert.doesNotMatch(text, /\bw(XMR|ZEC)\b|withdrawal fees|signer bonds/);
+  // the other screens say the same words (app/move.js and app/wrapui.js carry their own copy)
+  for (const f of ["move.js", "wrapui.js"]) assert.ok(app(f).includes(NODEP), f);
+  assert.doesNotMatch(N.NOWRAP_WHY, /swap/i);
+});
+
+test("notice.js has no word of the removed swaps' fee or of XMR and ZEC payouts, and never calls custody trustless", () => {
+  for (const build of [{ vaults: TWO, network: "simulator" }, { vaults: [], network: "mainnet" }]) {
+    const { text } = renderNotice(build);
+    assert.doesNotMatch(text, /0\.5%|swap fee|swap program|by atomic swap|payout|XMR and ZEC are paid|maker of each|refunded swap|trustless/i);
+  }
+  assert.doesNotMatch(app("notice.js"), /0\.5%|payout|swap fee|trustless/i);
 });
 
 // ---- app/founders.js against a v2 pass ------------------------------------------------------------------

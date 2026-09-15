@@ -1,6 +1,11 @@
 // DMZ vault.js — the wrapped-asset vault's data layer, split out of wrap.js (DOC size, MT-E10). Adds vault,
-// loadVault, myVault and vaultWithdrawals to V.data for the Wrap screen (wrap.js), which loads after it. Every
-// read is from the vault contract by exact key; nothing is assumed.
+// loadVault, vaultIndexes, myVault and vaultWithdrawals to V.data for the Wrap screen (wrap.js), which loads after
+// it. Every read is from the vault contract by exact key, in the encoding the contract stores; nothing is assumed.
+//
+// contracts/vault.bas keys the per-address records by the RAW 33-byte key, never by the dero1 text: Register stores
+// uc_<SIGNER()> and ul_<SIGNER()>_<c>, and Burn stores w_<j>_by = ADDRESS_RAW(refund). A raw key cannot be named
+// through DERO.GetSC keysstring (JSON text), so uc_ and ul_ are read through keysbytes (V.node.getSC raw), and a raw
+// value comes back as 66 hex characters and is compared as those bytes (tests/js/vaultkeys.test.mjs).
 (function () {
   const V = window.Veil, U = V.ui, D = V.data, B = BigInt;
   const Z = 0n;
@@ -11,6 +16,9 @@
     "regfee", "wdelay", "winmax", "bigbps", "bigdelay", "halted", "sealed", "un", "wn", "feepool", "v"];
   const isNum = (x) => typeof x === "string" && /^\d+$/.test(x);
   const num = (vals, k) => (isNum(vals[k]) ? B(vals[k]) : Z);
+  const hx = (s) => V.bytesToHex(new TextEncoder().encode(s));
+  // the raw key of an address, or an error: an address the app cannot encode is never read as "nothing registered"
+  const rawOf = (addr) => { const r = V.addressRaw(addr); if (!r) throw new Error("not a DERO address: " + U.clean(String(addr || ""), 20)); return r; };
 
   Object.assign(D, {
     vault: null,
@@ -24,7 +32,7 @@
       // record painted a retired 5-decimal vault, or any stranger's v3 contract, as the live XMR one (MISS-01)
       const rec = this.allVaults().find((v) => v.scid === scid);
       if (!rec) return null;
-      const r = await V.node.getSC(scid, { keys: [...NUM, "kind", "viewkey", "treasury"] });
+      const r = await V.node.getSC(scid, { keys: [...NUM, "kind", "viewkey"] });
       const kind = V.hexToStr(r.vals.kind || "");
       if (kind !== "vault") { console.warn("configured vault is not a vault contract"); return null; }
       const w = { scid, asset: rec, viewkey: U.clean(V.hexToStr(r.vals.viewkey || ""), 200) };
@@ -37,17 +45,24 @@
       return w;
     },
 
+    // How many deposit indexes addr has registered in vault scid: uc_<raw key> (vault.bas Register, line 278). The
+    // Wrap screen's Register reads it before and after, because un counts everyone's. Throws when it cannot be read.
+    async vaultIndexes(scid, addr) {
+      const k = hx("uc_") + rawOf(addr), r = await V.node.getSC(scid, { raw: [k] });
+      return isNum(r.raws[k]) ? Number(r.raws[k]) : 0;
+    },
+
     // The connected wallet's own deposit index and withdrawals. Read by exact key: the app never enumerates
     // other users, and an index that is registered but not yet attested has no foreign address to show.
     async myVault(addr) {
       const w = this.vault;
       if (!w || !addr) return null;
-      const c = await this.fetchKeys(w.scid, ["uc_" + addr]);
-      const n = isNum(c["uc_" + addr]) ? Number(c["uc_" + addr]) : 0;
+      const n = await this.vaultIndexes(w.scid, addr);
       let dep = null;
       if (n > 0) {
-        const idk = "ul_" + addr + "_" + (n - 1);
-        const got = await this.fetchKeys(w.scid, [idk]);
+        // ul_<raw key>_<c> holds index j of this address's c-th registration (vault.bas Register, line 277)
+        const idk = hx("ul_") + rawOf(addr) + hx("_" + (n - 1));
+        const got = (await V.node.getSC(w.scid, { raw: [idk] })).raws;
         if (isNum(got[idk])) {
           const j = got[idk];
           const d = await this.fetchKeys(w.scid, ["da_" + j, "dh_" + j, "dver_" + j]);
@@ -66,19 +81,19 @@
       return Object.assign({ units }, { indexes: n, dep, withdrawals: await this.vaultWithdrawals(addr) });
     },
 
-    // The last SCAN withdrawals, filtered to this address. w_<j>_by is the burner as ADDRESS_STRING, which is
-    // the same canonical dero1 form the app uses everywhere.
+    // The last SCAN withdrawals, filtered to this address. w_<j>_by is ADDRESS_RAW(refund): the node returns those
+    // 33 bytes as 66 hex characters, which are compared with this address's own raw key, never as text.
     async vaultWithdrawals(addr) {
       const w = this.vault;
       if (!w || !addr) return [];
-      const SCAN = 60;
+      const raw = rawOf(addr), SCAN = 60;
       const wn = Number(w.wn), from = Math.max(0, wn - SCAN);
       if (wn === 0) return [];
       const keys = [];
       for (let j = from; j < wn; j++) keys.push("w_" + j + "_by");
       const by = await this.fetchKeys(w.scid, keys);
       const mine = [];
-      for (let j = from; j < wn; j++) if (V.hexToStr(by["w_" + j + "_by"] || "") === addr) mine.push(j);
+      for (let j = from; j < wn; j++) if (by["w_" + j + "_by"] === raw) mine.push(j);
       if (!mine.length) return [];
       const want = [];
       for (const j of mine) want.push("w_" + j + "_v", "w_" + j + "_f", "w_" + j + "_to", "w_" + j + "_h", "w_" + j + "_rel", "w_" + j + "_st", "w_" + j + "_ftx", "w_" + j + "_p");

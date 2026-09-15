@@ -340,10 +340,12 @@
       ["It costs", (w.regfee > Z ? A.fmtDero(w.regfee, 5) + " DERO to the treasury, and " : "no registration fee on this vault, only ") + "the DERO network fee your wallet shows"], ["You get", "a fresh index; " + w.k + " signers then publish its deposit address on " + D.chainName(w.asset)],
       ["Public", "ring size 2: your DERO address is public in this call, and stored with the index"]], null, "Sign and register", async () => {
       lastErr = null;
+      // un counts everyone's indexes; this wallet's own count (uc_<its raw key>, read by D.vaultIndexes) moves only when
+      // its own Register executes. Unreadable beforehand, nothing is checked, and the toast says so rather than guess.
+      const n0 = await D.vaultIndexes(w.scid, me()).catch(() => null);
       const r = await WK().tx({
         scid: w.scid, entry: "Register", args: [], dero: w.regfee,
-        // un counts everyone's indexes; uc_<me> moves only when this wallet's own Register executes
-        describe: "Register a deposit index", probe: { scid: w.scid, keys: ["uc_" + me()] },
+        describe: "Register a deposit index", probe: n0 === null ? null : { scid: w.scid, keys: ["un"], check: async () => (await D.vaultIndexes(w.scid, me())) > n0 },
       });
       if (r.ok) { toast("Index registered. Signers must attest it before it can receive.", "ok"); reload(true); } else fail(r);
     });
@@ -377,8 +379,9 @@
         const r = await WK().tx({
           scid: w.scid, entry: "Burn", args: [["dest", "S", dst], ["refund", "S", me()]], asset: { scid: w.scid, amount: units },
           describe: "Burn " + amt(units, 8) + " and withdraw",
-          // wn counts everyone's burns: this one executed only if a withdrawal opened since then names this wallet
-          probe: { scid: w.scid, keys: ["wn"], check: async (a, b) => { const ks = []; for (let j = +a.vals.wn || 0; j < (+b.vals.wn || 0) && ks.length < 16; j++) ks.push("w_" + j + "_by"); const g = ks.length ? await D.fetchKeys(w.scid, ks) : {}; return ks.some((k) => V.hexToStr(g[k] || "") === me()); } },
+          // wn counts everyone's burns: this one executed only if a withdrawal opened since then names this wallet. w_<j>_by
+          // is ADDRESS_RAW(refund), 66 hex characters from the node, compared with this wallet's raw key
+          probe: { scid: w.scid, keys: ["wn"], check: async (a, b) => { const raw = V.addressRaw(me()), ks = []; for (let j = +a.vals.wn || 0; j < (+b.vals.wn || 0) && ks.length < 16; j++) ks.push("w_" + j + "_by"); const g = ks.length ? await D.fetchKeys(w.scid, ks) : {}; return !!raw && ks.some((k) => g[k] === raw); } },
         });
         if (r.ok) { amountEl.value = ""; toast("Burned. It becomes payable at the height shown below.", "ok"); reload(true); } else fail(r);
       });

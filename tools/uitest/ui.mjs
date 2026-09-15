@@ -315,9 +315,10 @@ try {
     await page.getByText("Line", { exact: true }).click(); await sleep(400); await shot("06-token-line");
     await (await import("./ui-market.mjs")).marketPass({ browser, url, out, step, fail, sleep }); // the market page at 1280/768/390
     await page.evaluate(() => { location.hash = "#markets"; }); await sleep(1200); await shot("07-markets-live");
-    // launch sheet with its live preview (read-only: filled, never sent)
-    await page.click(".tab[data-tab=launch]"); await sleep(600);
-    await page.getByText("Launch a token").first().click(); await sleep(500);
+    // a coin's Configure step with its live preview (read-only: filled, never sent). The launch sheet is now the
+    // Create → Configure → Review → Pay → Launch flow (app/wizard.js); its chooser opens as ui-launch.mjs opens it
+    await page.evaluate(() => window.Veil.forms.create()); await page.locator("#sheet .wz-kind").first().waitFor({ timeout: 15000 });
+    await page.locator("#sheet .wz-kind").first().click(); await sleep(500); // Coin
     await page.locator("#sheet input[name=name]").fill("Preview Coin"); await page.locator("#sheet input[name=ticker]").fill("PRV"); await sleep(400); await shot("08-launch-sheet");
     const pv = await page.locator("#sheet").innerText(); if (!/16×/.test(pv) || !/Two wallet confirmations/.test(pv)) fail("launch preview missing: " + pv.slice(0, 200));
     await page.keyboard.press("Escape"); await sleep(300);
@@ -419,9 +420,9 @@ try {
       const curve = await page.locator(".chart svg.cx path").count(); step("portfolio: " + pf.slice(0, 90) + " · chart paths " + curve);
     }
     if (!passOnly && !portfolioOnly) {
-    step("launch a token from the form");
-    await page.click(".tab[data-tab=launch]"); await sleep(600);
-    await page.getByText("Launch a token").click(); await sleep(500);
+    step("launch a token through the creation flow");
+    await page.evaluate(() => window.Veil.forms.create()); await page.locator("#sheet .wz-kind").first().waitFor({ timeout: 15000 });
+    await page.locator("#sheet .wz-kind").first().click(); await sleep(500); // Coin: its Configure step
     await page.locator("#sheet input[name=name]").fill("Browser Coin");
     await page.locator("#sheet input[name=ticker]").fill("BRW");
     await page.locator("#sheet textarea[name=descr]").fill("launched from the headless browser test");
@@ -430,7 +431,8 @@ try {
     await page.locator("#sheet input[name=dec]").fill("3");
     await page.locator("#sheet input[name=grad]").fill("10"); // graduation DERO (min)
     await page.locator("#sheet input[name=tax]").fill("2");   // tax %
-    await page.locator("#sheet .seg button").nth(3).click(); // stakers
+    // stakers, by its words: in the Configure step the row sits under the sheet's sticky actions, and a click by index did not land
+    await page.locator("#sheet .seg button", { hasText: /^Stakers$/ }).click();
     await shot("11-launch-form");
     await (await import("./ui-launch.mjs")).hook(page); // the creation flow: Configure → Review here; the click below is "Pay and launch"
     await page.locator("#sheet button.primary").click();

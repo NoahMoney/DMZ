@@ -10,8 +10,7 @@ import("./vaultkeys.test.mjs");
 import("./appcore.repair.test.mjs");
 import("./fees.repair.test.mjs");
 import("./nfas.repair.test.mjs");
-// the payout-address checks, and the stage tracker's reading of a swap program's status (tools/*/statusv1_test.go)
-import("./payout.test.mjs");
+// the stage tracker's reading of a program's status (tools/*/statusv1_test.go)
 import("./track.test.mjs");
 // community sentiment: the display rule and the fail-closed reads (app/sentiment.js)
 import("./sentiment.test.mjs");
