@@ -79,7 +79,7 @@ func TestRunbookPassDescriptionFits(t *testing.T) {
 
 // The operator's numbers (MT-J16, 2026-09-13) are the defaults, and they install: 1 DERO, 20 editions, 4 reserved.
 func TestPassDefaultsAreTheOperatorsNumbers(t *testing.T) {
-	if *passPrice != 100000 || *passMax != 20 || *passReserve != 4 || *passShare != 5000 || *passMfee != 250 || *passImage != "" {
+	if *passPrice != 100000 || *passMax != 20 || *passReserve != 4 || *passShare != 10000 || *passMfee != 250 || *passImage != "" {
 		t.Fatalf("defaults price %d max %d reserve %d share %d mfee %d image %q", *passPrice, *passMax, *passReserve, *passShare, *passMfee, *passImage)
 	}
 	if len(passDescrDefault) != 236 {

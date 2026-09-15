@@ -213,7 +213,7 @@ two apart.
 | XMR ↔ DERO and ZEC ↔ DERO swaps | XMR or ZEC | 0.5% of what the maker receives, paid by the maker to the treasury in the same transaction; none on a refund (see below) |
 | Network fee | **always DERO** | miners |
 
-**The Founders Pass.** Twenty passes (four reserved), 1 DERO each, with a share of 5,000 bps fixed at install. The
+**The Founders Pass.** Twenty passes (four reserved), 1 DERO each, with a share of 10,000 bps fixed at install: all of the trading and swap fees the treasury takes go to the registered passes, split equally, so with 20 passes each registered pass earns at least 5%. The
 treasury's bot claims each market's protocol share and deposits the pass share of it into `founders.bas` **in the
 asset the fee was taken in** — DERO, or the DERO token the market is quoted in — never converted. Each registered
 pass then claims its part of each asset from the contract. A deposit is shared by the passes registered when it is

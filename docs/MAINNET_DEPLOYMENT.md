@@ -14,7 +14,7 @@ steps come from, with the reasons behind each.*
 |---|---|---|---|
 | `factory.bas` | one contract (v2) | treasury address, registration fee, both fixed by `Initialize` for the factory's life | **no owner exists**: v2 stores none and has no setter, so nothing can change the treasury or the fee, and there is nothing to renounce (MT-J15(b), 2026-09-11) |
 | `social.bas` | one contract | none | no role exists |
-| `founders.bas` | one contract (v2: a reward pool per asset) | name, description, image, price, supply, reserve, share, market fee, treasury (MT-J16: "DMZ Founders Pass", the description approved for v2, the operator's image, 1 DERO, 20 editions, 4 reserved, share 5,000 bps, market fee 250 bps) | no owner; no function changes any of them after install |
+| `founders.bas` | one contract (v2: a reward pool per asset) | name, description, image, price, supply, reserve, share, market fee, treasury (MT-J16: "DMZ Founders Pass", the description approved for v2, the operator's image, 1 DERO, 20 editions, 4 reserved, share 10,000 bps (2026-09-15: all of the trading and swap fees, at least 5% per registered pass), market fee 250 bps) | no owner; no function changes any of them after install |
 | `chat.bas` | one contract | treasury, fee per message, maximum length | fixed at install |
 | `htlc.bas` | one contract (v3), the Monero swap's DERO leg | `w1min` and `w2min`, the least t1 − lock height and t2 − t1 (400 each, from the Monero profile), and `g2`, the Punish window: 4,800 blocks (24 h), the operator's answer to MT-J13 on 2026-09-12 | fixed at install; no owner, admin, fee or update path |
 | `swap.bas` | one contract, the Zcash swap's DERO leg | `wmin` = 1,600 blocks | fixed at install |
@@ -148,7 +148,7 @@ After installation, the SCIDs are in the `mainnet` block of `deploy/networks.jso
      -app <an empty scratch directory> -regfee 10000 ^
      -pass-name "DMZ Founders Pass" -pass-image "<the operator's image URL (https), supplied before launch>" ^
      -pass-descr "Register a pass for a fixed share of DMZ's trading and swap fees, paid in the asset each fee was taken in: DERO and DERO tokens through this contract, XMR and ZEC by the treasury's bot. The bot makes each payment; no contract forces it." ^
-     -pass-price 100000 -pass-max 20 -pass-reserve 4 -pass-share 5000 -pass-mfee 250 ^
+     -pass-price 100000 -pass-max 20 -pass-reserve 4 -pass-share 10000 -pass-mfee 250 ^
      -swap-wmin 1600 -htlc-w1min 400 -htlc-w2min 400 -htlc-g2 4800
    ```
    This installs factory, social, founders, chat, htlc, swap and board, and records them in the `mainnet` block. It
@@ -339,8 +339,8 @@ Mainnet's 18-second blocks make steps 4 and 6 about a third as long.
 No run in `research/` records the earlier "about 300, 290 and 305". A sweep that claims from M markets and deposits A
 assets costs at most 820 × (M + A). Five DERO-quoted markets of five tokens make at most six assets (DERO and the
 five), so **9,020**, and 0.1 DERO (10,000 units) covers one such sweep. The treasury's own income does not arrive in a fixed
-order: the claims send it the markets' fees, and it keeps what it does not deposit (the pass's `share` is 5,000 bps,
-so half). It also receives the Founders Pass mint proceeds (`founders.bas:116`), every market's registration fee and
+order: the claims send it the markets' fees, and it keeps what it does not deposit (the pass's `share` is 10,000 bps,
+so none of those fees). It also receives the Founders Pass mint proceeds (`founders.bas:116`), every market's registration fee and
 the chat fees. The figure below counts none of that, because the operator may move the treasury's income out.
 
 - **Fund the treasury with 1 DERO** (100,000 units) and keep at least that in it. At 5 markets, with one claiming

@@ -69,7 +69,7 @@ var (
 	passMax     = flag.Uint64("pass-max", 20, "editions (20, MT-J16)")
 	passStart   = flag.Uint64("pass-start", 0, "mint opens at this block height")
 	passReserve = flag.Uint64("pass-reserve", 4, "editions minted to the installer at install: at most -pass-max / 5 (4 of 20, MT-J16)")
-	passShare   = flag.Uint64("pass-share", 5000, "the share of the fees the treasury claims that goes to the passes, in bps (5000 = 50%)")
+	passShare   = flag.Uint64("pass-share", 10000, "the share of the fees the treasury claims that goes to the passes, in bps (10000 = all of it: the operator's ruling of 2026-09-15, at least 5% per registered pass across 20)")
 	passMfee    = flag.Uint64("pass-mfee", 250, "marketplace fee in bps, deposited for the registered passes")
 )
 
