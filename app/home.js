@@ -7,9 +7,19 @@
   const H = (V.home = {});
   const shown = new Map(); // scid → last price shown, so rolling numbers animate across re-renders
   H.priceEl = (s, cls = "num") => { const el = h("span", { class: cls }); el._v = shown.get(s.scid); L.num(el, s.price, S.fmtPriceSub); shown.set(s.scid, s.price); return el; };
-  // Badges describe what a market IS. None of them is an action, so none of them wears the accent — lime is
-  // reserved for things you can do and things that are live.
-  H.badges = (s) => [s.kind === "launch" ? (s.phase === 0n ? pill("curve " + s.m.progress.toFixed(0) + "%") : pill("AMM")) : pill("pool"), s.m.isNew ? pill("NEW", "warn") : null, s.m.hot > 12 ? pill("HOT", "up") : null];
+  // Badges describe what a market IS. None is an action, so none wears the accent, and none is a caution: NEW is a
+  // fact about age, not a risk (every legitimate market is new once), and Promoted is placement bought on the
+  // promotion contract, which says nothing about the market. HOT is gone: it was a ranking dressed as a property,
+  // in the direction colour, and the Trending section carries the ranking itself.
+  // the slots are read at most every 2 s (a row asks once per draw), and again the moment the promotion module appears
+  let promo = null, promoAt = 0, promoSrc;
+  H.promoted = (s) => { if (Date.now() - promoAt > 2000 || promoSrc !== V.promo) { promoAt = Date.now(); promoSrc = V.promo; const p = V.disc && V.disc.promos(); promo = p ? new Set(p.map((x) => x.scid)) : null; } return !!promo && promo.has(s.scid); };
+  H.badges = (s) => [s.kind === "launch" ? (s.phase === 0n ? pill("curve " + s.m.progress.toFixed(0) + "%") : pill("AMM")) : pill("pool"), s.m.isNew ? pill("NEW") : null, H.promoted(s) ? pill("Promoted", "promo") : null];
+  // a row has room for one or two: what was bought and what is new come before what kind of contract it is
+  H.rowBadges = (s) => { const b = H.badges(s); return [b[2], b[1], b[0]].filter(Boolean); };
+  // the code check as a mark a row has room for, only where it passed with no qualification (U.verified's tiers)
+  H.vmark = (s) => (s.impersonates || s.treasuryUnverified || s.unlisted || (s.kind === "pool" && !s.assetVerified && !s.wrappedBase) ? null
+    : h("span", { class: "vmark", role: "img", "aria-label": "code verified", title: "Contract code matches the shipped template and pays the protocol treasury" }, icon("shield")));
   // risk flags shown on the token page and inside the trade sheet; plain words, derived from contract state only
   // the creator allocation is not stored; it is what the supply minus the curve and the AMM reserve leaves
   H.allocation = (s) => (s.kind === "launch" && s.supply > 0n && s.supply >= s.cs + s.Lq ? s.supply - s.cs - s.Lq : 0n);
@@ -34,19 +44,23 @@
     }
     if (s.kind === "launch" && H.allocBps(s) >= 100) out.push({ k: "alloc", t: "The creator received " + (H.allocBps(s) / 100).toFixed(2) + "% of the supply at launch (" + A.fmtCompact(H.allocation(s), s.dec) + " " + s.ticker + "), sellable at any time." });
     if (s.kind === "launch" && s.tax > 500n) out.push({ k: "tax", t: "High tax: " + Number(s.tax) / 100 + "% of every trade's " + D.qsym(s) + " leg goes to " + ["nobody", "the creator", "buybacks", "stakers"][Number(s.tmode)] + "." });
-    if (s.m.liq < 20) out.push({ k: "thin", t: "Thin market: about " + S.fmtDeroShort(s.m.liq) + " " + D.qsym(s) + " of liquidity. Small orders move the price a lot." });
-    if (s.m.isNew) out.push({ k: "new", t: "Launched " + S.ageText(s.m.age) + " ago. New markets are the most volatile." });
+    // Thin is judged in the quote's own scale (stats.js m.thin: twenty DERO, or the quote's equivalent). The raw 20
+    // it replaced called twenty XMR of liquidity thin. A quote whose decimals this build does not know has no
+    // liquidity figure to judge, and the box says that rather than passing or failing it.
+    if (s.quoteDecUnknown) out.push({ k: "thin", t: "This build does not know the decimals of " + D.qsym(s) + ", the asset this market is priced in, so its liquidity cannot be read here." });
+    else if (s.m.thin === undefined ? s.m.liq < 20 : s.m.thin) out.push({ k: "thin", t: "Thin market: about " + S.fmtDeroShort(s.m.liq) + " " + D.qsym(s) + " of liquidity. Small orders move the price a lot." });
+    // Age is not a risk: every legitimate market is new once. It is shown beside the price and as a NEW badge.
     return out;
   };
   H.star = (s) => { const on = S.watch.has(s.scid); return h("button", { class: "star " + (on ? "on" : ""), type: "button", "aria-label": on ? "remove from watchlist" : "add to watchlist", onclick: (e) => { e.stopPropagation(); S.watch.toggle(s.scid); D.changed(); } }, icon("star", "")); };
   // A market quoted in anything but DERO is named by its pair: a BRW / wXMR row and a BRW / DERO row are two
   // markets at two prices, and a bare ticker would make them one row shown twice. The Markets table's rule.
-  H.rowName = (s) => (s.quote && s.pair) || s.ticker;
+  H.rowName = (s) => U.pairText(s);
   // The strongest identity warning as a few words of text, for every row that lists a market. The words and
   // the tooltip are U.warnings', so a row, the token page and the trade sheet say the same thing about the
   // same flag; a row has room for one, and the token page says the rest. It is text and not a title because a
   // title cannot be reached on a phone. `after` is the separator to what follows, outside the coloured span.
-  H.mark = (s, after) => { const w = U.warnings(s)[0]; if (!w) return null; const el = h("span", { class: "warn", title: w.title }, "\u26a0 " + w.textContent); return after ? [el, after] : el; };
+  H.mark = (s, after) => { const w = U.warnings(s).find((x) => x.sev > 0); if (!w) return null; const el = h("span", { class: "warn", title: w.title }, "\u26a0 " + w.textContent); return after ? [el, after] : el; };
 
   // ---- shared composition ----
   // Level 3: a label above a number, no background and no border (docs/DESIGN_SYSTEM.md § Surfaces).
@@ -64,7 +78,7 @@
   const TROW = "grid-template-columns:22px minmax(0,1fr) auto auto;gap:10px;padding:9px 2px";
   const PROW = "grid-template-columns:22px minmax(0,1fr) auto;gap:10px;padding:12px 2px;margin-top:26px;border-top:1px solid var(--edge)";
   const CROW = "grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:12px 2px";
-  const named = (s) => h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, h("b", { class: "ellipsis" }, H.rowName(s)), h("div", { class: "badges" }, H.badges(s).filter(Boolean).slice(0, 1))), h("div", { class: "sub tiny ellipsis" }, H.mark(s, " \u00b7 "), s.name));
+  const named = (s) => h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, U.pair(s), H.vmark(s), h("div", { class: "badges" }, H.rowBadges(s).slice(0, 1))), h("div", { class: "sub tiny ellipsis" }, H.mark(s, " \u00b7 "), s.name));
   // one ranked market row: the reading order of the Markets table, at rail width
   H.marketRow = (s, i, w) => h("button", { class: "mrow", style: MROW(w = w || 62), type: "button", onclick: () => router.go("token", s.scid) },
     h("span", { class: "rank" + (i < 3 ? " r" + (i + 1) : "") }, i + 1), avatar(s, "sm"), named(s),
@@ -73,7 +87,7 @@
   // a launch reads by how far its curve has filled: the bar is the value, the DERO pair is the detail
   const launchRow = (s) => h("button", { class: "mrow", style: LROW, type: "button", onclick: () => router.go("token", s.scid) },
     avatar(s, "sm"),
-    h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, h("b", { class: "ellipsis" }, H.rowName(s)), h("span", { class: "sub tiny ellipsis" }, H.mark(s, " \u00b7 "), s.name)), h("div", { class: "progress data", style: "margin-top:7px" }, h("i", { style: "width:" + Math.min(100, s.m.progress) + "%" }))),
+    h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, U.pair(s), h("span", { class: "sub tiny ellipsis" }, H.mark(s, " \u00b7 "), s.name)), h("div", { class: "progress data", style: "margin-top:7px" }, h("i", { style: "width:" + Math.min(100, s.m.progress) + "%" }))),
     h("div", { class: "right" }, h("span", { class: "num price" }, s.phase === 0n ? s.m.progress.toFixed(0) + "%" : "AMM"),
       h("span", { class: "sub tiny" }, s.phase === 0n ? A.fmtUnits(s.real, D.qdec(s), 1) + " / " + A.fmtUnits(s.G, D.qdec(s), 0) + " " + D.qsym(s) : "locked · " + S.ageText(s.m.age) + " old")));
   // 24h flow per quote asset, largest first. There is no rate between two quotes and there must not be one, so
@@ -82,6 +96,16 @@
   const flowsOf = (list) => { const byQuote = new Map(); for (const s of list) byQuote.set(D.qsym(s), (byQuote.get(D.qsym(s)) || 0) + s.m.vol24); return [...byQuote.entries()].sort((a, b) => b[1] - a[1]); };
   // the rail's first head sits flush with the top of the main column; stacked below 1180 it keeps its air
   const head = (ic, t, sub, action, flush) => { const el = U.sectionHead(ic, t, sub, action); if (flush) el.style.marginTop = "0"; return el; };
+  // what can be created, on the Launch screen and the Trade hub alike
+  const createRow = (t, d, fn) => h("button", { class: "mrow", style: CROW, type: "button", onclick: fn }, h("div", { class: "grow" }, h("b", null, t), h("div", { class: "sub tiny" }, d)), icon("arrow", "svgi dim2"));
+  // The launch flow's chooser (V.forms.create, another file's) when this build has it: every Create entry opens it
+  // directly. Without it, the Launch screen's own rows, each of which opens its form.
+  const hasCreate = () => !!(V.forms && typeof V.forms.create === "function");
+  H.create = () => (hasCreate() ? V.forms.create() : router.go("launch"));
+  const chooser = () => (hasCreate() ? createRow("Create something new", "Choose a token, a pool or an NFT, then configure it, review it and pay, in one flow.", () => V.forms.create()) : null);
+  const CREATE = [["Launch a token", "Fixed supply, bonding curve, auto-graduation into a locked AMM. Optional tax: creator, buyback-and-lock, or staker rewards.", () => V.forms.launch()],
+    ["Create a pool", "LP-owned constant-product pool for any existing DERO asset.", () => V.forms.pool()],
+    ["Create a holder NFT", "Editions earned by locking a token for a number of blocks.", () => V.forms.nft()]];
 
   H.followBtn = (addr, small = true, cls) => {
     if (!me() || addr === me()) return null;
@@ -118,9 +142,6 @@
   const FEEDS = [["all", "All"], ["following", "Following"], ["watch", "Watchlist"]];
   router.on("home", (el) => {
     const draw = () => {
-      const trending = D.trending(6), movers = D.movers(4);
-      // a new launch and a graduating one are usually the same contract: one pipeline, closest to the AMM first
-      const pipe = [...new Map([...D.graduating(4), ...D.newest(4)].map((s) => [s.scid, s])).values()].slice(0, 4);
       const feed = D.feed(feedFilter, me());
       const act = D.active(); const blocks1h = act.reduce((a, s) => a + s.m.flow1h.blocks, 0);
       // the largest quote leads because that is the market this deployment actually is
@@ -129,7 +150,7 @@
       const hold = V.app.holdings;
       const buys = act.reduce((a, s) => a + s.m.upBlocks24, 0), sells = act.reduce((a, s) => a + s.m.downBlocks24, 0), bp = Math.round((buys / (buys + sells || 1)) * 100);
       const day = feed.reduce((n, t) => n + (t.ts >= S.now() - 86400 ? 1 : 0), 0);
-      const wide = !!(window.matchMedia && window.matchMedia("(min-width:1180px)").matches), spark = wideShell() ? 84 : 62;
+      const wide = !!(window.matchMedia && window.matchMedia("(min-width:1180px)").matches);
       // #screen sets overflow-x:hidden, so it computes overflow-y:auto and is itself the sticky scrollport: the
       // rail's top:74px lands as a constant 74px push rather than clearance under the header, and the rail never
       // actually sticks. Zero it here until the sheet stops making #screen a scroll container — the condition
@@ -175,16 +196,12 @@
         h("div", { class: "grow ellipsis" }, h("span", { class: "eyebrow" }, "Founders pass"),
           h("div", { class: "sub tiny ellipsis" }, f.name + " · " + Number(f.share) / 100 + "% of claimed fees, paid in each fee's asset · " + (f.maxsupply - f.minted) + " of " + f.maxsupply + " left")),
         icon("arrow", "svgi dim2")) : null;
-      render(el, h("div", { class: "home-grid" }, h("div", { class: "home-main" },
+      render(el, h("div", { class: "home-grid dz" }, h("div", { class: "home-main" },
         hero, posn,
-        head("flame", "Trending", "Most active this hour", trending.length ? h("button", { class: "linkbtn", type: "button", onclick: () => router.go("markets") }, "All markets") : null),
-        trending.length ? h("div", { class: "mlist" }, trending.map((s, i) => H.marketRow(s, i, spark)))
-          : D.lastRefresh ? U.emptyState("flame", null, "Nothing has traded here yet. The first pool or launch fills this list.", button("Create a market", "small primary", () => router.go("trade")))
-            // a registry that could not be read says so, rather than animating a load that will never land
-            : D.lastError ? U.errorState("The market registry could not be read from your node: " + U.clean(D.lastError, 160), () => V.app.refresh(true))
-              : h("div", { class: "list" }, U.skeleton(4)),
-        movers.length ? [head("trend", "Movers", "Largest moves over 24 hours"), h("div", { class: "mlist" }, movers.map((s, i) => H.marketRow(s, i, spark)))] : null,
-        pipe.length ? [head("rocket", "Launch pipeline", "Curves filling toward a locked AMM"), h("div", { class: "mlist" }, pipe.map(launchRow))] : null,
+        // nothing listed yet: the one action that fills every section below it
+        D.lastRefresh && !D.list().length ? U.emptyState("flame", null, "Nothing is listed here yet. The first pool or launch fills these lists.", button("Create a market", "small primary", () => H.create())) : null,
+        // the discovery sections (discover.js); an unread registry is said to be unread there, not animated
+        V.disc ? V.disc.home() : null,
         pass),
         h("div", { class: "home-side", style: railTop },
         head("feed", "Activity", "Trades their owners chose to publish", null, wide),
@@ -205,7 +222,7 @@
     const draw = () => {
       const list = D.active().sort((a, b) => b.m.hot - a.m.hot);
       const flows = flowsOf(list);
-      const create = (t, d, fn) => h("button", { class: "mrow", style: CROW, type: "button", onclick: fn }, h("div", { class: "grow" }, h("b", null, t), h("div", { class: "sub tiny" }, d)), icon("arrow", "svgi dim2"));
+      const create = createRow;
       const row = (s) => h("div", { class: "mrow", style: TROW },
         avatar(s, "sm"),
         h("button", { class: "grow ellipsis", type: "button", style: "text-align:left", onclick: () => router.go("token", s.scid) }, named(s)),
@@ -231,19 +248,32 @@
         head("bolt", "Markets", "Ordered by activity · pick a side to open the trade sheet", list.length > 12 ? h("button", { class: "linkbtn", type: "button", onclick: () => router.go("markets") }, "All markets") : null),
         list.length ? h("div", { class: "mlist" }, list.slice(0, 12).map(row))
           // "nothing is listed" only once the registry has been read; unread, it says so, and loading is a skeleton
-          : D.lastRefresh ? U.emptyState("bolt", null, "Nothing is listed on this deployment yet.", button("Create a market", "small primary", () => V.forms.launch()))
+          : D.lastRefresh ? U.emptyState("bolt", null, "Nothing is listed on this deployment yet.", button("Create a market", "small primary", () => H.create()))
             : D.lastError ? U.errorState("The market registry could not be read from your node: " + U.clean(D.lastError, 160), () => V.app.refresh(true))
               : h("div", { class: "list" }, U.skeleton(3)),
         head("sparkle", "Create", "Two wallet confirmations: install, then register"),
-        h("div", { class: "mlist" },
-          create("Launch a token", "Fixed supply, bonding curve, auto-graduation into a locked AMM. Optional tax: creator, buyback-and-lock, or staker rewards.", () => V.forms.launch()),
-          create("Create a pool", "LP-owned constant-product pool for any existing DERO asset.", () => V.forms.pool()),
-          create("Create a holder NFT", "Editions earned by locking a token for a number of blocks.", () => V.forms.nft())),
-        D.cfg.board ? [head("trend", "ZEC swap", "Atomic swap against transparent ZEC · public on the Zcash chain"),
-          h("div", { class: "mlist" }, create("Buy or sell for ZEC", "The offer board, and each swap's DERO leg read live from its lock. Your companion runs the Zcash leg.", () => router.go("zswap")))] : null,
-        D.cfg.htlc ? [head("trend", "XMR swap", "Atomic swap against XMR · agreed out of band, run by your xmrswap"),
-          h("div", { class: "mlist" }, create("Follow a Monero swap", "Your locks, their windows and stages, read live from the chain. Punish is the one exit sent from here.", () => router.go("xmr")))] : null);
+        h("div", { class: "mlist" }, chooser(), CREATE.map((c) => createRow(...c))),
+        null);
     };
     draw(); D.onChange(() => router.current && router.current.name === "trade" && draw());
+  });
+
+  // ---- LAUNCH: what can be installed, and the launches already filling their curves ----
+  router.on("launch", (el) => {
+    const draw = () => {
+      // a new launch and a graduating one are usually the same contract: one pipeline, closest to the AMM first
+      const pipe = [...new Map([...D.graduating(8), ...D.newest(8)].map((s) => [s.scid, s])).values()].slice(0, 8);
+      render(el, h("div", { class: "dz" },
+        h("div", { class: "mhead" }, h("h1", null, "Launch")),
+        h("div", { class: "sub mt8", style: "max-width:62ch" }, "Each of these installs a contract from a template this app ships and registers it with the factory: two wallet confirmations, install then register."),
+        head("sparkle", "Create", "Pick what to install"),
+        h("div", { class: "mlist" }, chooser(), CREATE.map((c) => createRow(...c))),
+        head("rocket", "Launch pipeline", "Curves filling toward a locked AMM, closest first"),
+        pipe.length ? h("div", { class: "mlist" }, pipe.map(launchRow))
+          : D.lastRefresh ? U.emptyState("rocket", null, "No launch is listed yet.")
+            : D.lastError ? U.errorState("The market registry could not be read from your node: " + U.clean(D.lastError, 160), () => V.app.refresh(true))
+              : h("div", { class: "list" }, U.skeleton(3))));
+    };
+    draw(); D.onChange(() => router.current && router.current.name === "launch" && draw());
   });
 })();

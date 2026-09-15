@@ -77,6 +77,24 @@
     return isAsset && V.profile ? V.profile.mount(el, x) : el;
   }
   const pill = (txt, cls = "") => h("span", { class: "pill " + cls }, txt);
+  // A market is named by its pair, always: TKN / DERO and TKN / XMR are two markets at two prices, and a bare
+  // ticker makes them one row shown twice. The ticker is never truncated (feed.js reads at most 10 characters of
+  // it); the pair label does not shrink, so it is the market's name that gives way beside it. The quote is the
+  // symbol names.js gave it: DERO, a vault's symbol, or a short contract id for a quote nobody names.
+  // A vault's unit, as base or quote, is shown by its chain's symbol and marked "wrapped · 1:1": each unit is a
+  // claim on one coin the vault's federation holds. The mark comes only from a vault record this build ships, so a
+  // token that merely calls itself XMR reads "XMR / DERO" with no mark, and names.js's "Not real XMR" beside it.
+  const vsym = (v) => clean(String(v.sym || v.name || "?").replace(/^w(?=[A-Z])/, ""), 10);
+  const pairParts = (s) => {
+    const vs = s ? V.data.allVaults() : [], b = s && s.wrappedBase ? vs.find((v) => v.scid === s.asset) : null, q = s && s.quote ? vs.find((v) => v.scid === s.quote) : null;
+    return [b ? vsym(b) : clean((s && s.ticker) || "?", 12), q ? vsym(q) : V.data.qsym(s), b || q];
+  };
+  const pairText = (s) => { const [b, q] = pairParts(s); return b + " / " + q; };
+  // the words a screen reader hears for the same label
+  const pairAria = (s) => pairText(s) + (pairParts(s)[2] ? ", wrapped one to one" : "");
+  const wmark = (s) => { const w = pairParts(s)[2]; return w ? h("span", { class: "wmark", title: "Wrapped: each unit is a claim on one " + vsym(w) + " held by the vault's federation, which can move it; the vault contract cannot." }, "wrapped · 1:1") : null; };
+  // bare: the mark goes on the line below instead, where a narrow row has the room to show it whole
+  const pair = (s, bare) => { const [b, q] = pairParts(s); return h("span", { class: "pair" }, h("b", null, b), h("span", { class: "q" }, " / " + q), bare ? null : wmark(s)); };
   // direction is a number in a numeric column, not a boxed control: .chg carries colour and tabular figures only
   const changePill = (c) => (c === null || c === undefined ? h("span", { class: "chg" }, "—") : h("span", { class: "chg " + (c >= 0 ? "up" : "down") }, A.pct(c)));
   function toggle(label, on, cb, note, id) {
@@ -108,16 +126,21 @@
     if (s && s.unlisted) return h("span", { class: "verified warn", title: "The code matches a shipped template, but this contract is not in the DMZ registry: nobody registered it with the factory" }, icon("shield"), "Code verified \u00b7 not listed");
     return h("span", { class: "verified", title: "Contract code matches the shipped template and pays the protocol treasury" }, icon("shield"), "Verified");
   };
+  // Each pill carries `sev`: 2 is a real issue with this market (a row shows the first of those); 0 is a fact worth
+  // knowing that is not a fault of the market it is on (the token page shows it, a row does not).
   const warnings = (s) => {
-    const w = [];
+    const w = [], add = (sev, cls, title, txt) => { const e = h("span", { class: "pill " + cls, title }, txt); e.sev = sev; w.push(e); };
     // First, and worded as a statement rather than a caution: "check the contract id" asks a user to do work
     // they cannot do. This one is knowable — the vault that owns the name is in the shipped config — so say it.
-    if (s && s.impersonates) w.push(h("span", { class: "pill bad", title: "This is a token that named itself after " + s.impersonates + ". " + (V.data.allVaults().length ? "It is not the wrapped asset, it is not backed by anything held in the vault, and it has nothing to do with the " + s.impersonates + " you can deposit and withdraw on the Wrap screen." : "No wrapped " + s.impersonates + " is offered on this network, so nothing called " + s.impersonates + " here is backed by it or can be withdrawn to it.") }, "Not real " + s.impersonates));
-    if (s && s.splitWith && !s.splitDeepest) w.push(h("span", { class: "pill warn", title: "Another contract trades this same pair and holds more of it. This one is thinner: the same order moves its price more, and a large one can empty it. Markets shows both, deepest first." }, "Split pair \u00b7 thinner"));
-    if (s && (s.quoteLegacy || s.baseLegacy)) w.push(h("span", { class: "pill warn", title: "This market trades a retired vault's wrapped units. The federation mints no more of them, so the supply is only what already exists; they leave by being burned back on the Wrap screen, where the vault that replaced this one also is." }, "Retired vault"));
-    if (s && s.dupTicker) w.push(h("span", { class: "pill warn", title: "Another listed market uses a ticker that reads the same. Check the contract id before trading." }, "Ticker shared"));
-    if (s && s.lookalike) w.push(h("span", { class: "pill warn", title: "This ticker contains characters that look like others (Cyrillic or Greek letters, digits for letters)." }, "Look-alike ticker"));
-    if (s && s.splitWith && s.splitDeepest) w.push(h("span", { class: "pill dim", title: "Another contract trades this same pair with less liquidity. This is the deeper one." }, "Split pair"));
+    if (s && s.impersonates) add(2, "bad", "This is a token that named itself after " + s.impersonates + ". " + (V.data.allVaults().length ? "It is not the wrapped asset, it is not backed by anything held in the vault, and it has nothing to do with the " + s.impersonates + " you can deposit and withdraw on the Wrap screen." : "No wrapped " + s.impersonates + " is offered on this network, so nothing called " + s.impersonates + " here is backed by it or can be withdrawn to it."), "Not real " + s.impersonates);
+    if (s && s.splitWith && !s.splitDeepest) add(2, "warn", "Another contract trades this same pair and holds more of it. This one is thinner: the same order moves its price more, and a large one can empty it. Markets shows both, deepest first.", "Split pair \u00b7 thinner");
+    if (s && (s.quoteLegacy || s.baseLegacy)) add(2, "warn", "This market trades a retired vault's wrapped units. The federation mints no more of them, so the supply is only what already exists; they leave by being burned back on the Wrap screen, where the vault that replaced this one also is.", "Retired vault");
+    if (s && s.lookalike) add(2, "warn", "This ticker contains characters that look like others (Cyrillic or Greek letters, digits for letters).", "Look-alike ticker");
+    // A shared ticker is ambiguity, not a fault: the market that was copied carries it as surely as the copy, so on
+    // a row it marked the legitimate market as suspect. The pair, the name and the age tell rows apart; the token
+    // page still says it, in the neutral ink.
+    if (s && s.dupTicker) add(0, "dim", "Another listed market uses a ticker that reads the same. Compare the name, the age and the contract id: the ticker alone does not tell them apart.", "Ticker shared");
+    if (s && s.splitWith && s.splitDeepest) add(0, "dim", "Another contract trades this same pair with less liquidity. This is the deeper one.", "Split pair");
     return w;
   };
   // section head with an icon, and an illustrated empty state
@@ -160,7 +183,9 @@
       this.gen++; // every navigation starts a generation; listeners from older ones are dropped on the next tick
       const [name, ...rest] = location.hash.replace(/^#/, "").split("/"); const n = name || "home"; const param = rest.join("/");
       this.current = { name: n, param };
-      $$(".tab").forEach((t) => t.classList.toggle("on", t.dataset.tab === n || (n === "token" && t.dataset.tab === "home")));
+      // a tab is lit by its own route and by the routes it owns (data-also in index.html: a token page belongs
+      // to Markets, a swap to Swap), and says so to a screen reader as well as in lime
+      $$(".tab").forEach((t) => { const on = t.dataset.tab === n || (" " + (t.dataset.also || "") + " ").includes(" " + n + " "); t.classList.toggle("on", on); if (on) t.setAttribute("aria-current", "page"); else t.removeAttribute("aria-current"); });
       const fn = this.handlers[n] || this.handlers.home; const screen = $("#screen"); screen.scrollTop = 0; window.scrollTo(0, 0);
       screen.classList.remove("enter"); void screen.offsetWidth; screen.classList.add("enter");
       // Half the handlers are async, so the catch alone saw only the synchronous half; a rejection after the first
@@ -174,5 +199,5 @@
   // A rejection nobody caught is the failure the user would otherwise never hear about: the console is closed.
   window.addEventListener("unhandledrejection", (e) => { const r = e.reason; toast("Something failed: " + clean(String(r && r.message || r), 200), "err", 8000); });
 
-  V.ui = { $, $$, h, clear, render, clean, safeUrl, icon, toast, openSheet, closeSheet, skeleton, timeAgo, avatar, pill, changePill, toggle, kv, segmented, button, verified, warnings, tickerKey, hasHomoglyph, sectionHead, emptyState, errorState, rise, details, sparkline, netOf, router };
+  V.ui = { $, $$, h, clear, render, clean, safeUrl, icon, toast, openSheet, closeSheet, skeleton, timeAgo, avatar, pill, changePill, toggle, kv, segmented, button, verified, warnings, pair, pairText, pairAria, wmark, tickerKey, hasHomoglyph, sectionHead, emptyState, errorState, rise, details, sparkline, netOf, router };
 })();

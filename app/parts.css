@@ -296,3 +296,90 @@ details.more[open] summary .svgi{transform:rotate(180deg)}
 .wz-act{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;position:sticky;bottom:0;margin-top:18px;padding:12px 0 2px;background:var(--s1);border-top:1px solid var(--edge);z-index:1}
 .wz-act .btn{min-width:96px}.wz-act .btn.primary{flex:1 1 160px}
 .wz-pay{margin-top:14px}
+/* ==== ui-discovery ==== */
+/* A market's name is its pair (U.pair): the pair never shrinks, and the name beside it gives way. */
+.pair{flex:none;white-space:nowrap;font-weight:650;letter-spacing:-.01em}
+.pair b{font-weight:650;color:var(--fg)}
+.pair .q{color:var(--fg3);font-weight:550}
+.tape-item .pair b{color:var(--fg2);letter-spacing:.04em;font-weight:700}
+.tape-item .pair .q{font-weight:500}
+/* a vault's unit: the chain's symbol, and this mark, which only a vault record the build ships can earn */
+.wmark{flex:none;margin-left:6px;padding:0 4px;font-size:9.5px;font-weight:650;letter-spacing:.04em;color:var(--fg2);border:1px solid var(--edge);border-radius:var(--r1);vertical-align:1px}
+/* the code check as a mark, and a bought placement: neutral ink, neither a verb nor a caution */
+.vmark{display:inline-flex;align-items:center;color:var(--fg3);flex:none}.vmark .svgi{width:12px;height:12px;vertical-align:0}
+.pill.promo{color:var(--fg);border-color:var(--edge2)}
+/* discovery sections: two side by side where two fit, one column on a phone */
+.dz-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,248px),1fr));gap:0 20px}
+.dz-sec{min-width:0;container-type:inline-size}
+.dcard{display:grid;grid-template-columns:18px 28px minmax(0,1fr) 48px auto;gap:8px;align-items:center;width:100%;min-height:48px;padding:7px 2px;text-align:left;border-bottom:1px solid var(--edge)}
+.dcard .rank{color:var(--fg3);font-size:10.5px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}
+.dcard .sp{width:48px;height:22px}.dcard .sp svg{width:100%;height:100%;display:block}
+.dcard .right{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:64px;text-align:right}
+.dcard .price{font-weight:650;font-size:13px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.dcard .row.tight{min-width:0;overflow:hidden}
+.dcard .badges{flex-wrap:nowrap;overflow:hidden}.dcard .badges .pill{padding:1px 5px;font-size:9.5px}
+@container (max-width:340px){.dcard{grid-template-columns:18px 28px minmax(0,1fr) auto}.dcard .sp,.dcard .badges{display:none}}
+/* on a second line the wrapped mark leads, so it sits before the words rather than after the pair */
+.sub .wmark{margin:0 6px 0 0}
+@media (max-width:959px){.mrow.mkt .go .wmark{display:none}}
+.tlabel{flex:none;font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg2);border:1px solid var(--edge);border-radius:var(--r1);padding:2px 5px}
+.dz-body{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:12px 0}
+.dz-empty{padding:12px 0}
+.dz .linkbtn{min-height:40px;padding:0 4px}
+.dz .chip,.mkt-views .chip{min-height:40px}
+@media (hover:hover) and (pointer:fine){.dcard:hover,.gsr-i:hover{background:var(--s1)}}
+/* a Markets row: the pair's button stretches over the row, so the row is one tab stop and the star a second.
+   Rows off screen are skipped by the browser; a row's remembered height stands in for them. */
+.mrow.mkt{position:relative;content-visibility:auto;contain-intrinsic-size:auto 52px}
+.mrow.mkt .go{flex:none;max-width:100%;text-align:left}
+.mrow.mkt .go::after{content:"";position:absolute;inset:0}
+.mrow.mkt .go:focus-visible{outline:0}
+.mrow.mkt:has(.go:focus-visible){outline:2px solid var(--acc);outline-offset:-2px}
+.mrow.mkt .starbox{position:relative;z-index:1}
+.mrow .nm{flex:1;min-width:0;text-align:left}
+.mdup{grid-column:1/-1;margin:3px 0 0;padding-left:8px;border-left:2px solid var(--edge2);color:var(--fg2);white-space:normal;line-height:1.4}
+.mdup.thin{border-left-color:var(--warn)}
+.mmore{display:flex;justify-content:center;padding:12px 0}
+html[data-pointer=touch] .mlist.compact .mrow{min-height:40px}
+/* the header's search: a typed list under the input */
+.gsearch{position:relative}
+.gsr{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:8;max-height:70vh;overflow:auto;background:var(--s1);border:1px solid var(--edge2)}
+.gsr-i{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;padding:6px 12px;text-align:left;cursor:pointer;border-bottom:1px solid var(--edge)}
+.gsr-i[aria-selected=true]{background:var(--s2);box-shadow:inset 2px 0 0 var(--acc)}
+/* navigation: More is a cell of the bar like the others, and opens a short list above it */
+.tabx{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:52px;padding:9px 0 8px;color:var(--fg3);font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;box-shadow:inset 1px 0 0 var(--edge)}
+.tabx.on,.tabx[aria-expanded=true]{color:var(--fg)}
+.tabx .ic{width:19px;height:19px}
+.tabs>.tab span,.tabx span{max-width:100%;overflow:hidden;white-space:nowrap}
+.navmore{position:fixed;right:0;bottom:calc(53px + env(safe-area-inset-bottom));width:min(240px,100%);display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--edge2);z-index:7}
+.navmore[hidden]>*{display:none}
+.navmore .tab{flex-direction:row;justify-content:flex-start;gap:12px;min-height:48px;padding:0 16px;font-size:13px;letter-spacing:0;text-transform:none}
+.navmore .tab+.tab{box-shadow:inset 0 1px 0 var(--edge)}
+.navmore .tab::before{top:0;bottom:0;left:0;right:auto;width:2px;height:auto;transform:scaleY(0)}
+.navmore .tab.on::before{transform:scaleY(1)}
+.navmore .tab .ic{width:17px;height:17px}
+.ic-launch{--m:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M13 2c4 0 8 4 8 9l-4 4-1-4-4-1zm-1 5 4 4-6 6-4-4zM5 14l4 4-2 2H3v-4zm2-4 3 3-2 2-3-3z'/%3E%3C/svg%3E")}
+.ic-more{--m:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 10h4v4H3zm7 0h4v4h-4zm7 0h4v4h-4z'/%3E%3C/svg%3E")}
+.ic-gear{--m:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='M10 2h4l.6 2.8 1.8 1 2.7-.9 2 3.4-2.1 1.9v2l2.1 1.9-2 3.4-2.7-.9-1.8 1L14 22h-4l-.6-2.8-1.8-1-2.7.9-2-3.4L5 13.8v-2L2.9 9.9l2-3.4 2.7.9 1.8-1zm2 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z'/%3E%3C/svg%3E")}
+.ic-note{--m:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='M4 2h16v20H4zm3 4v2h10V6zm0 4v2h10v-2zm0 4v2h7v-2z'/%3E%3C/svg%3E")}
+@media (min-width:960px){
+  .tabx{flex-direction:row;justify-content:flex-start;gap:12px;min-height:0;padding:10px 20px;font-size:13.5px;font-weight:650;letter-spacing:0;text-transform:none;box-shadow:none}
+  .tabx .ic{width:17px;height:17px}
+  .tabx:hover{color:var(--fg2)}
+  .navmore{position:static;width:auto;background:none;border:0;border-top:1px solid var(--edge);margin:4px 0}
+  .navmore .tab{min-height:0;padding:8px 20px;font-size:13px}
+  .navmore .tab+.tab{box-shadow:none}
+}
+/* The watchlist star leads a row's name cell, so a phone row that runs out of room loses a badge, never the control.
+   A badge that does not fit wraps out of sight rather than being cut mid-word. */
+.mrow.mkt .starbox{margin:0}
+.mrow .badges,.dcard .badges{flex-wrap:wrap;max-height:18px;align-content:flex-start}
+@media (max-width:959px){.mrow.mkt{grid-template-columns:20px 28px minmax(0,1fr) 40px auto}.mrow.mkt .sp{width:40px}.mrow.mkt .right{min-width:72px}}
+/* One line of a name cell: the star and the pair always, then a badge only if it fits whole; one that does not wraps
+   to a line that is never shown. The line's box reaches 41px, and the block around it does not clip, so the star
+   keeps its whole 40px touch target. */
+.mrow.mkt>.grow{overflow:visible}
+.dcard .row.tight,.mrow.mkt .row.tight{flex-wrap:wrap;row-gap:24px;align-content:flex-start}
+.dcard .row.tight{max-height:21px}
+.mrow.mkt .row.tight{max-height:41px;padding-block:10px;margin-block:-10px}
+.dcard .badges,.mrow.mkt .badges{flex:none}

@@ -17,7 +17,6 @@
   .app{max-width:1280px;padding-left:236px;border:0}
   /* the rail is an instrument edge: a hairline, no tint, no blur */
   .tabs{position:fixed;left:max(0px,calc(50% - 640px));right:auto;top:0;bottom:0;width:236px;max-width:none;transform:none;display:flex;flex-direction:column;gap:0;padding:20px 0 18px;border-top:0;border-right:1px solid var(--edge);background:var(--bg)}
-  .tabs .tab[data-tab="profile"],.tabs .tab[data-tab="zswap"],.tabs .tab[data-tab="xmr"]{display:flex}
   .side-brand{display:flex;align-items:center;padding:2px 20px 26px}
   .side-brand .mark{height:22px;width:auto;display:block}
   /* the zone rule marks where you are: one lime diagonal, no filled pill */
@@ -52,7 +51,7 @@
   .toasts{left:auto;right:24px;transform:none;width:340px}
   .grid4{grid-template-columns:repeat(8,1fr)}
   /* the market table: alignment is the whole point. Heads and rows share one grid. */
-  .mcols-head{display:grid;grid-template-columns:26px 32px minmax(84px,1fr) repeat(3,minmax(62px,108px)) 74px minmax(80px,120px) 64px;gap:8px;padding:0 12px 7px;font-size:10px;color:var(--fg3);text-transform:uppercase;letter-spacing:.10em;font-weight:700;position:sticky;top:60px;z-index:2;background:var(--bg);border-bottom:1px solid var(--edge2)}
+  .mcols-head{display:grid;grid-template-columns:26px 32px minmax(84px,1fr) repeat(3,minmax(62px,108px)) 48px 74px minmax(80px,120px) 64px;gap:8px;padding:0 12px 7px;font-size:10px;color:var(--fg3);text-transform:uppercase;letter-spacing:.10em;font-weight:700;position:sticky;top:60px;z-index:2;background:var(--bg);border-bottom:1px solid var(--edge2)}
   .mcols-head span,.mcols-head button{text-align:right;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;padding:0}.mcols-head span:nth-child(3),.mcols-head button:first-of-type{text-align:left}
   .mcols-head button.on,.mcols-head button:hover{color:var(--fg)}
   .mlist{border-top:0}
@@ -64,10 +63,10 @@
   .mrow .starbox{margin-left:6px}
   /* 960-1179: FDV and the trend column give way so the market's name has room (MT-D12: at 1024 the name column sat
      at its minimum and names read "E.."); both come back at 1180 */
-  .mcols-head{grid-template-columns:26px 32px minmax(110px,1fr) repeat(2,minmax(62px,108px)) minmax(80px,120px) 64px}
-  .mcols-head>:nth-child(6),.mcols-head>:nth-child(7){display:none}
-  .mrow.mkt{grid-template-columns:26px 32px minmax(110px,1fr) repeat(2,minmax(62px,108px)) minmax(80px,120px) 64px}
-  .mlist.compact .mrow.mkt{grid-template-columns:26px 26px minmax(110px,1fr) repeat(2,minmax(62px,108px)) minmax(80px,120px) 64px}
+  .mcols-head{grid-template-columns:26px 32px minmax(110px,1fr) repeat(2,minmax(62px,108px)) 48px minmax(80px,120px) 64px}
+  .mcols-head>:nth-child(6),.mcols-head>:nth-child(8){display:none}
+  .mrow.mkt{grid-template-columns:26px 32px minmax(110px,1fr) repeat(2,minmax(62px,108px)) 48px minmax(80px,120px) 64px}
+  .mlist.compact .mrow.mkt{grid-template-columns:26px 26px minmax(110px,1fr) repeat(2,minmax(62px,108px)) 48px minmax(80px,120px) 64px}
   .mrow.mkt .mfdv,.mrow.mkt .mtrend{display:none}
   .stats3 .stat .v{font-size:17px}
   .pulse-row .big{font-size:44px}
@@ -83,10 +82,10 @@
   .tk-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(330px,420px);gap:0;align-items:start}
   .tk-side{position:sticky;top:74px;max-height:calc(100vh - 88px);overflow:auto;padding-left:28px;margin-left:28px;border-left:1px solid var(--edge);scrollbar-width:thin}
   .nft-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,380px);gap:28px;align-items:start}
-  .mcols-head{grid-template-columns:26px 32px minmax(110px,1fr) repeat(3,minmax(62px,108px)) 74px minmax(80px,120px) 64px}
-  .mcols-head>:nth-child(6),.mcols-head>:nth-child(7){display:block}
-  .mrow.mkt{grid-template-columns:26px 32px minmax(110px,1fr) repeat(3,minmax(62px,108px)) 74px minmax(80px,120px) 64px}
-  .mlist.compact .mrow.mkt{grid-template-columns:26px 26px minmax(110px,1fr) repeat(3,minmax(62px,108px)) 74px minmax(80px,120px) 64px}
+  .mcols-head{grid-template-columns:26px 32px minmax(110px,1fr) repeat(3,minmax(62px,92px)) 48px 74px minmax(80px,120px) 64px}
+  .mcols-head>:nth-child(6),.mcols-head>:nth-child(8){display:block}
+  .mrow.mkt{grid-template-columns:26px 32px minmax(110px,1fr) repeat(3,minmax(62px,92px)) 48px 74px minmax(80px,120px) 64px}
+  .mlist.compact .mrow.mkt{grid-template-columns:26px 26px minmax(110px,1fr) repeat(3,minmax(62px,92px)) 48px 74px minmax(80px,120px) 64px}
   .mrow.mkt .mfdv,.mrow.mkt .mtrend{display:block}
 }
 @media (min-width:1400px){.carousel{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}}

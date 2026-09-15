@@ -21,3 +21,4 @@ import("./market.test.mjs"); // the market page: price formatter, candle interva
 import("./profile.test.mjs");
 // the creation flow's rules (app/create.js): each step's validation, the itemised cost, the unfinished-install record
 import("./create.test.mjs");
+import("./discovery.test.mjs");

@@ -324,7 +324,7 @@
   app.init = async () => {
     U.$$(".tab").forEach((t) => (t.onclick = () => router.go(t.dataset.tab)));
     U.$("#brand").onclick = () => router.go("home");
-    const gs = U.$("#gsearch"); if (gs) gs.oninput = () => { if (!(router.current && router.current.name === "markets")) router.go("markets"); setTimeout(() => V.markets && V.markets.search(gs.value), 0); };
+    const gs = U.$("#gsearch"); if (gs && V.search) V.search.bind(gs);
     if (app.settings.reduceMotion) document.documentElement.classList.add("reduce");
     document.documentElement.dataset.pointer = window.matchMedia && window.matchMedia("(pointer: coarse)").matches ? "touch" : "fine";
     app.walletUI();

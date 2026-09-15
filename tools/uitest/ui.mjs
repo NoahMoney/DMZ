@@ -85,6 +85,7 @@ const text = async () => (await page.locator("#screen").innerText()).replace(/\s
 
 // The mainnet-shaped pass runs on its own and ends the process: its registry may be empty or unreadable, which
 // the ordinary pass (it waits for a loaded registry) cannot survive and this one is written to report.
+if (!perfMode) await (await import("./ui-discovery.mjs")).run({ browser, url, out, step, fail, sleep, mainnet: mainnetMode }).catch((e) => fail("ui-discovery: " + (e.stack || e)));
 if (mainnetMode) {
   try { await mainnetPass(); } catch (e) { fail(e.stack || String(e)); }
   await browser.close();
@@ -324,7 +325,7 @@ try {
     await (await import("./ui-market.mjs")).marketPass({ browser, url, out, step, fail, sleep }); // the market page at 1280/768/390
     await page.evaluate(() => { location.hash = "#markets"; }); await sleep(1200); await shot("07-markets-live");
     // launch sheet with its live preview (read-only: filled, never sent)
-    await page.click(".tab[data-tab=trade]"); await sleep(600);
+    await page.click(".tab[data-tab=launch]"); await sleep(600);
     await page.getByText("Launch a token").first().click(); await sleep(500);
     await page.locator("#sheet input[name=name]").fill("Preview Coin"); await page.locator("#sheet input[name=ticker]").fill("PRV"); await sleep(400); await shot("08-launch-sheet");
     const pv = await page.locator("#sheet").innerText(); if (!/16×/.test(pv) || !/Two wallet confirmations/.test(pv)) fail("launch preview missing: " + pv.slice(0, 200));
@@ -609,7 +610,7 @@ try {
     }
     if (!passOnly && !portfolioOnly) {
     step("launch a token from the form");
-    await page.click(".tab[data-tab=trade]"); await sleep(600);
+    await page.click(".tab[data-tab=launch]"); await sleep(600);
     await page.getByText("Launch a token").click(); await sleep(500);
     await page.locator("#sheet input[name=name]").fill("Browser Coin");
     await page.locator("#sheet input[name=ticker]").fill("BRW");

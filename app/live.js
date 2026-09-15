@@ -2,7 +2,8 @@
 // flashes, live "ago" labels and the price tape. Respects prefers-reduced-motion.
 (function () {
   const V = window.Veil;
-  const reduced = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // the system setting, or the app's own Reduce motion (Settings, html.reduce): either one stops every roll and the tape
+  const reduced = () => document.documentElement.classList.contains("reduce") || !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
   const live = {
     height: 0, blockAt: 0, listeners: [], polling: false, interval: 2500,
@@ -40,7 +41,7 @@
       let track = container.querySelector(".tape-track");
       if (!track || track.dataset.n !== String(items.length)) {
         track = h("div", { class: "tape-track", "data-n": items.length });
-        for (let copy = 0; copy < 2; copy++) for (const s of items) track.append(h("button", { class: "tape-item", type: "button", "data-scid": s.scid, "data-copy": copy, onclick: () => V.ui.router.go("token", s.scid) }, h("b", null, s.ticker), h("span", { class: "tp num" }), h("span", { class: "tc" })));
+        for (let copy = 0; copy < 2; copy++) for (const s of items) track.append(h("button", { class: "tape-item", type: "button", "data-scid": s.scid, "data-copy": copy, onclick: () => V.ui.router.go("token", s.scid) }, V.ui.pair(s), h("span", { class: "tp num" }), h("span", { class: "tc" })));
         V.ui.render(container, track);
         if (reduced()) track.style.animation = "none";
       }
