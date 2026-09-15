@@ -1,7 +1,7 @@
 // DMZ market.js — the market page's regions that read other files' interfaces or restate the contract: the pair a
-// market is named by, the links its creator published, its promotion status, the ZEC offers for its token, and the
-// side rail's three tabs (published trades, the accounts that posted them, the contract's terms). token.js lays the
-// page out and owns the chart and the trade sheet.
+// market is named by, the links its creator published, its promotion status, what a wrapped side of it is and
+// where its quote is deposited, and the side rail's three tabs (published trades, the accounts that posted them,
+// the contract's terms). token.js lays the page out and owns the chart and the trade sheet.
 (function () {
   const V = window.Veil, U = V.ui, A = V.amm, D = V.data, S = V.stats, { h, render, avatar, router, button, kv, icon } = U;
   const Z = 0n, me = () => V.wallet.canon;
@@ -27,19 +27,22 @@
   M.promoted = (s) => { const p = M.ask(() => V.promo && typeof V.promo.statusOf === "function" && V.promo.statusOf(s.scid)); return p === true || !!(p && typeof p === "object" && (p.promoted || p.active || p.status === "promoted")); };
   M.promoPill = () => h("span", { class: "pill dim", title: "Someone paid for this market to be placed where more people see it. It is not a review and not an endorsement." }, "Promoted");
 
-  // ZEC offers for this token from the swap board (V.zswapOffers), as ZEC / TOKEN with the maker's price per ZEC.
-  // XMR swaps have no offer board, so there is nothing to list for them.
-  const amt = (v, dec) => (typeof v === "bigint" ? A.fmtUnits(v, dec, 4) : typeof v === "number" && isFinite(v) ? S.fmtDeroShort(v) : typeof v === "string" && /^\d+(\.\d+)?$/.test(v) ? v : "—");
-  M.offers = (s, list) => {
-    if (!Array.isArray(list)) return null;
-    const zt = "ZEC / " + s.ticker;
-    return [M.head(zt + " offers", h("span", { class: "num tiny" }, String(list.length))),
-      list.length ? h("div", { class: "mt8" }, list.slice(0, 8).map((o) => h("button", { class: "tk-offer", type: "button", onclick: () => router.go("zswap", o.id), "aria-label": "open ZEC offer " + o.id },
-        h("div", { class: "ellipsis" }, h("b", { class: "num" }, "1 ZEC = " + S.fmtPriceSub(Number(o.pricePerZec)) + " " + s.ticker),
-          h("div", { class: "sub tiny ellipsis" }, "#" + o.id + (typeof o.side === "string" ? " · maker " + (o.side === "sell" ? "sells " : o.side === "buy" ? "buys " : o.side + " ") + s.ticker : "") + (o.maker ? " · " + D.displayName(o.maker) : ""))),
-        h("div", { style: "text-align:right" }, h("div", { class: "num" }, amt(o.dero, s.dec) + " " + s.ticker), h("div", { class: "sub tiny num" }, amt(o.zec, 8) + " ZEC" + (Number.isInteger(Number(o.expires)) && Number(o.expires) > 0 ? " · to block " + o.expires : ""))))))
-        : h("div", { class: "note mt8" }, "No open " + zt + " offer on the ZEC swap board."),
-      h("div", { class: "note mt8" }, "Makers' own prices, per ZEC. An offer settles by atomic swap: each side locks on its own chain and keeps its own exit. ", button("Open the ZEC swap board", "ghost small", () => router.go("zswap")))];
+  // Wrapped XMR and ZEC are first-class quotes. A wrapped token is a DERO asset the vault issues one for one
+  // against coins its k-of-n federation holds, so a market with a wrapped side carries a small mark that says
+  // so and names who holds the coins. The quote's vault comes first; a wrapped base is marked the same way.
+  const vaults = () => M.ask(() => D.allVaults()) || [];
+  M.quoteVault = (s) => (s && s.quote ? vaults().find((v) => v.scid === s.quote) || null : null);
+  M.wrapOf = (s) => M.quoteVault(s) || (s && s.wrappedBase ? s.vaultRec || vaults().find((v) => v.scid === s.asset) || null : null);
+  M.wrapMark = (s) => { const v = M.wrapOf(s); if (!v) return null; const c = U.clean(v.sym || v.name || "the coin", 8); return h("span", { class: "pill dim", title: "Wrapped " + c + " is a DERO token the vault issues one for one against " + c + " held by its k-of-n federation. Those signers can move the " + c + "; the vault contract cannot. It is not " + c + " on its own chain." }, "wrapped · 1:1"); };
+  // the wrap hub's route: "move" once that screen exists, the Wrap screen until then
+  M.moveRoute = () => (router.handlers && router.handlers.move ? "move" : "wrap");
+  // On a market quoted in a wrapped coin, a connected wallet that holds none of it is pointed at the deposit.
+  // bal is the wallet's balance of the quote: a BigInt once read, anything else while unknown (no link then).
+  M.deposit = (s, bal) => {
+    const v = M.quoteVault(s); if (!v || bal !== Z) return null;
+    const c = U.clean(v.sym || v.name || "", 8);
+    return h("div", { class: "mb" }, h("div", { class: "note" }, "This market is priced in " + D.qsym(s) + " and your wallet holds none. Depositing " + c + " with the vault's federation mints it one for one."),
+      button("Deposit " + c, "ghost small mt8", () => router.go(M.moveRoute())));
   };
 
   // The side rail's tabs. "Publishers" lists accounts that published a trade here: balances are private on DERO,

@@ -1,7 +1,8 @@
 // DMZ token.js — the market page and the trade sheet. What a trader reads first: the pair and who it is (avatar,
 // name, the links the creator published), the price with its four change windows, and the chart; then one stats
 // band, the trade panel (sticky in the desktop rail, a bottom bar on a phone) with the trades beside it, and below
-// the chart the published activity, block pressure, sentiment, the ZEC offers for this token and the contract.
+// the chart the published activity, block pressure, sentiment and the contract. A market with a wrapped side
+// (wXMR, wZEC) is marked "wrapped · 1:1", and its prices, fees and volume are in its quote like any other.
 // Regions are named and separated by hairlines rather than stacked in cards. market.js draws the regions that read
 // other files' interfaces, and the side rail's tabs.
 (function () {
@@ -37,8 +38,8 @@
       // exact route a shared link takes, which is where that warning does the most damage.
       const listed = D.assets.get(scid);
       try { s = listed || (await D.loadContract(scid)); } catch (e) { return render(el, h("div", { class: "errbox mt" }, "Cannot load " + scid + ": " + e.message)); } if (!s || s.untrusted) return render(el, h("div", { class: "errbox mt" }, "Not listed: " + (s ? s.untrusted : "unknown"))); if (!listed) s.unlisted = true; D.nameBase(s); if (s.kind === "pool" && s.assetVerified) { const l = D.assets.get(s.asset); s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; } else { const k = U.tickerKey(s.ticker); s.lookalike = U.hasHomoglyph(s.ticker); s.dupTicker = !!k && D.list().some((x) => x.scid !== s.scid && !(x.kind === "pool" && x.assetVerified) && !(s.wrappedBase && x.wrappedBase && x.asset === s.asset) && U.tickerKey(x.ticker) === k); } s.impersonates = D.impersonation(s); D.nameQuote(s); S.enrich(s, D.height); }
-    let tab = "trades", lastSig = null, chartKey = "", lastW = 0, rz = 0, offers;
-    const chartBox = h("div"), priceEl = h("div", { class: "big num" }), headEl = h("div", { class: "hero card mt" }), riskEl = h("div"), bandEl = h("div"), gradEl = h("div"), actEl = h("div"), pressEl = h("div"), sentEl = h("div"), offersEl = h("div"), techEl = h("div"), panelEl = h("div"), bodyEl = h("div", { class: "mt" });
+    let tab = "trades", lastSig = null, chartKey = "", lastW = 0, rz = 0, qBal;
+    const chartBox = h("div"), priceEl = h("div", { class: "big num" }), headEl = h("div", { class: "hero card mt" }), riskEl = h("div"), bandEl = h("div"), gradEl = h("div"), actEl = h("div"), pressEl = h("div"), sentEl = h("div"), techEl = h("div"), panelEl = h("div"), depEl = h("div"), bodyEl = h("div", { class: "mt" });
     const qs = () => " " + D.qsym(s);
     const drawBody = () => M.body(bodyEl, s, tab, () => T.tradeSheet(s, 1));
     const drawChart = () => {
@@ -60,7 +61,7 @@
       const m = s.m, launch = s.kind === "launch", curve = launch && s.phase === Z, pl = M.pairOf(s), us = M.linksOf(s), promo = M.promoted(s);
       // Level 1 — the instrument: which pair this is, whose it is, and the one number the screen is about
       once(headEl, [s.sig, pl, m.c5m, m.c1h, m.c6h, m.c24h, S.watch.has(s.scid), promo, us, U.warnings(s).map((w) => w.textContent), H.badges(s).filter(Boolean).map((b) => b.textContent)], () => render(headEl,
-        h("div", { class: "row" }, avatar(s, "big"), h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, h("h1", { class: "ellipsis" }, pl), H.star(s), U.warnings(s)), h("div", { class: "sub ellipsis" }, s.name),
+        h("div", { class: "row" }, avatar(s, "big"), h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, h("h1", { class: "ellipsis" }, pl), M.wrapMark(s), H.star(s), U.warnings(s)), h("div", { class: "sub ellipsis" }, s.name),
           h("div", { class: "row tight mt8" }, U.verified(s), H.badges(s), promo ? M.promoPill() : null), M.links(us)),
           h("button", { class: "iconbtn", type: "button", "aria-label": "copy link to this market", title: "Copy link", onclick: () => copy(location.href.split("#")[0] + "#token/" + s.scid, "Link") }, icon("share"))),
         h("div", { class: "eyebrow mt" }, "Price · " + D.qsym(s)),
@@ -92,10 +93,10 @@
         head("Block pressure · 24h", h("span", { class: "num tiny" }, h("span", { class: "up" }, bp + "% buy"), h("span", { class: "dim2" }, " · "), h("span", { class: "down" }, 100 - bp + "% sell"))),
         h("div", { class: "pressure mt8", role: "img", "aria-label": bp + "% of active blocks moved the price up" }, h("i", { style: "width:" + bp + "%" })),
         h("div", { class: "note mt8" }, "Reserve direction per active block, so unposted trades are counted here too.")));
-      // ZEC offers for this token (V.zswapOffers, which may answer now or later)
-      if (offers === undefined || (offers && typeof offers.then !== "function")) { const r = ask(() => (typeof V.zswapOffers === "function" ? V.zswapOffers(s.asset || s.scid) : null)); if (r && typeof r.then === "function") { offers = r; r.then((x) => { offers = x; drawHead(); }, () => { offers = null; }); } else offers = r; }
-      const list = Array.isArray(offers) ? offers : null;
-      once(offersEl, list ? list.map((o) => [o.id, o.pricePerZec, o.dero, o.zec, o.expires, o.side]) : null, () => render(offersEl, M.offers(s, list)));
+      // a connected wallet holding none of a wrapped quote is pointed at the deposit; read once per page, and no
+      // link while the balance is unknown or unreadable
+      if (M.quoteVault(s) && V.wallet.connected && qBal === undefined) { qBal = null; V.wallet.getBalance(s.quote).then((b) => { qBal = V.toBig(b && b.balance) || Z; drawHead(); }, () => {}); }
+      once(depEl, [qBal, !!M.quoteVault(s)], () => render(depEl, M.deposit(s, qBal)));
       const fee = Number(s.fee) / 100;
       once(panelEl, [pl, s.price, fee, curve, m.liq], () => render(panelEl,
         h("div", { class: "eyebrow" }, "Trade " + pl),
@@ -106,9 +107,9 @@
       s = D.assets.get(scid) || s;
       if (!el.contains(headEl)) {
         render(el, h("div", { class: "tk-grid" },
-          h("div", { class: "tk-main" }, headEl, riskEl, chartBox, bandEl, gradEl, actEl, pressEl, sentEl, offersEl, techEl),
+          h("div", { class: "tk-main" }, headEl, riskEl, chartBox, bandEl, gradEl, actEl, pressEl, sentEl, techEl),
           h("div", { class: "tk-side" },
-            h("div", { class: "tk-panel" }, panelEl),
+            h("div", { class: "tk-panel" }, panelEl), depEl,
             h("div", { class: "sticky-actions" }, button("Buy", "buy wide", () => T.tradeSheet(s, 1)), button("Sell", "sell wide", () => T.tradeSheet(s, 2))),
             h("div", { class: "mt" }, U.segmented([{ v: "trades", l: "Trades" }, { v: "holders", l: "Publishers" }, { v: "info", l: "Info" }], tab, (v) => { tab = v; drawBody(); })),
             bodyEl, h("div", { style: "height:70px" }))));
@@ -272,7 +273,7 @@
       // a wrapped quote is stated before the amount box, not discovered when the trade fails
       s.quote ? h("div", { class: "warnbox mt" }, h("b", null, "This market settles in wrapped " + qsym + "."),
         h("div", { class: "mt8" }, (buy ? "You spend wrapped " + qsym + ", held on DERO as an asset" : "You are paid in wrapped " + qsym + ", held on DERO as an asset") + " — not " + qsym + " on " + ((qv && qv.name) || "its own chain") + ", and not DERO. Wrapped units are backed one for one by a k-of-n federation that can fail, so they are not trustless. The network fee is DERO either way."),
-        button((buy ? "Get wrapped " : "Unwrap ") + qsym, "ghost small mt8", () => { closeSheet(); router.go("wrap"); })) : null,
+        button((buy ? "Get wrapped " : "Unwrap ") + qsym, "ghost small mt8", () => { closeSheet(); router.go(M.moveRoute()); })) : null,
       h("div", { class: "amount mt" }, input, h("span", { class: "unit" }, unit)),
       h("div", { class: "between mt8" }, h("span", { class: "note ellipsis", id: "balNote" }, "Balance: …"), presets),
       h("div", { class: "outline mt" }, outL, outV, rate),

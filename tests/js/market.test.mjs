@@ -34,6 +34,13 @@ const document = { createElementNS: (ns, tag) => new El(tag) };
 const window = { Veil: { amm: A, ui: { h } } };
 for (const f of ["stats.js", "chart.js"]) new Function("window", "document", readFileSync(join(ROOT, "app", f), "utf8"))(window, document);
 const S = window.Veil.stats, C = window.Veil.chart;
+// market.js reads the rest of ui.js and two of feed/names' functions at load; stubs that record what it asks for
+const VAULTS = [{ scid: "a".repeat(64), sym: "XMR", name: "Monero" }, { scid: "b".repeat(64), sym: "ZEC", name: "Zcash" }], went = [];
+Object.assign(window.Veil.ui, { render: (el) => el, avatar: () => h("div"), kv: (k, v) => h("div", null, k, v), icon: () => h("i"), clean: (s, n) => String(s || "").slice(0, n), safeUrl: (u) => (/^https:\/\//.test(u) ? u : ""), button: (l, cls, onclick) => h("button", { class: cls, onclick }, l), router: { handlers: {}, go: (r) => went.push(r) } });
+window.Veil.data = { qsym: (s) => (s && s.quoteSym) || "DERO", allVaults: () => VAULTS };
+new Function("window", "document", readFileSync(join(ROOT, "app", "market.js"), "utf8"))(window, document);
+const M = window.Veil.market;
+const find = (n, tag) => (n && n.tag === tag ? n : ((n && n.children) || []).map((c) => find(c, tag)).find(Boolean));
 
 // a pool whose closes follow prices[i], one every `step` seconds, the last at `end`. Price = rd / ra, so the
 // reserve of the quote stays at 1e20 units and the asset reserve carries the price.
@@ -166,6 +173,31 @@ test("chart: flat, one point, sparse, a huge swing, tiny prices, empty and loadi
   assert.equal(none.dataset.state, "empty"); assert.match(sane(none, "empty"), /No price history/);
   const busy = C.render(null, null, { loading: true, width: 400 });
   assert.equal(busy.dataset.state, "loading"); assert.match(sane(busy, "loading"), /Loading price history/);
+});
+
+test("market.js: the pair through U.pair, a wrapped side marked 1:1, a deposit link only for an empty wrapped quote", () => {
+  const xq = { ticker: "BRW", quote: VAULTS[0].scid, quoteSym: "wXMR", pair: "BRW / wXMR" }, dero = { ticker: "BRW" }, wb = { ticker: "wZEC", asset: VAULTS[1].scid, wrappedBase: true };
+  assert.equal(M.pairOf(dero), "BRW / DERO");
+  assert.equal(M.pairOf(xq), "BRW / wXMR");
+  window.Veil.ui.pair = (s) => "XMR / " + s.ticker;
+  try { assert.equal(M.pairOf(xq), "XMR / BRW", "U.pair names the pair wherever ui.js provides it"); } finally { delete window.Veil.ui.pair; }
+  const m = M.wrapMark(xq);
+  assert.equal(m.textContent, "wrapped · 1:1");
+  assert.match(m.attrs.title, /XMR held by its k-of-n federation/);
+  assert.match(M.wrapMark(wb).attrs.title, /ZEC/, "a wrapped base is marked too");
+  assert.equal(M.wrapMark(dero), null);
+  const d = M.deposit(xq, 0n), btn = find(d, "button");
+  assert.equal(btn.textContent, "Deposit XMR");
+  btn.on.click.forEach((f) => f()); assert.deepEqual(went.splice(0), ["wrap"], "the Wrap screen until the move hub exists");
+  window.Veil.ui.router.handlers.move = () => {};
+  try { btn.on.click.forEach((f) => f()); assert.deepEqual(went.splice(0), ["move"]); } finally { delete window.Veil.ui.router.handlers.move; }
+  for (const b of [5n, null, undefined]) assert.equal(M.deposit(xq, b), null, "no link while the wallet holds some, or its balance is unknown");
+  assert.equal(M.deposit(dero, 0n), null);
+  assert.equal(M.deposit(wb, 0n), null, "a wrapped base is not a quote to deposit");
+});
+
+test("the swaps are gone from the market page: no offers section, no V.zswapOffers, no route to the swap board", () => {
+  for (const f of ["market.js", "token.js"]) assert.doesNotMatch(readFileSync(join(ROOT, "app", f), "utf8"), /zswapOffers|swap board|router\.go\("(zswap|xmr)"/, f);
 });
 
 test("chart: the crosshair works by keyboard and reads each candle out through a live region", () => {

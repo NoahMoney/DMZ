@@ -239,7 +239,5 @@ details.more[open] summary .svgi{transform:rotate(180deg)}
 .tk-links{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;font-size:12.5px}
 .tk-links a{color:var(--fg2);text-decoration:none;border-bottom:1px solid var(--edge2)}.tk-links a:hover{color:var(--fg)}
 .tk-links .l{color:var(--fg3);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
-.tk-offer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;width:100%;padding:10px 2px;border-bottom:1px solid var(--edge);text-align:left}
-.tk-offer:hover{background:var(--s1)}
 .tk-panel{display:none}
 @media (min-width:1180px){.tk-panel{display:block;margin-bottom:14px}}

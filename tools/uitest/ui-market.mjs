@@ -41,6 +41,9 @@ export async function marketPass({ browser, url, out, step, fail, sleep, mainnet
         over: document.documentElement.scrollWidth - document.documentElement.clientWidth, txt: document.getElementById("screen").innerText.replace(/\s+/g, " "),
         rels: [...document.querySelectorAll(".tk-links a")].map((a) => a.rel), panel: q(".tk-panel") ? getComputedStyle(q(".tk-panel")).display : "missing",
         bar: getComputedStyle(q(".sticky-actions")).position, tabs: [...document.querySelectorAll(".tk-side .seg button")].map((b) => b.textContent),
+        // a market with a wrapped side (a wXMR or wZEC quote, or a wrapped base) carries the 1:1 mark, and only it
+        wrapWant: (() => { const D = window.Veil.data, s = D.assets.get(location.hash.split("/")[1]), vs = D.allVaults(); return !!s && (vs.some((v) => v.scid === s.quote) || (!!s.wrappedBase && (!!s.vaultRec || vs.some((v) => v.scid === s.asset)))); })(),
+        mark: [...document.querySelectorAll(".tk-main .pill")].some((p) => p.textContent === "wrapped · 1:1"),
       };
     });
     const r = await read();
@@ -53,6 +56,10 @@ export async function marketPass({ browser, url, out, step, fail, sleep, mainnet
     if (/\bTraders\b/.test(r.txt) || r.tabs.includes("Holders")) fail("a publisher count is labelled as traders or holders: tabs " + r.tabs.join(","));
     if (r.rels.some((x) => x !== "noopener noreferrer nofollow")) fail("an external link without rel=noopener noreferrer nofollow: " + r.rels.join("|"));
     if (/\bendorse/i.test(r.txt.replace(/not an endorsement/gi, ""))) fail("the market page uses the word endorse");
+    step("wrapped side " + at + ": " + (r.wrapWant ? "yes" : "no") + ", mark " + (r.mark ? "shown" : "not shown"));
+    if (r.wrapWant !== r.mark) fail("the wrapped · 1:1 mark is " + (r.mark ? "shown" : "missing") + " on a market " + (r.wrapWant ? "with" : "without") + " a wrapped side at " + at);
+    // the ZEC and XMR swaps are removed from DMZ (operator ruling): no offers section, no way to a swap board
+    if (/swap board|\bZEC \/ \S+ offers\b|atomic swap/i.test(r.txt)) fail("the market page still shows swap offers at " + at);
     if (width >= 1180 ? r.panel !== "block" || r.bar !== "static" : r.panel !== "none" || r.bar !== "fixed") fail("trade panel at " + at + ": panel " + r.panel + ", bar " + r.bar);
     // every offered interval draws, sanely, and says which it is
     for (const c of r.chips) {
