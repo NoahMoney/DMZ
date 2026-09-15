@@ -26,8 +26,10 @@ product number.
   - the JS heap after a GC;
   - the size of localStorage.
 - `--see=40` simulates a virtualized Markets list. After loading, the page declares the 40 rows a first
-  screenful shows (`D.see`, below). Without that flag no screen declares anything, which is how the app runs
-  today.
+  screenful shows (`D.see`, below), under the key `main`. When the tables below were measured, no screen declared
+  anything without that flag. Since the screens were wired (the section "The screens declare what they show"),
+  the Markets screen declares its own rows on screen, and each run also records what was declared per key and
+  the size of the hot set (`declared`, `hot`).
 
 ```
 PW_DIR=<playwright> node tools/uitest/scale/drive.mjs --app=<before>/app --n=50,500,2000,5000 --label=before --out=<tmp>
@@ -200,6 +202,80 @@ These are the calls a screen uses. The data layer stays correct without any of t
   topo)` and `D.loadContract(scid, prev, pin)` take an optional pin, and existing two-argument calls are
   unchanged. `D.probe` and `D.probeNFA` now return `{ sig, vals }`.
 
+## The screens declare what they show
+
+Wired 2026-09-15 on the `see-wiring` branch, on `main` at `6a2e2a9`. Every screen below calls `D.see` through
+`H.see` (`app/home.js`). `H.see` sends a set only when it differs from what that surface last sent in the same
+navigation. Re-sending it on every redraw would not be harmless. When a shown market is cold and behind,
+`live.js see()` schedules a refresh 250 ms later. A market whose reads are failing stays cold and behind, because
+the plan skips it while it waits out its retry. So every refresh's redraw would schedule the next one.
+
+| Key | Surface | Declares |
+|---|---|---|
+| `markets` | the Markets list (`markets.js`) | the drawn rows on screen or within 200 px of it (an `IntersectionObserver` on the rows), redone as the list scrolls and pages. Until the observer first reports, and in a browser without one, every drawn row. |
+| `more` | the box under that list | the NFAs and holder NFTs it lists |
+| `tape` | the price tape, on Home and Markets (`H.tape`) | its 14 markets |
+| `home` | Home's discovery sections (`discover.js`) | every market a section draws |
+| `trade` | the Trade hub | its 12 rows |
+| `launch` | the Launch screen | its pipeline (at most 8) |
+| `page` | the market page (`token.js`) | its market. `live.js` adds the other halves of a split pair. |
+| `sheet` | the trade sheet (`sheets.js` `Sh.see`) | the market it is open on, or the picker's rows while the picker is open. It is added only when the screen beneath has declared a set of its own (`H.declared`): alone, it would turn the tiers on under a screen that shows every market. The next refresh clears it once the sheet has closed. |
+
+Every other screen declares nothing, so every market stays hot while it is open, as before. This covers
+Portfolio, profiles, NFTs, NFAs, Wrap, Deposit & withdraw, notices and Settings.
+
+- **Read-age tags.** Every row, card and picker row, the market page's price and the trade sheet's header
+  carry `D.ageTag` (through `H.age`), hidden while current. A Markets row is kept across visits, and `live.js` lets
+  a tag go once it leaves the page, so each draw hands the row's tag back (`live.readTag`). Four figures are
+  summed over every market: Home's hero, Home's activity count, the Markets summary and the Trade hub's 24h
+  flow. Each carries the tag of the record with the oldest read (`H.ageOf`). Once markets go cold, that tag usually
+  reads "updated 1 to 7 blocks ago", which is the true age of a sum over markets no screen shows.
+- **Trimmed history.** While `s.trimmed` is set, the market page's chart says "Loading older history from your
+  node". The chart key includes `s.trimmed` and the number of points, so the chart redraws when `deepen` returns
+  the rest. The page does not call `D.deepen` itself: the data layer calls it on `hashchange` to `#token/<scid>`
+  and after every refresh (`deepWanted`).
+- **The picker** rewrites its price cells in place at every refresh while it is open. Its figures are therefore
+  the read its tags speak for, and neither its order nor the keyboard focus moves under the user. The trade sheet
+  prices from the record it opened on, and `go()` re-prices from the current one at signing, which is unchanged.
+  The header's tag speaks for that current record, which is hot while the sheet is open.
+
+Measured with the same harness at N = 2,000, Markets open at 1280×860, 6 blocks, back to back in one session.
+Before is `main` at `6a2e2a9`.
+
+| build | declared | hot set | requests per block | keys per block | KB per block | refresh ms (median) | main thread ms per block | errors |
+|---|---|---|---|---|---|---|---|---|
+| before, no screen declares | none | all 2,000 | 2,020.7 | 36,585 | 616 | 229 | 292 | 0 |
+| after, the Markets screen declares | `markets` 16, `tape` 14 (all within those 16) | 16 | 303.7 | 5,596 | 105 | 61 | 206 | 0 |
+| after, plus `--see=40` | as above, plus `main` 40 | 42 | 326.0 | 6,009 | 112 | 63 | 181 | 0 |
+
+Requests per block fall from 2,021 to 304, an 85% cut. That is below this session's "plus 40 declared" run (326)
+and the 355.7 of the table above, because a 1280×860 screen shows 12 rows and the 200 px margin adds 3. What
+remains is the cold tier: an eighth of the markets nothing shows is read each block (about 250 here). On top of
+that come the markets that changed in the last 20 blocks, and a second call for each market whose probe changed.
+
+In the same headless Chromium, against the mock at N = 400, the set followed the list:
+
+| Where | Rows drawn | Rows on screen | Rows declared | Declared set starts at |
+|---|---|---|---|---|
+| top of the list | 60 | 12 | 15 | rank 1 |
+| after scrolling 1,500 px | 60 | 18 | 23 | rank 20 |
+| after paging | 180 | 15 | 22 | rank 47 |
+
+Every row on screen was declared each time. On Home, the set was exactly the 14 cards drawn, and the page raised
+no errors. `tests/js/see.test.mjs` checks the same thing without a browser: each surface declares exactly its
+drawn ids, the set follows scrolling, paging and navigation, and a late report from the last visit's observer
+declares nothing.
+
+DOC sizes (gzip+base64, `go run ./genconfig -dist -network simulator`; the cap is 18,250). `app/app.js` is untouched.
+
+| File | Before | After | Headroom |
+|---|---|---|---|
+| `app/home.js` | 13,468 | 14,624 | 3,626 |
+| `app/markets.js` | 11,120 | 11,992 | 6,258 |
+| `app/token.js` | 15,800 | 16,548 | 1,702 |
+| `app/sheets.js` | 6,612 | 7,020 | 11,230 |
+| `app/discover.js` | 4,792 | 4,912 | 13,338 |
+
 ## What still bounds it
 
 - **No batch `GetSC`.** DERO's RPC reads one contract per call, and noticing a change needs at least one call
@@ -213,9 +289,11 @@ These are the calls a screen uses. The data layer stays correct without any of t
   per session.
 - **The user's own node sets the ceiling.** It answers every request, and nothing here can make it faster.
 - **Screen redraws.** `changed()` redraws the current screen on every refresh, and at 2,000 markets or more
-  that redraw is most of the main-thread time left (the redraw column). The Markets list now pages its rows,
-  but no screen passes them to `D.see` yet. Until one does, every market is read at every block, and the
-  tiered numbers stay what the "40 rows declared" rows show them to be. That call belongs to the screens' owners.
+  that redraw is most of the main-thread time left (the redraw column). The screens now declare what they show
+  (the section above), so the node load is the tiered one wherever they are open. Screens that declare nothing
+  still read every market at every block.
+- **The cold tier is the floor.** With a screen declaring, a block still costs about N/8 probes, the "no batch
+  `GetSC`" item above. At 2,000 markets that is about 250 of the 304 requests.
 - **Outside this layer.** `app.loadHoldings` asks the wallet for one balance per launch (O(n) wallet calls,
   at most once a minute). `loadSocial` reads the whole social contract with `variables: true`. The Founders
   Pass is read on every refresh.

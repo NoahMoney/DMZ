@@ -24,6 +24,7 @@
 
   T.page = async (el, scid) => {
     if (!/^[0-9a-f]{64}$/.test(String(scid || ""))) return render(el, h("div", { class: "errbox mt" }, "Not a contract id"));
+    H.see("page", [scid]); // what this page shows (D.see); the other halves of a split pair are live.js's to add
     if (ro) { ro.disconnect(); ro = null; }
     let s = D.assets.get(scid);
     // a contract reached by id that the registry does not list is shown, marked, and kept out of every list
@@ -39,13 +40,16 @@
       const listed = D.assets.get(scid);
       try { s = listed || (await D.loadContract(scid)); } catch (e) { return render(el, h("div", { class: "errbox mt" }, "Cannot load " + scid + ": " + e.message)); } if (!s || s.untrusted) return render(el, h("div", { class: "errbox mt" }, "Not listed: " + (s ? s.untrusted : "unknown"))); if (!listed) s.unlisted = true; D.nameBase(s); if (s.kind === "pool" && s.assetVerified) { const l = D.assets.get(s.asset); s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; } else { const k = U.tickerKey(s.ticker); s.lookalike = U.hasHomoglyph(s.ticker); s.dupTicker = !!k && D.list().some((x) => x.scid !== s.scid && !(x.kind === "pool" && x.assetVerified) && !(s.wrappedBase && x.wrappedBase && x.asset === s.asset) && U.tickerKey(x.ticker) === k); } s.impersonates = D.impersonation(s); D.nameQuote(s); S.enrich(s, D.height); }
     let tab = "trades", lastSig = null, chartKey = "", lastW = 0, rz = 0, qBal;
+    const ageEl = H.age(s); // under the price: how old this market's read is, while it is older than the chain
     const chartBox = h("div"), priceEl = h("div", { class: "big num" }), headEl = h("div", { class: "hero card mt" }), riskEl = h("div"), bandEl = h("div"), gradEl = h("div"), actEl = h("div"), pressEl = h("div"), sentEl = h("div"), techEl = h("div"), panelEl = h("div"), depEl = h("div"), bodyEl = h("div", { class: "mt" });
     const qs = () => " " + D.qsym(s);
     const drawBody = () => M.body(bodyEl, s, tab, () => T.tradeSheet(s, 1));
     const drawChart = () => {
       const w = lastW || Math.round(chartBox.clientWidth) || 360, key = S.pickInterval(s, chartState.iv), offered = S.intervals(s);
       const markers = s.trades.filter((t) => D.follows.has(t.addr) || t.addr === me()).map((t) => ({ ts: t.ts, side: t.side, label: D.displayName(t.addr) }));
-      const ck = [s.sig, s.price, w, key, chartState.mode, markers.length, offered.join()].join("|");
+      // s.trimmed: a market read while nothing showed it holds only its last day; the data layer reads the rest back
+      // when the page opens (feed.js deepen), and the chart says so until it has
+      const ck = [s.sig, s.price, w, key, chartState.mode, markers.length, offered.join(), !!s.trimmed, s.points.length].join("|");
       if (ck === chartKey) return; chartKey = ck;
       const hs = S.history(s);
       // the controls sit above the instrument they set: only the intervals this history can fill, then ALL
@@ -53,6 +57,7 @@
         h("div", { class: "between mt tk-ctl" },
           h("div", { class: "chips", role: "group", "aria-label": "candle interval" }, [...offered, "all"].map((r) => h("button", { class: "chip " + (key === r ? "on" : ""), type: "button", "aria-pressed": String(key === r), "aria-label": r === "all" ? "all loaded history" : r + " candles", onclick: () => { chartState.iv = r; drawChart(); } }, r === "all" ? "ALL" : r))),
           U.segmented([{ v: "candles", l: "Candles" }, { v: "area", l: "Line" }], chartState.mode, (v) => { chartState.mode = v; drawChart(); })),
+        s.trimmed ? h("div", { class: "note mt8", role: "status" }, "Loading older history from your node. Until it arrives, this chart holds the last 24 hours.") : null,
         V.chart.render(null, s, { mode: chartState.mode, iv: key, markers, width: w, quote: D.qsym(s) }),
         h("div", { class: "note mt8" }, "Exact at block resolution: candles come from the closing reserves the contract writes every active block. An interval is offered once the history spans " + S.MINC + " of its candles.",
           hs.truncated ? " This app holds the newest " + hs.points + " closes; the older ones are on chain." : "", markers.length ? " Triangles: trades by you and accounts you follow." : ""));
@@ -69,7 +74,7 @@
           // the four changes are one aligned block: it sits beside the price where there is room and drops whole
           // below it where there is not, so a single window never strands itself on its own line
           h("div", { style: "display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;flex:1 1 250px" },
-            [["5m", m.c5m], ["1h", m.c1h], ["6h", m.c6h], ["24h", m.c24h]].map(([l, c]) => mini(l, c === null ? "—" : A.pct(c), c === null ? "dim2" : c >= 0 ? "up" : "down"))))));
+            [["5m", m.c5m], ["1h", m.c1h], ["6h", m.c6h], ["24h", m.c24h]].map(([l, c]) => mini(l, c === null ? "—" : A.pct(c), c === null ? "dim2" : c >= 0 ? "up" : "down"))), ageEl)));
       L.num(priceEl, s.price, S.fmtPriceSub);
       once(gradEl, [curve, m.progress, s.real], () => render(gradEl, curve ? [head("Graduation", h("b", { class: "num" }, m.progress.toFixed(1) + "%")),
         h("div", { class: "progress mt8" }, h("i", { style: "width:" + Math.min(100, m.progress) + "%" })),
@@ -256,10 +261,18 @@
     };
     destIn.oninput = () => quote();
     // switch to another market without leaving the sheet (same side); the route row says which maths applies
-    const pick = () => openSheet(h("h2", null, "Choose a market"), h("div", { class: "sub mt8" }, "Same side, same sheet."),
-      h("div", { class: "list mt" }, D.active().sort((a, b) => b.m.hot - a.m.hot).slice(0, 30).map((x) => h("button", { class: "feed-item", type: "button", onclick: () => T.tradeSheet(x, side) }, avatar(x, "sm"), h("div", { class: "body ellipsis" }, h("b", null, H.rowName(x)), h("div", { class: "sub ellipsis" }, H.mark(x, " · "), x.name)), h("div", { style: "text-align:right" }, h("div", { class: "num" }, S.fmtPriceSub(x.price) + " " + D.qsym(x)), changePill(x.m.c24h))))));
+    // The picker declares its rows (V.sheets.see) and keeps their figures current while it is open: each refresh
+    // rewrites the price cells in place, so the order under the pointer and the keyboard focus never move, and a
+    // row's figures are always the read its tag speaks for.
+    const pick = () => {
+      const xs = D.active().sort((a, b) => b.m.hot - a.m.hot).slice(0, 30), cell = new Map();
+      const fill = () => { for (const x of xs) { const y = D.assets.get(x.scid) || x; render(cell.get(x.scid), h("div", { class: "num" }, S.fmtPriceSub(y.price) + " " + D.qsym(y)), changePill(y.m.c24h), H.age(y)); } };
+      const box = h("div", { class: "list mt" }, xs.map((x) => h("button", { class: "feed-item", type: "button", "data-scid": x.scid, onclick: () => T.tradeSheet(D.assets.get(x.scid) || x, side) }, avatar(x, "sm"), h("div", { class: "body ellipsis" }, h("b", null, H.rowName(x)), h("div", { class: "sub ellipsis" }, H.mark(x, " · "), x.name)), cell.set(x.scid, h("div", { style: "text-align:right" })).get(x.scid))));
+      fill(); openSheet(h("h2", null, "Choose a market"), h("div", { class: "sub mt8" }, "Same side, same sheet."), box);
+      V.sheets.see(xs.map((x) => x.scid), box); D.onChange(() => box.isConnected && fill());
+    };
     openSheet(
-      h("div", { class: "row" }, avatar(s, "sm"), h("div", { class: "grow" }, h("button", { class: "row tight", type: "button", onclick: pick, "aria-label": "switch market", title: "Switch market" }, h("h2", null, (buy ? "Buy " : "Sell ") + s.ticker), icon("chevron", "svgi dim2")), h("div", { class: "sub num" }, M.pairOf(s) + " · " + S.fmtPriceSub(s.price) + " " + qsym, " ", changePill(s.m.c24h))), h("div", { class: "badges col" }, U.verified(s), pill(curve ? "curve" : "AMM"))),
+      h("div", { class: "row" }, avatar(s, "sm"), h("div", { class: "grow" }, h("button", { class: "row tight", type: "button", onclick: pick, "aria-label": "switch market", title: "Switch market" }, h("h2", null, (buy ? "Buy " : "Sell ") + s.ticker), icon("chevron", "svgi dim2")), h("div", { class: "sub num" }, M.pairOf(s) + " · " + S.fmtPriceSub(s.price) + " " + qsym, " ", changePill(s.m.c24h), " ", H.age(s))), h("div", { class: "badges col" }, U.verified(s), pill(curve ? "curve" : "AMM"))),
       h("div", { class: "row tight mt8", style: "flex-wrap:wrap" }, h("span", { class: "sub tiny mono" }, "Contract " + V.shortAddr(s.scid)), U.warnings(s)),
       // The code hash matched a LEGACY entry: an earlier version of this template, accepted so contracts already
       // deployed from it still read. One kept launch version refunds a buy's overshoot before it checks min_out,
@@ -289,6 +302,9 @@
       h("div", { class: "mt8" }, review),
       confirm,
       h("div", { class: "note mt8", style: "text-align:center" }, "Your wallet shows the exact transaction and asks you to confirm."));
+    // declared while open: go() re-prices from this market's current record, which is then read every block, and
+    // the header's tag speaks for that record
+    V.sheets.see([s.scid], confirm);
     quote();
     (async () => {
       const note = U.$("#balNote");

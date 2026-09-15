@@ -7,8 +7,10 @@
 //
 //   PW_DIR=<dir with playwright 1.62.0> node tools/uitest/scale/drive.mjs --app=app --n=50,500 [--blocks=6]
 //     [--block-ms=3000] [--see=40] [--label=after] [--out=.sim/scale] [--rtt=0] [--any-playwright]
-// --see=K simulates a virtualized Markets list: after the list is loaded the page reports the K rows a first
-// screenful shows (D.see, docs/PERFORMANCE.md §interface); without it the app sees no declaration, as today.
+// The Markets screen declares its own rows on screen (D.see, docs/PERFORMANCE.md §interface), and each run records
+// what was declared per key and the size of the hot set that made (declared, hot). --see=K adds, under the key
+// "main", the K rows a first screenful of trending shows, as the data layer's own runs did before any screen
+// declared.
 // The numbers describe this harness's invented chain against a node that answers in microseconds: they compare
 // builds with each other, and are never product numbers.
 import { createRequire } from "node:module";
@@ -90,6 +92,11 @@ for (const n of Ns) {
   r.refreshes = refs.length;
   // what one refresh cycle asks of the node, whatever the machine's load did to how many cycles fit in the window
   r.reqPerRefresh = refs.length ? Math.round(Object.values(st.calls).reduce((a, b) => a + b, 0) / refs.length) : null;
+  // what the screens declared at the end of the window, per key, and the hot set that made (null: none declared)
+  Object.assign(r, await page.evaluate(() => {
+    const D = window.Veil.data, x = D.seen, cur = !!x && x.gen === (window.Veil.ui.router.gen | 0), hs = D.hotSet ? D.hotSet() : null;
+    return { declared: cur ? Object.fromEntries(Object.entries(x.by).map(([k, v]) => [k, v.size])) : null, hot: hs ? hs.size : null };
+  }));
   await page.evaluate(() => window.Veil.data.flushCache && window.Veil.data.flushCache());
   await cdp.send("HeapProfiler.collectGarbage");
   r.heapMB = Math.round(((await metrics()).JSHeapUsedSize / 1048576) * 10) / 10;
@@ -103,5 +110,5 @@ for (const n of Ns) {
 }
 await browser.close();
 fs.writeFileSync(path.join(out, "scale-" + label + ".json"), JSON.stringify({ when: new Date().toISOString(), appDir, blocks: B, blockMs, rtt, rows }, null, 2));
-const cols = ["n", "coldRow", "coldFull", "warmFull", "coldCallsPerMarket", "reqPerRefresh", "reqPerBlock", "getscPerBlock", "keysPerBlock", "kbPerBlock", "taskMsPerBlock", "decorateMsPerBlock", "changedMsPerBlock", "refreshMedianMs", "heapMB", "lsKchars", "errors"];
+const cols = ["n", "hot", "coldRow", "coldFull", "warmFull", "coldCallsPerMarket", "reqPerRefresh", "reqPerBlock", "getscPerBlock", "keysPerBlock", "kbPerBlock", "taskMsPerBlock", "decorateMsPerBlock", "changedMsPerBlock", "refreshMedianMs", "heapMB", "lsKchars", "errors"];
 console.log("| " + cols.join(" | ") + " |\n|" + cols.map(() => "---").join("|") + "|\n" + rows.map((r) => "| " + cols.map((c) => r[c]).join(" | ") + " |").join("\n"));

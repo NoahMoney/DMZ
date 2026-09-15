@@ -6,6 +6,13 @@
   const V = window.Veil, U = V.ui, A = V.amm, D = V.data, { h, render, button, kv, openSheet, closeSheet, toast } = U;
   const Z = 0n, me = () => V.wallet.canon;
   const Sh = (V.sheets = {});
+  // The trade sheet and its market picker are one surface to the data layer (D.see "sheet", docs/PERFORMANCE.md):
+  // the market the sheet is open on, or the rows the picker lists. It adds to the set of the screen beneath, and only
+  // when that screen declares one (home.js H.declared). Once the sheet has left the page the next refresh clears it;
+  // a sheet left open across a navigation is declared again in the new one.
+  let sheetIds = [], sheetAt = null;
+  Sh.see = (ids, el) => { sheetIds = ids; sheetAt = el; const H = V.home; if (H && H.declared("sheet")) H.see("sheet", ids); };
+  D.onChange(() => (sheetAt && !sheetAt.isConnected ? Sh.see([], null) : Sh.see(sheetIds, sheetAt)), true);
   // every entrypoint in this file pays the caller, so it reads SIGNER() and the call goes out at ring size 2
   const RINGNOTE = "Ring size 2: the contract pays the signer, so anyone can compute which address made this call.";
   const AMM = "constant-product AMM";

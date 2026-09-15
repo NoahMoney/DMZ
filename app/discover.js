@@ -4,7 +4,8 @@
 // units, so their sections are the markets priced in those units.
 (function () {
   const V = window.Veil, U = V.ui, A = V.amm, D = V.data, S = V.stats, H = V.home, { h, avatar, changePill, sparkline, router, icon } = U;
-  const X = (V.disc = {});
+  // ids: every market the last X.home drew, which Home declares to the data layer (D.see "home")
+  const X = (V.disc = { ids: [] });
   const N = 5;
 
   // ---- the rankings: pure over V.data, so tests/js/discovery.test.mjs runs them without a DOM ----
@@ -50,10 +51,10 @@
     h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, U.pair(s, true), H.vmark(s), h("span", { class: "badges" }, H.rowBadges(s).slice(0, 1))),
       h("div", { class: "sub tiny ellipsis" }, U.wmark(s), H.mark(s, " · "), s.dupTicker ? h("span", { class: "mono" }, V.shortAddr(s.scid) + " · ") : null, s.name)),
     h("div", { class: "sp" }, spark(key, s)),
-    h("div", { class: "right" }, h("span", { class: "num price" }, val), sub));
+    h("div", { class: "right" }, h("span", { class: "num price" }, val), sub, H.age(s)));
   const priceCell = (s) => [H.priceEl(s, "num"), changePill(s.m.c24h)];
   const empty = (t) => h("div", { class: "note dz-empty" }, t);
-  const list = (key, rows, cell) => (rows.length ? h("div", { class: "dz-list" }, rows.map((s, i) => X.card(key, s, i, ...cell(s)))) : null);
+  const list = (key, rows, cell) => { X.ids.push(...rows.map((s) => s.scid)); return rows.length ? h("div", { class: "dz-list" }, rows.map((s, i) => X.card(key, s, i, ...cell(s)))) : null; };
   const sec = (id, ic, title, what, body, all) => h("section", { class: "dz-sec", "aria-labelledby": "dz-" + id },
     h("div", { class: "sh" }, h("span", { class: "ico" }, icon(ic)), h("div", { class: "grow" }, h("h2", { id: "dz-" + id }, title), h("div", { class: "sub tiny" }, what)),
       all ? h("button", { class: "linkbtn", type: "button", "aria-label": "See all: " + title, onclick: all }, "See all") : null),
@@ -72,6 +73,7 @@
   // Home's discovery: every section from a real figure, five rows each, and "See all" opens the Markets view that
   // ranks the same way over every market.
   X.home = () => {
+    X.ids = [];
     if (!D.lastRefresh) return D.lastError ? U.errorState("The market registry could not be read from your node: " + U.clean(D.lastError, 160), () => V.app.refresh(true)) : h("div", { class: "list" }, U.skeleton(4));
     const pr = X.promos();
     return h("div", { class: "dz-grid" },

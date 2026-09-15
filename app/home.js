@@ -62,6 +62,22 @@
   // title cannot be reached on a phone. `after` is the separator to what follows, outside the coloured span.
   H.mark = (s, after) => { const w = U.warnings(s).find((x) => x.sev > 0); if (!w) return null; const el = h("span", { class: "warn", title: w.title }, "\u26a0 " + w.textContent); return after ? [el, after] : el; };
 
+  // ---- what a screen shows (D.see; docs/PERFORMANCE.md, "Interface for the screens") ----
+  // Sent only when a surface's set changes in this navigation: sent again on every redraw, a shown market whose
+  // reads are backing off would have live.js schedule a refresh every 250 ms.
+  const said = new Map();
+  H.see = (key, ids) => { const g = router.gen | 0, k = [...ids].sort().join(); const o = said.get(key); if (o && o.g === g && o.k === k) return; said.set(key, { g, k }); D.see(ids, key); };
+  // whether this navigation's screen declared a set under any key but `but`: a sheet adds to a screen's set, and
+  // alone it would turn the tiers on under a screen that shows every market
+  H.declared = (but) => { const x = D.seen; return !!x && x.gen === (router.gen | 0) && Object.keys(x.by).some((k) => k !== but); };
+  // "updated N blocks ago" beside what a surface shows of s, hidden while it is current (D.ageTag; live.js keeps it)
+  H.age = (s, title) => { const t = D.ageTag(s); t.style.cssText = "font-size:11px;color:var(--fg3)"; if (title) t.title = title; return t; };
+  // A figure summed over every market is as old as its oldest read, and the markets no screen shows are read in
+  // turn, an eighth a block: the tag of that oldest record goes beside the figure.
+  H.ageOf = (list) => { let o = null; for (const s of list) if (s.readH && (!o || s.readH < o.readH || (s.readH === o.readH && s.everyBlock === false))) o = s; return o ? H.age(o, "The oldest of the reads this figure adds up") : null; };
+  // the price tape, on Home and Markets: both draw it and both declare it
+  H.tape = () => { const t = D.trending(14); L.tape(U.$("#tape"), t); H.see("tape", t.map((s) => s.scid)); };
+
   // ---- shared composition ----
   // Level 3: a label above a number, no background and no border (docs/DESIGN_SYSTEM.md § Surfaces).
   const mini = (l, v, cls, extra) => h("div", { class: "mini", style: "min-width:0;padding-right:14px" }, h("span", { class: "l" }, l), h("span", { class: "v " + (cls || "") }, v), extra || null);
@@ -85,11 +101,11 @@
     h("div", { class: "sp", style: "width:" + w + "px;height:24px" }, sparkline(s.points.filter((p) => p.ts >= S.now() - 86400), s, (s.m.c24h || 0) >= 0)),
     h("div", { class: "right" }, H.priceEl(s, "num price"), changePill(s.m.c24h)));
   // a launch reads by how far its curve has filled: the bar is the value, the DERO pair is the detail
-  const launchRow = (s) => h("button", { class: "mrow", style: LROW, type: "button", onclick: () => router.go("token", s.scid) },
+  const launchRow = (s) => h("button", { class: "mrow", style: LROW, type: "button", "data-scid": s.scid, onclick: () => router.go("token", s.scid) },
     avatar(s, "sm"),
     h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, U.pair(s), h("span", { class: "sub tiny ellipsis" }, H.mark(s, " \u00b7 "), s.name)), h("div", { class: "progress data", style: "margin-top:7px" }, h("i", { style: "width:" + Math.min(100, s.m.progress) + "%" }))),
     h("div", { class: "right" }, h("span", { class: "num price" }, s.phase === 0n ? s.m.progress.toFixed(0) + "%" : "AMM"),
-      h("span", { class: "sub tiny" }, s.phase === 0n ? A.fmtUnits(s.real, D.qdec(s), 1) + " / " + A.fmtUnits(s.G, D.qdec(s), 0) + " " + D.qsym(s) : "locked · " + S.ageText(s.m.age) + " old")));
+      h("span", { class: "sub tiny" }, s.phase === 0n ? A.fmtUnits(s.real, D.qdec(s), 1) + " / " + A.fmtUnits(s.G, D.qdec(s), 0) + " " + D.qsym(s) : "locked · " + S.ageText(s.m.age) + " old"), H.age(s)));
   // 24h flow per quote asset, largest first. There is no rate between two quotes and there must not be one, so
   // a volume is only ever added to a volume in the same quote, and the quotes are listed rather than summed.
   // The hero and the Trade hub both read this, so neither can print a figure that adds XMR to DERO.
@@ -166,7 +182,9 @@
         flows.length > 1 ? h("div", { class: "row tight mt8", style: "flex-wrap:wrap;gap:4px 14px" },
           flows.slice(1).map(([sym, v]) => h("span", { class: "sub num" }, S.fmtDeroShort(v) + " " + sym))) : null,
         h("div", { class: "sub" }, act.length ? "Settled through " + act.length + " market" + (act.length === 1 ? "" : "s") + " on this deployment."
-          : ready ? "No market has traded on this deployment yet." : D.lastError ? "The registry could not be read from your node, so nothing here is a reading yet." : "Reading the registry from your node…"),
+          : ready ? "No market has traded on this deployment yet." : D.lastError ? "The registry could not be read from your node, so nothing here is a reading yet." : "Reading the registry from your node…",
+          // every figure in this block is summed over all markets, most of which Home does not show
+          ready ? [" ", H.ageOf(D.list())] : null),
         h("div", { class: "mt", style: RULE() },
           // blocks in which some market's reserves moved, which is what flow1h counts: one block can hold several trades
           mini("Active blocks / h", ready ? String(blocks1h) : "—"),
@@ -206,13 +224,13 @@
         h("div", { class: "home-side", style: railTop },
         head("feed", "Activity", "Trades their owners chose to publish", null, wide),
         h("div", { class: "chips mt8" }, FEEDS.map(([v, l]) => h("button", { class: "chip sm " + (feedFilter === v ? "on" : ""), type: "button", onclick: () => { feedFilter = v; draw(); } }, l))),
-        feed.length ? h("div", { class: "note", style: "margin:9px 0 3px" }, day + " published in the last 24h · " + feed.length + " on record") : null,
+        feed.length ? h("div", { class: "note", style: "margin:9px 0 3px" }, day + " published in the last 24h · " + feed.length + " on record", " ", H.ageOf(feedFilter === "watch" ? ((w) => D.list().filter((s) => w.has(s.scid)))(S.watch.all()) : D.list())) : null,
         feed.length ? h("div", { class: "list" }, feed.slice(0, wide ? 60 : 24).map((t, i) => H.feedRow(t, i)))
           : D.lastRefresh ? (feedFilter === "following" ? U.emptyState("feed", "Following", "Nobody you follow has published a trade. Publishing is opt-in on every swap.", button("Find traders", "small", () => router.go("markets")))
             : feedFilter === "watch" ? U.emptyState("feed", "Watchlist", "No market you starred has a published trade yet.", button("Browse markets", "small", () => router.go("markets")))
               : U.emptyState("feed", null, "No trade has been published yet. Publishing is opt-in on every swap.", button("Open a market", "small", () => router.go("markets"))))
             : D.lastError ? h("div", { class: "note mt8" }, "Nothing to show: the registry could not be read.") : h("div", { class: "list" }, U.skeleton(4)))));
-      L.tape(U.$("#tape"), D.trending(14));
+      H.see("home", V.disc ? V.disc.ids : []); H.tape();
     };
     draw(); D.onChange(() => router.current && router.current.name === "home" && draw());
   });
@@ -223,10 +241,10 @@
       const list = D.active().sort((a, b) => b.m.hot - a.m.hot);
       const flows = flowsOf(list);
       const create = createRow;
-      const row = (s) => h("div", { class: "mrow", style: TROW },
+      const row = (s) => h("div", { class: "mrow", style: TROW, "data-scid": s.scid },
         avatar(s, "sm"),
         h("button", { class: "grow ellipsis", type: "button", style: "text-align:left", onclick: () => router.go("token", s.scid) }, named(s)),
-        h("div", { class: "right" }, H.priceEl(s, "num price"), changePill(s.m.c24h)),
+        h("div", { class: "right" }, H.priceEl(s, "num price"), changePill(s.m.c24h), H.age(s)),
         // the filled buy/sell colours belong to the one decisive control in the trade sheet; twenty of them down a
         // list is a casino, so here the side is a word on a secondary control
         h("div", { class: "row tight" }, button("Buy", "small", () => V.token.tradeSheet(s, 1)), button("Sell", "small", () => V.token.tradeSheet(s, 2))));
@@ -242,7 +260,7 @@
             mini("Markets", D.lastRefresh ? String(list.length) : "—"),
             // one figure per quote, the largest first and the rest beneath it — never one total, which would be
             // XMR added to DERO and printed in a currency neither of them is
-            mini("Flow 24h", flows.length ? S.fmtDeroShort(flows[0][1]) + " " + flows[0][0] : "\u2014", "", flows.length > 1 ? h("span", { class: "sub tiny num" }, flows.slice(1).map(([sym, v]) => S.fmtDeroShort(v) + " " + sym).join(" \u00b7 ")) : null),
+            mini("Flow 24h", flows.length ? S.fmtDeroShort(flows[0][1]) + " " + flows[0][0] : "\u2014", "", [flows.length > 1 ? h("span", { class: "sub tiny num" }, flows.slice(1).map(([sym, v]) => S.fmtDeroShort(v) + " " + sym).join(" \u00b7 ")) : null, D.lastRefresh ? H.ageOf(D.list()) : null]),
             mini("Ordinary swap", "Ring 2"),
             mini("Private mode", "Ring 16"))),
         head("bolt", "Markets", "Ordered by activity · pick a side to open the trade sheet", list.length > 12 ? h("button", { class: "linkbtn", type: "button", onclick: () => router.go("markets") }, "All markets") : null),
@@ -254,6 +272,7 @@
         head("sparkle", "Create", "Two wallet confirmations: install, then register"),
         h("div", { class: "mlist" }, chooser(), CREATE.map((c) => createRow(...c))),
         null);
+      H.see("trade", list.slice(0, 12).map((s) => s.scid));
     };
     draw(); D.onChange(() => router.current && router.current.name === "trade" && draw());
   });
@@ -273,6 +292,7 @@
           : D.lastRefresh ? U.emptyState("rocket", null, "No launch is listed yet.")
             : D.lastError ? U.errorState("The market registry could not be read from your node: " + U.clean(D.lastError, 160), () => V.app.refresh(true))
               : h("div", { class: "list" }, U.skeleton(3))));
+      H.see("launch", pipe.map((s) => s.scid));
     };
     draw(); D.onChange(() => router.current && router.current.name === "launch" && draw());
   });

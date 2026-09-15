@@ -94,6 +94,7 @@
   }
 
   const rows = new Map(); // scid → {el, parts, key, bucket, txt, c}
+  let eye0 = null; // the last visit's row observer
   // A new 10-minute bucket re-cuts the sliding 24h window of every drawn row's sparkline. With thousands of rows
   // drawn that is seconds of work, so it runs in slices of about 8 ms between frames rather than inside one draw.
   const stale = [];
@@ -108,13 +109,16 @@
       const parts = { rank: h("span", { class: "rank" }), go: h("button", { class: "go", type: "button", onclick: () => router.go("token", s.scid) }), sub: h("div", { class: "sub tiny ellipsis num msub" }), nm: h("div", { class: "sub tiny ellipsis mcol nm" }), badges: h("div", { class: "badges" }), star: h("span", { class: "starbox" }), spark: h("div", { class: "sp mtrend" }), price: h("div", { class: "num price" }), chg: h("div", { class: "msub" }), chgcol: h("div", { class: "mcol", style: "width:70px" }), vol: h("div", { class: "mcol" }), liq: h("div", { class: "mcol" }), mcap: h("div", { class: "mcol mfdv" }), age: h("div", { class: "mcol" }),
         // the split-pair band spans every column on both layouts, so it is the width of the row and cannot be
         // mistaken for one more column; display:none while there is nothing to say adds no grid row
-        dup: h("div", { class: "tiny mdup", style: "display:none" }) };
+        dup: h("div", { class: "tiny mdup", style: "display:none" }), aged: H.age(s) };
       const el = h("div", { class: "mrow mkt", "data-scid": s.scid },
         parts.rank, avatar(s, "sm"), h("div", { class: "grow ellipsis" }, h("div", { class: "row tight" }, parts.star, parts.go, parts.badges, parts.nm), parts.sub),
-        parts.vol, parts.liq, parts.mcap, parts.age, parts.spark, h("div", { class: "right" }, parts.price, parts.chg), parts.chgcol, parts.dup);
+        parts.vol, parts.liq, parts.mcap, parts.age, parts.spark, h("div", { class: "right" }, parts.price, parts.chg, parts.aged), parts.chgcol, parts.dup);
       r = { el, parts }; rows.set(s.scid, r);
     }
     const p = r.parts, dup = dupOf(s);
+    // the row's read-age tag (made by D.ageTag): live.js lets a tag go once it leaves the page, and a row is kept
+    // across visits, so each draw hands it back to be tracked
+    L.readTag(p.aged);
     p.rank.textContent = i + 1; p.rank.className = "rank" + (i < 3 ? " r" + (i + 1) : "");
     // Rewritten on every pass: a market becomes a duplicate the moment someone installs a contract over its pair,
     // and depth moves on every block. Rows are reused across draws, so a band written once would freeze.
@@ -181,6 +185,18 @@
     const nftBox = h("div");
     const clearTo = (f) => { view = f; sort = "view"; q = ""; input.value = ""; limit = PAGE; draw(); };
     let total = 0;
+    // What the list declares to the data layer (D.see "markets", docs/PERFORMANCE.md): the drawn rows that are on
+    // screen or within a few rows of it, redone as the list scrolls and pages. A drawn row scrolled away is read in
+    // turn with every other market, and its tag says how old its figures are. Until the observer has reported, and
+    // in a browser without one, every drawn row is declared.
+    if (eye0) eye0.disconnect();
+    const g = router.gen | 0, vis = new Set(), watched = new Set(); let drawn = [], saw = false;
+    const declare = () => { if ((router.gen | 0) === g) H.see("markets", eye && saw ? drawn.filter((id) => vis.has(id)) : drawn); };
+    const eye = (eye0 = typeof IntersectionObserver === "function" ? new IntersectionObserver((es) => {
+      if ((router.gen | 0) !== g) return eye.disconnect();
+      for (const e of es) vis[e.isIntersecting ? "add" : "delete"](e.target.dataset.scid);
+      saw = true; declare();
+    }, { rootMargin: "200px 0px" }) : null);
     const draw = () => {
       drawHead(); compactBtn.classList.toggle("primary", compact); list.classList.toggle("compact", compact);
       sortSel.value = sort;
@@ -201,7 +217,7 @@
       // before the registry is read there is no count to give, and "0 markets" would be a number nobody read
       render(summary, h("span", null, D.lastRefresh ? items.length + (q ? " matching" : "") + " market" + (items.length === 1 ? "" : "s") + " · 24h flow " + (flowText || "none") : D.lastError ? "registry unread" : "reading the registry…",
         splitN ? h("span", { class: "warn", title: "A split pair is one traded by more than one contract. They do not share liquidity, so the thinner one prices worse and can be drained. Every row of a split pair says how much its own contract holds." },
-          " · " + splitN + " split " + (splitN === 1 ? "pair" : "pairs")) : null),
+          " · " + splitN + " split " + (splitN === 1 ? "pair" : "pairs")) : null, D.lastRefresh ? [" ", H.ageOf(D.list())] : null),
         h("span", null, h("i", { class: "dot" }), " block " + (L.height || "…") + " · ", h("span", { "data-block-age": 1 }, "—")));
       // an empty state names the area, says why it is empty, and offers the one action that fills it
       if (!items.length) render(list, q.length === 64 && /^[0-9a-f]+$/.test(q) ? U.emptyState("markets", "Open a contract", "Not listed here, but you can open it by id.", button("Open " + q.slice(0, 10) + "…", "small", () => router.go("token", q)))
@@ -214,6 +230,14 @@
         let k = 0; while (k < els.length && list.children[k] === els[k]) k++;
         if (k < els.length || list.children.length !== els.length) { if (k === list.children.length) list.append(...els.slice(k)); else render(list, els); }
       }
+      // the observer watches exactly the drawn rows; a row no longer drawn is let go and forgotten
+      const shown = items.slice(0, limit); drawn = shown.map((s) => s.scid);
+      if (eye) {
+        const now = new Set(shown.map((s) => rows.get(s.scid).el));
+        for (const e of watched) if (!now.has(e)) { eye.unobserve(e); watched.delete(e); vis.delete(e.dataset.scid); }
+        for (const e of now) if (!watched.has(e)) { eye.observe(e); watched.add(e); }
+      }
+      declare();
       render(more, items.length > limit ? button("Show " + Math.min(PAGE * 2, items.length - limit) + " more · " + limit + " of " + items.length + " shown", "small", () => { limit += PAGE * 2; draw(); }) : null);
       if (io && items.length > limit) { io.unobserve(more); io.observe(more); }
       // A search reaches past markets: NFAs and holder NFTs matching it, each labelled by what it is.
@@ -221,8 +245,9 @@
       const others = q ? V.search.others(q) : [];
       const nfts = q ? [] : [...D.nfts.values()];
       render(nftBox, others.length ? [h("h2", { class: "mt" }, "Also matching"), h("div", { class: "list mt8 dz-list" }, others.map((it) => V.search.line(it)))]
-        : nfts.length && (view === "trending" || view === "watch") ? [h("h2", { class: "mt" }, "Holder NFTs"), h("div", { class: "list mt" }, nfts.map((n) => h("button", { class: "card tight row", type: "button", onclick: () => router.go("nft", n.scid) }, avatar({ icon: n.icon, ticker: "NFT", scid: n.scid }), h("div", { class: "grow ellipsis" }, h("b", null, n.name), h("div", { class: "sub" }, "hold " + A.fmtCompact(n.minhold, n.tokenDec) + " " + n.tokenTicker + " · " + n.minted + "/" + n.maxsupply + " minted")), h("div", { class: "num" }, A.fmtDero(n.price, 1) + " DERO"))))] : null);
-      L.tape(U.$("#tape"), D.trending(14));
+        : nfts.length && (view === "trending" || view === "watch") ? [h("h2", { class: "mt" }, "Holder NFTs"), h("div", { class: "list mt" }, nfts.map((n) => h("button", { class: "card tight row", type: "button", onclick: () => router.go("nft", n.scid) }, avatar({ icon: n.icon, ticker: "NFT", scid: n.scid }), h("div", { class: "grow ellipsis" }, h("b", null, n.name), h("div", { class: "sub" }, "hold " + A.fmtCompact(n.minhold, n.tokenDec) + " " + n.tokenTicker + " · " + n.minted + "/" + n.maxsupply + " minted")), h("div", { class: "num" }, A.fmtDero(n.price, 1) + " DERO", H.age(n)))))] : null);
+      H.see("more", others.length ? others.map((it) => it.av.scid) : nfts.length && (view === "trending" || view === "watch") ? nfts.map((n) => n.scid) : []);
+      H.tape();
     };
     // the next page is drawn as the end of the list comes within about a screen of view; the button does the same
     // for a keyboard, and for a browser with no IntersectionObserver

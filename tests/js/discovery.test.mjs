@@ -30,6 +30,8 @@ function load() {
     ranked() { return this.active().filter((s) => !s.splitWith || s.splitDeepest); },
     trending(n = 12) { return this.ranked().sort((a, b) => b.m.hot - a.m.hot || b.m.vol24 - a.m.vol24).slice(0, n); },
     displayName: (a) => String(a),
+    // the read-age tag every card carries (live.js D.ageTag), hidden: these records are all current
+    ageTag: (s) => { const e = V.ui.h("span", { class: "readage", "data-read": s.scid }); e.hidden = true; return e; },
   };
   const ls = { getItem: () => null, setItem() {} };
   for (const f of ["amm.js", "stats.js", "ui.js", "live.js", "names.js", "home.js", "discover.js", "search.js"])

@@ -29,3 +29,5 @@ import("./move.test.mjs");
 import("./perfscale.test.mjs");
 // the promotion auction (app/promo.js): the contract's increment and tie rule, and what slots() and statusOf() show
 import("./promo.test.mjs");
+// the screens' declarations to that layer (D.see): each surface's ids, scrolling, paging, navigation, read-age tags
+import("./see.test.mjs");
