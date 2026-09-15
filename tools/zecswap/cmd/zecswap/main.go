@@ -82,19 +82,37 @@ import (
 	"veil/tools/zecswap"
 )
 
-// tipDero is this party's own DERO client, noting the last height the swap read through it, for the -status answer
-// only: the answer's DERO deadlines are estimated from it, and nothing else is read for them.
+// tipDero is this party's own DERO client, noting the heights the swap read through it, for the -status answer only:
+// its DERO deadlines are counted from them, and nothing else is read for them.
 type tipDero struct {
 	zecswap.Dero
-	tip uint64
+	height, stable uint64
 }
 
 func (d *tipDero) Height(ctx context.Context) (uint64, error) {
 	h, err := d.Dero.Height(ctx)
-	if err == nil {
-		d.tip = h
+	if err == nil && h > d.height {
+		d.height = h
 	}
 	return h, err
+}
+
+// StableHeight is noted too: a phase that waits for a block to become stable reads only this, and the tip is at least
+// DERO's stable depth above it.
+func (d *tipDero) StableHeight(ctx context.Context) (uint64, error) {
+	s, err := d.Dero.StableHeight(ctx)
+	if err == nil && s > d.stable {
+		d.stable = s
+	}
+	return s, err
+}
+
+// tip is the highest DERO height this party has read or can infer from what it read: never above the chain's.
+func (d *tipDero) tip() uint64 {
+	if d.stable == 0 {
+		return d.height
+	}
+	return max(d.height, d.stable+zecswap.DeroStableDepth)
 }
 
 // appNetwork is the DERO network as the app names it: mainnet, the simulator, or a test network.
@@ -386,7 +404,7 @@ func run(role string, args []string) {
 	// -status (docs/SWAP_STATUS.md): nothing is served unless asked, and a bind that fails stops the companion here,
 	// before the swap takes a step
 	appNet := appNetwork(testnet, deroNet)
-	feed, err := swapstatus.Start(*statusAddr, func() swapstatus.Payload { return sw.StatusV1(appNet, tip.tip, time.Now()) }, os.Stderr, logf)
+	feed, err := swapstatus.Start(*statusAddr, func() swapstatus.Payload { return sw.StatusV1(appNet, tip.tip(), time.Now()) }, os.Stderr, logf)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -402,12 +420,13 @@ func run(role string, args []string) {
 		if err != nil && ctx.Err() == nil {
 			log.Printf("%v", err)
 		}
-		feed.Publish()
 		if done {
+			// whatever the end does is done before the outcome is served, so that stopping the program then loses nothing
 			fmt.Printf("%s: %s\n", role, st.Outcome)
 			feed.Linger(ctx, swapstatus.Linger)
 			return
 		}
+		feed.Publish()
 		if sw.Phase() == before {
 			select {
 			case <-ctx.Done():

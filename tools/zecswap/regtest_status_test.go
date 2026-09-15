@@ -107,7 +107,10 @@ func TestRegtestCLIStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.cookie = cookie
-	e.cn = &cliNet{network: "regtest", zcash: e2eZcash, mine: true, wmin: 20, wantZat: 200_000, interval: "2s", wait: 75 * time.Minute,
+	// 100,000 zatoshi, RegtestPolicy's MinAmount: on the tall regtest chain a coinbase is about 19,000 zatoshi, and the
+	// harness mines coinbases until the taker holds the price plus four minimum fees, which for a price of 200,000 is
+	// 13 of them, whose funding costs 65,000 in ZIP 317 fees and does not fit (the first attempt in swapstatus.log)
+	e.cn = &cliNet{network: "regtest", zcash: e2eZcash, mine: true, wmin: 20, wantZat: 100_000, interval: "2s", wait: 75 * time.Minute,
 		dero: e2eDaemon, makerWallet: "127.0.0.1:30018", takerWallet: "127.0.0.1:30019", installWallet: "127.0.0.1:30020"}
 	statusRun.Lock()
 	statusRun.ports = map[string]int{RoleMaker: freeLoopbackPort(t), RoleTaker: freeLoopbackPort(t)}

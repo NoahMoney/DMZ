@@ -189,4 +189,10 @@ A later version of the contract could add a distinct word for each; the app refu
 so version 1 cannot.
 
 **After the end** the companion keeps serving the final answer for ten minutes (`swapstatus.Linger`), or until it is
-stopped, so that a screen asking every 10 s reads the outcome. Then it exits as before.
+stopped, so that a screen asking every 10 s reads the outcome. Then it exits as before. The end's own cleanup — xmrswap
+removing its wake tasks — is done before the outcome is served, so stopping the program as soon as the screen shows
+it leaves nothing behind.
+
+**Run live** on 2026-09-15 (`research/regtest/swapstatus.log`): one zecswap swap and one xmrswap swap through the command
+line, on regtest Zcash and Monero against the DERO simulator, each side with `-status`. curl, with each process's code,
+read every phase change to the outcome. Both swaps ended swapped. The gates answered 401, 401, 403 and 204 with no body.
