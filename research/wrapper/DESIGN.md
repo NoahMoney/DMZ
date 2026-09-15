@@ -536,3 +536,175 @@ round whenever no release was observed, which admits a race between a slow broad
 - Second-language re-derivation (`services/rederive`, Rust): address derivation, unit conversion, invariant
   computation; must agree with the Go implementation on all test vectors.
 - Lint: `tools/lint-nofloat` in `tests/run.sh`.
+
+### C7. Signer coordination: the channel the foreign signatures travel on
+
+Built 2026-09-15 in `tools/vaultsigner/coord`; operator procedures in `docs/SIGNER_RUNBOOK.md`. The k-of-n
+foreign custody needs signers to hand each other material: Zcash per-input signatures for a P2SH spend, and
+Monero multisig ceremony rounds, `export_multisig_info` output and the `multisig_txset` to sign. §C3 says a round
+"starts only when the k participating signers' decrypted destinations are byte-identical", and HANDOVER §5.3 step 6
+says the txset travels "off chain, a small authenticated relay between signers, or a shared directory in the
+pilot". Neither fixes a transport. This section does.
+
+**Nothing on the channel is authority.** A backend uses a peer's payload only after checking it against its own
+view of the chain. A Zcash signature is checked against the sighash the backend computed from the transaction its
+own deterministic `Release` built. A Monero txset is checked against the transfer the backend would build itself.
+The channel authenticates who said something. It never decides what is signed.
+
+#### Interface
+
+The backends code against two methods, `coord.Coordinator`:
+
+- `Put(ctx, round, payload) error` publishes this signer's payload for a round.
+- `Get(ctx, round) (map[id][]byte, error)` returns the newest authentic payload of every signer that has arrived,
+  this signer's own included. It never waits: callers poll.
+
+Ids are the signers' DERO addresses in the DVM's `ADDRESS_STRING` spelling (`dero1…`, the daemon's `dvmMe`).
+Round names are 1–200 bytes of `[A-Za-z0-9._:/@+=-]`. A later `Put` for the same round replaces the earlier one,
+so a backend names a round by everything its payload depends on. Examples:
+`zec/release/<j>/<sighash prefix>/sig/<input>`, `xmr/txset/<j>/<attempt>`, `xmr/info/<epoch>`,
+`xmr/ceremony/<step>`.
+
+#### Transport: untrusted dumb stores, several at once
+
+A store is either an HTTP relay (`vaultsigner relay`, a store-and-forward box that holds no key) or a shared
+directory (a sync folder, a network share, or removable media between air-gapped hosts). Every node writes to all of
+its stores and reads from all of them. The reasons:
+
+1. **No inbound exposure on a signer host.** Controls §5 (Orbit, Harmony) requires that "signer hosts have no
+   inbound network exposure" and that "the vault share is never on an internet-facing host". Option (a), each signer
+   serving an endpoint its peers poll, puts a listening port on the machine that holds the share. A store needs
+   outbound connections only.
+2. **No trusted central server.** Any number of relays can be configured, and anyone can run one: a signer on a
+   separate host, or a third party. A relay needs no key and no state that matters. One relay that every
+   participating signer reaches is enough. Option (a) is still available as a deployment choice: a signer willing to
+   expose a host runs a relay on it.
+3. **It is what HANDOVER §5.3 names**, with the authentication moved from the relay to the ends, so the relay needs
+   no trust at all.
+4. **Standard library only.** The channel uses `net/http`, `crypto/ed25519`, `crypto/hpke` (RFC 9180, Go 1.26),
+   `crypto/aes`/`cipher` and `crypto/hkdf`. Two modules that `tools/go.mod` already required are reused, and no new
+   dependency is added:
+   - `filippo.io/edwards25519`, for the small-order check on pinned keys (the standard library exposes no point
+     decoding);
+   - `golang.org/x/sys/windows`, for owner-only key files, the same construction as `tools/xmrswap`.
+
+Rejected alternatives:
+
+- **The DERO chain as the transport.** Every message would be a public, fee-paying transaction, with 18 s
+  blocks and 20,000 storage gas per transaction. A Monero txset runs to hundreds of kilobytes.
+- **A DHT or gossip network.** There is no standard-library implementation, and it adds more attack surface than it
+  removes.
+- **Tor onion services.** Not in the standard library. A relay can still be reached through a SOCKS proxy taken from
+  the environment.
+
+#### Identity
+
+Each signer has one 32-byte seed, written by `vaultsigner keygen`:
+
+- The file is mode 0600, or on Windows carries a protected DACL for the owner only, set when the file is created. It
+  is never overwritten and never printed.
+- The Ed25519 key comes from the seed (RFC 8032).
+- The X25519 key comes from `HKDF-SHA256(seed, "DMZ coord hpke x25519 v1")` through RFC 9180 `DeriveKeyPair`.
+
+The public identity line is `dmzcoord1:` followed by hex of the Ed25519 key (32 bytes), the X25519 key (32) and a
+proof (64). The proof is an Ed25519ctx signature (context `DMZ coord identity v1`) over the address and both keys.
+Loading a pinned identity checks three things:
+
+- the proof, so an identity line pasted against the wrong address is refused;
+- that the Ed25519 key is a canonical point that is not of small order (under such a key anyone can forge
+  signatures);
+- that the X25519 key is not of low order.
+
+Every signer pins every identity, its own included, in its configuration. Signers compare a 96-bit fingerprint per
+identity, and one fingerprint for the whole set (vault plus every pin), on a second channel.
+
+#### Message, version 1
+
+Integers are big-endian and every length is checked. Nothing may follow the signature.
+
+```
+header  "DMZC" | 01 | suite 01 | vault (32) | tag (32) | sender Ed25519 key (32) | idlen (1) | id
+        | created (8) | expires (8)                       -- the wrap context ends here
+        | n (1) | n × { recipient Ed25519 key (32) | wrap (80) } | nonce (12)
+body    ctlen (4) | AES-256-GCM(K, nonce, payload, AD = SHA-256("DMZ coord payload v1" 0 | header))
+sig     Ed25519ctx(sender, context "DMZ coord msg v1", every byte above)
+
+tag     = SHA-256("DMZ coord round v1" 0 | vault | round)
+wrap    = HPKE base mode, DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / AES-256-GCM, sealing the fresh 32-byte
+          content key K to the recipient, with info = SHA-256("DMZ coord wrap v1" 0 | SHA-256(wrap context) |
+          recipient key)
+```
+
+The vault, the round tag, the sender key and the sender id are all inside the signature, and the recipient node
+re-checks each of them. A store sees only the tag, never the round name. Every message is encrypted to every pinned
+signer, the sender included, so a restarted node can read its own payload back.
+
+#### Threats and where each is handled
+
+| attack | outcome | test (`tools/vaultsigner/coord`) |
+|---|---|---|
+| forged message: an unpinned key, or a pinned key's name signed by another key | dropped | `TestForgedMessagesAreRefused` |
+| altered in flight (any bit, anywhere) | dropped | `TestEveryBitFlipIsRefused` |
+| replayed into another round or another vault | dropped: tag and vault are signed | `TestReplayIntoAnotherRoundOrVaultIsRefused` |
+| replay of an older copy, or copies reordered | the newest (created, then hash) wins, and a node never rolls back | `TestReorderedCopiesConvergeOnTheNewest`, `TestTheRelayKeepsTheNewestAndBoundsEachSender` |
+| truncated or extended | dropped by the strict parser | `TestEveryTruncationAndExtensionIsRefused`, `TestTruncatedAndOversizedMessagesAreRefused` |
+| oversized | refused at `Put`, at the relay (413, message or payload length) and at the receiver before any crypto | same, `TestTheRelayRefusesWhatItShouldNotStore` |
+| expired, dated more than 5 minutes ahead, or living longer than 7 days | dropped; the relay answers 410 | `TestExpiredAndFutureMessagesAreRefused` |
+| a sender naming another signer | dropped: the id is bound to the key | `TestASenderNamingAnotherSignerIsRefused` |
+| the relay or the network reading a payload | impossible: HPKE to each pinned signer | `TestSealOpenRoundTrip` |
+| an insider moving a key wrap to another recipient | does not open | `TestAnInsiderCannotRouteAnotherSignersWrap` |
+| a weak or mispasted pinned key | refused at load | `TestParsePublicIdentityRefusesWeakOrAlteredKeys`, `TestAConfigWithAMistakeIsRefused` |
+| a key file other accounts can read | refused at load (Unix mode; Windows DACL) | `TestLoadRefusesAKeyOthersCanRead`, `…OnWindows` |
+| key material or payloads in output and logs | never: an identity formats as its address and fingerprint for every verb, refuses JSON, and logs carry reasons only | `TestAnIdentityNeverPrintsOrSerialisesItsKey`, `TestLogsNeverCarryPayloadsOrKeys`, `vaultsigner` `TestKeygenWritesAPrivateFileAndPrintsOnlyThePublicHalf` |
+| outsiders flooding a relay | refused: the relay checks the signature against the pinned keys before storing | `TestTheRelayRefusesWhatItShouldNotStore` |
+| an insider flooding a relay | a byte quota per sender, a cap on rounds, 507 | `TestTheRelayKeepsTheNewestAndBoundsEachSender` |
+| a hostile relay (huge or too many frames, redirects) | refused with bounded memory | `TestAClientRefusesAHostileRelay` |
+| equivocation: a signer posting different payloads to different stores | **not prevented.** The channel gives authenticity, not agreement; backends name rounds by content and verify every payload | `TestEquivocationIsVisibleNotPrevented` |
+
+Storage is bounded and expires on its own:
+
+- **Node.** At most max(256 MiB, 8 × the payload limit) and 4096 rounds in memory, evicted least-recently-used.
+  Payloads are 4 MiB by default and 16 MiB at the hard limit. Messages live 24 hours by default, configurable from
+  1 minute to 7 days.
+- **Relay.** At most 1 GiB by default, shared equally among the pinned senders, with at most 4096 rounds per sender
+  and one copy per (vault, round, sender). Expired copies are pruned every 30 s.
+- **Directory.** One file per sender per round. Expired files are removed when read and swept every 10 minutes.
+
+#### Liveness and the fallback
+
+Safety never depends on the channel. The worst a store can do is withhold. A backend that cannot gather k
+payloads does not sign, its `Release` returns an error, and `processWithdrawal` retries on the next pass. Everything
+the vault already does about an unpaid withdrawal applies unchanged: the Paying mark, `Veto`, `Reclaim`.
+
+Attestations, deposits, mints, the reserve check and `Halt` do not use the channel at all. Losing it therefore
+delays foreign payments and nothing else. On Monero this includes the multisig-info refresh that must follow every
+spend, so Monero releases wait for it.
+
+Coordination completes when at least k signers are online and share one store each of them reaches. A node reads
+every store it has, and re-offers its own newest message to any store that answers without it. That heals a relay
+that restarted empty.
+
+The fallback, in order:
+
+1. Configure at least two relays from day one, run by different signers or organisations, on hosts that hold no key.
+2. If both relays fail, start a new relay anywhere. It needs no key and no state: every signer adds its URL and
+   restarts.
+3. If no relay can run, use a shared directory over any file carrier. The messages and the verification are the
+   same.
+
+Monitoring:
+
+- `vaultsigner` logs the channel's `Health` whenever it changes. The HTTP store also compares the local clock with
+  the relay's `Date` header, because a clock more than half the 5-minute window away is reported before it starts
+  costing messages.
+- `Node.Status` counts drops by reason.
+
+#### What it does not do
+
+- **Agreement.** See equivocation in the table above.
+- **Hide who talks, and when.** A relay sees sender keys, round tags, timing and sizes.
+- **Forward secrecy.** HPKE base mode encrypts to static recipient keys. Whoever records relay traffic and later
+  steals a signer's identity file can read that traffic's payloads. Rotate identities yearly and on any suspicion
+  (`docs/SIGNER_RUNBOOK.md` §7).
+- **Post-quantum confidentiality.** Not attempted. The custody keys themselves (secp256k1 for P2SH, Ed25519 for
+  Monero) fall to the same adversary, so it would protect nothing.

@@ -27,6 +27,7 @@ manual override anywhere in the contract and no override flag in the daemon.
 | [halt and resume](#halt-and-resume) | what a halt is, what it blocks, and how it clears |
 | [cap and bonds](#cap-and-bonds) | raising or lowering the cap, bonding, slashing, replacing a signer |
 | [incident reserve shortfall](#incident-reserve-shortfall) | the foreign reserve is below the wrapped supply |
+| [`docs/SIGNER_RUNBOOK.md`](../../docs/SIGNER_RUNBOOK.md) | one signer's host, keys, ceremony, service, coordination channel, rotation and key-compromise response |
 
 State keys worth knowing (all readable with `DERO.GetSC`): `sup` wrapped supply, `cap`, `capratio` the
 cap-to-bond ratio fixed at install, `bondtot`, `na` active signers, `n` signer slots ever used, `k`, `halted`,

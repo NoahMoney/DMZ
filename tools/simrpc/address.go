@@ -97,6 +97,20 @@ func bech32Encode(hrp string, data []int) string {
 	return b.String()
 }
 
+// AddressFromRaw spells a raw 33-byte compressed key — what ADDRESS_RAW stores, such as vault.bas sg_<i> — the way a
+// contract writes it with ADDRESS_STRING. Returns "" when raw is not 33 bytes.
+func AddressFromRaw(raw []byte) string {
+	if len(raw) != 33 {
+		return ""
+	}
+	data := make([]int, 0, 34)
+	data = append(data, 1)
+	for _, b := range raw {
+		data = append(data, int(b))
+	}
+	return bech32Encode("dero", convertBits(data, 8, 5, true))
+}
+
 // DVMAddress converts any DERO address string into the exact spelling a contract writes with ADDRESS_STRING:
 // the mainnet "dero" prefix, no integrated arguments. Returns "" when the input is not an address.
 func DVMAddress(addr string) string {

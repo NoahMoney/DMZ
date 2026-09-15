@@ -534,6 +534,10 @@ func die(format string, a ...interface{}) {
 }
 
 func main() {
+	// `vaultsigner keygen | identity | relay` (coordwire.go) are read before the daemon's own flags
+	if ok, code := runSubcommand(os.Args[1:], os.Stdout, os.Stderr); ok {
+		os.Exit(code)
+	}
 	flag.Parse()
 	if len(*vault) != 64 {
 		log.Fatal("-vault must be the 64-hex scid of vault.bas")
@@ -593,6 +597,15 @@ func main() {
 		die("%v", err)
 	}
 	fmt.Printf("signer %s\nvault  %s\nstate  %s (%d intents)\n", me, *vault, *statePath, len(mem.Intents))
+	// signer coordination (coordwire.go): backends that sign with their peers hold coordHandle, which fails closed
+	// until this has run
+	if *coordPath != "" {
+		node, err := startCoord(c, *vault, dvmMe)
+		if err != nil {
+			die("coordination: %v", err)
+		}
+		defer node.Close()
+	}
 	for {
 		pass(c, be, me, dvmMe, mem)
 		if *once {
