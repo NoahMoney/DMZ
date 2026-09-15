@@ -101,53 +101,86 @@
   // ---- candles from per-block closes ------------------------------------------------------------------------
   // interval in seconds; returns [{t, o, h, l, c, v, up}] where v is the reserve flow (in the quote) and empty intervals
   // carry the previous close as a flat candle (drawn as a doji), exactly like an exchange with no trades.
-  function candles(s, interval, from) {
-    const pts = (s.points || []).filter((p) => p.ts >= from - interval); if (!pts.length) return [];
-    const out = []; let prevClose = price(s, pts[0]), prevRd = pts[0].rd, prevPt = pts[0];
-    const t0 = Math.floor(Math.max(from, pts[0].ts) / interval) * interval, tEnd = now();
-    let i = 0;
+  // The window starts at the last close before `from`, so the flat candles at its left edge carry the price the
+  // market really had rather than the first price inside the window. A block whose price reads as zero (a pool
+  // before its first deposit) never becomes a close, and candles before the first real price are dropped.
+  function candles(s, interval, from, at) {
+    const all = pts(s); if (!all.length || !(interval > 0)) return [];
+    let lo = 0, hi = all.length; while (lo < hi) { const m = (lo + hi) >> 1; if (all[m].ts < from) lo = m + 1; else hi = m; }
+    const p = all.slice(Math.max(0, lo - 1)), q = qunit(s), tEnd = at || now();
+    let t0 = Math.floor(Math.max(from, p[0].ts) / interval) * interval;
+    if ((tEnd - t0) / interval > 2000) t0 = tEnd - 2000 * interval - (tEnd % interval); // a bound, whatever the caller asks
+    const out = []; let prevClose = 0, prevRd = p[0].rd, prevPt = p[0], i = 0;
     for (let t = t0; t <= tEnd; t += interval) {
-      const c = { t, o: prevClose, h: prevClose, l: prevClose, c: prevClose, v: 0, bv: 0, sv: 0, up: true, n: 0 };
-      while (i < pts.length && pts[i].ts < t) { prevClose = price(s, pts[i]); prevRd = pts[i].rd; prevPt = pts[i]; i++; c.o = prevClose; c.h = prevClose; c.l = prevClose; c.c = prevClose; }
-      while (i < pts.length && pts[i].ts < t + interval) {
-        const p = pts[i], pr = price(s, p); if (pr > 0) { c.h = Math.max(c.h, pr); c.l = Math.min(c.l, pr); c.c = pr; c.n++; }
+      const c = { t, o: 0, h: 0, l: 0, c: 0, v: 0, bv: 0, sv: 0, up: true, n: 0 };
+      while (i < p.length && p[i].ts < t) { const pr = price(s, p[i]); if (pr > 0) prevClose = pr; prevRd = p[i].rd; prevPt = p[i]; i++; }
+      c.o = c.h = c.l = c.c = prevClose;
+      while (i < p.length && p[i].ts < t + interval) {
+        const pt = p[i], pr = price(s, pt);
+        if (pr > 0) { if (!c.o) c.o = c.h = c.l = pr; c.h = Math.max(c.h, pr); c.l = Math.min(c.l, pr); c.c = pr; c.n++; prevClose = pr; }
         // reserve flow: quote in = net buying, quote out = net selling (per active block)
-        if (!lpMove(s, prevPt, p)) { if (p.rd >= prevRd) c.bv += Number(p.rd - prevRd) / qunit(s); else c.sv += Number(prevRd - p.rd) / qunit(s); }
-        prevRd = p.rd; prevPt = p; prevClose = pr; i++;
+        if (!lpMove(s, prevPt, pt)) { if (pt.rd >= prevRd) c.bv += Number(pt.rd - prevRd) / q; else c.sv += Number(prevRd - pt.rd) / q; }
+        prevRd = pt.rd; prevPt = pt; i++;
       }
       c.v = c.bv + c.sv; c.up = c.n === 0 ? null : c.c >= c.o;
-      out.push(c);
+      if (c.c > 0) out.push(c);
     }
     return out;
   }
-  const RANGES = { "1h": [3600, 60], "6h": [21600, 300], "24h": [86400, 900], "7d": [604800, 7200], all: [0, 0] };
-  // interval follows the range, but a market younger than the range gets finer candles (~60 across its life)
-  function rangeFor(s, key) {
-    let [span, iv] = RANGES[key] || RANGES["24h"];
-    const first = pts(s).length ? pts(s)[0].ts : now(), life = Math.max(600, now() - first);
-    if (!span) { span = Math.max(3600, life); iv = 0; }
-    if (life < span) { span = life; iv = 0; }
-    if (!iv) iv = Math.max(60, Math.ceil(span / 60 / 60) * 60);
-    return { from: now() - span, interval: iv };
+  // ---- candle intervals --------------------------------------------------------------------------------------
+  // The chain records one close per active block (~18 s), so a minute is the finest interval that is still exact:
+  // nothing below it is offered. At the other end an interval is offered only when the history this app holds
+  // spans at least MINC of its candles; fewer is a bar, not a chart. That history is what feed.js loaded (its
+  // newest points), so a market whose older closes stay on chain is offered what the loaded part can fill.
+  const IV = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1D": 86400, "1W": 604800 };
+  const MINC = 4;
+  function history(s, at) {
+    const p = pts(s), t = at || now(), rec = p.filter((x) => !x.live).length;
+    // it starts at the first close with a price: a pool's blocks before its first deposit draw nothing
+    const i = p.findIndex((x) => price(s, x) > 0), n = i < 0 ? 0 : p.length - i;
+    return { first: n ? p[i].ts : t, span: n > 1 ? Math.max(0, t - p[i].ts) : 0, points: n, truncated: !!s && s.pc !== undefined && Number(s.pc) > rec };
+  }
+  const intervals = (s, at) => { const hs = history(s, at); return Object.keys(IV).filter((k) => hs.span >= MINC * IV[k]); };
+  // A choice the market can fill is kept. Otherwise: the coarsest interval that still fills 30 candles of the
+  // history, else the finest offered, else ALL.
+  function pickInterval(s, want, at) {
+    const ks = intervals(s, at), span = history(s, at).span;
+    if (want === "all" || ks.includes(want)) return want;
+    return ks.filter((k) => span / IV[k] >= 30).pop() || ks[0] || "all";
+  }
+  // the window one interval draws: the newest maxC candles of it, or for ALL the whole history at the finest
+  // interval that fits maxC candles across it
+  function windowFor(s, key, maxC, at) {
+    const t = at || now(), hs = history(s, at), n = Math.max(8, maxC || 90);
+    if (key !== "all" && IV[key]) return { key, interval: IV[key], from: Math.max(hs.first, t - n * IV[key]) };
+    const k = Object.keys(IV).find((x) => hs.span / IV[x] <= n);
+    return { key: "all", interval: k ? IV[k] : Math.ceil(hs.span / n / IV["1W"]) * IV["1W"], from: hs.first };
   }
 
   // ---- formatting ----
   const SUB = "₀₁₂₃₄₅₆₇₈₉";
+  // A price is positive and finite or it is not a price: anything else is a dash, never "NaN", "Infinity" or 0.
+  // Below a ten-thousandth the zeros are counted in subscript (0.00000123 → 0.0₅123), read off toExponential so
+  // the rounding carries into the exponent and no price is too small to print. From a million up, a suffix.
   function fmtPriceSub(p) {
-    if (!p || !isFinite(p)) return "—";
+    if (typeof p !== "number" || !isFinite(p) || p <= 0) return "—";
+    if (p >= 1e6) return fmtBig(p, 4);
+    if (p >= 1000) return p.toLocaleString(undefined, { maximumFractionDigits: 2 });
     if (p >= 1) return p.toLocaleString(undefined, { maximumFractionDigits: 4 });
     if (p >= 0.001) return p.toLocaleString(undefined, { maximumSignificantDigits: 5 });
-    const s = p.toFixed(20).slice(2); let z = 0; while (z < s.length && s[z] === "0") z++;
+    const [m, e] = p.toExponential(3).split("e"), z = -Number(e) - 1;
     if (z < 4) return p.toLocaleString(undefined, { maximumSignificantDigits: 4 });
-    return "0.0" + String(z).split("").map((d) => SUB[+d]).join("") + s.slice(z, z + 4);
+    return "0.0" + String(z).split("").map((d) => SUB[+d]).join("") + (m.replace(".", "").replace(/0+$/, "") || "0");
   }
+  // 1.23M, 4.5B, 7T, 2.1Q; past a quintillion the exponent itself, which is still a number and never Infinity
+  const fmtBig = (x, sig) => { const t = Math.min(5, Math.floor(Math.log10(x) / 3)); return x >= 1e18 ? x.toExponential(2).replace("e+", "e") : String(+(x / 10 ** (3 * t)).toPrecision(sig)) + ["", "K", "M", "B", "T", "Q"][t]; };
   // Short amounts in whatever the quote is. Four fixed places were DERO's own scale: a twelve-decimal quote
   // puts a whole pool below a thousandth, where toFixed(4) printed "0.0000" for every aggregate on the market.
   // Below that line the number keeps three significant digits instead — toFixed rather than toPrecision,
   // because toPrecision switches to exponent form under 1e-6 and toFixed never does. From a thousandth up,
   // everything renders exactly as it did.
   const fmtTiny = (x) => x.toFixed(Math.min(100, Math.floor(-Math.log10(x)) + 3)).replace(/0+$/, "");
-  const fmtDeroShort = (x) => (x >= 1e6 ? (x / 1e6).toFixed(2) + "M" : x >= 1e4 ? (x / 1e3).toFixed(1) + "K" : x >= 100 ? x.toFixed(0) : x >= 1 ? x.toFixed(2) : x >= 1e-3 ? x.toFixed(4) : x > 0 ? fmtTiny(x) : "0");
+  const fmtDeroShort = (x) => (typeof x !== "number" || !isFinite(x) ? "—" : x >= 1e9 ? fmtBig(x, 3) : x >= 1e6 ? (x / 1e6).toFixed(2) + "M" : x >= 1e4 ? (x / 1e3).toFixed(1) + "K" : x >= 100 ? x.toFixed(0) : x >= 1 ? x.toFixed(2) : x >= 1e-3 ? x.toFixed(4) : x > 0 ? fmtTiny(x) : "0");
   const ageText = (blocks) => { if (blocks === null || blocks === undefined) return "—"; const s = blocks * 18; if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m"; if (s < 86400) return Math.round(s / 3600) + "h"; return Math.round(s / 86400) + "d"; };
 
   // ---- watchlist (per device) ----
@@ -158,5 +191,5 @@
     toggle(scid) { const s = this.all(); s.has(scid) ? s.delete(scid) : s.add(scid); try { localStorage.setItem(this.key, JSON.stringify([...s])); } catch (e) {} return s.has(scid); },
   };
 
-  V.stats = { WIN, RANGES, now, priceAt, change, flow, published, enrich, candles, rangeFor, fmtPriceSub, fmtDeroShort, ageText, watch };
+  V.stats = { WIN, IV, MINC, now, priceAt, change, flow, published, enrich, candles, history, intervals, pickInterval, windowFor, fmtPriceSub, fmtBig, fmtDeroShort, ageText, watch };
 })();

@@ -321,6 +321,7 @@ try {
     await shot("05b-trade-switched");
     await page.keyboard.press("Escape"); await sleep(300);
     await page.getByText("Line", { exact: true }).click(); await sleep(400); await shot("06-token-line");
+    await (await import("./ui-market.mjs")).marketPass({ browser, url, out, step, fail, sleep }); // the market page at 1280/768/390
     await page.evaluate(() => { location.hash = "#markets"; }); await sleep(1200); await shot("07-markets-live");
     // launch sheet with its live preview (read-only: filled, never sent)
     await page.click(".tab[data-tab=trade]"); await sleep(600);

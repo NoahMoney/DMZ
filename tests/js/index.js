@@ -16,3 +16,4 @@ import("./payout.test.mjs");
 import("./track.test.mjs");
 // community sentiment: the display rule and the fail-closed reads (app/sentiment.js)
 import("./sentiment.test.mjs");
+import("./market.test.mjs"); // the market page: price formatter, candle intervals, chart extremes (ui-market)
