@@ -56,6 +56,8 @@ type Network struct {
 	Htlc  string `json:"htlc"`  // contracts/htlc.bas: the DERO leg of the Monero swap
 	Swap  string `json:"swap"`  // contracts/swap.bas: the DERO leg of the transparent-Zcash swap
 	Board string `json:"board"` // contracts/board.bas: the Zcash market's offers
+	// Rate is contracts/rate.bas, community sentiment (app/sentiment.js): no owner, a fee per vote fixed at install.
+	Rate string `json:"rate"`
 	// ZecTreasury is the transparent Zcash address (P2PKH or P2SH: t1…/t3… on mainnet, tm…/t2… on testnet, and on
 	// regtest through the simulator's block) that the maker's claim in a transparent-Zcash swap pays the 0.5 % swap
 	// fee to (tools/zecswap, docs/ZEC_SWAP.md §7). Empty or invalid on mainnet, the companion refuses to start a swap.
@@ -188,7 +190,7 @@ func ConfigJS(name string, n *Network, generator string) string {
 	if len(n.Chat) == 64 {
 		vault += fmt.Sprintf("  chat: %q,\n", n.Chat)
 	}
-	for _, c := range []struct{ k, v string }{{"htlc", n.Htlc}, {"swap", n.Swap}, {"board", n.Board}} {
+	for _, c := range []struct{ k, v string }{{"htlc", n.Htlc}, {"swap", n.Swap}, {"board", n.Board}, {"rate", n.Rate}} {
 		if len(c.v) == 64 {
 			vault += fmt.Sprintf("  %s: %q,\n", c.k, c.v)
 		}

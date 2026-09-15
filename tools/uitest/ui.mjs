@@ -777,6 +777,7 @@ try {
   const bad = errors.filter((e) => !/favicon|net::ERR_/.test(e));
   if (bad.length) fail("console errors:\n" + bad.join("\n"));
   fs.writeFileSync(out + "/console.log", logs.join("\n"));
+  if (process.argv.includes("--sentiment")) await (await import("./sentiment.mjs")).sentimentPass({ browser, url, out, step, fail }); // community sentiment, read at 430 and 1280
   console.log(process.exitCode ? "UI TEST FAILED" : "UI TEST OK");
 } catch (e) {
   fs.writeFileSync(out + "/console.log", logs.join("\n")); // the page console (toasts included) is the evidence for a failed step

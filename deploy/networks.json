@@ -11,6 +11,7 @@
     "htlc": "",
     "swap": "",
     "board": "",
+    "rate": "",
     "zecTreasury": "",
     "xmrTreasury": "",
     "feeBps": 50,
@@ -50,6 +51,7 @@
     "htlc": "ef576fce2edaa15c3e09916463ea86a49bfb428ca030d439e69a63a48a612496",
     "swap": "8d951df3decb1045cb34f67f62e0b6789da50f0507e453888b7f565545802a8f",
     "board": "894af60be95f2c861d18dd91ed024430b2ae7fdf7d01c30699babbf9c86611ce",
+    "rate": "850b0f19f3e9f929bb7881c12866534da1467a0e290230b70a3088fb66899a97",
     "zecTreasury": "tmBMAUrFTiA6SZPrXuXyf4EYZsdhN8shfm9",
     "xmrTreasury": "49gDG5A67nhDdNmb2JzZ6yYhMrisuHqps3hyawkCo2hv7mJ5RBta8nCecZknbkpLPjazSqZ8yxaW7FmPod28isG3StWYkFK",
     "treasuries": [
@@ -120,6 +122,7 @@
     "htlc": "a80f38f2587b144ee4064a21d529fbbd7da782d101169d1c65cb5cda4e1d0798",
     "swap": "8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa",
     "board": "955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9",
+    "rate": "",
     "zecTreasury": "",
     "xmrTreasury": "",
     "treasuries": [

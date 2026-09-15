@@ -171,7 +171,7 @@ func bundle(name string, n *netcfg.Network) (err error) {
 	if err := add("config.js", []byte(netcfg.ConfigJS(name, n, "tools/genconfig -dist"))); err != nil {
 		return err
 	}
-	mb, _ := json.MarshalIndent(map[string]interface{}{"network": name, "daemon": n.Daemon, "factory": n.Factory, "social": n.Social, "founders": n.Founders, "vault": n.Vault, "htlc": n.Htlc, "swap": n.Swap, "board": n.Board, "files": manifest}, "", "  ")
+	mb, _ := json.MarshalIndent(map[string]interface{}{"network": name, "daemon": n.Daemon, "factory": n.Factory, "social": n.Social, "founders": n.Founders, "vault": n.Vault, "htlc": n.Htlc, "swap": n.Swap, "board": n.Board, "rate": n.Rate, "files": manifest}, "", "  ")
 	if err := os.WriteFile(filepath.Join(out, "manifest.json"), mb, 0o644); err != nil {
 		return err
 	}

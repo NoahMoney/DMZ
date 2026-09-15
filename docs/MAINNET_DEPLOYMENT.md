@@ -16,6 +16,7 @@ steps come from, with the reasons behind each.*
 | `social.bas` | one contract | none | no role exists |
 | `founders.bas` | one contract (v2: a reward pool per asset) | name, description, image, price, supply, reserve, share, market fee, treasury (MT-J16: "DMZ Founders Pass", the description approved for v2, the operator's image, 1 DERO, 20 editions, 4 reserved, share 10,000 bps (2026-09-15: all of the trading and swap fees, at least 5% per registered pass), market fee 250 bps) | no owner; no function changes any of them after install |
 | `chat.bas` | one contract | treasury, fee per message, maximum length | fixed at install |
+| `rate.bas` | one contract, community sentiment | treasury, fee per vote: 10,000 (0.1 DERO, `-rate-fee`), paid to the treasury | fixed at install; no owner, moderator or setter; a vote is changed or cleared only by its own voter |
 | `htlc.bas` | one contract (v3), the Monero swap's DERO leg | `w1min` and `w2min`, the least t1 − lock height and t2 − t1 (400 each, from the Monero profile), and `g2`, the Punish window: 4,800 blocks (24 h), the operator's answer to MT-J13 on 2026-09-12 | fixed at install; no owner, admin, fee or update path |
 | `swap.bas` | one contract, the Zcash swap's DERO leg | `wmin` = 1,600 blocks | fixed at install |
 | `board.bas` | one contract, the Zcash market's offers | `aw` = 200 (in code) | fixed |

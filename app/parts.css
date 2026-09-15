@@ -214,3 +214,18 @@ details.more[open] summary .svgi{transform:rotate(180deg)}
 /* the new mark is narrower for its height than the old one, so it stands a little taller to keep its footprint */
 .top .brand .mark{height:22px}
 .tabs .side-brand .mark{height:26px}
+/* ==== sentiment ==== */
+/* Community sentiment (app/sentiment.js): a count of what addresses said, never a verdict. The two sides are drawn in
+   neutral inks of equal weight; nothing here uses --down, --warn or the error box. */
+.senti{border-top:1px solid var(--edge);margin-top:14px;padding:12px 0 4px}
+.senti-h{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px}
+.senti-h h3{margin:0}
+.senti-c{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:8px;font-size:13.5px;color:var(--fg2)}
+.senti-c b{color:var(--fg);font-variant-numeric:tabular-nums}
+.senti-bar{display:flex;height:6px;margin-top:10px;background:var(--s3);border-radius:var(--r1);overflow:hidden}
+.senti-bar i{display:block;height:100%}
+.senti-bar .sb{background:var(--fg2)}
+.senti-bar .ss{background:var(--graphite)}
+.senti-many{margin-top:8px;color:var(--fg2)}
+.senti-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.senti-btns .btn[aria-pressed="true"]{border-color:var(--fg2);color:var(--fg);opacity:1}

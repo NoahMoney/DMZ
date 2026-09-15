@@ -1,4 +1,4 @@
-// simdeploy installs factory.bas, social.bas, founders.bas, chat.bas and the swap contracts on a running simulator
+// simdeploy installs factory.bas, social.bas, founders.bas, chat.bas, rate.bas and the swap contracts on a running simulator
 // (wallet 0 = the deployer, wallet 2 = treasury), copies the templates into app/templates and writes app/config.js with
 // the SCIDs and template hashes.
 //
@@ -56,6 +56,8 @@ var (
 	htlcG2    = flag.Uint64("htlc-g2", 0, "htlc.bas install argument, required to install it: the Punish window in blocks from t2; from t2 + g2 only the maker may Reclaim (MT-J13(b)). The operator answered 4,800 blocks (24 h) on 2026-09-12, and the xmrswap taker refuses an install whose g2 is below her floor, 4,800 (DefaultG2Min), so every taker refuses a smaller one. No default all the same: each install names it")
 	chatFee   = flag.Uint64("chat-fee", 10000, "fee to post one message, in atomic units — the only spam control there is")
 	chatMax   = flag.Uint64("chat-maxlen", 280, "longest message the contract will store")
+	rateF     = flag.String("rate", "", "reuse an existing rate.bas scid (community sentiment) instead of installing")
+	rateFee   = flag.Uint64("rate-fee", 10000, "fee per vote in atomic units, paid to the treasury and fixed for the life of rate.bas (no setter). 10,000 = 0.1 DERO, the price of a chat message: the only spam control, paid again by each address a voter adds")
 	legacy    = flag.String("legacy", "", "comma-separated kind:sha256 of older template versions the app keeps accepting")
 	revoke    = flag.String("revoke", "", "comma-separated kind:sha256 of template versions the app must STOP accepting: code with a defect. A revoked hash is dropped from the record instead of being carried forward, so markets deployed from it stop verifying")
 	timeout   = flag.Duration("timeout", 180*time.Second, "per-tx timeout")
@@ -92,6 +94,12 @@ func checkSwapWmin() error {
 		return fmt.Errorf("-swap-wmin is %d; swap.bas takes 1 to 1000000", *swapWmin)
 	}
 	return nil
+}
+
+// rateArgs is rate.bas InitializePrivate's arguments: the treasury every vote fee goes to and the fee, both fixed for the
+// contract's life (TestRateArgsAreTheContracts holds the two in step).
+func rateArgs(treasury string) []rpc.Arg {
+	return []rpc.Arg{rpc.S("treasury", treasury), rpc.U("fee", *rateFee)}
 }
 
 // checkHtlcWindows refuses, before anything is installed, htlc.bas install arguments its Initialize would refuse
@@ -240,6 +248,10 @@ func main() {
 		*chat, _, _ = c.Send(*w0, owner, read(filepath.Join(*contracts, "chat.bas")), "", nil, []rpc.Arg{
 			rpc.S("treasury", treasury), rpc.U("fee", *chatFee), rpc.U("maxlen", *chatMax)})
 	}
+	if *rateF == "" {
+		fmt.Println("installing rate.bas")
+		*rateF, _, _ = c.Send(*w0, owner, read(filepath.Join(*contracts, "rate.bas")), "", nil, rateArgs(treasury))
+	}
 	// The swap contracts hold no role: Initialize sets their counters, swap.bas's its fixed minimum width and htlc.bas's
 	// its two minimum widths and its Punish window. The install's signer is recorded nowhere in their storage. One
 	// instance per network serves every swap (GAP-002).
@@ -257,8 +269,8 @@ func main() {
 	if *migrate != "" && *migrate != *factory {
 		migrateRegistry(c, owner, *migrate, *factory)
 	}
-	fmt.Printf("factory  %s\nsocial   %s\nfounders %s\nchat     %s\nhtlc     %s\nswap     %s\nboard    %s\n",
-		*factory, *social, *founders, *chat, *htlcF, *swapF, *boardF)
+	fmt.Printf("factory  %s\nsocial   %s\nfounders %s\nchat     %s\nhtlc     %s\nswap     %s\nboard    %s\nrate     %s\n",
+		*factory, *social, *founders, *chat, *htlcF, *swapF, *boardF, *rateF)
 
 	rpc.Must(os.MkdirAll(filepath.Join(*app, "templates"), 0o755))
 	hashes := map[string]string{}
@@ -269,6 +281,9 @@ func main() {
 		rpc.Must(os.WriteFile(filepath.Join(*app, "templates", k+".bas"), []byte(code), 0o644))
 		hashes[k] = sha(code)
 	}
+	// app/sentiment.js reads and votes only once the node's rate.bas hashes to this file. It is not a market template, so
+	// it has no entry under config.js templates: the id it checks is config.js `rate`.
+	rpc.Must(os.WriteFile(filepath.Join(*app, "templates", "rate.bas"), []byte(read(filepath.Join(*contracts, "rate.bas"))), 0o644))
 	for k, hs := range rev {
 		for h := range hs {
 			if hashes[k] == h {
@@ -387,6 +402,7 @@ func record(hashes map[string]string, old, rev map[string]map[string]bool, treas
 	}
 	n.Daemon, n.Factory, n.Social, n.Founders, n.Chat = *daemon, *factory, *social, *founders, *chat
 	n.Htlc, n.Swap, n.Board = *htlcF, *swapF, *boardF
+	n.Rate = *rateF
 	n.FeeBps, n.PfeeBps, n.LaunchPfeeBps = 50, 5000, 5000
 	// GAP-005: the treasury set config.js ships, current first, in the spelling a contract writes. A market keeps
 	// the treasury it was installed with, so an earlier one stays in the set the way a legacy template hash does.

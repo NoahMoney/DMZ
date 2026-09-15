@@ -192,6 +192,39 @@ Keys: `kind v treasury fee maxlen n`, and per room `rn_<room>`, its message coun
 The DMZ app names a market's room `#` plus the first 12 characters of its contract id (`app/chat.js:23`) and opens on
 the room `#dmz`. Tested in `tests/chat_test.go`.
 
+## rate.bas — community sentiment
+
+`InitializePrivate(treasury S, fee U)`: the address every vote fee goes to and the exact fee a vote pays (0 is allowed),
+both fixed at install; the install refuses DERO attached. `Vote(target H, v U)` needs ring size 2, since the voter is
+the signer, and public. `target` is the 32-byte id of what is voted on, a market's contract id, keyed as `HEX(target)`
+so one market has one spelling; `v` is 1 Bullish, 2 Suspicious / Scam, 0 withdraw.
+
+- **One standing vote per (signer, target)**, at `x_<t>_<addr>`, the voter as its `dero1…` string. It can be changed at
+  any time: the old vote's counter goes down before the new one's goes up, so `b_<t>` + `s_<t>` is always the number of
+  standing votes, and every update is O(1) (`TestRateCountersAreTheStandingVotes`: a seeded run of 1,500 calls against
+  a Go model, every counter and every vote compared after each call).
+- **The fee.** A vote (1 or 2) carries exactly `fee` DERO, forwarded to the treasury in the same call, so the contract
+  keeps none. A withdrawal carries nothing and deletes the voter's key. A call that would change nothing, the same vote
+  again or a withdrawal with no vote standing, is refused, and at ring size 2 refunded.
+- **Nobody can change or remove another's vote.** A caller's key is built from its own `SIGNER()`. There is no owner, no
+  moderator and no setter (`TestRateRefusals`).
+- **It counts addresses, not people.** Anyone can vote from many addresses, each paying the fee. Like `chat.bas`, it
+  cannot see an asset attached, which is then kept.
+
+Keys: `kind v treasury fee n initd`, and per target `b_<t>`, `s_<t>` and `x_<t>_<addr>`; `n` counts every accepted
+`Vote`. **What a client must do** (the DMZ app does it in `app/sentiment.js`):
+- read `b_<t>` and `s_<t>`, and its own `x_<t>_<addr>`, by exact key; nothing needs a scan;
+- trust the contract only when its code hashes to the shipped `app/templates/rate.bas`;
+- present the result as community sentiment, never as DMZ's verdict: the counts always, percentages only from 5 votes,
+  both sides in neutral inks, and the sentence "Anyone can vote, including from many addresses."
+
+**Canonical sha256:** `7dceb0c2e300d74a3fc7fb7955b18b89069892c8d3b9a3b52971480b27128c3c` (`reference.Canon`, 1,388
+installed bytes of 2,949; pinned by `TestRateCanonicalHash`). Install storage gas 1,545 at fee 0 and 1,548 at fee
+10,000, compute gas 243,200. Per call (`TestRateGas`), compute and storage gas: a first vote on a target 408,600 and
+132; a vote on a target that has one 419,400 and 133, the same compute for the 200th voter; a change of mind 477,600 and
+139; a withdrawal 316,600 and 127. The fee `simdeploy` installs is 10,000 (0.1 DERO, `-rate-fee`), the price of a chat
+message. Tested in `tests/rate_test.go`; the display rule in `tests/js/sentiment.test.mjs`.
+
 ## nft.bas — holder NFT collection (ART-NFA headers)
 
 `InitializePrivate(name, descr, icon, file, tags, collection, token H, minhold U, holdblocks U, maxsupply U, price U, treasury S, fee U)`.

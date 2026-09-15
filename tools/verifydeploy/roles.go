@@ -212,6 +212,19 @@ var roleTable = []kindSpec{
 		},
 	},
 	{
+		Kind:  "rate",
+		About: "no owner, no moderator: a vote is written only by its own voter's SIGNER(), and nothing can remove another's",
+		Roles: []roleSpec{
+			payeeRole("treasury", "treasury", []string{"InitializePrivate"},
+				[]cite{c("rate.bas", 22, `STORE("treasury", t)`), c("rate.bas", 67, `SEND_DERO_TO_ADDRESS(LOAD("treasury"), LOAD("fee"))`)},
+				"receives each vote's fee (Vote, line 51); cannot act; fixed for ever"),
+			fixedRole("fee", []string{"fee"}, []string{"InitializePrivate"},
+				[]cite{c("rate.bas", 23, `STORE("fee", fee)`), c("rate.bas", 59, `IF DEROVALUE() != LOAD("fee")`)},
+				"written only at install"),
+			initGuard("rate.bas", 16, guardText, 25, `STORE("initd", 1)`, "InitializePrivate"),
+		},
+	},
+	{
 		// founders.bas v2 (per-asset pools, 2026-09-13). No owner: nothing reads the creator, the treasury only
 		// receives Mint proceeds, and every number is written by InitializePrivate alone. Each row reads its value
 		// from the contract's storage. v1's minhst floor is gone, and no row looks for it.

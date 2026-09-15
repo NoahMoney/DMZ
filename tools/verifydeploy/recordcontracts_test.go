@@ -37,8 +37,8 @@ func TestRecordContractsCoverTheRecord(t *testing.T) {
 
 // The ids themselves must come from the record, not be fixed.
 func TestRecordContractsReadTheRecord(t *testing.T) {
-	n := &netcfg.Network{Factory: "f", Social: "s", Founders: "o", Chat: "c", Htlc: "h", Swap: "w", Board: "b"}
-	want := map[string]string{"factory": "f", "social": "s", "founders": "o", "chat": "c", "htlc": "h", "swap": "w", "board": "b"}
+	n := &netcfg.Network{Factory: "f", Social: "s", Founders: "o", Chat: "c", Htlc: "h", Swap: "w", Board: "b", Rate: "r"}
+	want := map[string]string{"factory": "f", "social": "s", "founders": "o", "chat": "c", "htlc": "h", "swap": "w", "board": "b", "rate": "r"}
 	got := recordContracts(n)
 	if len(got) != len(want) {
 		t.Fatalf("recordContracts lists %d contracts, want %d", len(got), len(want))
