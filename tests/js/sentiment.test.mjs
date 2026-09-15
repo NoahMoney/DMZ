@@ -114,5 +114,6 @@ test("the words: many addresses, a count and not a verdict, no warning colour", 
   assert.doesNotMatch(SRC, /SCAM/);
   const css = readFileSync(join(ROOT, "app", "parts.css"), "utf8"), i = css.indexOf("/* ==== sentiment ==== */");
   assert.ok(i >= 0, "parts.css has the sentiment section");
-  assert.doesNotMatch(css.slice(i).replace(/\/\*[\s\S]*?\*\//g, ""), /--down|--warn|errbox/, "the sentiment section uses no warning ink");
+  const j = css.indexOf("/* ==== ", i + 1), block = css.slice(i, j < 0 ? css.length : j);
+  assert.doesNotMatch(block.replace(/\/\*[\s\S]*?\*\//g, ""), /--down|--warn|errbox/, "the sentiment section uses no warning ink");
 });
