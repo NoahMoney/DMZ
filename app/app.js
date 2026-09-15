@@ -109,8 +109,8 @@
   app.scheduleRefresh = (ms) => { clearTimeout(timer); timer = setTimeout(() => app.refresh(), ms); };
   app.refresh = async (full) => {
     clearTimeout(timer);
-    try { D.height = L.height || D.height; await D.refresh(full); } catch (e) { console.warn("refresh", e); }
-    timer = setTimeout(() => app.refresh(), document.hidden ? 120000 : 45000); // safety net; blocks drive the real cadence
+    try { await D.refresh(full); } catch (e) { console.warn("refresh", e); }
+    const w = D.retryAt - Date.now(); timer = setTimeout(() => app.refresh(), w > 0 ? w : document.hidden ? 120000 : 45000);
   };
   L.onBlock(() => { if (!document.hidden) app.scheduleRefresh(200); });
 

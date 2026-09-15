@@ -111,37 +111,70 @@
       s.decUnknown = !s.assetVerified && !bv;
       return s;
     },
+    // decorate(changed): changed maps every id the refresh read again (or dropped) to the record it replaced (null
+    // when new); without it every record is decorated, as on a first or full load. Names and marks are redone for
+    // what changed and what hangs on it: the ticker and pair groups only when a member joined, left or was renamed,
+    // and a split pair's depth order when one of its members moved. The metrics (enrich) are redone for what
+    // changed and for any market whose sliding windows have since crossed one of its own points (until): an
+    // unchanged market's 24h figures are recomputed exactly when they would come out different.
     decorate() {
-      for (const s of this.assets.values()) this.nameBase(s);
+      const changed = arguments[0], A = this.assets, all = !changed, touched = new Set(); // decorate(changed); tests find it as "decorate() {"
+      for (const s of A.values()) if (all || changed.has(s.scid) || (s.kind === "pool" && changed.has(s.asset))) touched.add(s);
+      for (const s of touched) this.nameBase(s);
       // Name the quote so a market can be read as a pair. A wrapped quote is named by its vault record; anything
       // else is shown by its contract id rather than guessed at.
-      for (const s of this.assets.values()) this.nameQuote(s);
-      // impersonation: markets whose tickers read alike (look-alikes folded) are all marked, so the copy never looks safer than the original
-      const groups = new Map();
-      for (const s of this.assets.values()) { if (s.kind === "nft" || (s.kind === "pool" && s.assetVerified)) continue; const k = V.ui.tickerKey(s.ticker); s.lookalike = V.ui.hasHomoglyph(s.ticker); s.impersonates = this.impersonation(s); (groups.get(k) || groups.set(k, []).get(k)).push(s); }
-      for (const g of groups.values()) for (const s of g) s.dupTicker = g.length > 1;
-      // Two genuine pools of one wrapped asset share its ticker because they trade the same thing. That is a
-      // split pair, which markets.js already reports far more usefully, and calling it a shared ticker put a
-      // warning on the real asset while a copy of it carried none — the guard pointing the wrong way.
-      for (const g of groups.values()) if (g.length > 1 && g.every((s) => s.wrappedBase)) for (const s of g) s.dupTicker = false;
+      for (const s of touched) this.nameQuote(s);
+      const key = (s) => [s.kind, s.ticker, s.name, s.assetVerified, this.pairKey(s)].join("\n"), mkt = (p) => p && (p.kind === "pool" || p.kind === "launch");
+      if (all || [...changed].some(([id, p]) => (mkt(p) || A.has(id)) && (!p || !A.has(id) || key(p) !== key(A.get(id))))) {
+        // impersonation: markets whose tickers read alike (look-alikes folded) are all marked, so the copy never looks safer than the original
+        const groups = new Map();
+        for (const s of A.values()) { if (s.kind === "nft" || (s.kind === "pool" && s.assetVerified)) continue; const k = V.ui.tickerKey(s.ticker); s.lookalike = V.ui.hasHomoglyph(s.ticker); s.impersonates = this.impersonation(s); (groups.get(k) || groups.set(k, []).get(k)).push(s); }
+        for (const g of groups.values()) for (const s of g) s.dupTicker = g.length > 1;
+        // Two genuine pools of one wrapped asset share its ticker because they trade the same thing. That is a
+        // split pair, which markets.js already reports far more usefully, and calling it a shared ticker put a
+        // warning on the real asset while a copy of it carried none — the guard pointing the wrong way.
+        for (const g of groups.values()) if (g.length > 1 && g.every((s) => s.wrappedBase)) for (const s of g) s.dupTicker = false;
+        for (const s of A.values()) if (s.kind === "pool" && s.assetVerified) { const l = A.get(s.asset); if (!l) continue; s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; s.impersonates = l.impersonates || null; } // a launch and its own pool share a ticker by design
+        // split pairs: ids, deepest first, on every member (ids rather than objects, so a cached record has no cycle)
+        const byPair = new Map();
+        for (const s of A.values()) { s.splitWith = null; s.splitDeepest = false; if (s.kind === "nft") continue; const k = this.pairKey(s); if (k) (byPair.get(k) || byPair.set(k, []).get(k)).push(s); }
+        for (const g of byPair.values()) if (g.length > 1) this.splitOrder(g);
+      } else {
+        // nothing joined, left or was renamed: every mark a re-read record carries is its predecessor's
+        const seen = new Set();
+        for (const s of touched) { const p = changed.get(s.scid); if (p) for (const k of ["dupTicker", "lookalike", "impersonates", "splitWith", "splitDeepest"]) s[k] = p[k]; }
+        for (const s of touched) if (s.splitWith && !seen.has(s.splitWith.join())) { seen.add(s.splitWith.join()); this.splitOrder(s.splitWith.map((id) => A.get(id)).filter(Boolean)); }
+      }
       // An NFA's name is the whole of what it sells, and the fold above runs over this.assets, which never holds
       // one. So an NFA calling itself wXMR — the cheapest name to steal here — wore the plain Verified shield
       // while a pool with that name was caught by this same code. Same three marks, same helpers, over nfas.
-      const ng = new Map();
-      for (const s of this.nfas.values()) { s.lookalike = V.ui.hasHomoglyph(s.name); s.impersonates = this.impersonation({ ticker: s.name, name: s.name, scid: s.scid }); const k = V.ui.tickerKey(s.name); (ng.get(k) || ng.set(k, []).get(k)).push(s); }
-      for (const g of ng.values()) for (const s of g) s.dupTicker = g.length > 1;
-      for (const s of this.assets.values()) if (s.kind === "pool" && s.assetVerified) { const l = this.assets.get(s.asset); if (!l) continue; s.dupTicker = !!l.dupTicker; s.lookalike = !!l.lookalike; s.impersonates = l.impersonates || null; } // a launch and its own pool share a ticker by design
-      // split pairs: ids, deepest first, on every member (ids rather than objects, so a cached record has no cycle)
-      const byPair = new Map();
-      for (const s of this.assets.values()) { s.splitWith = null; s.splitDeepest = false; if (s.kind === "nft") continue; const k = this.pairKey(s); if (k) (byPair.get(k) || byPair.set(k, []).get(k)).push(s); }
-      for (const g of byPair.values()) {
-        if (g.length < 2) continue;
-        g.sort((x, y) => (this.depth(y) > this.depth(x) ? 1 : this.depth(y) < this.depth(x) ? -1 : 0));
-        const ids = g.map((x) => x.scid);
-        for (const s of g) { s.splitWith = ids; s.splitDeepest = g[0] === s; }
+      if (all || [...changed].some(([id, p]) => (p && p.kind === "nfa") || this.nfas.has(id))) {
+        const ng = new Map();
+        for (const s of this.nfas.values()) { s.lookalike = V.ui.hasHomoglyph(s.name); s.impersonates = this.impersonation({ ticker: s.name, name: s.name, scid: s.scid }); const k = V.ui.tickerKey(s.name); (ng.get(k) || ng.set(k, []).get(k)).push(s); }
+        for (const g of ng.values()) for (const s of g) s.dupTicker = g.length > 1;
       }
-      for (const s of this.assets.values()) S.enrich(s, this.height);
-      for (const n of this.nfts.values()) { const t = this.assets.get(n.token); n.tokenTicker = t ? t.ticker : V.shortAddr(n.token); n.tokenDec = t ? t.dec : 5n; n.tokenDecUnknown = !t; }
+      const t = S.now();
+      for (const s of A.values()) {
+        if (all || touched.has(s) || !s.m || t >= (s.until || 0)) { S.enrich(s, this.height); s.until = this.until(s, t); }
+        // the two figures that move with the height alone, as stats.js enrich computes them
+        else { s.m.age = s.installHeight && this.height ? Math.max(0, this.height - s.installHeight) : null; s.m.isNew = s.m.age !== null && s.m.age < 400; }
+      }
+      for (const n of this.nfts.values()) { const tk = A.get(n.token); n.tokenTicker = tk ? tk.ticker : V.shortAddr(n.token); n.tokenDec = tk ? tk.dec : 5n; n.tokenDecUnknown = !tk; }
+    },
+    splitOrder(g) {
+      g.sort((x, y) => (this.depth(y) > this.depth(x) ? 1 : this.depth(y) < this.depth(x) ? -1 : 0));
+      const ids = g.map((x) => x.scid);
+      for (const s of g) { s.splitWith = ids; s.splitDeepest = g[0] === s; }
+    },
+    // The next second at which one of enrich's windows (5m, 1h, 6h, 24h over the points; 1h, 24h over the trades)
+    // lets go of a point or trade it holds at t. Until then, for a record that has not changed, enrich would
+    // return exactly what it returned at t. An hour at most, as a floor under anything this reasoning missed.
+    until(s, t) {
+      const lb = (a, x) => { let lo = 0, hi = a.length; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m].ts < x) lo = m + 1; else hi = m; } return lo; };
+      const P = s.points || [], T = s.trades || []; let u = t + 3600;
+      for (const w of [300, 3600, 21600, 86400]) { const i = lb(P, t - w); if (i < P.length) u = Math.min(u, P[i].ts + w); }
+      for (const w of [3600, 86400]) { const i = lb(T, t - w); if (i < T.length) u = Math.min(u, T[i].ts + w); }
+      return u;
     },
   });
 })();

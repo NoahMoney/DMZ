@@ -437,3 +437,6 @@ html[data-pointer=touch] .mlist.compact .mrow{min-height:40px}
 /* touch targets and focus: every control on these screens is at least 40 px tall, and a link shows focus as a button does */
 .swp .btn,.swp button,.swp details.more summary,.swp select,.swp input{min-height:40px}
 .swp a:focus-visible,.swp summary:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+/* ==== perf-scale ==== */
+/* "updated N blocks ago" beside values read before the latest block (feed.js ageTag, live.js readTag) */
+.readage{margin-left:6px;font-size:11px;font-weight:500;color:var(--warn);white-space:nowrap}

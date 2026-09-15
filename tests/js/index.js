@@ -24,3 +24,5 @@ import("./discovery.test.mjs");
 import "./merge.regress.test.mjs";
 // the Deposit & withdraw guide and its tracker of vault deposits and withdrawals, and the failure words
 import("./move.test.mjs");
+// the data layer at scale: refresh planner, backoff, localStorage LRU, incremental registry and decorate
+import("./perfscale.test.mjs");
