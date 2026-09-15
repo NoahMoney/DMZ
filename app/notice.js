@@ -35,6 +35,13 @@
   // On mainnet the TELA INDEX is installed at ring size 16 (MAINNET_DEPLOYMENT.md): its owner is "anon" and no key can
   // update it, which verifydeploy checks on chain. A development build may be served from an INDEX someone can update.
   const fixedApp = () => D.cfg.network === "mainnet";
+  // a build that names a promotion contract (config.js promo): its winning bids are proceeds, paid only to the treasury
+  const promo = () => /^[0-9a-f]{64}$/.test(String(D.cfg.promo || ""));
+  // what the treasury receives, from what this build names: promotion proceeds only with a promotion contract, and a
+  // vault's fees and slashed bonds only with a vault
+  const receipts = () => { const a = ["the trade fees anyone may claim from a market (they pay only the treasury)", "registration and chat fees", "the rate contract's vote fees", "the protocol fee on NFA sales",
+    ...(promo() ? ["promotion proceeds (the winning bids, in the auction's asset, claimable by anyone and paid only to the treasury)"] : []), "pass mints",
+    ...(noWrap() ? [] : ["from each vault its index registration and withdrawal fees and slashed signer bonds"])]; return a.slice(0, -1).join(", ") + ", and " + a[a.length - 1]; };
 
   // Kept close to the words that were written, corrected where the contracts do not deliver them. Each entry is
   // one paragraph; an array is a paragraph whose parts carry emphasis, because a few of these are load-bearing
@@ -51,7 +58,9 @@
         ["b", "A vault is custody:"], " " + kn() + " named signers of " + (one() ? "the vault" : "each vault") + " can move its whole reserve, and the vault contract cannot. You trust them with the coins for as long as you hold the wrapped asset."],
     "The registered Founders Passes receive " + (share() ? share() + " of the trading fees the treasury claims from DMZ markets," : "a share of the trading fees the treasury claims from DMZ markets, as stored in the pass contract,") +
       " each in the asset the fee was taken in, never converted to DERO: " + assets() + ". The treasury's bot deposits them into the pass contract, where each registered pass claims its part. " +
-      "The bot makes every deposit, and no contract forces it. A deposit is shared by the passes registered when it is made. " +
+      "The bot makes every deposit, and no contract forces it. " +
+      (promo() ? "The treasury also receives promotion proceeds, the winning bids of the promotion auction; the bot deposits the pass share of them in the auction's own asset, and no contract forces that either. " : "") +
+      "A deposit is shared by the passes registered when it is made. " +
       "While no pass is registered nothing is deposited: the bot holds those fees and pays them in the first deposit after a pass registers.",
     ["Code is law. ", ["b", "The contracts are final."], " None of them has an update path. " +
       (fixedApp() ? "Nor has the app you read them through: its TELA INDEX was installed with no owner, so a new version would be a new INDEX, found separately; "
@@ -111,9 +120,7 @@
         h("h3", { class: "mt" }, "Who still holds a key"),
         h("div", { class: "stack mt8" },
           factoryKey(),
-          key("The treasury", "Receives every protocol fee: the trade fees anyone may claim from a market (they pay only the treasury), registration and chat fees, the rate contract's vote fees, " +
-            "the protocol fee on NFA sales" + (noWrap() ? " and pass mints" : ", pass mints, and from each vault its index registration and withdrawal fees and slashed signer bonds") + ". " +
-            "It runs the bot that deposits the pass share, and nothing in a contract makes it."),
+          key("The treasury", "Receives every protocol fee: " + receipts() + ". It runs the bot that deposits the pass share, and nothing in a contract makes it."),
           fixedApp()
             ? key("The app publisher", "None. On mainnet the TELA INDEX that serves these files is installed at ring size 16, so its owner is recorded as \"anon\" " +
               "and no key can update it; tools/verifydeploy checks that on chain. A new version would be a new INDEX with its own id. Settings shows the commit you are running.")

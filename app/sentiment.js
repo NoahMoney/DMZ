@@ -17,7 +17,6 @@
   const V = window.Veil, D = V.data, B = BigInt;
   const N = 5, HEX64 = /^[0-9a-f]{64}$/, isNum = (x) => typeof x === "string" && /^\d{1,20}$/.test(x);
   const BULL = "Bullish", SUS = "Suspicious / Scam", MANY = "Anyone can vote, including from many addresses.";
-  const MAX_GAS = 5000n; // 0.05 DERO: a vote's storage gas is a few hundred units; an estimate above this is refused
 
   // ---- the display rule ----
   // Counts always. Percentages only from N votes, rounded to add up to 100; a side with any vote never reads 0% (it
@@ -71,49 +70,14 @@
   };
 
   // ---- the vote ----
-  // Vote(target H, v U): 1 bullish, 2 suspicious, 0 clear. The same gates as app.tx — the network gate, the code
-  // check, a bounded network fee, no second transaction while the wallet owes an answer — and then the voter's own
-  // key read back, because inclusion in a block is not execution.
-  let busy = false;
+  // Vote(target H, v U): 1 bullish, 2 suspicious, 0 clear, sent through V.app.tx and its gates: the network gate, the
+  // allowlist (app/allow.js: this contract, for Vote, once its code matches templates/rate.bas), a bounded network fee,
+  // one transaction at a time. The voter's own standing vote is read back, because inclusion is not execution.
   const send = async (t, v) => {
-    const W = V.wallet, U = V.ui, app = V.app, A = V.amm, toast = U.toast;
-    const say = (m, k, ms) => { toast(m, k || "", ms || 7000); return false; };
-    if (busy) return say("A vote is already on its way", "err");
-    if (!W.connected) { await app.connectWallet(); if (!W.connected) return false; }
-    const why = await app.netGate();
-    if (why) return say(why, "err", 10000);
-    if (!(await load())) return say("Refusing: this network's sentiment contract could not be checked against the code this build ships. Nothing was sent.", "err", 9000);
-    if (W.unanswered && W.unanswered.size) return say("A transaction is still waiting for the wallet's answer: check the wallet before sending another", "err", 8000);
-    busy = true;
-    try {
-      const fee = v ? S.fee : 0n, transfers = [];
-      if (fee > 0n) {
-        const dst = await V.node.randomAddress();
-        if (!V.isAddress(dst)) return say("Refusing: the node returned an invalid burn destination", "err");
-        transfers.push({ destination: dst, amount: 0, burn: fee });
-      }
-      const sc = [{ name: "entrypoint", datatype: "S", value: "Vote" }, { name: "target", datatype: "H", value: t }, { name: "v", datatype: "U", value: B(v) }];
-      let gs = null;
-      try {
-        const est = await V.node.gasEstimate({ transfers, sc_rpc: [...sc, { name: "SC_ACTION", datatype: "U", value: 0 }, { name: "SC_ID", datatype: "H", value: S.verified }], ringsize: 2, signer: W.address, scid: S.verified });
-        if (/^\d+$/.test(String(est && est.gasstorage))) gs = B(est.gasstorage) + 200n;
-      } catch (e) { return say("The vote would fail: " + U.clean(String((e && e.message) || e), 140), "err"); }
-      if (gs === null || gs > MAX_GAS) return say("Refusing: the node estimated a network fee of " + (gs === null ? "?" : A.fmtUnits(gs, 5n, 5)) + " DERO for one vote", "err", 8000);
-      let r;
-      try {
-        toast("Confirm in your wallet… " + (fee > 0n ? A.fmtUnits(fee, 5n, 5) + " DERO to the treasury and " : "") + "a network fee of " + A.fmtUnits(gs, 5n, 5) + " DERO", "", 5000);
-        r = await W.transfer({ transfers, sc_rpc: sc, ringsize: 2, fees: Number(gs), scid: S.verified });
-      } catch (e) { return say(W.isDenied(e) ? "Cancelled in wallet" : "Wallet: " + U.clean(String((e && e.message) || e), 140), "err", 6000); }
-      const txid = r && r.txid;
-      if (typeof txid !== "string" || !HEX64.test(txid)) return say("Wallet returned an unexpected transaction id", "err", 8000);
-      toast("Vote sent · " + V.shortAddr(txid), "ok");
-      const w = await app.waitTx(txid, false);
-      if (w.state !== "included") return say("The vote is not in a block after 4.5 minutes: check the wallet history before sending it again", "err", 9000);
-      const d = await S.of(t);
-      if (!d || d.mine !== v) return say("The vote was included in block " + w.height + " but your standing vote did not change: only the network fee was spent", "err", 9000);
-      toast(v ? "Vote recorded: " + (v === 1 ? BULL : SUS) : "Vote cleared", "ok");
-      return true;
-    } finally { busy = false; }
+    if (!(await load())) { V.ui.toast("Refusing: this network's sentiment contract could not be checked against the code this build ships. Nothing was sent.", "err", 9000); return false; }
+    const fee = v ? S.fee || 0n : 0n;
+    return !!(await V.app.tx({ scid: S.verified, entry: "Vote", args: [["target", "H", t], ["v", "U", B(v)]], dero: fee, describe: v ? "Vote " + (v === 1 ? BULL : SUS) : "Clear your vote",
+      probe: { scid: S.verified, keys: ["b_" + t, "s_" + t], check: async () => { const d = await S.of(t); return !!d && d.mine === v; } } }));
   };
 
   // ---- the widget ----

@@ -65,7 +65,9 @@ export default async function swaps({ browser, url, out, step, fail, sleep, main
         await targets("#move/xmr (tracker)");
         await p.evaluate(() => { window.Veil.wallet.canon = null; });
       }
-      await go("#wrap", 3500); await shot("wrap"); t = await txt(); step("ui-swaps " + width + "px #wrap: " + t.slice(0, 160));
+      // the screen, not a fixed wait: with thousands of listed markets the first page's registry read can outlast 3.5 s
+      await go("#wrap", 1500); await p.waitForFunction(() => /Limits and fees|could not be/i.test(document.getElementById("screen").innerText), null, { timeout: 45000 }).catch(() => {});
+      await shot("wrap"); t = await txt(); step("ui-swaps " + width + "px #wrap: " + t.slice(0, 160));
       // the card's label and the hero's eyebrow are set in capitals by CSS, and innerText follows it: match any case
       for (const want of [/Limits and fees/i, /Why there is a cap/, /Step-by-step guide/, /Custodial vault/i]) if (!want.test(t)) fail("#wrap does not say " + want);
       await targets("#wrap");

@@ -430,9 +430,13 @@ try {
     await page.locator("#sheet input[name=supply]").fill("1000000"); // 1e6 tokens × 10^3 = 1e9 units: wallet-friendly
     await page.locator("#sheet input[name=dec]").fill("3");
     await page.locator("#sheet input[name=grad]").fill("10"); // graduation DERO (min)
+    // where the tax goes (Stakers, by its words) BEFORE the rate: a rate typed with no destination shows its error when the
+    // field loses focus, and that line moves the row under the pointer between press and release, so the click never took
+    await page.evaluate(() => document.activeElement && document.activeElement.blur()); await sleep(200);
+    const stakers = page.locator("#sheet .seg button", { hasText: /^Stakers$/ });
+    await stakers.evaluate((b) => b.scrollIntoView({ block: "center" })); await sleep(200); await stakers.click();
+    if ((await stakers.getAttribute("aria-checked")) !== "true") fail("the Stakers tax mode did not take in the Configure step");
     await page.locator("#sheet input[name=tax]").fill("2");   // tax %
-    // stakers, by its words: in the Configure step the row sits under the sheet's sticky actions, and a click by index did not land
-    await page.locator("#sheet .seg button", { hasText: /^Stakers$/ }).click();
     await shot("11-launch-form");
     await (await import("./ui-launch.mjs")).hook(page); // the creation flow: Configure → Review here; the click below is "Pay and launch"
     await page.locator("#sheet button.primary").click();

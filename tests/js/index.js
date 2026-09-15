@@ -12,6 +12,8 @@ import("./fees.repair.test.mjs");
 import("./nfas.repair.test.mjs");
 // the stage tracker's reading of a program's status (tools/*/statusv1_test.go)
 import("./track.test.mjs");
+// the one allowlist V.app.tx checks (app/allow.js), and that no screen keeps a send path of its own (Y1-10)
+import("./allow.test.mjs");
 // community sentiment: the display rule and the fail-closed reads (app/sentiment.js)
 import("./sentiment.test.mjs");
 import("./market.test.mjs"); // the market page: price formatter, candle intervals, chart extremes (ui-market)

@@ -257,8 +257,8 @@
         h("div", { style: "aspect-ratio:1;display:grid;place-items:center" }, avatar(s, "big")),
         h("div", { style: "padding:10px;text-align:left" }, h("b", { class: "ellipsis", style: "display:block" }, s.name), h("div", { class: "mono dim2 ellipsis", style: "margin-top:5px" }, line(s)))); };
     const create = typeof (V.forms && V.forms.nfa) === "function" ? button("Create", "small", () => V.forms.nfa()) : null;
-    // a build with no vault can price an asset in DERO only, and says so rather than naming XMR and ZEC
-    const quotes = D.allVaults().length ? ["XMR, ZEC or DERO", "XMR or ZEC"] : ["DERO", "DERO"];
+    // the wrapped units of the vaults this build names (1:1 claims, not the coins), or DERO alone on a build with none
+    const wq = D.vaults().map((v) => "w" + U.clean(v.sym || "", 8)), quotes = wq.length ? [wq.join(", ") + " (wrapped 1:1) or DERO", wq.join(" or ")] : ["DERO", "DERO"];
     return [U.sectionHead("gem", "NFAs", "Assets priced in " + quotes[0] + ", each with its sale or auction inside its own contract", all.length ? create : null),
       all.length ? keys.map((k) => [keys.length > 1 || k ? h("div", { class: "label mt" }, k || "No collection") : null, h("div", { class: "mt8", style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:1px" }, groups.get(k).map(tile))])
         : D.lastRefresh ? U.emptyState("gem", "No assets yet", "List an asset priced in " + quotes[1] + ": one contract per asset, its sale or auction inside it, and every payment in the quote you choose. Anyone can create one.", create)

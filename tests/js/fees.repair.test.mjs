@@ -74,12 +74,12 @@ test("the pass screen offers no payout address: only Clear, for an address store
 
 // ---- app/notice.js, rendered for a build with the vault and for one with none (the mainnet test's) ----------------
 
-function renderNotice({ vaults, network, share = 10000n, vault = { k: 2n, na: 3n } }) {
+function renderNotice({ vaults, network, share = 10000n, vault = { k: 2n, na: 3n }, promo = null }) {
   const handlers = {}, el = {};
   const flat = (x) => (Array.isArray(x) ? x.map(flat).join(" ") : x === null || x === undefined || x === false ? "" : String(x));
   const U = { h: (_t, _a, ...kids) => flat(kids), render: (e, ...n) => { e.out = flat(n).replace(/\s+/g, " "); }, router: { on: (n, f) => { handlers[n] = f; }, current: null },
     kv: (k, v) => k + ": " + v, clean: (s, n) => String(s || "").slice(0, n) };
-  const V = { ui: U, shortAddr: (a) => a, data: { cfg: { network }, vaults: () => vaults, allVaults: () => vaults, vault: vaults.length ? vault : null,
+  const V = { ui: U, shortAddr: (a) => a, data: { cfg: { network, promo }, vaults: () => vaults, allVaults: () => vaults, vault: vaults.length ? vault : null,
     founders: share === null ? null : { share }, registry: null, onChange() {} } };
   new Function("window", app("notice.js"))({ Veil: V });
   handlers.notice(el);
@@ -110,7 +110,7 @@ test("notice.js on a build with no vault: nothing comes in or goes out, and no f
   const { text, N } = renderNotice({ vaults: [], network: "mainnet" });
   assert.equal(N.NODEP, NODEP);
   for (const want of [/There are no atomic swaps on DMZ/, new RegExp(NODEP.replace(/\./g, "\\.")), /Wrapped XMR and ZEC are not offered on this network/,
-    /never converted to DERO: DERO and DERO tokens\./, /no contract forces it/, /the protocol fee on NFA sales and pass mints\. It runs the bot/]) assert.match(text, want);
+    /never converted to DERO: DERO and DERO tokens\./, /no contract forces it/, /the protocol fee on NFA sales, and pass mints\. It runs the bot/]) assert.match(text, want);
   // ui.mjs --mainnet refuses these on the notice
   assert.doesNotMatch(text, /federation holds the|bonded signers hold/);
   assert.doesNotMatch(text, /\bw(XMR|ZEC)\b|withdrawal fees|signer bonds/);
@@ -125,6 +125,20 @@ test("notice.js has no word of the removed swaps' fee or of XMR and ZEC payouts,
     assert.doesNotMatch(text, /0\.5%|swap fee|swap program|by atomic swap|payout|XMR and ZEC are paid|maker of each|refunded swap|trustless/i);
   }
   assert.doesNotMatch(app("notice.js"), /0\.5%|payout|swap fee|trustless/i);
+});
+
+// A build whose config names a promotion contract (contracts/promo.bas) lists its proceeds among what the treasury
+// receives, and says the pass share of them is deposited by the bot in the auction's asset; a build with none (the
+// mainnet test's: simdeploy installs no promo without a vault) says nothing about it.
+test("notice.js names promotion proceeds only on a build whose config names a promotion contract", () => {
+  const P = "9".repeat(64);
+  for (const b of [{ vaults: TWO, network: "simulator", promo: P }, { vaults: [], network: "mainnet", promo: P }]) {
+    const { text } = renderNotice(b);
+    assert.match(text, /the protocol fee on NFA sales, promotion proceeds \(the winning bids, in the auction's asset, claimable by anyone and paid only to the treasury\), (and )?pass mints/);
+    assert.match(text, /The treasury also receives promotion proceeds, the winning bids of the promotion auction; the bot deposits the pass share of them in the auction's own asset, and no contract forces that either\./);
+  }
+  for (const b of [{ vaults: TWO, network: "simulator" }, { vaults: [], network: "mainnet" }, { vaults: [], network: "mainnet", promo: "not an id" }])
+    assert.doesNotMatch(renderNotice(b).text, /promotion|auction/i);
 });
 
 // ---- app/founders.js against a v2 pass ------------------------------------------------------------------

@@ -22,7 +22,7 @@
   const Z = 0n, BLOCK_S = 18, FEE = 1000, MAXK = 10, SLOTK = ["tg_", "bd_", "by_", "ep_", "sq_", "cl_"];
   const NUM = ["slots", "epoch", "minbid", "incbps", "sq", "pr", "fc", "bi", "rf", "sx", "initd"];
   const isNum = (v) => typeof v === "string" && /^\d+$/.test(v), isId = (v) => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
-  let st = null, why = "Reading the promotion contract…", busy = false, loading = null, lastH = -1;
+  let st = null, why = "Reading the promotion contract…", loading = null, lastH = -1;
 
   // ---- the contract's arithmetic, exactly ----
   const bps = (x, f) => (x / 10000n) * f + ((x % 10000n) * f) / 10000n;
@@ -103,32 +103,16 @@
     return { promoted: !!s, slot: s ? s.slot : null, bid: s ? s.bid : null, epoch: c, eligible: eligible(id).ok, next: ni < 0 ? null : { rank: ni, bid: nx[ni].bid, epoch: c + 1n } };
   }
 
-  // ---- sending: app.tx admits only listings it knows, so the promotion contract, verified here, is sent to directly
-  // with the same gates. The fee is fixed: the node's estimator runs a contract at BLOCK_HEIGHT() 0, where Bid's epoch
-  // check refuses (the DVM suite measures Bid at 237 to 329 storage gas, ClaimProceeds at 132 to 219).
+  // ---- sending: through V.app.tx and its gates. app/allow.js admits the build's promotion contract for Bid and
+  // ClaimProceeds once its code matches the shipped template (Y1-10). The fee is fixed: the node's estimator runs a
+  // contract at BLOCK_HEIGHT() 0, where Bid's epoch check refuses (the DVM suite measures Bid at 237 to 329 storage gas,
+  // ClaimProceeds at 132 to 219). done(before, after) reads the contract back: inclusion in a block is not execution.
   async function send(entry, args, pay, what, done) {
-    const W = V.wallet, app = V.app;
-    if (!W.connected) { await app.connectWallet(); if (!W.connected) return null; }
-    { const g = await app.netGate(); if (g) { toast(g, "err", 10000); return null; } }
     if (!st || st.scid !== D.cfg.promo || V.promo.verified !== st.scid) { toast("Refusing: the promotion contract did not verify", "err"); return null; }
-    if (busy || (W.unanswered && W.unanswered.size)) { toast("A transaction is already in progress", "err"); return null; }
-    busy = true;
-    try {
-      const transfers = [];
-      if (pay > Z && st.asset.dero) { const dst = await V.node.randomAddress().catch(() => null); if (!V.isAddress(dst || "")) { toast("No node answers for a burn destination", "err"); return null; } transfers.push({ destination: dst, amount: 0, burn: pay }); }
-      else if (pay > Z) transfers.push({ scid: st.asset.id, amount: 0, burn: pay });
-      const sc_rpc = [{ name: "entrypoint", datatype: "S", value: entry }, ...args.map(([n, t, v]) => ({ name: n, datatype: t, value: t === "U" ? B(v) : v }))];
-      const before = st;
-      toast("Confirm in your wallet… network fee " + A.fmtUnits(B(FEE), 5n, 5) + " DERO", "", 4000);
-      let r; try { r = await W.transfer({ transfers, sc_rpc, ringsize: 2, fees: FEE, scid: st.scid }); } catch (e) { toast(W.isDenied(e) ? "Cancelled in wallet" : "Wallet: " + U.clean(String(e.message), 160), "err", 6000); return null; }
-      const txid = r && r.txid; if (!isId(txid)) { toast("Wallet returned an unexpected transaction id", "err", 8000); return null; }
-      V.app.lastTxid = txid; toast(what + " sent · " + V.shortAddr(txid), "ok");
-      const w = await app.waitTx(txid, false);
-      if (w.state !== "included") { toast(what + (w.state === "timeout" ? " is not in a block after 4.5 minutes: check the wallet before sending again" : " did not execute: only the network fee was spent"), "err", 9000); return null; }
-      await load().catch(() => {}); const ok = !!st && done(before, st);
-      toast(ok ? what + " confirmed" : what + " was included but did not execute: the DVM hands back what you attached, and only the network fee was spent", ok ? "ok" : "err", 9000);
-      D.changed(); return ok ? txid : null;
-    } finally { busy = false; }
+    const before = st, asset = pay > Z && !st.asset.dero ? { scid: st.asset.id, amount: pay } : null;
+    const r = await V.app.tx({ scid: st.scid, entry, args, fee: FEE, describe: what, dero: pay > Z && st.asset.dero ? pay : Z, asset,
+      probe: { scid: st.scid, keys: ["bi", "fc"], check: async () => { await load().catch(() => {}); return !!st && done(before, st); } } });
+    D.changed(); return r;
   }
   const me = () => V.wallet.canon || null;
   const mine = (s, id, c) => s.slots.find((x) => x.by === me() && x.target === id && x.ep === c);

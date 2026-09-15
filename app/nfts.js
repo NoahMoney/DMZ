@@ -1,5 +1,5 @@
 // DMZ nfts.js — the NFTs tab: the Founders Pass (mint, register to earn, per-asset claims, clearing an old address,
-// built-in marketplace, public accounting), then NFAs (app/nfas.js: assets priced in XMR, ZEC or DERO), then the
+// built-in marketplace, public accounting), then NFAs (app/nfas.js: assets priced in wXMR, wZEC or DERO), then the
 // holder-NFT collections. Every number is read from the pass contract; nothing is estimated.
 (function () {
   const V = window.Veil, U = V.ui, A = V.amm, D = V.data, { h, render, avatar, router, button, kv, openSheet, closeSheet, toast } = U;
@@ -155,7 +155,7 @@
       const key = [f ? f.sig : "-", mine ? mine.sig : "-", V.wallet.connected, D.nfts.size, D.nfas.size, V.nfas.key(), V.settings.images, D.lastRefresh > 0].join("|");
       if (key === lastKey) return; lastKey = key;
       render(el, h("h1", { class: "mt" }, "NFTs"),
-        h("div", { class: "sub mb" }, "Assets priced in " + (D.allVaults().length ? "XMR and ZEC" : "DERO") + ", each sold or auctioned by its own contract; the Founders Pass, whose registered passes share the fees the treasury claims, each in the asset it was taken in; and holder NFTs, earned by holding a token."),
+        h("div", { class: "sub mb" }, "Assets priced in " + (D.vaults().length ? D.vaults().map((v) => "w" + U.clean(v.sym || "", 8)).join(", ") + " (wrapped 1:1) or DERO" : "DERO") + ", each sold or auctioned by its own contract; the Founders Pass, whose registered passes share the fees the treasury claims, each in the asset it was taken in; and holder NFTs, earned by holding a token."),
         f ? h("div", { class: "nft-grid" }, h("div", null, passInstrument(f), minePanel(f), marketplace(f)), h("div", null, accounting(f)))
           : h("div", { class: "card mt" }, h("div", { class: "label" }, "Founders Pass"), h("div", { class: "sub mt8" }, D.cfg.founders ? (D.lastRefresh ? "The contract at the configured id did not verify as a Founders Pass v2, so nothing about it is shown." : "Reading the pass contract…") : "No Founders Pass configured for this deployment.")),
         V.nfas.section(), collections());
