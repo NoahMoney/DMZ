@@ -68,7 +68,7 @@
             ", held one for one by a k-of-n federation. Backed, not trustless."),
           v.chain ? h("div", { class: "note tiny", style: "margin-top:5px" }, U.clean(v.chain, 100)) : null,
           h("div", { class: "row tight", style: "margin-top:8px" },
-            button("Deposit / withdraw", "small", () => router.go("wrap", v.scid)))),
+            button("Deposit / withdraw", "small", () => router.go("move", cls.slice(4))))),
         h("div", { style: "text-align:right;flex:none" },
           h("div", { class: vaults.length > 1 ? "display num" : "big num" },
             bal === undefined ? "…" : bal === null ? "—" : mask(fixed(bal, dec, Math.min(dec, 5)))),

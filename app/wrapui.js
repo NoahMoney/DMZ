@@ -78,17 +78,13 @@
       onclick: () => { navigator.clipboard && navigator.clipboard.writeText(value).then(() => toast(copied, "ok")); },
     }, value));
 
-  // ---- no vault: the mainnet shape ----
-  // A build that names no vault offers no wrapped asset. The screen says so first, and why, then how XMR and ZEC
-  // settle instead. It draws no deposit address, no burn form and no empty walkthrough, and nothing to sign.
+  // ---- no vault: the mainnet shape until a vault is installed ----
+  // XMR and ZEC come in and go out only through a vault, so a build that names none has no deposit or withdrawal of
+  // either. The screen says so, and why, and draws no address, no form and nothing to sign.
+  const NODEP = "Deposits and withdrawals of XMR and ZEC are not available on this network.";
   const noVault = () => [
-    h("div", { class: "warnbox" }, h("b", null, V.notice.NOWRAP), h("div", { class: "sub mt8" }, V.notice.NOWRAP_WHY)),
-    h("h3", { class: "mt" }, "How XMR and ZEC settle here instead"),
-    kv("Monero", "atomic swap for a DERO-side asset"), kv("Zcash", "transparent ZEC only, by atomic swap"), kv("Custodian", "none: each chain's own lock"),
-    h("div", { class: "note mt8" }, "This page runs no swap. Each side runs a swap program on its own machine, against its own Monero or Zcash node and its own DERO wallet, " +
-      "and trusts those answers and its own presence at its window: miss the window and the other side's exit opens. Both programs have completed swaps, every exit included, against real " +
-      "Monero and Zcash node software on a local test chain (regtest); neither has yet run on a public test network. Shielded ZEC cannot be swapped here, and a transparent Zcash swap is public: the amount, both addresses and the hash."),
-    D.cfg.board ? button("Open the ZEC swap board", "wide mt8", () => router.go("zswap")) : null,
+    h("div", { class: "warnbox" }, h("b", null, NODEP), h("div", { class: "sub mt8" }, V.notice.NOWRAP + " Wrapped XMR and ZEC are 1:1 claims on real Monero and Zcash held by a federation: " +
+      "named people, any k of whom could move every coin. They exist only where a build names that federation's vault, and this one names none.")),
     h("div", { class: "note mt8" }, "Every market this app creates on this network is priced in DERO. Nothing on this screen asks you to sign."),
   ];
 

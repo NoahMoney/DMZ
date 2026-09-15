@@ -14,7 +14,10 @@
   // vault.bas Reclaim: an unmarked burn may be taken back this many blocks after its release height
   const RECLAIM_AFTER = 20000;
   const V = window.Veil, U = V.ui, A = V.amm, D = V.data, B = BigInt;
-  const { h, render, button, kv, icon, router, toast } = U;
+  const { h, button, kv, icon, router, toast } = U, WK = () => V.wrapkit;
+  // every screen here is drawn inside .swp, whose controls are at least 40 px tall (app/parts.css, ui-swaps). Failures
+  // and the confirmation before a call that moves money are app/wrapkit.js's, the same words as Deposit & withdraw.
+  const render = (el, ...n) => U.render(el, h("div", { class: "swp" }, ...n));
   const me = () => V.wallet.canon;
   const Z = 0n;
   // amounts, network marks, the settlement panel and walkthrough, and the no-vault screen are wrapui.js; the
@@ -36,7 +39,7 @@
     const picked = D.allVaults().some((v) => v.scid === param) ? param : null;
     if (param && !picked) return render(el, title(), h("div", { class: "errbox" }, "This build ships no vault at " + U.clean(param, 64) + ", so nothing about it is shown and nothing can be signed."));
     const draw = (w, my, err) => {
-      if (err) return render(el, title(), h("div", { class: "errbox" }, err));
+      if (err) return render(el, title(), WK().box(err, () => reload(true)));
       if (!w) return render(el, title(),
         U.emptyState("wallet", "The vault could not be verified",
           "This build names a vault, but the contract at that id is not a version-3 vault this app reads. Nothing about it is shown, and nothing can be signed."));
@@ -81,18 +84,21 @@
           h("h1", null, "Deposit & withdraw " + (a.sym ? U.clean(a.sym, 12) : "assets")),
           null),
         picker,
+        lastErr ? WK().box(lastErr) : null,
+        h("div", { class: "row mt8" }, h("a", { class: "btn small ghost", href: "#move/" + nc[1].slice(4) }, "Step-by-step guide"), h("a", { class: "btn small ghost", href: "#move" }, "Your deposits and withdrawals")),
 
         // ---- Level 1: what the vault holds, which way it settles, and whether it is open ----
         h("div", { class: "hero cut mt8" },
           h("div", { class: "between" },
-            h("span", { class: "eyebrow" }, "Wrapped-asset vault"),
+            h("span", { class: "eyebrow" }, "Custodial vault · a federation holds the " + (a.sym ? U.clean(a.sym, 12) : "coins")),
             flag(halted ? "down" : canMint ? "acc" : "warn", halted ? "Halted" : canMint ? "Open" : "Deposits paused")),
           h("div", { class: "row tight mt8", style: "flex-wrap:wrap;gap:6px 14px" }, c.foreign(), arrow(), c.dero()),
           h("div", { class: "pulse-row mt" },
-            h("div", null, h("div", { class: "eyebrow" }, "Claims outstanding"), h("div", { class: "big num mt8" }, amt(w.sup, 4))),
+            h("div", null, h("div", { class: "eyebrow" }, "Claims outstanding"), h("div", { class: "big num mt8" }, exact(w.sup))),
             h("div", { class: "row", style: "gap:22px;flex-wrap:wrap" },
-              h("div", { class: "mini" }, h("span", { class: "l" }, "Mint cap"), h("span", { class: "v" }, amt(w.cap, 4))),
-              h("div", { class: "mini" }, h("span", { class: "l" }, "Headroom"), h("span", { class: "v" }, amt(w.headroom, 4))),
+              // exact, never "<0.0001": a small cap is the size of the signers' bonds, and rounding it away read as a fault
+              h("div", { class: "mini" }, h("span", { class: "l" }, "Mint cap"), h("span", { class: "v" }, exact(w.cap))),
+              h("div", { class: "mini" }, h("span", { class: "l" }, "Room to mint"), h("span", { class: "v" }, exact(w.headroom))),
               h("div", { class: "mini" }, h("span", { class: "l" }, "Signers"), h("span", { class: "v" }, w.k + " of " + w.na))))),
 
         // ---- what this is, in the words that are actually true ----
@@ -119,12 +125,18 @@
         // The floor and the ceiling in one box, because they fail the same way: a deposit outside either can
         // never be minted and nobody can send it back. The ceiling moves with everyone else's deposits, which
         // the floor does not, so it is the one to read again just before sending.
-        h("div", { class: "warnbox mt8" },
-          h("b", null, "Minimum deposit: " + exact(w.mindep)),
-          h("div", { class: "sub" }, "Anything smaller cannot be minted, and there is nobody who can return it. Check the amount before you send."),
-          h("div", { class: "mt8" }, h("b", null, canMint ? "Most that can be minted right now: " + exact(w.headroom) : "No headroom: nothing can be minted right now")),
-          h("div", { class: "sub" }, "The vault will not mint past its cap of " + amt(w.cap, 4) + ". A deposit above the headroom is not refused — it waits in the federation's wallet until enough is burned to make room, and no contract can return it in the meantime." +
-            (w.winmax > Z ? " This vault also mints at most " + amt(w.winmax, 4) + " per window, which can bind before the cap does." : ""))),
+        // The limits and the fees as data, not as an alarm: the cap is the size of the federation's bonds, which is
+        // what it is doing, so it is explained rather than flagged. The floor is still said plainly, because a
+        // deposit below it is the one mistake nobody can undo.
+        h("div", { class: "card mt8 swp-limits" },
+          h("div", { class: "label" }, "Limits and fees"),
+          kv("Smallest deposit", exact(w.mindep)), kv("Room to mint now", canMint ? exact(w.headroom) : "none: nothing can be minted until enough is burned"),
+          kv("Largest deposit", "no limit per deposit"), kv("Registration", w.regfee > Z ? A.fmtDero(w.regfee, 5) + " DERO per index, to the treasury" : "none on this vault"),
+          kv("Withdrawal fee", exact(w.wfee) + " per burn"), kv("Smallest burn", exact(w.minburn)),
+          h("div", { class: "note mt8" }, "A deposit below the smallest can never be minted, and nobody can send it back. A deposit beyond the room to mint is not refused: it waits in the federation's wallet until enough is burned to make room. " +
+            "The signers may send it back instead, which the contract records, but nothing makes them." + (w.winmax > Z ? " This vault also mints at most " + amt(w.winmax, 4) + " per window, which can bind before the cap does." : "")),
+          h("div", { class: "note mt8" }, h("b", null, "Why there is a cap. "), "The vault mints at most " + exact(w.cap) + " in all, fixed when it was installed, and refuses every mint while the signers' bonds (" + A.fmtDero(w.bondtot, 2) +
+            " DERO) cover less than the cap at the contract's ratio of " + w.capratio + ". It cannot promise more than the signers stand to lose, so a small bond means a small cap: the cap is how much this federation has put up, not a fault.")),
 
         h("div", { class: "mt" }, panel(c, c.foreign(), c.dero(), "the federation holds the reserve on " + chain, depStatus)),
 
@@ -191,7 +203,7 @@
         h("h3", { class: "mt" }, "What you are trusting"),
         h("div", { class: "card stack" },
           trustLine(false, w.k + " of the " + w.na + " signers can move the whole foreign reserve. They hold the keys to it; this contract cannot."),
-          trustLine(true, "The DERO side is verifiable by anyone: " + amt(w.sup, 4) + " of claims exist and the contract will not mint past " + amt(w.cap, 4) + "."),
+          trustLine(true, "The DERO side is verifiable by anyone: " + exact(w.sup) + " of claims exist and the contract will not mint past " + exact(w.cap) + "."),
           trustLine(w.viewkey !== "", w.viewkey
             ? "A viewing key is published, so anyone can check the reserve on " + chain + " really covers the claims."
             : "No viewing key is published yet, so the reserve on " + chain + " cannot be checked by an outsider. Until it is, the backing is a claim, not a proof."),
@@ -202,8 +214,8 @@
           trustLine(w.bondtot > Z && w.na >= 2n * w.k, w.bondtot === Z
             ? "No signer bond is at stake."
             : w.na >= 2n * w.k
-              ? "Signers have bonded " + A.fmtDero(w.bondtot, 2) + " DERO against a mint cap of " + amt(w.cap, 4) + ". A quorum of the others can slash a signer's bond to the treasury — not to you."
-              : "Signers have bonded " + A.fmtDero(w.bondtot, 2) + " DERO against a mint cap of " + amt(w.cap, 4) + ", but with " + w.na + " signers and a quorum of " + w.k + " the bond deters nobody: a signer cannot vote to slash itself, so the " + w.k + " who could take the reserve are the " + w.k + " needed to slash anyone. A slashed bond goes to the treasury, never to you."),
+              ? "Signers have bonded " + A.fmtDero(w.bondtot, 2) + " DERO against a mint cap of " + exact(w.cap) + ". A quorum of the others can slash a signer's bond to the treasury — not to you."
+              : "Signers have bonded " + A.fmtDero(w.bondtot, 2) + " DERO against a mint cap of " + exact(w.cap) + ", but with " + w.na + " signers and a quorum of " + w.k + " the bond deters nobody: a signer cannot vote to slash itself, so the " + w.k + " who could take the reserve are the " + w.k + " needed to slash anyone. A slashed bond goes to the treasury, never to you."),
           trustLine(w.sealed !== Z, w.sealed !== Z
             ? "The vault is sealed: the deployer has no power over it and nobody can add a signer without a quorum."
             : "The vault is NOT sealed. The deployer can still change the signer set. Do not deposit."),
@@ -321,26 +333,34 @@
     };
 
     // ---- actions ----
-    const doRegister = async (w) => {
-      const ok = await V.app.tx({
+    // every call that moves money is confirmed first (wrapkit.confirm), and a failure is kept (lastErr) and drawn at
+    // the top of the screen in words, with what was reported behind a toggle
+    const fail = (r) => { lastErr = r.err; draw(D.vault, lastMine); };
+    const doRegister = (w) => WK().confirm("Register a deposit index?", [["Chain", WK().chain("dero", "vault " + V.shortAddr(w.scid))],
+      ["It costs", (w.regfee > Z ? A.fmtDero(w.regfee, 5) + " DERO to the treasury, and " : "no registration fee on this vault, only ") + "the DERO network fee your wallet shows"], ["You get", "a fresh index; " + w.k + " signers then publish its deposit address on " + D.chainName(w.asset)],
+      ["Public", "ring size 2: your DERO address is public in this call, and stored with the index"]], null, "Sign and register", async () => {
+      lastErr = null;
+      const r = await WK().tx({
         scid: w.scid, entry: "Register", args: [], dero: w.regfee,
         // un counts everyone's indexes; uc_<me> moves only when this wallet's own Register executes
         describe: "Register a deposit index", probe: { scid: w.scid, keys: ["uc_" + me()] },
       });
-      if (ok) { toast("Index registered. Signers must attest it before it can receive.", "ok"); reload(true); }
-    };
+      if (r.ok) { toast("Index registered. Signers must attest it before it can receive.", "ok"); reload(true); } else fail(r);
+    });
 
     // The contract pays only w_<j>_by, so this is safe to send from any wallet; sending it from the burner's is
     // simply the natural place. Nothing is attached and SIGNER() is not read, so ring 16 is fine.
-    const doReclaim = async (w, x) => {
-      const ok = await V.app.tx({
+    const doReclaim = (w, x) => WK().confirm("Reclaim withdrawal #" + x.j + "?", [["Chain", WK().chain("dero", "vault " + V.shortAddr(w.scid))], ["It pays you", amt(x.units + x.fee, 8) + ", the units and the fee"],
+      ["Why now", "no signer marked it as being paid, and " + RECLAIM_AFTER + " blocks have passed since it became payable"], ["Fee", "the DERO network fee your wallet shows"]], null, "Sign and reclaim", async () => {
+      lastErr = null;
+      const r = await WK().tx({
         scid: w.scid, entry: "Reclaim", args: [["j", "U", BigInt(x.j)]], ring: 16,
         describe: "Reclaim withdrawal #" + x.j + " — " + amt(x.units + x.fee, 8) + " back to you",
         // st becomes 2 only by a return; the key alone would also move if the signers settled it meanwhile
         probe: { scid: w.scid, keys: ["w_" + x.j + "_st"], check: (a, b) => b.vals["w_" + x.j + "_st"] === "2" },
       });
-      if (ok) { toast("Reclaimed. The units and the fee are back in your wallet.", "ok"); reload(true); }
-    };
+      if (r.ok) { toast("Reclaimed. The units and the fee are back in your wallet.", "ok"); reload(true); } else fail(r);
+    });
     const doBurn = async (w, amountEl, destEl) => {
       const units = A.parseUnits(amountEl.value, dec());
       const dst = String(destEl.value || "").trim();
@@ -349,17 +369,23 @@
       // the contract enforces these; refusing here saves the fee of a transaction that would revert
       if (dst.length < 16 || dst.length > 200) return toast("That destination is not a plausible address", "err");
       if (/[\s\u0000-\u001f\u007f]/.test(dst)) return toast("The destination contains whitespace or control characters", "err");
-      const ok = await V.app.tx({
-        scid: w.scid, entry: "Burn", args: [["dest", "S", dst], ["refund", "S", me()]], asset: { scid: w.scid, amount: units },
-        describe: "Burn " + amt(units, 8) + " and withdraw",
-        // wn counts everyone's burns: this one executed only if a withdrawal opened since then names this wallet
-        probe: { scid: w.scid, keys: ["wn"], check: async (a, b) => { const ks = []; for (let j = +a.vals.wn || 0; j < (+b.vals.wn || 0) && ks.length < 16; j++) ks.push("w_" + j + "_by"); const g = ks.length ? await D.fetchKeys(w.scid, ks) : {}; return ks.some((k) => V.hexToStr(g[k] || "") === me()); } },
+      const big = w.bigbps !== Z && units > w.bigAt, wait = Number(w.wdelay) + (big ? Number(w.bigdelay) : 0), chain = D.chainName(w.asset);
+      WK().confirm("Burn and withdraw?", [["You burn", amt(units, 8) + " on DERO"], ["You receive", amt(units > w.wfee ? units - w.wfee : Z, 8) + " on " + chain + ", sent by the signers"],
+        ["To", h("span", { class: "mono" }, dst)], ["Payable", wait ? blocksAway(wait) + " after the burn (" + wait + " blocks)" : "from the next block"], ["Fee", exact(w.wfee) + " withdrawal fee, and the DERO network fee"],
+        ["Public", "the destination and this wallet are stored on DERO together, in the clear"]], null, "Sign and burn", async () => {
+        lastErr = null;
+        const r = await WK().tx({
+          scid: w.scid, entry: "Burn", args: [["dest", "S", dst], ["refund", "S", me()]], asset: { scid: w.scid, amount: units },
+          describe: "Burn " + amt(units, 8) + " and withdraw",
+          // wn counts everyone's burns: this one executed only if a withdrawal opened since then names this wallet
+          probe: { scid: w.scid, keys: ["wn"], check: async (a, b) => { const ks = []; for (let j = +a.vals.wn || 0; j < (+b.vals.wn || 0) && ks.length < 16; j++) ks.push("w_" + j + "_by"); const g = ks.length ? await D.fetchKeys(w.scid, ks) : {}; return ks.some((k) => V.hexToStr(g[k] || "") === me()); } },
+        });
+        if (r.ok) { amountEl.value = ""; toast("Burned. It becomes payable at the height shown below.", "ok"); reload(true); } else fail(r);
       });
-      if (ok) { amountEl.value = ""; toast("Burned. It becomes payable at the height shown below.", "ok"); reload(true); }
     };
 
     // ---- load ----
-    let lastMine = null;
+    let lastMine = null, lastErr = null;
     const reload = async (force) => {
       try {
         await refreshTip();
@@ -370,7 +396,7 @@
         draw(w, my);
       } catch (e) {
         console.error(e);
-        draw(D.vault, null, "The vault could not be read from your node: " + U.clean(String(e && e.message || e), 160));
+        draw(D.vault, null, WK().explain(e, "The vault could not be read"));
       }
     };
 

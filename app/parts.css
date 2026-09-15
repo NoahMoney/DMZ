@@ -383,3 +383,57 @@ html[data-pointer=touch] .mlist.compact .mrow{min-height:40px}
 .dcard .row.tight{max-height:21px}
 .mrow.mkt .row.tight{max-height:41px;padding-block:10px;margin-block:-10px}
 .dcard .badges,.mrow.mkt .badges{flex:none}
+
+/* ==== ui-swaps ==== */
+/* Deposit & withdraw (move.js), the stage chips (track.js), confirmations and failures (wrapkit.js), and the parts of
+   the Wrap screen they share. A chain is its two-letter code, its name and a hairline in its own tint (--net-xmr,
+   --net-zec: docs/DESIGN_SYSTEM.md §Networks), never the tint alone, so XMR and ZEC cannot be read for each other. */
+.swp-chain{display:inline-flex;align-items:center;gap:6px;padding:2px 8px 2px 7px;border-left:2px solid var(--c);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg2);white-space:nowrap;vertical-align:middle}
+.swp-chain b{color:var(--c);letter-spacing:.02em}
+.swp-chain.xmr,.swp-pick.xmr,.swp-item.xmr{--c:var(--net-xmr)}
+.swp-chain.zec,.swp-pick.zec,.swp-item.zec{--c:var(--net-zec)}
+.swp-chain.dero{--c:var(--net-dero)}
+.swp-lead{margin:10px 0 0;font-size:15px;line-height:1.6;color:var(--fg2);max-width:70ch}
+.swp-lead b{color:var(--fg);font-weight:650}
+.swp-choose{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px;margin-top:10px}
+.swp-pick{display:flex;flex-direction:column;gap:6px;min-height:76px;padding:14px;background:var(--s1);border:1px solid var(--edge);border-left:3px solid var(--c,var(--edge2));border-radius:var(--r1);color:var(--fg);text-decoration:none}
+.swp-pick:hover{background:var(--s2)}
+.swp-pick.on{background:var(--s3);border-color:var(--edge2);border-left-color:var(--c,var(--acc))}
+.swp-pick b{font-size:15px}
+.swp-pick .sub{color:var(--fg2)}
+.swp-crumb{font-size:12.5px;color:var(--fg3);margin-top:6px}
+.swp-crumb a{color:var(--fg2);display:inline-block;padding:11px 2px;line-height:18px}
+.swp-facts{margin:8px 0 0;padding-left:18px;color:var(--fg2);font-size:13.5px;line-height:1.55}
+.swp-facts li{margin:6px 0}
+.swp-facts b{color:var(--fg);font-weight:600}
+.swp-guide{list-style:none;margin:10px 0 0;padding:0}
+.swp-gstep{display:flex;gap:12px;padding:14px 0;border-top:1px solid var(--edge)}
+.swp-gstep .n{flex:none;width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--edge2);border-radius:var(--r1);font-weight:700;font-size:12px}
+.swp-gstep .t{font-weight:650;font-size:15px;margin-top:6px}
+.swp-who{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.swp-items{list-style:none;margin:8px 0 0;padding:0}
+.swp-item{padding:8px 0 12px 12px;border-top:1px solid var(--edge);border-left:2px solid var(--c,var(--edge))}
+.swp-item-h{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-height:40px;color:var(--fg);text-decoration:none}
+.swp-item-h:hover b{text-decoration:underline}
+.swp-chips{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:8px 0 6px;padding:0}
+.swp-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 8px 3px 6px;border:1px solid var(--edge);border-radius:var(--r1);font-size:11.5px;color:var(--fg2)}
+.swp-chip .m{width:14px;text-align:center;color:var(--fg3)}
+.swp-chip.tr-done .m{color:var(--up)}
+.swp-chip.tr-active{border-color:var(--acc);color:var(--fg)}
+.swp-chip.tr-active .m{color:var(--acc)}
+.swp-chip.tr-failed{border-color:var(--down)}
+.swp-chip.tr-failed .m{color:var(--down)}
+.swp-chip.tr-waiting,.swp-chip.tr-unseen{border-style:dashed}
+.swp-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* the custody facts and the limits, stated as data: no alarm colour on a cap that is doing its job */
+.swp-facts-card{border-left:3px solid var(--edge2)}
+.swp-limits .kv b{font-variant-numeric:tabular-nums}
+/* confirmations: each fact on its own line, label above value; Back first, Send last */
+.swp-go{gap:10px;flex-wrap:nowrap}
+.swp-go .btn{flex:1}
+.swp-confirm .kv{display:block}
+.swp-confirm .kv b{display:block;margin-top:3px;font-weight:600;overflow-wrap:anywhere}
+.swp-detail{white-space:pre-wrap;word-break:break-all;padding-bottom:10px}
+/* touch targets and focus: every control on these screens is at least 40 px tall, and a link shows focus as a button does */
+.swp .btn,.swp button,.swp details.more summary,.swp select,.swp input{min-height:40px}
+.swp a:focus-visible,.swp summary:focus-visible{outline:2px solid var(--acc);outline-offset:2px}

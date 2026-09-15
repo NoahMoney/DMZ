@@ -1,12 +1,12 @@
-// DMZ track.js — the stage tracker both swap screens share (docs/SWAP_STATUS.md). Unpaired, a screen builds the
-// DERO-side stages it reads from the chain and marks the Monero or Zcash side as visible only to the user's swap
-// program. Paired with that program over loopback, it shows the full stages the program reports. One renderer draws
-// both. The pairing code is kept in this page's memory and in sessionStorage, never in localStorage, and it is sent
-// to nothing but 127.0.0.1. A status answer is shown only after every field is checked; an answer that names a
-// secret, or is for another program, network or contract, is refused whole.
+// DMZ track.js — the stage tracker. It draws a sequence of steps, each with a mark whose shape carries its state as
+// well as the word, its confirmations and its deadline, as a list (render) or on one line (chips); the Deposit &
+// withdraw screen (app/move.js) draws a vault deposit's and a withdrawal's stages with it, every one read from the
+// vault contract. parse() is the app's reading of a swap program's status answer (docs/SWAP_STATUS.md): no screen
+// pairs with a swap program any more, but tools/xmrswap and tools/zecswap still check every answer they can serve
+// against it (tests/js/statuscheck.mjs), so it stays, unchanged, and is refused whole on anything it cannot read.
 (function () {
-  const V = window.Veil, U = V.ui, N = Number, { h, button, toast } = U;
-  const BLOCK = { DERO: 18, Monero: 120, Zcash: 75 }, STABLE = 8, POLL = 10000;
+  const V = window.Veil, U = V.ui, N = Number, { h } = U;
+  const BLOCK = { DERO: 18, Monero: 120, Zcash: 75 }, STABLE = 8;
   const STATES = ["done", "active", "waiting", "skipped", "failed"], OUTCOMES = ["", "swapped", "refunded", "punished", "reclaimed", "lost"];
   const SECRET = /secret|preimage|priv|seed|mnemonic|spend.?key|view.?key|channel.?key|pairing/i;
   const hex64 = (x) => /^[0-9a-f]{64}$/.test(x || "");
@@ -40,7 +40,7 @@
   const dur = (s) => (s < 90 ? "1 min" : s < 5400 ? Math.round(s / 60) + " min" : s < 172800 ? Math.round(s / 360) / 10 + " h" : Math.round(s / 8640) / 10 + " days");
   const conf = (s) => (s.conf === null ? "" : s.need === null ? s.conf + " confirmations" : s.conf + " of " + s.need);
   // A deadline is a block. On DERO it is counted from the tip this app read; on Monero and Zcash, which this app
-  // cannot read, the time is the swap program's own estimate and says so. The height is what the chain's rule reads.
+  // cannot read, the time is the estimate it was given and says so. The height is what the chain's rule reads.
   function left(dl, tip, now) {
     if (!dl || dl.height === null) return "";
     const at = dl.chain + " block " + dl.height;
@@ -68,81 +68,14 @@
           h("div", { class: "sub tiny" }, [s.chain, WORD[s.state] || s.state, conf(s), left(s.deadline, tip, now), s.txid ? "tx " + V.shortAddr(s.txid) : ""].filter(Boolean).join(" · "))))))];
   }
 
-  // ---- a lock's depth on DERO, against the stable depth of 8 both swap programs wait for ----
-  // Read by asking the node whether the lock's key existed 8 blocks ago, then at each block since; a lock found
-  // stable is never asked about again. Unreadable (a node without that history) is null, never 0.
-  const depths = new Map();
-  async function depth(scid, key, tip) {
-    const c = depths.get(scid + key); if (c) return c.stable ? STABLE : tip - c.at;
-    if (!(tip > STABLE)) return null;
-    const has = async (t) => (await V.node.getSC(scid, { keys: [key], topoheight: t })).vals[key] !== undefined;
-    try {
-      if (await has(tip - STABLE)) { depths.set(scid + key, { stable: true }); return STABLE; }
-      for (let d = STABLE - 1; d >= 0; d--) if (await has(tip - d)) { depths.set(scid + key, { at: tip - d }); return d; }
-    } catch (e) {}
-    return null;
-  }
+  // ---- stage chips: the same steps on one line, for a list. The mark's shape carries the state, the word is read
+  // out, and the full label is the chip's title. A step with no short name is named from its id or its label. ----
+  const CAP = { dero: "DERO", xmr: "XMR", zec: "ZEC" };
+  const shortOf = (s) => s.short || (s.id ? s.id.split("_").map((w) => CAP[w] || w).join(" ").replace(/^./, (c) => c.toUpperCase()) : s.label.length > 24 ? s.label.slice(0, 23) + "…" : s.label);
+  const chips = (steps) => h("ol", { class: "swp-chips", "aria-label": "Stages" }, steps.map((s) => h("li", { class: "swp-chip tr-" + s.state, title: s.chain + ": " + s.label + " · " + (WORD[s.state] || s.state) },
+    h("span", { class: "m", "aria-hidden": "true" }, MARK[s.state] || "?"), shortOf(s), h("span", { class: "swp-sr" }, ": " + (WORD[s.state] || s.state)))));
+  const LEGEND = "✓ done · ● now · ○ waiting · – skipped · ✕ failed · ? not visible here";
+  const due = (steps, tip) => { const c = nextDeadline(steps); return c ? "Next deadline: " + shortOf(c) + " · " + left(c.deadline, tip, Date.now()) : ""; };
 
-  // ---- pairing with the user's own swap program (docs/SWAP_STATUS.md) ----
-  const P = {}, KEY = (p) => "veil.pair." + p;
-  function pair(program) {
-    if (!P[program]) { let s = null; try { s = JSON.parse(sessionStorage.getItem(KEY(program)) || "null"); } catch (e) {}
-      const ok = s && Number.isInteger(s.port) && s.port >= 1024 && s.port <= 65535 && /^[0-9a-f]{32}$/.test(s.code || "");
-      P[program] = { port: ok ? s.port : 0, code: ok ? s.code : "", last: null, at: 0, err: "", timer: 0 }; }
-    return P[program];
-  }
-  async function poll(program, want) {
-    const p = pair(program); if (!p.code) return;
-    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 5000);
-    try {
-      const r = await fetch("http://127.0.0.1:" + p.port + "/v1/status", { headers: { Authorization: "Bearer " + p.code }, cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer", redirect: "error", signal: ctl.signal });
-      if (r.status === 401) { p.err = "Your swap program refused the pairing code. Pair again with the code it printed when it started."; p.last = null; return; }
-      if (!r.ok) { p.err = "Your swap program answered HTTP " + r.status + "."; return; }
-      const txt = await r.text(); let j = null;
-      if (txt.length > 65536) { p.err = "The answer is too large to be a status."; return; }
-      try { j = JSON.parse(txt); } catch (e) { p.err = "The answer is not JSON."; return; }
-      const x = parse(j, want); if (!x.ok) { p.err = x.why; p.last = null; return; }
-      p.last = x.s; p.at = Date.now(); p.err = "";
-    } catch (e) { p.err = "Nothing answered at 127.0.0.1:" + p.port + ". Is your swap program running with -status 127.0.0.1:" + p.port + "?"; }
-    finally { clearTimeout(t); }
-  }
-  // every 10 s while open() says the screen is showing; never again once the swap has an outcome
-  function watch(program, want, open, redraw) {
-    const p = pair(program); clearInterval(p.timer);
-    if (!p.code || (p.last && p.last.outcome)) return;
-    const tick = async () => { if (!open()) return clearInterval(p.timer); await poll(program, want); if (p.last && p.last.outcome) clearInterval(p.timer); if (open()) redraw(); };
-    p.timer = setInterval(tick, POLL); tick();
-  }
-  // fmt: { foreign(v), dero(asset, v) } — the screen's own amount words
-  function panel(program, want, open, redraw, fmt, tip) {
-    const p = pair(program), name = program === "xmrswap" ? "Monero" : "Zcash";
-    if (!p.code) {
-      const port = h("input", { inputmode: "numeric", placeholder: "port", autocomplete: "off", "aria-label": "Status port", style: "flex:0 0 90px;min-width:0" }),
-        code = h("input", { class: "mono", placeholder: "pairing code (32 hex)", autocomplete: "off", spellcheck: "false", "aria-label": "Pairing code", style: "flex:1;min-width:0" });
-      return h("div", { class: "card mt" }, h("div", { class: "label" }, "Pair with your swap program"),
-        h("div", { class: "note mt8" }, "The " + name + " side of a swap is visible only to your own " + program + ". Started with -status 127.0.0.1:PORT, it answers this page on your machine only, with the stages of its swap; " +
-          "it prints a one-time pairing code, and without that code it answers nothing. The code stays in this tab (sessionStorage), never in localStorage, and is sent only to 127.0.0.1. " +
-          "The answer never carries a key or a secret (docs/SWAP_STATUS.md)."),
-        h("div", { class: "row mt8", style: "gap:8px" }, port, code, button("Pair", "small", () => {
-          const n = N(port.value.trim()), c = code.value.trim().toLowerCase();
-          if (!Number.isInteger(n) || n < 1024 || n > 65535) return toast("The port is a number from 1024 to 65535.", "err");
-          if (!/^[0-9a-f]{32}$/.test(c)) return toast("The pairing code is the 32 hex characters your swap program printed.", "err");
-          Object.assign(p, { port: n, code: c, last: null, err: "" });
-          try { sessionStorage.setItem(KEY(program), JSON.stringify({ port: n, code: c })); } catch (e) {}
-          port.value = code.value = ""; watch(program, want, open, redraw); redraw();
-        })));
-    }
-    const s = p.last;
-    return h("div", { class: "card mt" }, h("div", { class: "between" }, h("span", { class: "label" }, "Your swap program · 127.0.0.1:" + p.port),
-      button("Unpair", "small ghost", () => { clearInterval(p.timer); delete P[program]; try { sessionStorage.removeItem(KEY(program)); } catch (e) {} redraw(); })),
-      p.err ? h("div", { class: "errbox mt8" }, p.err) : null,
-      s ? [h("div", { class: "mt8" }, h("b", null, dirText(s.direction, s.foreign === null ? "an unreadable amount of " + (program === "xmrswap" ? "XMR" : "ZEC") : fmt.foreign(s.foreign), s.dero === null || s.asset === null ? "an unreadable amount" : fmt.dero(s.asset, s.dero))),
-          h("div", { class: "sub tiny" }, (s.lock === null ? "No lock yet" : "Lock #" + s.lock) + " · " + (s.role === "maker" ? "you are the maker" : "you are the taker") + (s.fee === null ? "" : " · fee " + fmt.foreign(s.fee) + ", paid by the maker") + (s.outcome ? " · ended: " + s.outcome : ""))),
-        s.next ? h("div", { class: "note mt8" }, h("b", null, "What happens next: "), s.next) : null, render(s.steps, tip),
-        h("div", { class: "sub tiny mt8" }, "Reported by your swap program" + (s.updated ? " at " + new Date(s.updated).toLocaleTimeString() : "") + (s.outcome ? ". The swap has ended, so it is not asked again." : ". Asked again every 10 s while this screen is open."))]
-        : p.err ? null : h("div", { class: "sub mt8" }, "Asking your swap program…"));
-  }
-  const paired = (program) => { const p = pair(program); return p.code && p.last ? p.last : null; };
-
-  V.track = { parse, left, conf, current, nextDeadline, dirText, render, depth, panel, watch, paired, BLOCK, STABLE };
+  V.track = { parse, left, conf, current, nextDeadline, dirText, render, chips, due, shortOf, LEGEND, WORD, BLOCK, STABLE };
 })();

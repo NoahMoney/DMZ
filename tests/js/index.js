@@ -10,8 +10,7 @@ import("./vaultkeys.test.mjs");
 import("./appcore.repair.test.mjs");
 import("./fees.repair.test.mjs");
 import("./nfas.repair.test.mjs");
-// the Monero swap screen's exit windows, the payout-address checks, and the swap stage tracker
-import("./xmr.test.mjs");
+// the payout-address checks, and the stage tracker's reading of a swap program's status (tools/*/statusv1_test.go)
 import("./payout.test.mjs");
 import("./track.test.mjs");
 // community sentiment: the display rule and the fail-closed reads (app/sentiment.js)
@@ -23,3 +22,5 @@ import("./profile.test.mjs");
 import("./create.test.mjs");
 import("./discovery.test.mjs");
 import "./merge.regress.test.mjs";
+// the Deposit & withdraw guide and its tracker of vault deposits and withdrawals, and the failure words
+import("./move.test.mjs");
