@@ -10,7 +10,20 @@ on something named.
 
 ---
 
-## RESUME HERE — updated 2026-09-12
+## RESUME HERE — updated 2026-09-15
+
+**The operator ruled on 2026-09-15 that the ZEC and XMR atomic swaps are removed.** The product is the federation
+wrap (wXMR and wZEC, each a 1:1 claim on XMR or ZEC held by a k-of-n federation of named signers) plus DMZ's markets,
+and mainnet waits until both wraps work end to end. **The current work is Phase Y of `docs/MAINNET_TODO.md`.** Its
+rows YB-1 to YB-25 are the wrap's mainnet blockers, and the Phase X and MT rows the ruling withdraws are marked there.
+
+The swaps come out in stages, so that no branch in flight breaks. The first stage deleted `tools/simhtlc`,
+`tools/simswap` and the swap proofs of concept under `research/crosschain/poc`, and put a dated banner on each
+document that describes the swaps as current. The companions, the swap contracts and their records follow (Y2-4 to
+Y2-7). Build nothing on `tools/xmrswap`, `tools/zecswap`, `tools/swapstatus`, `htlc.bas`, `swap.bas` or `board.bas`.
+The sections below this note are older and are kept as they stood.
+
+## Earlier resume note — 2026-09-12
 
 **The mainnet work is tracked in `docs/MAINNET_TODO.md`**, and its Phase X (ready for the mainnet test stage, opened
 2026-09-12) is the current work. `docs/MAINNET_SECURITY_GATE.md` gives the verdict, NOT MAINNET READY, and what turns it

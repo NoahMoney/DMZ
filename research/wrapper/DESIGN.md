@@ -34,7 +34,8 @@ ONE-PARAGRAPH DESCRIPTION: A user registers on DERO (`Register()` → deposit in
   Solana via FROST ed25519. DERO enforcement: `SIGNER()` at ring size 2 gates every vote.
 CODE / DOCS: contracts/vault.bas; tests/vault_test.go; tools/vaultsigner (sim backend only); tools/simvault;
   research/wrapper/README.md (security review); research/crosschain/{DECISION,SPEC_CROSSCHAIN,RESOLVED,REVIEW}.md; poc/frost-zec,
-  poc/proof-xmr, poc/proof-zec, poc/zec-t-htlc; simulator run research/crosschain/poc/vault-e2e.log.
+  poc/proof-xmr, poc/proof-zec (removed 2026-09-15; in history at c58e3e3), poc/zec-t-htlc; simulator run
+  research/crosschain/poc/vault-e2e.log.
 CUSTODY MODEL AS WE UNDERSTAND IT: threshold-signature federation for ZEC (FROST RedPallas, key never assembled);
   native multisig federation for XMR at launch (k-of-n, wallet-rpc `make_multisig`/`sign_multisig`, marked
   experimental by Monero); k-of-n vote contract on DERO. No atomic construction for the wrapper itself; the
@@ -51,6 +52,18 @@ KNOWN OPEN QUESTIONS: Monero custody primitive (multisig experimental, FROSTLASS
   standardised; watcher quorum and reorg handling not built (sim backend only); destination privacy on DERO;
   fee estimation on release; signer rotation and unbonding missing from vault.bas v1.
 ```
+
+*Addendum, 2026-09-15.* Three things in the input above no longer hold.
+- The operator ruled that the ZEC and XMR atomic swaps are removed (`docs/MAINNET_TODO.md` Phase Y). So the wrap has
+  no "separate exit path" and no trustless exit, whatever the first paragraph says. A holder leaves wXMR or wZEC
+  through the federation's Burn, or by selling on a DMZ market.
+- Zcash custody, as it is being built for launch, is a transparent pay-to-script-hash k-of-n multisig. The keys of
+  each address are derived from the signers' published account xpubs (Y3-1, the wrap-zcash branch). It is not an
+  Orchard address under re-randomized FROST, as the description's custody sentence and the custody model say. So
+  deposits and withdrawals on Zcash are public, and anyone who holds the descriptor can link every deposit.
+- `poc/proof-zec` was removed. `poc/frost-zec` is kept as research.
+
+Monero custody is unchanged: wallet-rpc multisig k-of-n (Y3-2).
 
 ### A1. Classification
 

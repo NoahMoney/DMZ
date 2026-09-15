@@ -15,6 +15,13 @@ Companion documents: `docs/XMR_SWAP.md` and `docs/XMR_SWAP_BUILD.md` (the Monero
 transparent-Zcash market), `contracts/README.md` (the vault), `docs/audit/FINDINGS_2026-09-10.md` (the audit),
 `docs/BACKLOG.md`.
 
+**Superseded 2026-09-15.** The operator ruled that the ZEC and XMR atomic swaps are removed: "they should both be
+removed, we should have a wrap and perhaps a market the wrapped tokens can be traded on 1:1" (`MAINNET_TODO.md` Phase
+Y). The swap track this study recommends goes with the swaps. Its recommendation to park the federation is overruled,
+because the federation wrap is now the product. Its federation parts, §2.3, §3 and decisions 2 and 12, are copied word
+for word to `research/wrapper/FEDERATION_STUDY_2026-09-11.md`, where they feed the wrapped launch's blockers. The body
+is kept as written until the study is retired (Y2-7).
+
 ---
 
 ## 0. The answer in one screen

@@ -10,6 +10,13 @@ could check any of it. Contract lines are those of `e06c28a`, where `contracts/`
 - *`docs/ATOMIC_SWAP_STUDY.md` has the reasoning behind every design choice;*
 - *`docs/HTLC_V3_COMPANION_NOTES.md` has what `htlc.bas` v3 changed for each side of the Monero swap.*
 
+**Superseded 2026-09-15.** The operator ruled that the ZEC and XMR atomic swaps are removed: "they should both be
+removed, we should have a wrap and perhaps a market the wrapped tokens can be traded on 1:1" (`MAINNET_TODO.md` Phase
+Y). This page's trust model is the swaps' (`htlc.bas`, `swap.bas`, `board.bas` and their companions), which are being
+removed, and the federation as it stood on 2026-09-12. It no longer describes what DMZ will ship. The product is now
+the federation wrap: Monero held by wallet-rpc multisig k-of-n (Y3-2), and Zcash by a transparent P2SH k-of-n (Y3-1).
+The body below is kept as written until it is rewritten for the wrap (Y2-7).
+
 **The word "trustless" on this page** means one thing: *no party other than the two people in a swap can take or
 freeze either side's coins.* It never means that nothing can go wrong. Every assumption that remains is in §1, by
 name.

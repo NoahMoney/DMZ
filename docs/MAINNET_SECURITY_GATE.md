@@ -4,6 +4,12 @@
 reads PASS only when the evidence is in this repository and was produced in this pass, or is cited to where it was.
 Nothing is marked PASS because it is expected to pass.*
 
+**Superseded 2026-09-15.** The operator ruled that the ZEC and XMR atomic swaps are removed: "they should both be
+removed, we should have a wrap and perhaps a market the wrapped tokens can be traded on 1:1" (`MAINNET_TODO.md` Phase
+Y). The verdict stays NOT MAINNET READY, but the conditions below are the swap product's. Some no longer apply, the
+proof audit and the Monero stagenet swap among them. The wrapped launch's own blockers are YB-1 to YB-25 in
+`MAINNET_TODO.md`. This page is rewritten at Y5-4, and until then it is kept as written.
+
 ## Verdict
 
 # NOT MAINNET READY

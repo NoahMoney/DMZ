@@ -333,6 +333,14 @@ ART-NFA-MS1 asset per contract, `docs/NFA.md`). None defines `UpdateCode` or cal
 else writes them (`tests/registry_test.go` `TestFactoryFixedAtInstall`, `TestFactoryOldEntrypointsAreGone`). The
 row above describes v1, and is kept as it was decided.
 
+*Addendum, 2026-09-15.* The operator ruled that the ZEC and XMR atomic swaps are removed: "they should both be removed,
+we should have a wrap and perhaps a market the wrapped tokens can be traded on 1:1" (`docs/MAINNET_TODO.md` Phase Y).
+So `contracts/htlc.bas`, `contracts/swap.bas` and `contracts/board.bas` leave the set. They stay in `contracts/` until
+the commit that removes them with their records and tests (Y2-4, Y2-6), and nothing new is built on them. Since the
+addendum above, `contracts/rate.bas` (community sentiment, Y1-2) has joined, so the set was thirteen on 2026-09-15. It
+defines no `UpdateCode` either. `promo.bas` (Y1-8) is in flight. Once promo merges and the three swap contracts go,
+the set is eleven.
+
 ### 10.2 Fixed-point / overflow discipline (D-2)
 - All maths in atomic units. Every product `a*b` with both operands possibly ≥ 2^32 goes through `mulhi/muldiv`
   (64×64→128-bit multiply via 32-bit limbs; 128÷64 long division, Hacker's Delight `divlu2`, two 32-bit quotient
@@ -469,6 +477,20 @@ Operator questions: XMR / ZEC / SOL on DMZ without a centralised oracle; Haven-s
   stale-price arbitrage and collateral drain. A federated wrapped asset is the honest alternative if exposure inside
   DERO is ever wanted; it is trusted and says so.
 
+*Addendum, 2026-09-15.* "Chosen: peer-to-peer atomic swaps" is superseded. The operator ruled that the ZEC and XMR
+atomic swaps are removed: "they should both be removed, we should have a wrap and perhaps a market the wrapped tokens
+can be traded on 1:1" (`docs/MAINNET_TODO.md` Phase Y).
+- The answer to this section's question is now the federated wrapped asset that its last bullet calls the honest
+  alternative (§10.13). wXMR and wZEC are each a 1:1 claim on XMR or ZEC held by a k-of-n federation, trusted and
+  saying so.
+- The first bullet's facts stand: the DVM verifies no signature and reads no foreign chain.
+- Two swaps are removed, in stages (Y2). One is the transparent-Zcash swap (`swap.bas`, `board.bas`, `tools/zecswap`).
+  The other is the Monero key-share swap (`htlc.bas`, `tools/xmrswap` and the `proof-xmr` prover), which grew out of
+  the second bullet's research item.
+- What "a market the wrapped tokens can be traded on 1:1" means is open for the operator. No contract offers a
+  fixed-rate market (`pool.bas` is constant product). On main, "1:1" marks a wrapped unit as a one-for-one claim on
+  XMR or ZEC (`9f75603`, `9e43441`).
+
 ### 10.13 Federation wrapper for instant cross-chain markets (D-12, operator instruction 2026-09-06)
 The operator requires COIN/XMR and COIN/ZEC markets that fill instantly with pooled liquidity, "exactly how a
 Solana memecoin would". A pool must hold its reserve inside the VM that settles the trade, and DERO cannot see or
@@ -492,6 +514,21 @@ burn and accrued in `feepool` for the treasury, and `regfee`, paid once per depo
 treasury immediately. A DERO gas sliver for foreign-only users is therefore a signer-side courtesy the contract
 neither funds nor can enforce — treat it as a promise of the federation, not a property of `vault.bas`. Full reasoning:
 `research/crosschain/README.md (Decision)`; spec: `research/crosschain/RESEARCH.md (Specification)`; security: `research/wrapper/README.md (security review)`.
+
+*Addendum, 2026-09-15.* The operator ruled that the ZEC and XMR atomic swaps are removed, and that mainnet waits
+until wZEC and wXMR work end to end (`docs/MAINNET_TODO.md` Phase Y). Three things above no longer hold.
+- "The atomic-swap path (`swap.bas`, the key-share proofs in `research/crosschain/poc`) stays deployed as the
+  trustless exit" is superseded. There is no trustless exit. A holder enters and leaves wXMR or wZEC only through the
+  federation's Mint and Burn, or trades them on a DMZ market, so every withdrawal depends on k live signers, and the
+  disclosure has to say so. `poc/proof-zec` is removed, and `proof-xmr` goes with the Monero swap (Y2-6).
+- "Threshold custody: FROST RedPallas for Zcash" is superseded for launch. Zcash custody, as it is being built, is a
+  transparent pay-to-script-hash k-of-n multisig, with keys derived from each signer's published account xpub (Y3-1).
+  Deposits and withdrawals on Zcash are therefore public, and the reserve is counted from the published xpubs (Y3-6).
+  Monero stays native wallet multisig (Y3-2).
+- The DERO gas sliver for foreign-only users is a live question again. Every holder who arrives with only XMR or ZEC
+  now comes through the vault, and holds wXMR or wZEC with no DERO for gas. MT-J02 (holders bring their own DERO) was
+  answered for the swaps. Whether the signers, the treasury or nobody funds a holder's first transaction is the
+  operator's decision (YB-18).
 
 ### 10.14 One build, three networks (D-13, operator instruction 2026-09-06: "build for mainnet and for testnet")
 The contracts and the app are network-agnostic. `deploy/networks.json` is the per-network record (daemon,

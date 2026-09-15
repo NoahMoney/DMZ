@@ -1,5 +1,11 @@
 # DMZ mainnet test plan
 
+**Superseded 2026-09-15.** The operator ruled that the ZEC and XMR atomic swaps are removed: "they should both be
+removed, we should have a wrap and perhaps a market the wrapped tokens can be traded on 1:1" (`MAINNET_TODO.md` Phase
+Y). This plan tests the swaps, which are being removed. Its opening statement is no longer true either. wXMR and wZEC
+are backed by coins a federation holds, so deposit and withdrawal are now the axis to test. A plan for the wrap
+replaces this one (Y2-7, Y4), and until then it is kept as written.
+
 This is the controlled live test sequence for DMZ, written for the system as it is built. There is no custodian,
 so nothing is deposited into DMZ and nothing is withdrawn from it: there is nothing to test on that axis. What a
 holder does is swap XMR or ZEC for a DERO-side asset, buy an NFA, and trade a token. Those are the tests, together

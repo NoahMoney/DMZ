@@ -7,6 +7,12 @@ lists are elsewhere:*
 - *`MAINNET_GAP_ANALYSIS.md`: this pass's sweep;*
 - *`CROSS_CHAIN_TRUST_MODEL.md`: the trust assumptions T1–T10 and the data-source attacks.*
 
+**Superseded in part, 2026-09-15.** The operator ruled that the ZEC and XMR atomic swaps are removed: "they should both
+be removed, we should have a wrap and perhaps a market the wrapped tokens can be traded on 1:1" (`MAINNET_TODO.md`
+Phase Y). The swap parts of this page describe code that is being removed (Y2). Its federation parts describe the vault
+before the wrap became the only way XMR and ZEC reach DMZ. It is rewritten for the wrap (Y2-7). The parts on the
+markets, the app and the supply chain are not changed by the ruling itself. The body below is kept as written.
+
 ---
 
 ## 1. What is protected

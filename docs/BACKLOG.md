@@ -20,6 +20,13 @@ Priority letters: **A** blocks the mainnet sequence or the five standing require
 notice within a week · **C** hardening, tooling, hygiene · **R** research before anything can be built. Items are
 numbered for reference (`BL-…`), not for order.
 
+**Superseded in part, 2026-09-15.** The operator ruled that the ZEC and XMR atomic swaps are removed: "they should both
+be removed, we should have a wrap and perhaps a market the wrapped tokens can be traded on 1:1"
+(`docs/MAINNET_TODO.md` Phase Y). The holder in the test above now arrives and leaves through the wrap, as wXMR or
+wZEC. §1's mainnet sequence is replaced by Phase Y, and mainnet waits until wXMR and wZEC work end to end. The swap
+tracks of §2 (the Monero swap) and §3 (the transparent-Zcash market) are withdrawn with the swaps. Their items are
+kept as written, and none is to be started.
+
 ---
 
 ## 1. The mainnet sequence (the order things go live)

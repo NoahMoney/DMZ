@@ -8,6 +8,13 @@ run. What was missing was one page that states the verdict, and the verdict had 
 constraint the operator only stated tonight: **they will not host anything 24/7.** That constraint changes the
 answer, so this page is written from it.
 
+**Superseded 2026-09-15.** The operator ruled that the ZEC and XMR atomic swaps are removed: "they should both be
+removed, we should have a wrap and perhaps a market the wrapped tokens can be traded on 1:1"
+(`docs/MAINNET_TODO.md` Phase Y). This page's verdict is reversed: the transparent-ZEC HTLC as the one trustless pair
+that ships, and the Monero key-share swap after it. The federation wrap is the product. It is run by named signers
+who are not the operator, and it is never called trustless. The no-hosting constraint below still binds it. The body
+is kept as written.
+
 Everything below is either a fact from a primary source (named in `../crosschain/SOURCES.md`) or a decision,
 and the two are kept apart.
 

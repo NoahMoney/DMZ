@@ -7,6 +7,12 @@ gone. Two companion pages go with it:*
   sets out what proving a Monero or Zcash payment would take.*
 - *`MAINNET_SECURITY_GATE.md` has the verdict.*
 
+**Superseded 2026-09-15.** The operator ruled that the ZEC and XMR atomic swaps are removed: "they should both be
+removed, we should have a wrap and perhaps a market the wrapped tokens can be traded on 1:1" (`MAINNET_TODO.md` Phase
+Y). The architecture this page chooses, the swaps with the federation parked, is reversed. The federation wrap is the
+product, run by named signers who are not the operator, and mainnet waits until wXMR and wZEC work end to end. The
+body below is kept as written until it is rewritten for the wrap (Y2-7).
+
 ---
 
 ## 0. The answer

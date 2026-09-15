@@ -35,7 +35,7 @@ or are imported but not called (§3, §4).
 | `derod.exe`, `simulator.exe`, `dero-wallet-cli.exe`, `dero-miner.exe`, `genesistx.exe`, `netwallet.exe` (and `netwallet-next.exe`) | `vendor/derohe` @ `e9df1205` (+ `deploy/patches/derod-private-genesis.patch`; `tools/genesistx`, `tools/netwallet` copied in) | derohe's own `vendor/` directory: GOPATH style, no `modules.txt`, so the go command and govulncheck see no versions (§2) | `deploy/vendor.lock` (commit, origin, patch, allowed paths); `deploy/binaries.lock` (sha256) |
 | `xswdwallet.exe`, `dero-wallet-cli-xswd.exe` | `vendor/derohe-civilware` @ `433c4559` (`tools/xswdwallet` copied in) | the fork's own `vendor/`, the same as derohe's except readline, websocket and gmsm (§2) | as above |
 | `telainstall.exe`, `tela-cli.exe` | `vendor/tela` @ `aa892d2f` (`tools/telainstall` copied in), module mode, **`-mod=readonly`** (GAP-017) | the module cache, checked against `vendor/tela/go.sum`. derohe is replaced by `github.com/civilware/derohe v0.0.0-20240909003240-fa76d6016cc6` (commit `fa76d6016cc6b6158847c420455dc7d8dc4ab885`), which no checkout here holds (§3) | `vendor/tela/go.sum` (in the pinned commit); `deploy/vendor.lock` `modules` (the replace, its go.sum hashes, the cache copies, the binaries' build info); `deploy/binaries.lock` |
-| `xmrswap`, `zecswap` (release builds), `vaultsigner`, `treasurybot`, `simswap`, `simhtlc`, `simvault`, `simwrapmkt`, `simscam`, `simsmoke`, `genconfig`, `verifydeploy`, `serve`, … | `tools/` (`veil/tools`) | `tools/go.mod` and `tools/go.sum` (§4) | go.sum; the release manifest (`tools/release`) for the companions |
+| `xmrswap`, `zecswap` (release builds), `vaultsigner`, `treasurybot`, `simvault`, `simwrapmkt`, `simscam`, `simsmoke`, `genconfig`, `verifydeploy`, `serve`, … | `tools/` (`veil/tools`) | `tools/go.mod` and `tools/go.sum` (§4) | go.sum; the release manifest (`tools/release`) for the companions |
 | `proof-xmr` (the Monero swap's prover) | `research/crosschain/poc/proof-xmr` | crates.io through `Cargo.lock`; `bulletproofs` 5.0.0 as a patched path dependency (§5) | `Cargo.lock` checksums; `deploy/vendor.lock` `crates` (GAP-013) |
 | the app (`app/`, installed as TELA DOCs) | `app/` | none: plain JS/CSS with no third-party code, no CDN, no package manager | the bundle's `manifest.json` sha256 per file |
 | test only: `tests/js`, `tools/uitest` | — | Node built-ins; Playwright from `$PW_DIR` (§6) | Playwright pinned in `tools/uitest/ui.mjs` (MT-H03) |
@@ -283,6 +283,9 @@ linked and the symbol is not called:
 | telainstall, tela-cli | 7 / 8–9 (plus gorilla, §3) |
 | treasurybot, simswap, simvault, simwrapmkt, simscam, simsmoke | 9 / 5 |
 | simhtlc | 10 / 4 |
+
+*simswap and simhtlc were deleted on 2026-09-15, when the operator ruled that the atomic swaps are removed. Their rows
+record the scan as it was run.*
 
 For example, GO-2026-6090 and -5856 (crypto/tls), -6089 and -5026 (net/http), -6218 (net/url), -5972
 (encoding/asn1), -5037 (crypto/x509), -4971 (net) and -4918 (net/http). All are fixed in go1.26.3–1.26.6. A rebuild

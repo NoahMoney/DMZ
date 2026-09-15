@@ -37,12 +37,20 @@ on a very active pool becomes slow — enable the Gnomon read cache behind the f
 XSWD exists only in `civilware/derohe`. Users on the official CLI wallet have no XSWD; Engram is the supported host.
 
 ## R-8 Explicitly out of scope (do not build)
+*Superseded in part, 2026-09-15.* The operator ruled that the ZEC and XMR atomic swaps are removed and that the
+federation wrap is the product (`docs/MAINNET_TODO.md` Phase Y). So the bridge bullet below no longer holds: wXMR
+and wZEC are a custodial wrap, run by named signers. Neither does the last bullet: the signers' daemons hold the
+foreign keys, and the wrap needs them. R-14 is that risk. The other two bullets stand.
 - Tokenised equities / synthetic stocks: no regulated issuer, no oracle on DERO → derivatives exposure. Placeholder only.
 - Cross-chain memecoins / bridges: no production bridge; a custodial one contradicts the product.
 - Fiat / card on-ramp.
 - Any backend that holds keys or is required for the app to work.
 
 ## R-9 Regulatory exposure — plain-English summary for an operator (not legal advice)
+*Superseded in part, 2026-09-15.* "No custody" below no longer holds for XMR and ZEC. Under the operator's ruling of
+that day (`docs/MAINNET_TODO.md` Phase Y), wXMR and wZEC are backed by coins a k-of-n federation holds (R-14). That is
+custody of other people's coins, which many jurisdictions regulate in its own right. The legal opinion recommended
+below should cover it, and who the signers are.
 What this is: a set of immutable contracts on a public, privacy-preserving blockchain, plus an app whose files are
 also on that chain. There is no server, no account system, no custody: users hold their own keys and interact
 through their own wallet. The operator's only on-chain powers are the factory's treasury pointer and registration
@@ -107,6 +115,10 @@ treasury is the second half, depositing the promised share into the pass, becaus
 another contract. That remains the trusted step, and it is the one to design out next.
 
 ## R-14 Federation custody of wrapped assets (2026-09-06)
+*Superseded in part, 2026-09-15.* The "atomic-swap exit hatch" named below as a mitigation is removed with the swaps
+(`docs/MAINNET_TODO.md` Phase Y). A holder leaves wXMR or wZEC only through the federation's Burn, or by selling on a
+DMZ market. The threshold custody being built for launch is Monero wallet multisig and a transparent P2SH k-of-n on
+Zcash (Y3-1, Y3-2). This is now the product's main risk, and its mainnet blockers are YB-1 to YB-25 there.
 wXMR / wZEC / wSOL are backed by coins held under keys that are not the DERO contract. k colluding signers can steal
 or freeze the reserve; fewer than k can only stall. The DERO side bounds the damage (`cap`, once-only ids, bonds,
 slash, halt; see research/wrapper/README.md (security review)) and `SetViewKey` (k votes) publishes the foreign
