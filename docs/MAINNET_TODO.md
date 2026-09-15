@@ -76,7 +76,7 @@ they win.
 | Y4-3 | The private DERO testnet redeployed with the final contracts; testnetcheck day 0 | coordinator | open | day 0 PASS |
 | Y4-4 | `tools/check.sh`, every step green | coordinator | open | — |
 | **Y5** | **The security audit (the final stretch)** | | | |
-| Y5-1 | A multi-agent adversarial audit that loops until it finds nothing new, over: the contracts; vaultsigner, both backends and the coordination; the app (XSS and CSP, profile parsing, links, transaction confirmation, phishing surfaces); deployment and supply chain; economics (fee routing, auction and vote manipulation) | workflow | open | two dry rounds in a row |
+| Y5-1 | **Round 1 done 2026-09-15** (`docs/audit/AUDIT_2026-09-15.md`): 44 confirmed findings in the stable contracts and the app seam, 2 High (AUD-15-01 a pool's first AddLiquidity can be front-run to set its price; AUD-15-02 the treasury bot trusts any registry entry and can be drained into the pass), 11 Medium, 22 Low, 9 Info. The loop did not reach two dry rounds. Fixes are tracked per finding. A multi-agent adversarial audit that loops until it finds nothing new, over: the contracts; vaultsigner, both backends and the coordination; the app (XSS and CSP, profile parsing, links, transaction confirmation, phishing surfaces); deployment and supply chain; economics (fee routing, auction and vote manipulation) | workflow | open | two dry rounds in a row |
 | Y5-2 | Every confirmed finding fixed with a regression test, then audited again | coordinator and agents | open | — |
 | Y5-3 | The external review package brought up to date: the contracts, the vault, and the multisig use | ext | open | sent |
 | Y5-4 | The verdict in `MAINNET_SECURITY_GATE.md` rewritten | coordinator | open | — |
