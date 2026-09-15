@@ -632,6 +632,68 @@ votes     <f>c_<kb>_<ch>   <f>v_<kb>_<s>   <f>d_<kb>
 Every attacker-controlled string in a key is either last or fixed-length, and every variable-length field is
 preceded by a numeric or fixed-length one, so no two logical tuples can produce the same key.
 
+## promo.bas — paid visibility, one auction per asset
+
+Projects compete for a few highlighted slots per epoch; the highest bids win the next epoch. No owner, admin, moderator
+or setter: `InitializePrivate(slots, epoch, minbid, incbps, treasury, quote)` fixes all six, and refuses `slots` outside
+1–10, `epoch` outside 20–1,000,000 blocks, `minbid` outside 1–10^13, `incbps` outside 1–10,000, an invalid treasury, a
+`quote` that is neither `""` nor 64 hex characters (or is the contract's own id), and anything attached.
+
+- **The quote** is the one asset bids, refunds and proceeds are in: `""` for DERO, or the SCID of a DERO-chain asset,
+  taken as `nfa.bas` takes its quote (in the DVM `ASSETVALUE(zero id)` is `DEROVALUE()`, so a DERO auction runs the same
+  code). Bids in different assets cannot be ranked against each other without a price oracle, and there is none, so
+  another asset is another install. The runbook installs a **wXMR** auction: simdeploy's `-promo-quote` defaults to the
+  record's current XMR vault and refuses to install without one (`-promo-quote dero` or `<scid>` names another). Its
+  defaults are 3 slots, 4,800 blocks (a day at 18 s), 500 bps, and a minimum of 0.01 of the wrapped coin from its
+  decimals in the record (1 DERO for a DERO auction); on the simulator an epoch of 40 blocks and a minimum of 100 units
+  (0.1 DERO). Whether to add wZEC and DERO auctions: not at launch. Each would be a second set of slots the app has no
+  rule to merge with the first, and a wZEC one splits the same bidders across two federation-backed assets. A DERO
+  auction is the fallback if the vault is not live when promotion opens, since nobody can bid wXMR without it.
+
+- **Epochs.** Epoch N is `BLOCK_HEIGHT() / epoch`. A bid placed in N competes for display in N + 1, and when N ends its
+  standing bids are N + 1's winners with no call: the app reads them from storage (`ep_<i> = N`).
+- **Two banks of K slots**, bank = epoch % 2, slot i = bank × K + j. Bids in N write only bank N % 2, so the bids on
+  display during N (bank (N − 1) % 2) are never overwritten while they are shown.
+- **`Bid(target, ep, raise)`**, ring 2 (the bid records `SIGNER()` to refund it). `target` is any 32-byte id (an `H`
+  argument); the contract judges no target. `ep` must be the current epoch: a transaction executes up to ~10 blocks
+  after it is built, and a bid built at an epoch's end would otherwise land in the next competition. `raise 0`: at
+  least `minbid`; it takes a free slot of the bank (empty, or holding a bid from N − 2 or earlier, whose bid then moves
+  into `pr`), or else must reach `lowest + bps(lowest, incbps)`, and at least `lowest + 1`, and displaces the lowest,
+  whose DERO goes back to its bidder in the same call as the call's only transfer. Ties: among equal lowest bids the
+  latest placed (highest `sq_`) is displaced. A bidder already standing for `target` this epoch must raise instead.
+  `raise 1`: adds any amount to the caller's own standing bid for `target`; it displaces nobody. DERO attached to an
+  auction in another asset is refused.
+- **No signer (ring > 2).** There is nobody to record or refund, so the quote attached to such a `Bid` is credited to
+  the proceeds (`pr`, counted in `sx`) and reaches the treasury, rather than staying in the contract unaccounted. DERO
+  attached above ring 2 to an auction in another asset is the one thing that stays: nothing here can pay DERO out.
+- **`ClaimProceeds()`**, anyone, any ring size. A bid whose epoch has ended is final: it can no longer be displaced or
+  refunded. The call sweeps every final bid not yet counted (`cl_ 0 → 1`), adds `pr`, and pays the total to the
+  treasury, in the quote, and to nobody else, as its only transfer. It refuses anything attached when there is a signer
+  to refund, and refuses when there is nothing to pay. `fc` counts everything it has paid; only it moves `fc`, only
+  upward (rule 4b).
+- **Every call is O(K)**: `Bid` reads one bank's K slots, `ClaimProceeds` the 2K. **Conservation**, in the quote (checked
+  after every call of `TestPromoConservationFuzz`, for wXMR and DERO auctions): `bi + sx = rf + fc + pr + held`, and the
+  quote balance = `pr + held`, where held is the sum of `bd_` over slots whose `cl_` is 0.
+- **What the app shows** (`app/promo.js`). The bid asset as "Bids in wXMR (XMR, wrapped 1:1)", or DERO; an auction in
+  any other asset is not shown. A winner is shown only if its target is a listed, verified DMZ market or NFA, labelled
+  "Promoted" (paid), never "endorsed" or "verified"; the bid form warns before a bid for any other id.
+  `V.promo.slots()`, `V.promo.statusOf(scid)` and `V.promo.asset()` are what other screens read.
+- **The money.** The treasury's bot claims the proceeds (`tools/treasurybot/promo.go`, journaled and proven by `fc`)
+  and owes the Founders Pass `share` bps of them in the quote, deposited with `Deposit(asset)` like every other fee
+  asset. No contract forces that. The XMR behind wXMR is held by the vault's federation, not by this contract.
+- **The node's gas estimator runs a contract at `BLOCK_HEIGHT()` 0**, where `Bid`'s epoch check refuses and no bid is
+  final, so both calls are sent with a fixed fee (the app and the bot use 1,000).
+
+Keys: `kind slots epoch minbid incbps treasury quote initd sq pr fc bi rf sx`; slot i: `tg_<i>` target (raw 32 bytes)
+`bd_<i>` bid `by_<i>` bidder (raw) `ep_<i>` epoch placed `sq_<i>` order `cl_<i>` swept.
+
+Measured by `tests/promo_test.go` (go1.26.8): 9,076 source bytes, 4,120 installed; install at the mainnet shape
+**4,444 storage gas** and 507,000 compute as a wXMR auction, 4,373 and 466,200 as a DERO one. Per call, a wXMR auction
+with 3 slots (storage / compute): a bid into a free slot 242 / 645,600, a displacing bid 265 / 882,200, a raise 174 /
+563,000, ClaimProceeds over 6 slots 135 / 754,200 (DERO: 237, 257, 169, 132, same compute); with 10 slots 305 /
+1,219,600, 329 / 1,456,200, 237 / 1,137,000 and 219 / 1,798,600. Canonical sha256
+`3a6c297047da732d07e698df0ba8337127f2a46c31abf7816e2e6ad1ad8b407d`.
+
 ## Rules every contract here follows (each one paid for by a bug)
 
 1. **Initialisation runs once.** `Initialize`/`InitializePrivate` stay callable after install on the real DVM;

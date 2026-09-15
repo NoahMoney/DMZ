@@ -12,6 +12,7 @@
     "swap": "",
     "board": "",
     "rate": "",
+    "promo": "",
     "zecTreasury": "",
     "xmrTreasury": "",
     "feeBps": 50,
@@ -52,6 +53,7 @@
     "swap": "8d951df3decb1045cb34f67f62e0b6789da50f0507e453888b7f565545802a8f",
     "board": "894af60be95f2c861d18dd91ed024430b2ae7fdf7d01c30699babbf9c86611ce",
     "rate": "850b0f19f3e9f929bb7881c12866534da1467a0e290230b70a3088fb66899a97",
+    "promo": "9b3ce8718323d032cebf6813de0bae16b4fdae760108f2d36af2e6bad770cfa2",
     "zecTreasury": "tmBMAUrFTiA6SZPrXuXyf4EYZsdhN8shfm9",
     "xmrTreasury": "49gDG5A67nhDdNmb2JzZ6yYhMrisuHqps3hyawkCo2hv7mJ5RBta8nCecZknbkpLPjazSqZ8yxaW7FmPod28isG3StWYkFK",
     "treasuries": [
@@ -104,6 +106,10 @@
           "832908cfd03bec9699528b78f993c9c629eec255e33a0670d8fa3bfe60f35641",
           "33a126a8da585b38ada886d1c62b67dde05d87335a925ebdc3f52b205327f5b0"
         ]
+      },
+      "promo": {
+        "sha256": "3a6c297047da732d07e698df0ba8337127f2a46c31abf7816e2e6ad1ad8b407d",
+        "legacy": null
       }
     },
     "tela": {
@@ -123,6 +129,7 @@
     "swap": "8ccee4e2b81df67866c4f076ff3af8dc1d1feea104bc6fd9bc3a87eb50b3c4fa",
     "board": "955bcb40b99101c1a3712e8167657222337c8cccbc8867816897962cee69cbc9",
     "rate": "",
+    "promo": "",
     "zecTreasury": "",
     "xmrTreasury": "",
     "treasuries": [

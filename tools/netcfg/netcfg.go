@@ -58,6 +58,10 @@ type Network struct {
 	Board string `json:"board"` // contracts/board.bas: the Zcash market's offers
 	// Rate is contracts/rate.bas, community sentiment (app/sentiment.js): no owner, a fee per vote fixed at install.
 	Rate string `json:"rate"`
+	// Promo is contracts/promo.bas, paid visibility bid in one asset (the runbook's is wXMR): the asset, slots, epoch,
+	// minimum bid and increment are fixed at install, and its proceeds are claimable by anyone and paid only to the
+	// treasury it names. One auction per network. Empty: not deployed on this network.
+	Promo string `json:"promo"`
 	// ZecTreasury is the transparent Zcash address (P2PKH or P2SH: t1…/t3… on mainnet, tm…/t2… on testnet, and on
 	// regtest through the simulator's block) that the maker's claim in a transparent-Zcash swap pays the 0.5 % swap
 	// fee to (tools/zecswap, docs/ZEC_SWAP.md §7). Empty or invalid on mainnet, the companion refuses to start a swap.
@@ -190,7 +194,7 @@ func ConfigJS(name string, n *Network, generator string) string {
 	if len(n.Chat) == 64 {
 		vault += fmt.Sprintf("  chat: %q,\n", n.Chat)
 	}
-	for _, c := range []struct{ k, v string }{{"htlc", n.Htlc}, {"swap", n.Swap}, {"board", n.Board}, {"rate", n.Rate}} {
+	for _, c := range []struct{ k, v string }{{"htlc", n.Htlc}, {"swap", n.Swap}, {"board", n.Board}, {"rate", n.Rate}, {"promo", n.Promo}} {
 		if len(c.v) == 64 {
 			vault += fmt.Sprintf("  %s: %q,\n", c.k, c.v)
 		}

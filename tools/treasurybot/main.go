@@ -151,6 +151,7 @@ func main() {
 	}
 	var ch chain = &deroChain{c: c, me: me, founders: founders}
 	nfaTpl, oc = nfaTemplates(string(src)), &deroChain{c: c, me: me, founders: founders}
+	promoScid, promoTpl, pro = cfgValue(string(src), "promo"), promoTemplates(string(src)), &deroChain{c: c, me: me, founders: founders} // promo.go
 	if dry {
 		ch = dryChain{ch}
 		oc = dryOwed{oc}
@@ -205,6 +206,7 @@ func sweep(c *rpc.Client, factory, me string, share, minUnits uint64, jn *journa
 				fmt.Printf("dry run: would claim %d of %s… and %d of %s… from %s…\n", fd, m.quote[:8], fa, m.asset[:8], m.scid[:8])
 			}
 		}
+		promoPass(jn, ch, me, minUnits)
 		printOwed(jn, share, ch.Registered())
 		return
 	}
@@ -220,6 +222,7 @@ func sweep(c *rpc.Client, factory, me string, share, minUnits uint64, jn *journa
 			fmt.Printf("%s claimed %d of %s… and %d of %s… from %s…\n", time.Now().Format("15:04:05"), qd, m.quote[:8], ad, m.asset[:8], m.scid[:8])
 		}
 	}
+	promoPass(jn, ch, me, minUnits) // promotion proceeds: owed to the passes in the auction's asset, like a market fee (promo.go)
 	hst := ch.Registered()
 	if err := jn.depositShare(ch, share); err != nil {
 		log.Fatalf("deposit: %v", err)

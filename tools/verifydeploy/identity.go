@@ -34,6 +34,7 @@ func recordContracts(n *netcfg.Network) []struct{ label, scid string } {
 		{"factory", n.Factory}, {"social", n.Social}, {"founders", n.Founders}, {"chat", n.Chat},
 		{"htlc", n.Htlc}, {"swap", n.Swap}, {"board", n.Board},
 		{"rate", n.Rate},
+		{"promo", n.Promo},
 	}
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -376,6 +377,38 @@ var roleTable = []kindSpec{
 		Roles: []roleSpec{
 			fixedRole("aw", []string{"aw"}, []string{"Initialize"}, []cite{c("board.bas", 27, `STORE("aw", 200)`), c("board.bas", 88, `STORE("ad_" + id, BLOCK_HEIGHT() + LOAD("aw"))`)}, "written only at install"),
 			initGuard("board.bas", 23, guardText, 28, `STORE("initd", 1)`, "Initialize"),
+		},
+	},
+	{
+		// promo.bas, paid visibility. No owner, admin or moderator: the treasury only receives what ClaimProceeds pays,
+		// which anyone may send, and the four terms are written by InitializePrivate alone.
+		Kind:  "promo",
+		About: "no owner, admin or moderator: bids in one asset compete for fixed slots per epoch, an outbid bid is refunded in the same call, and the winners' bids are paid only to the treasury, by ClaimProceeds, which anyone may call",
+		Roles: []roleSpec{
+			payeeRole("treasury", "treasury", []string{"InitializePrivate"},
+				[]cite{c("promo.bas", 64, `STORE("treasury", t)`), c("promo.bas", 169, `SEND_ASSET_TO_ADDRESS(LOAD("treasury"), a, q)`)},
+				"receives the proceeds through ClaimProceeds (line 53), which anyone may call; cannot act; fixed for ever"),
+			fixedRole("terms", []string{"slots", "epoch", "minbid", "incbps"}, []string{"InitializePrivate"},
+				[]cite{c("promo.bas", 60, `STORE("slots", slots)`), c("promo.bas", 61, `STORE("epoch", epoch)`), c("promo.bas", 62, `STORE("minbid", minbid)`),
+					c("promo.bas", 63, `STORE("incbps", incbps)`), c("promo.bas", 88, `LET cur = BLOCK_HEIGHT() / LOAD("epoch")`), c("promo.bas", 119, `v < LOAD("minbid")`),
+					c("promo.bas", 127, `bps(lb, LOAD("incbps"))`)},
+				"written only at install"),
+			{
+				// the one asset bids, refunds and proceeds are in: DERO (the zero id) or a DERO-chain asset such as wXMR
+				Role: "quote", Keys: []string{"quote"}, Policy: pFixed, Writers: []string{"InitializePrivate"},
+				Cites: []cite{c("promo.bas", 57, `LET q = HEXDECODE(quote)`), c("promo.bas", 65, `STORE("quote", q)`), c("promo.bas", 82, `LET q = LOAD("quote")`), c("promo.bas", 150, `LET q = LOAD("quote")`)},
+				Eval: func(v vars) (string, bool, string) {
+					b, ok := v.raw("quote")
+					switch {
+					case !ok || len(b) != 32:
+						return "(unreadable)", false, "the asset bids are made in; written only at install"
+					case strings.Trim(string(b), "\x00") == "":
+						return "DERO", false, "bids, refunds and proceeds are in DERO; written only at install"
+					}
+					return hex.EncodeToString(b), false, "bids, refunds and proceeds are in this DERO-chain asset; written only at install"
+				},
+			},
+			initGuard("promo.bas", 48, guardText, 72, `STORE("initd", 1)`, "InitializePrivate"),
 		},
 	},
 	{

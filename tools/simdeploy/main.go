@@ -7,6 +7,8 @@
 //	-migrate-from <old factory>             # install a new factory and re-register the old one's listings on it
 //	-legacy launch:<sha256>,pool:<sha256>   # older template hashes the app should still accept (simulator history)
 //	-revoke launch:<sha256>                 # a hash the app must STOP accepting: the code it names has a defect
+//	-promo <scid>                           # reuse an installed promo.bas; otherwise it is installed as a wXMR auction
+//	-promo-quote dero|<scid> -promo-slots -promo-epoch -promo-minbid -promo-incbps   # its terms (promoParams)
 //
 // The wallets' RPC login, when they ask for one, comes from VEIL_RPC_LOGIN (user:password), the variable netwallet
 // starts them with; simrpc sends it to the wallets only. On -network mainnet simdeploy refuses before its first call
@@ -20,6 +22,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -73,6 +76,14 @@ var (
 	passReserve = flag.Uint64("pass-reserve", 4, "editions minted to the installer at install: at most -pass-max / 5 (4 of 20, MT-J16)")
 	passShare   = flag.Uint64("pass-share", 10000, "the share of the fees the treasury claims that goes to the passes, in bps (10000 = all of it: the operator's ruling of 2026-09-15, at least 5% per registered pass across 20)")
 	passMfee    = flag.Uint64("pass-mfee", 250, "marketplace fee in bps, deposited for the registered passes")
+
+	// promo.bas, paid visibility (contracts/README.md "promo.bas"). 0 and "" take the defaults (promoQuote, promoParams).
+	promoF      = flag.String("promo", "", "reuse an existing promo.bas scid (paid visibility) instead of installing")
+	promoQuoteF = flag.String("promo-quote", "", "promo.bas install argument: the one asset its bids are made in, dero or a 64-hex asset scid (bids in different assets cannot be ranked without a price oracle, so another asset is another install). Default: the record's current XMR vault, a wXMR auction; refused when the record names none")
+	promoSlots  = flag.Uint64("promo-slots", 0, "promo.bas install argument: highlighted slots per epoch, 1 to 10; fixed for the life of the contract (0: 3)")
+	promoEpoch  = flag.Uint64("promo-epoch", 0, "promo.bas install argument: the epoch in blocks, 20 to 1000000 (0: 4800, a day at DERO's 18-second target, on mainnet and testnet; 40 on the simulator)")
+	promoMinBid = flag.Uint64("promo-minbid", 0, "promo.bas install argument: the minimum bid in atomic units of the quote (0: 0.01 of a wrapped coin, from its decimals in the record, or 1 DERO; on the simulator 100 units, or 0.1 DERO). Required for an asset the record does not describe")
+	promoInc    = flag.Uint64("promo-incbps", 0, "promo.bas install argument: the least a new bid must beat the lowest standing bid by, in bps (0: 500 = 5%)")
 )
 
 // passDescrDefault is the Founders Pass description the operator approved for founders.bas v2 (2026-09-15, option B,
@@ -86,6 +97,91 @@ var (
 const passDescrDefault = "Register a pass for a fixed share of DMZ's trading fees, paid in the asset each fee was taken in: " +
 	"DERO, wXMR, wZEC and DERO tokens, deposited into this contract by the treasury's bot. The bot makes each " +
 	"deposit; no contract forces it."
+// errNoXMRVault: -promo-quote is unset and the record has no current XMR vault. simdeploy then installs everything else
+// and leaves promo.bas out (the record keeps "promo": ""), since the runbook installs the vault first; an explicit
+// -promo-quote that cannot be used stops the run instead.
+var errNoXMRVault = errors.New("-promo-quote: the record names no current XMR vault")
+
+// promoQuote resolves -promo-quote against the network's record: the asset id ("" is DERO) and its decimals, -1 when the
+// record does not describe the asset (the minimum bid must then be given). Unset, it is the record's current XMR vault:
+// the runbook deploys a wXMR auction, and installs none when there is no vault to take it from.
+func promoQuote(n *netcfg.Network) (string, int, error) {
+	q := strings.ToLower(strings.TrimSpace(*promoQuoteF))
+	switch {
+	case q == "dero":
+		return "", 5, nil
+	case q == "":
+		if n != nil {
+			for _, v := range n.Vaults {
+				if !v.Legacy && strings.EqualFold(v.Sym, "XMR") && is64hex(v.Scid) {
+					return v.Scid, v.Dec, nil
+				}
+			}
+		}
+		return "", 0, fmt.Errorf("%w for %s, so there is no wXMR to bid in: promo.bas is not installed. Install the vault first and run this again, or pass -promo-quote dero or -promo-quote <asset scid>", errNoXMRVault, *network)
+	case is64hex(q):
+		if n != nil {
+			for _, v := range n.Vaults {
+				if v.Scid == q {
+					return q, v.Dec, nil
+				}
+			}
+		}
+		return q, -1, nil
+	}
+	return "", 0, fmt.Errorf("-promo-quote %q: want dero or a 64-character asset scid", *promoQuoteF)
+}
+
+// promoParams is what promo.bas is installed with, for the quote (and its decimals): each flag, or when it is 0 the
+// default. Mainnet and testnet: 3 slots, an epoch of 4,800 blocks (a day at 18 s), a 5 % increment, and a minimum of 0.01
+// of a wrapped coin (1 DERO for a DERO auction). The simulator's epoch is 40 blocks, so an epoch can be watched end
+// within a session, and its minimum is 100 units (0.1 DERO): its wallets hold a few thousand units of each wrapped asset.
+func promoParams(quote string, dec int) (k, e, minbid, inc uint64) {
+	k, e, inc = 3, 4800, 500
+	sim := *network == "simulator"
+	if sim {
+		e = 40
+	}
+	switch {
+	case quote == "" && sim:
+		minbid = 10000
+	case quote == "":
+		minbid = 100000
+	case dec < 0: // an asset the record does not describe: its scale is unknown, so -promo-minbid must say
+	case sim:
+		minbid = 100
+	case dec >= 2 && dec <= 21:
+		minbid = 1
+		for i := 2; i < dec; i++ {
+			minbid *= 10
+		}
+	}
+	for _, f := range []struct{ v, def *uint64 }{{promoSlots, &k}, {promoEpoch, &e}, {promoMinBid, &minbid}, {promoInc, &inc}} {
+		if *f.v != 0 {
+			*f.def = *f.v
+		}
+	}
+	return
+}
+
+// checkPromoParams refuses, before anything is installed, terms promo.bas InitializePrivate would refuse (its lines
+// 20-21; TestPromoLimitsAreTheContracts holds the two in step).
+func checkPromoParams(quote string, dec int) error {
+	k, e, minbid, inc := promoParams(quote, dec)
+	switch {
+	case minbid == 0 && dec < 0:
+		return fmt.Errorf("-promo-quote %s is an asset the record does not describe: pass -promo-minbid in its atomic units", quote)
+	case k == 0 || k > 10:
+		return fmt.Errorf("-promo-slots is %d; promo.bas takes 1 to 10", k)
+	case e < 20 || e > 1000000:
+		return fmt.Errorf("-promo-epoch is %d; promo.bas takes 20 to 1000000 blocks", e)
+	case minbid == 0 || minbid > 10000000000000:
+		return fmt.Errorf("-promo-minbid is %d; promo.bas takes 1 to 10000000000000", minbid)
+	case inc == 0 || inc > 10000:
+		return fmt.Errorf("-promo-incbps is %d; promo.bas takes 1 to 10000", inc)
+	}
+	return nil
+}
 
 // checkSwapWmin refuses, before anything is installed, a minimum width swap.bas Initialize would refuse
 // (swap.bas line 6, `wmin == 0 || wmin > 1000000`; TestSwapWminBoundsAreTheContracts holds the two in step).
@@ -223,6 +319,28 @@ func main() {
 			os.Exit(2)
 		}
 	}
+	var promoQ string // the promo auction's asset ("" is DERO) and its decimals, resolved before anything is installed
+	var promoDec int
+	skipPromo := false
+	if *promoF == "" {
+		var rec *netcfg.Network
+		if f, err := netcfg.Load(*networks); err == nil {
+			rec = f.Networks[*network]
+		}
+		q, dec, err := promoQuote(rec)
+		if err == nil {
+			err = checkPromoParams(q, dec)
+		}
+		switch {
+		case errors.Is(err, errNoXMRVault):
+			fmt.Println(err)
+			skipPromo = true
+		case err != nil:
+			fmt.Println(err)
+			os.Exit(2)
+		}
+		promoQ, promoDec = q, dec
+	}
 	c := &rpc.Client{Daemon: *daemon, Timeout: *timeout}
 	if testnet, name := c.Info(); (*network == "mainnet") == testnet {
 		fmt.Printf("-network %s but the daemon at %s reports %q (testnet=%v)\n", *network, *daemon, name, testnet)
@@ -268,17 +386,29 @@ func main() {
 			*s.scid, _, _ = c.Send(*w0, owner, read(filepath.Join(*contracts, s.name)), "", nil, s.args)
 		}
 	}
+	// promo.bas holds no role: its terms and treasury are fixed at install and its installer is recorded nowhere.
+	if *promoF == "" && !skipPromo {
+		k, e, minbid, inc := promoParams(promoQ, promoDec)
+		asset := "DERO"
+		if promoQ != "" {
+			asset = "asset " + promoQ
+		}
+		fmt.Printf("installing promo.bas: bids in %s, %d slots, epoch %d blocks, minimum bid %d, increment %d bps\n", asset, k, e, minbid, inc)
+		*promoF, _, _ = c.Send(*w0, owner, read(filepath.Join(*contracts, "promo.bas")), "", nil, []rpc.Arg{
+			rpc.U("slots", k), rpc.U("epoch", e), rpc.U("minbid", minbid), rpc.U("incbps", inc), rpc.S("treasury", treasury), rpc.S("quote", promoQ)})
+	}
 	if *migrate != "" && *migrate != *factory {
 		migrateRegistry(c, owner, *migrate, *factory)
 	}
 	fmt.Printf("factory  %s\nsocial   %s\nfounders %s\nchat     %s\nhtlc     %s\nswap     %s\nboard    %s\nrate     %s\n",
 		*factory, *social, *founders, *chat, *htlcF, *swapF, *boardF, *rateF)
+	fmt.Printf("promo    %s\n", *promoF)
 
 	rpc.Must(os.MkdirAll(filepath.Join(*app, "templates"), 0o755))
 	hashes := map[string]string{}
 	// nfa is the ART-NFA-MS1 asset (contracts/nfa.bas), a fifth template beside nft, which stays the holder badge
 	// under its own key: a market deployed from either keeps verifying against the hash it was made from.
-	for _, k := range []string{"pool", "launch", "nft", "nfa", "founders"} {
+	for _, k := range templateKinds {
 		code := read(filepath.Join(*contracts, k+".bas"))
 		rpc.Must(os.WriteFile(filepath.Join(*app, "templates", k+".bas"), []byte(code), 0o644))
 		hashes[k] = sha(code)
@@ -319,8 +449,9 @@ func parseHashes(spec string) map[string]map[string]bool {
 	return out
 }
 
-// templateKinds are the templates this tool writes, hashes and records.
-var templateKinds = []string{"pool", "launch", "nft", "nfa", "founders"}
+// templateKinds are the templates this tool writes, hashes and records. promo is one so the app can verify the
+// promotion contract's code by hash, as it verifies the pass's; like founders it keeps no legacy hash.
+var templateKinds = []string{"pool", "launch", "nft", "nfa", "founders", "promo"}
 
 // checkHashFlags validates -legacy and -revoke against deploy/networks.json before anything is installed. Every
 // failure here is silent otherwise: a kind nobody reads, a hash nobody matches, a revocation that revokes
@@ -334,6 +465,9 @@ func checkHashFlags(old, rev map[string]map[string]bool) error {
 	}
 	if len(old["founders"]) > 0 {
 		return bad("-legacy founders:...: the founders template keeps no legacy hash; the app reads one pass, with the current contract's keys (docs/FOUNDERS_V2_NOTES.md §1)")
+	}
+	if len(old["promo"]) > 0 {
+		return bad("-legacy promo:...: the promo template keeps no legacy hash; the app reads the one promotion contract config.js names, with the current contract's keys")
 	}
 	for _, m := range []map[string]map[string]bool{old, rev} {
 		for k, hs := range m {
@@ -405,6 +539,7 @@ func record(hashes map[string]string, old, rev map[string]map[string]bool, treas
 	n.Daemon, n.Factory, n.Social, n.Founders, n.Chat = *daemon, *factory, *social, *founders, *chat
 	n.Htlc, n.Swap, n.Board = *htlcF, *swapF, *boardF
 	n.Rate = *rateF
+	n.Promo = *promoF
 	n.FeeBps, n.PfeeBps, n.LaunchPfeeBps = 50, 5000, 5000
 	// GAP-005: the treasury set config.js ships, current first, in the spelling a contract writes. A market keeps
 	// the treasury it was installed with, so an earlier one stays in the set the way a legacy template hash does.
@@ -422,6 +557,12 @@ func record(hashes map[string]string, old, rev map[string]map[string]bool, treas
 	}
 	for k, h := range hashes {
 		prev := n.Templates[k]
+		// The promo template keeps no legacy hash, as founders: the app reads the one promotion contract config.js
+		// names, with the key layout of the current contracts/promo.bas.
+		if k == "promo" {
+			n.Templates[k] = netcfg.Template{Sha256: h}
+			continue
+		}
 		// The founders template keeps no legacy hash (docs/FOUNDERS_V2_NOTES.md §1). The app reads exactly one pass,
 		// the one config.js names, with the key layout of the current contracts/founders.bas: an earlier hash left in
 		// the record would let a v1 pass verify as "founders" and be read with v2's keys. So a changed founders

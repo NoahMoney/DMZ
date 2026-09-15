@@ -26,3 +26,5 @@ import "./merge.regress.test.mjs";
 import("./move.test.mjs");
 // the data layer at scale: refresh planner, backoff, localStorage LRU, incremental registry and decorate
 import("./perfscale.test.mjs");
+// the promotion auction (app/promo.js): the contract's increment and tie rule, and what slots() and statusOf() show
+import("./promo.test.mjs");

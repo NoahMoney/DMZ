@@ -126,6 +126,7 @@ try {
     }
     step(tab + (inBar ? ": " : " (not in the phone bar): ") + tt.slice(0, 90));
   }
+  if (process.argv.includes("--promo")) await (await import("./promo.mjs")).run({ browser, url, out, step, fail, as: (process.argv.find((a) => a.startsWith("--as=")) || "").slice(5) });
   // a holder-NFT collection page when the simulator has one
   const nftId = await page.evaluate(() => { const n = [...window.Veil.data.nfts.keys()]; return n.length ? n[0] : null; });
   if (nftId) { await page.evaluate((s) => { location.hash = "#nft/" + s; }, nftId); await sleep(1500); await shot("02b-nft"); const nt = await text(); if (!/Public accounting/.test(nt)) fail("nft page missing accounting card: " + nt.slice(0, 160)); step("nft page: " + nt.slice(0, 80)); }
