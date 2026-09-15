@@ -41,7 +41,7 @@
           : !open ? "Minting opens at block " + f.start + "."
           : (f.maxsupply - f.minted) + " of " + f.maxsupply + " left at " + dero(f.price) + " each.")),
       // no image is fetched from the creator's host: the app makes no request but to your node and your wallet
-      h("div", { class: "stats4 mt" }, stat("Minted", f.minted + " / " + f.maxsupply), stat("Mint price", dero(f.price)), stat("Registered", f.hst + " / " + f.minted), stat("Fee assets", String(f.assets.length))),
+      h("div", { class: "stats4 mt" }, stat("Minted", f.minted + " / " + f.maxsupply), stat("Mint price", dero(f.price)), stat("Share", N(f.share) / 100 + "%"), stat("Fee assets", String(f.assets.length))),
       f.descr ? h("div", { class: "note mt8" }, f.descr) : null,
     ];
   }

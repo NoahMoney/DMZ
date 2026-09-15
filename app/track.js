@@ -122,7 +122,7 @@
       return h("div", { class: "card mt" }, h("div", { class: "label" }, "Pair with your swap program"),
         h("div", { class: "note mt8" }, "The " + name + " side of a swap is visible only to your own " + program + ". Started with -status 127.0.0.1:PORT, it answers this page on your machine only, with the stages of its swap; " +
           "it prints a one-time pairing code, and without that code it answers nothing. The code stays in this tab (sessionStorage), never in localStorage, and is sent only to 127.0.0.1. " +
-          "The answer never carries a key or a secret. The -status flag is specified in docs/SWAP_STATUS.md and is not yet built into " + program + "."),
+          "The answer never carries a key or a secret (docs/SWAP_STATUS.md)."),
         h("div", { class: "row mt8", style: "gap:8px" }, port, code, button("Pair", "small", () => {
           const n = N(port.value.trim()), c = code.value.trim().toLowerCase();
           if (!Number.isInteger(n) || n < 1024 || n > 65535) return toast("The port is a number from 1024 to 65535.", "err");

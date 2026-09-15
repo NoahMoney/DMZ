@@ -64,9 +64,9 @@ over XSWD on `localhost`. It never sees a key, never proxies a transaction, and 
 
 Both swap screens label each swap a **deposit** (XMR or ZEC in, a DERO-side asset out) or a **withdrawal** (the
 reverse), and track its stages: the lock's depth, the window open now and the next deadline. On its own the app
-sees only the DERO side. Paired with the user's own swap program, over a loopback port and a one-time code
-(`docs/SWAP_STATUS.md`), it is to show the Monero or Zcash stages too. **The swap programs do not serve that port
-yet**, so today the foreign-chain stages are in the swap program's own output.
+sees only the DERO side. Started with `-status 127.0.0.1:PORT`, `xmrswap` and `zecswap` print a one-time pairing
+code and answer the app on that machine only, read-only and without any key or secret (`docs/SWAP_STATUS.md`).
+Paired, the app shows every stage of the deposit or withdrawal, its confirmations and its next deadline.
 
 On mainnet the TELA INDEX that serves the application is installed at ring size 16, so its owner is recorded as
 `anon` and no key can update it; `tools/verifydeploy` checks that on chain. A new version is a new INDEX with its
