@@ -41,6 +41,8 @@ type world struct {
 	firstFund   bool
 	cfgHook     func(role string, c *Config)
 	zcFor       map[string]*fakeZcash
+	// onSave, when set, runs at every save of either side, with the phase saved (statusv1_test.go)
+	onSave func(role, phase string)
 }
 
 func newWorld(t *testing.T, seed int64) *world {
@@ -102,6 +104,9 @@ func (w *world) config(role string) Config {
 
 func (w *world) crashFn(role string) func(string) bool {
 	return func(phase string) bool {
+		if w.onSave != nil {
+			w.onSave(role, phase)
+		}
 		if w.crashOnce[role][phase] {
 			delete(w.crashOnce[role], phase)
 			return true

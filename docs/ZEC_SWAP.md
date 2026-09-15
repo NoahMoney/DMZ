@@ -413,6 +413,18 @@ provided, with the answer to "what does this provide that a smaller primitive ca
   the DERO after `T_dero` and can still spend the ZEC with `s` at any later time. The six hours between `cltv`
   and `T_dero` are the taker’s whole margin.
 
+- **`-status 127.0.0.1:PORT`** (off by default) serves the swap's stages to the DMZ app on the same machine
+  (docs/SWAP_STATUS.md). It serves on 127.0.0.1 only, behind a Host check and a one-time pairing code printed once
+  to standard error. The stages are:
+  - the offer, the accept and the DERO lock;
+  - the Zcash funding and the maker's claim, each with its confirmations against C_zec;
+  - the DERO Claim;
+  - when it comes to that, the refunds.
+
+  Each carries its txid and its deadline: a DERO height, or a Zcash height with the companion's estimate of when (none
+  on regtest). The answer never carries the secret, the taker's copy of it, or a key (`tools/zecswap/statusv1.go`,
+  `statusv1_test.go`). Once the swap ends its outcome stays served for ten minutes, or until the program is stopped.
+
 ## 8. The screen
 
 - **Market list** — the board, read from `board.bas`: for each open offer the asset, the amount, the price in

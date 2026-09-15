@@ -29,9 +29,14 @@ func Reconcile(ctx context.Context, st *State, d Dero, w Wallet) Report {
 	if st.Outcome != "" {
 		add("outcome: %s", st.Outcome)
 	}
-	add("terms: %d atomic units of %s for %d piconero on %s; stipend %d; t1 %d, t2 %d", st.Terms.AmountDero, assetName(st.Terms.Asset), st.Terms.AmountXmr, st.Terms.Net, st.Terms.Stipend, st.Lock.T1, st.Lock.T2)
+	add("terms: %d atomic units of %s for %d piconero on %s; stipend %d; t1 %d, t2 %d", st.Terms.AmountDero, assetName(st.Terms.Asset), st.Terms.AmountXmr, moneroNetName(st.Terms), st.Terms.Stipend, st.Lock.T1, st.Lock.T2)
 	if st.Stipend.Tx != "" {
-		add("stipend: %d, tx %s (height %d)", st.Stipend.Amount, st.Stipend.Tx, st.Stipend.Height)
+		// F-3 (X-04): the maker records the stipend he sent by its txid alone, and a height of 0 is not a block
+		mined := "mined height not recorded"
+		if st.Stipend.Height > 0 {
+			mined = fmt.Sprintf("mined at height %d", st.Stipend.Height)
+		}
+		add("stipend: %d, tx %s (%s)", st.Stipend.Amount, st.Stipend.Tx, mined)
 	}
 
 	allowed, expected := lockStatesFor(st)
@@ -53,8 +58,13 @@ func Reconcile(ctx context.Context, st *State, d Dero, w Wallet) Report {
 			add("chain: lock %d could not be read (%v): not compared", st.Lock.ID, err)
 		default:
 			lock, haveLock = l, true
-			h, _ := d.Height(ctx)
-			add("chain: lock %d is %s at height %d (t1 %d, t2 %d, %d of %s)", l.ID, lockStateName(l.State), h, l.T1, l.T2, l.Amount, assetName(l.Asset))
+			// F-1 (X-04): the height is the daemon's, read now, and not the lock's: the contract does not store the block
+			// a lock was mined in
+			tip := "could not be read"
+			if h, herr := d.Height(ctx); herr == nil {
+				tip = fmt.Sprintf("is at height %d", h)
+			}
+			add("chain: lock %d is %s (t1 %d, t2 %d, %d of %s); the daemon %s", l.ID, lockStateName(l.State), l.T1, l.T2, l.Amount, assetName(l.Asset), tip)
 			if !allowed[l.State] {
 				bad("the state file says %q, and the chain says lock %d is %s: run the companion to catch up, or look at why it stopped", st.Phase, l.ID, lockStateName(l.State))
 			}
@@ -260,6 +270,16 @@ func lockStateName(s uint64) string {
 		return "reclaimed"
 	}
 	return fmt.Sprintf("in state %d", s)
+}
+
+// moneroNetName is the swap's Monero network as the operator would name it (F-2, X-04). A regtest chain uses mainnet's
+// address form, so the terms record "mainnet" for it; the command line runs regtest only against the DERO simulator and
+// never pairs Monero mainnet with it, so that pair is regtest.
+func moneroNetName(t Terms) string {
+	if t.Net == Mainnet.String() && t.DeroNet == "simulator" {
+		return "regtest (mainnet-form addresses, against the DERO simulator)"
+	}
+	return t.Net
 }
 
 func or0(s string) string {

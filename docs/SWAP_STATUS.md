@@ -1,9 +1,10 @@
 # The swap status contract: a companion tells the app where its swap stands
 
-**State: the app half is built** (`app/track.js`, used by `app/xmr.js` and `app/zswap.js`); **the companion half is
-not.** Neither `tools/xmrswap` nor `tools/zecswap` has a `-status` flag yet. This file is what they are to be built
-to. Until then the app shows the DERO-side stages it reads from the chain, and says that the Monero or Zcash side is
-visible only to the user's own swap program.
+**State: both halves are built.** The app half is `app/track.js`, used by `app/xmr.js` and `app/zswap.js`. The
+companion half is `-status 127.0.0.1:PORT` in `tools/xmrswap` and `tools/zecswap`, on the shared package
+`tools/swapstatus` (§8). Unpaired, the app shows the DERO-side stages it reads from the chain, and says that the Monero
+or Zcash side is visible only to the user's own swap program. The app's pairing form still says the flag "is not yet
+built" (`app/track.js:125`); that sentence is the app's to change.
 
 ## 1. Why
 
@@ -118,3 +119,74 @@ count that is not a whole number, an unknown state, a deadline on an unknown cha
 `tools/uitest/statusstub.mjs` is a stub status server that exists only for the UI pass: it serves a fixture behind the
 same Host check, code and preflight, and the pass checks those gates (401 with no body, 403 for a foreign Host)
 before it pairs both swap screens with it. It is never shipped in `app/`.
+
+## 8. The companions, as built
+
+This section adds to the contract above and changes none of it.
+
+**The flag.** `xmrswap bob|alice ... -status 127.0.0.1:PORT` and `zecswap maker|taker ... -status 127.0.0.1:PORT`.
+It is off unless given. It is refused with the other flags, before any node is contacted, unless the host is exactly
+`127.0.0.1` and the port is from 1024 to 65535; `localhost`, `0.0.0.0`, `::1` and every other address are refused.
+A bind that fails stops the companion before the swap takes a step.
+
+**The code.** 16 bytes from `crypto/rand`, as 32 lower-case hex characters, new at every start. It is printed once,
+to the companion's standard error, with the port and what the code is for, and is never written to a file or a log by
+the program. An operator who redirects standard error to a file puts the code there; it is worth nothing once the
+program has stopped.
+
+**The server** (`tools/swapstatus/server.go`) follows §3 in order:
+- a Host that is not `127.0.0.1:PORT` or `localhost:PORT` gets 403;
+- `OPTIONS` gets 204 with the CORS headers of §3, and `Access-Control-Allow-Private-Network: true` when asked;
+- any other method, any other path, or any query gets 404;
+- a missing, wrong or repeated `Authorization` gets 401, compared with `crypto/subtle`;
+- before the first answer, or after an answer that breaks the contract, 503;
+- otherwise 200 with the answer.
+
+Every refusal has no body. Every answer carries `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`. The
+server has read, write and header timeouts, an 8 KiB header limit, and an error log that goes nowhere.
+
+**The answer** is built after every pass of the swap, in the goroutine that runs it, from the state file's own
+record, the configuration and the DERO height the companion last read. It reads nothing more and invents nothing:
+- A value the companion does not know is left out, or is `null`: the lock before it exists, a count nobody has read,
+  a deadline before its height is decided.
+- **The fee.** It is checked against the contract before it is served (`Payload.Validate`, the app's own rules), and
+  an answer that fails is not served. It is the 0.5 % the maker's companion pays: `SwapFee` of the XMR, or of the
+  Zcash funding. It is "0" where the record names no treasury, or where zebrad's dust rule leaves the Zcash fee
+  output out.
+- **DERO depths** (`conf` against `need` 8, DERO's stable depth) are counted from the height at which the companion
+  first read the lock, the stipend, the Claim, the Refund, the Punish or the Reclaim. That height is at or above the
+  block, so the count is never more than the truth.
+- **Monero confirmations** are what the maker's gate last counted at the joint address, against his `-confs`. The
+  taker's companion reads no Monero confirmations, so hers are `null`.
+- **Zcash confirmations** are counted from the highest tip the swap has read, and from the block the funding or the
+  claim was last seen mined in.
+- **The estimate** in a deadline's `eta` is the blocks left at the chain's target spacing: 18 s for DERO, 75 s for
+  Zcash. There is none on the DERO simulator, none on Zcash regtest, where blocks come when mined, and none before a
+  tip is read.
+- A deadline is given only on a step still to happen.
+- `txid` is a transaction's id once the companion has one. It is never an assumed one: xmrswap's
+  "(… txid not recorded)" becomes "".
+- `next` is a fixed sentence per phase. It never quotes the state's `outcome` or `note`, which can quote an error.
+
+**Nothing secret is read into the answer.** For xmrswap that means no key share, gate secret, view key, joint
+password, share read back from the chain or channel key. For zecswap it means neither the maker's secret nor the
+taker's copy of it, and no key. `statusv1_test.go` in both programs covers this in two ways. First, it builds the
+answer at every save of the crash fuzz's fake worlds, with and without process deaths, on every exit, plus a refusal,
+and looks for each of those values in it. Second, it builds the answer for every phase of both machines from a state
+that holds them all. It then runs every answer through `app/track.js` with `tests/js/statuscheck.mjs`.
+
+**The outcome.** The contract has no word for a swap that ended with nothing locked or funded: refused, cancelled,
+expired, walked, declined, taken, a funding that expired unmined, or a maker who took his DERO back before any XMR
+moved (xmrswap `aborted`). Each side has what it started with, so the answer says `refunded`, and `next` says that
+nothing moved. Other cases:
+- A zecswap maker who claimed the ZEC and also had his DERO refunded (`claimed_refunded`) is `refunded`, and `next`
+  says he has both.
+- An xmrswap maker whose sweep did not finish (`sweep_unknown`) is `swapped`, with the sweep step failed: the Claim
+  is stable and the XMR is his.
+- An xmrswap taker whose recovery sweep did not finish is `refunded`, with that step failed.
+
+A later version of the contract could add a distinct word for each; the app refuses any outcome it does not know,
+so version 1 cannot.
+
+**After the end** the companion keeps serving the final answer for ten minutes (`swapstatus.Linger`), or until it is
+stopped, so that a screen asking every 10 s reads the outcome. Then it exits as before.

@@ -78,8 +78,35 @@ import (
 	"syscall"
 	"time"
 
+	"veil/tools/swapstatus"
 	"veil/tools/zecswap"
 )
+
+// tipDero is this party's own DERO client, noting the last height the swap read through it, for the -status answer
+// only: the answer's DERO deadlines are estimated from it, and nothing else is read for them.
+type tipDero struct {
+	zecswap.Dero
+	tip uint64
+}
+
+func (d *tipDero) Height(ctx context.Context) (uint64, error) {
+	h, err := d.Dero.Height(ctx)
+	if err == nil {
+		d.tip = h
+	}
+	return h, err
+}
+
+// appNetwork is the DERO network as the app names it: mainnet, the simulator, or a test network.
+func appNetwork(testnet bool, name string) string {
+	switch {
+	case !testnet:
+		return "mainnet"
+	case strings.EqualFold(name, "simulator"):
+		return "simulator"
+	}
+	return "testnet"
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -190,7 +217,13 @@ func run(role string, args []string) {
 	refundFile := fs.String("refund-file", "", "taker: where the pre-signed refund is written (default: beside the state file)")
 	networks := fs.String("networks", "deploy/networks.json", "the deployment record, always read: the swap fee's treasury is its zecTreasury for this network, and -board and -escrow default to its entry when omitted (the code at the scid is still checked against the pinned hash)")
 	verifyHeaders := fs.Bool("verify-headers", false, "verify Zcash proof of work (tools/zecspv) before the maker reveals and before the taker funds; skipped on regtest, plumbing only on testnet")
+	statusAddr := fs.String("status", "", "127.0.0.1:PORT: serve this swap's stages to the DMZ app on this machine, behind a one-time pairing code printed at start (docs/SWAP_STATUS.md). Off by default; any host but 127.0.0.1 is refused")
 	fs.Parse(args)
+	if *statusAddr != "" {
+		if _, err := swapstatus.ParseAddr(*statusAddr); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if *keyFile == "" || *wallet == "" || len(n.daemons) == 0 {
 		log.Fatal("-key, -wallet and -daemon are required")
 	}
@@ -335,20 +368,30 @@ func run(role string, args []string) {
 		cfg.Secret = s
 	}
 	var sw *zecswap.Swap
+	tip := &tipDero{Dero: dero}
 	if role == zecswap.RoleMaker {
 		if cfg.HaveOffer != (cfg.Secret != "") {
 			log.Fatal("a maker adopts an offer with both -offer and -secret-file, or posts a new one with neither")
 		}
-		sw, err = zecswap.NewMaker(cfg, st, dero, zprimary)
+		sw, err = zecswap.NewMaker(cfg, st, tip, zprimary)
 	} else {
 		if !cfg.HaveOffer && st.Phase == "" {
 			log.Fatal("-offer is required")
 		}
-		sw, err = zecswap.NewTaker(cfg, st, dero, zprimary)
+		sw, err = zecswap.NewTaker(cfg, st, tip, zprimary)
 	}
 	if err != nil {
 		log.Fatal(err)
 	}
+	// -status (docs/SWAP_STATUS.md): nothing is served unless asked, and a bind that fails stops the companion here,
+	// before the swap takes a step
+	appNet := appNetwork(testnet, deroNet)
+	feed, err := swapstatus.Start(*statusAddr, func() swapstatus.Payload { return sw.StatusV1(appNet, tip.tip, time.Now()) }, os.Stderr, logf)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer feed.Close()
+	feed.Publish()
 	fmt.Printf("%s: DERO %s (%s), Zcash %s, state %s (phase %q)\n", role, myDero, deroNet, ci.Chain, statePath, st.Phase)
 	for ctx.Err() == nil {
 		if err := lock.touch(); err != nil {
@@ -359,8 +402,10 @@ func run(role string, args []string) {
 		if err != nil && ctx.Err() == nil {
 			log.Printf("%v", err)
 		}
+		feed.Publish()
 		if done {
 			fmt.Printf("%s: %s\n", role, st.Outcome)
+			feed.Linger(ctx, swapstatus.Linger)
 			return
 		}
 		if sw.Phase() == before {

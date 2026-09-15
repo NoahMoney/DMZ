@@ -412,6 +412,14 @@ outputs to test, so the scan there is slower in proportion, and it has not been 
 and names every divergence: a state that says open where the chain says refunded, a lock whose fields are not the
 ones recorded, a joint address that has received less than the swap acted on (`tools/xmrswap/status.go:20`).
 
+`-status 127.0.0.1:PORT` (off by default) serves the swap's stages to the DMZ app on the same machine
+(docs/SWAP_STATUS.md). It serves on 127.0.0.1 only, behind a Host check and a one-time pairing code printed once to
+standard error. Each stage is a step: the maker's DERO lock and stipend, the XMR at the joint address with the
+confirmations the maker's gate counted, the gate, the Claim, the sweep, and, when an exit is taken, the Refund,
+Punish or Reclaim. Each step comes with its txid, its depth and its deadline as a DERO height. The answer carries no
+key share, gate secret, view key or channel key (`tools/xmrswap/statusv1.go`, `statusv1_test.go`). Once the swap
+ends, its outcome stays served for ten minutes, or until the program is stopped.
+
 ## 8. The rendezvous: spore, and why it is only a conversation
 
 The two parties need to exchange the setup table of §1.2 and, later, `k_b`. The intended transport is

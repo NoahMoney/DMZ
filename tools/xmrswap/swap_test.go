@@ -95,6 +95,8 @@ type run struct {
 	reached                    map[string]bool // every "role|phase" either side saved, as the crash hook saw it
 	// resend is both sides' ResendAfter; 0 is a second (resendAfter)
 	resend time.Duration
+	// onSave, when set, runs at every save of either side, with the phase saved (statusv1_test.go)
+	onSave func(role, phase string)
 }
 
 func newRun(t *testing.T, p plan) *run {
@@ -202,6 +204,9 @@ func (r *run) stipendPaid() bool {
 func (r *run) crashFn(role string, once map[string]bool) func(string) bool {
 	return func(phase string) bool {
 		r.reached[role+"|"+phase] = true
+		if r.onSave != nil {
+			r.onSave(role, phase)
+		}
 		if once[phase] {
 			delete(once, phase)
 			return true

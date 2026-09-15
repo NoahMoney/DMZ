@@ -274,6 +274,9 @@ type Swap struct {
 	codeChecked bool
 	// lockWaitNoted is the Lock attempt the operator was last told is being waited out, said once per attempt.
 	lockWaitNoted uint64
+	// xmrConfs is the most confirmations the maker's gate last counted on a transfer to the joint address, kept only for
+	// the status answer (StatusV1); nil until it has counted one. Nothing decides on it.
+	xmrConfs *uint64
 	// crash is a test hook: after each durable step it may abandon the call as a process death would.
 	crash func(stage string) bool
 	// rand is a test hook for the gate secret and the view key: nil is crypto/rand.
@@ -948,6 +951,7 @@ func (s *Swap) confirmedAtJoint(ctx context.Context) (sum, h uint64, counted []s
 		return 0, 0, nil, err
 	}
 	seen := map[string]bool{}
+	var best *uint64 // the deepest transfer this pass counted, for the status answer only
 	for _, t := range in {
 		// MT-B14, review R6: an output whose transaction carries an unlock_time never counts, whatever its value.
 		// monero 0.18.5.1 unlocks an output only past both its unlock_time and 10 blocks of depth (wallet2.cpp:7308-
@@ -984,6 +988,10 @@ func (s *Swap) confirmedAtJoint(ctx context.Context) (sum, h uint64, counted []s
 		if d := h - t.Height; d < confs {
 			confs = d
 		}
+		if best == nil || confs > *best {
+			c := confs
+			best = &c
+		}
 		if confs >= s.cfg.Confirmations && t.Unlocked {
 			sum += t.Amount
 			counted = append(counted, t.TxID)
@@ -995,6 +1003,9 @@ func (s *Swap) confirmedAtJoint(ctx context.Context) (sum, h uint64, counted []s
 	}
 	if unlocked < sum {
 		sum = unlocked
+	}
+	if best != nil {
+		s.xmrConfs = best
 	}
 	return sum, h, counted, nil
 }
@@ -1850,7 +1861,8 @@ func (s *Swap) confirmClaim(ctx context.Context) error {
 	switch l.State {
 	case LockClaimed:
 		_ = s.queue(KindDone, doneBody{Outcome: "claimed"})
-		return s.finish("claimed", fmt.Sprintf("claimed the DERO: tx %s, stable (stable height %d)", st.ClaimTx, stable))
+		// F-4 (X-04): the leg is the asset agreed, which is DERO only when no token or NFA unit was named
+		return s.finish("claimed", fmt.Sprintf("claimed the %s: tx %s, stable (stable height %d)", assetName(st.Terms.Asset), st.ClaimTx, stable))
 	case LockOpen:
 		s.cfg.Log("alice: the claim read at height %d is not on the chain any more: its block was replaced and the lock is open again", st.Lock.ClaimSeenHeight)
 		st.Lock.ClaimSeenHeight, st.ClaimTx = 0, ""

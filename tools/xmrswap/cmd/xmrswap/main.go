@@ -51,6 +51,11 @@
 //
 // status prints every swap whose state file is in -dir beside what the DERO chain and, with -monero, the joint
 // Monero wallet say now, and lists every divergence; it exits 1 when there is one. It reads and never writes.
+//
+// -status 127.0.0.1:PORT (off by default) serves this swap's stages to the DMZ app on the same machine
+// (docs/SWAP_STATUS.md): on 127.0.0.1 only, behind a Host check and a one-time pairing code printed once to stderr,
+// read-only, and with no key or secret in the answer. Once the swap ends its outcome stays served for ten minutes, or
+// until the program is stopped.
 package main
 
 import (
@@ -70,8 +75,24 @@ import (
 	"syscall"
 	"time"
 
+	"veil/tools/swapstatus"
 	"veil/tools/xmrswap"
 )
+
+// tipDero is this party's own DERO client, noting the last height the swap read through it, for the -status answer
+// only: the answer's DERO deadlines are estimated from it, and nothing else is read for them.
+type tipDero struct {
+	xmrswap.Dero
+	tip uint64
+}
+
+func (d *tipDero) Height(ctx context.Context) (uint64, error) {
+	h, err := d.Dero.Height(ctx)
+	if err == nil {
+		d.tip = h
+	}
+	return h, err
+}
 
 func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "channel-key" {
@@ -301,14 +322,23 @@ func main() {
 		GateDeadline: o.gateDeadline, Stipend: o.stipend, StipendMin: o.stipendMin, G2Min: o.g2Min, Witnesses: witnesses, XmrTreasury: treasury,
 		Resume: xmrswap.Resume{Exe: exe, Args: os.Args[1:], Dir: cwd}, Wake: xmrswap.RegisterWake, Log: logf}
 	var sw *xmrswap.Swap
+	tip := &tipDero{Dero: dero}
 	if role == "bob" {
-		sw, err = xmrswap.NewBob(cfg, st, dero, wallet, prov, ch)
+		sw, err = xmrswap.NewBob(cfg, st, tip, wallet, prov, ch)
 	} else {
-		sw, err = xmrswap.NewAlice(cfg, st, dero, wallet, prov, ch)
+		sw, err = xmrswap.NewAlice(cfg, st, tip, wallet, prov, ch)
 	}
 	if err != nil {
 		log.Fatal(err)
 	}
+	// -status (docs/SWAP_STATUS.md): nothing is served unless asked, and a bind that fails stops the companion here,
+	// before the swap takes a step
+	feed, err := swapstatus.Start(o.status, func() swapstatus.Payload { return sw.StatusV1(tip.tip, time.Now()) }, os.Stderr, logf)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer feed.Close()
+	feed.Publish()
 	fmt.Printf("%s: DERO %s on %s, contract %s, state %s (phase %q), channel %s\n", role, myDero, deroNet, o.htlc, o.state, st.Phase, o.channel)
 	for ctx.Err() == nil {
 		if err := lock.touch(); err != nil {
@@ -319,8 +349,10 @@ func main() {
 		if err != nil && ctx.Err() == nil {
 			log.Printf("%v", err)
 		}
+		feed.Publish()
 		if done {
 			endSwap(role, st, logf)
+			feed.Linger(ctx, swapstatus.Linger)
 			return
 		}
 		if sw.Phase() == before {
@@ -352,6 +384,7 @@ type options struct {
 	role                                                              string
 	state, deroWallet, daemon, htlc, monero, monerod, netName, prover string
 	proverSHA, channel, asset, moneroName, moneroWalletDir            string
+	status                                                            string // -status 127.0.0.1:PORT, "" off
 	deroLogin, moneroUser, moneroPass, moneroWalletPass               string
 	daemons                                                           []string // every -daemon, in order; the first is this party's own node
 	mainnet                                                           bool
@@ -433,8 +466,14 @@ func parseOptions(role string, args []string, getenv func(string) string) (*opti
 	fs.Uint64Var(&o.margin, "claim-margin", xmrswap.DefaultClaimMargin, "alice: blocks of slack under t1 − 8 after which she no longer sends a Claim")
 	fs.Uint64Var(&o.fee, "fee", xmrswap.DefaultFixedFee, "fee for Refund and Punish, which the daemon cannot estimate")
 	fs.DurationVar(&o.interval, "interval", 5*time.Second, "pause between passes while waiting on a chain")
+	fs.StringVar(&o.status, "status", "", "127.0.0.1:PORT: serve this swap's stages to the DMZ app on this machine, behind a one-time pairing code printed at start (docs/SWAP_STATUS.md). Off by default; any host but 127.0.0.1 is refused")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
+	}
+	if o.status != "" {
+		if _, err := swapstatus.ParseAddr(o.status); err != nil {
+			return nil, err
+		}
 	}
 	if len(o.daemons) > 0 {
 		o.daemon = o.daemons[0]

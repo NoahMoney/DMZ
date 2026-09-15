@@ -127,6 +127,7 @@ func (e *e2e) spawn(tag, role, dir, wallet, keyPath string, extra ...string) *pr
 		"-networks", w.networks,
 	}
 	args = append(args, extra...)
+	args = append(args, statusArgs(role)...) // TestRegtestCLIStatus only
 	ctx, cancel := context.WithCancel(e.ctx)
 	cmd := exec.CommandContext(ctx, e.bin, args...)
 	cmd.Dir, _ = filepath.Abs(".")
@@ -139,11 +140,13 @@ func (e *e2e) spawn(tag, role, dir, wallet, keyPath string, extra ...string) *pr
 	if err := cmd.Start(); err != nil {
 		e.t.Fatalf("%s: starting %s: %v", tag, role, err)
 	}
+	statusNoteProc(role, pr)
 	go func() {
 		sc := bufio.NewScanner(out)
 		sc.Buffer(make([]byte, 1<<20), 1<<20)
 		for sc.Scan() {
-			e.logf("%s %s| %s", tag, role, e.scrub(sc.Text(), dir))
+			// a -status pairing code is taken for the test's own requests and never written to the log
+			e.logf("%s %s| %s", tag, role, e.scrub(statusLine(role, sc.Text()), dir))
 		}
 		close(pr.done)
 	}()
