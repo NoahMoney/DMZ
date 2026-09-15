@@ -259,3 +259,40 @@ details.more[open] summary .svgi{transform:rotate(180deg)}
 .pd-prev.pass .avatar.big{width:min(100%,192px);height:auto;aspect-ratio:1}
 .pd-ref,.pd-hash{font-family:var(--mono);font-size:12px;color:var(--fg2);word-break:break-all}
 .pd-ed input[type=file]{padding:9px}
+/* ==== ui-launch ==== */
+/* the creation flow (wizard.js): a five-cell step rail, the current cell carrying the zone rule; every control in it at
+   least 40px tall for a thumb; a review list that wraps long ids rather than cutting them */
+.wz-steps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));list-style:none;margin:0 0 16px;padding:0;border-bottom:1px solid var(--edge)}
+.wz-steps li{display:flex;flex-direction:column;align-items:center;gap:5px;padding-bottom:9px;position:relative;min-width:0;color:var(--fg3);font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.wz-steps .n{width:22px;height:22px;display:grid;place-items:center;border:1px solid var(--edge);border-radius:var(--r1);font-size:11px;font-variant-numeric:tabular-nums}
+.wz-steps .t{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wz-steps li.done{color:var(--fg2)}.wz-steps li.done .n{border-color:var(--up);color:var(--up)}
+.wz-steps li.now{color:var(--fg)}.wz-steps li.now .n{background:var(--acc);border-color:var(--acc);color:var(--acc-ink)}
+.wz-steps li.now::after{content:"";position:absolute;left:12%;right:12%;bottom:-1px;height:2px;background:var(--acc)}
+.wz .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.wz h2:focus{outline:0}
+.wz-kinds{display:flex;flex-direction:column;gap:8px}
+.wz-kind{display:flex;flex-direction:column;gap:4px;width:100%;min-height:44px;text-align:left;padding:12px 14px;background:var(--s2);border:1px solid var(--edge);border-radius:var(--r1);transition:border-color .15s}
+.wz-kind:hover{border-color:var(--edge2)}.wz-kind b{font-size:14.5px}
+.wz-f{min-width:0}
+.wz-f .note,.wz-f .wz-err{text-transform:none;letter-spacing:0;font-weight:400}
+.wz-err{font-size:12px;color:var(--down);line-height:1.45}
+.wz-f [aria-invalid=true]{border-color:var(--down)}
+.wz-2{flex-wrap:wrap;align-items:flex-start}.wz-2>.wz-f{flex:1 1 140px}
+.wz .btn,.wz input,.wz select,.wz .chip,.wz .seg button{min-height:40px}
+.wz .chip.sm{padding:5px 11px}
+.wz-chips{display:flex;flex-wrap:wrap}
+.wz-check{display:flex;gap:12px;align-items:flex-start;min-height:44px;padding:8px 0;font-size:13.5px;color:var(--fg);cursor:pointer}
+.wz-check input{width:22px;height:22px;min-height:22px;margin:2px 0 0;flex:none;accent-color:var(--acc)}
+.wz-logo{width:44px;height:44px;flex:none;border:1px solid var(--edge);background:var(--s2);display:grid;place-items:center;overflow:hidden}
+.wz-logo img{width:100%;height:100%;object-fit:cover}
+.wz input[type=file]{padding:8px;font-size:12.5px}
+.wz-rv{margin:8px 0 0}
+.wz-rv>div{display:grid;grid-template-columns:minmax(92px,32%) minmax(0,1fr);gap:12px;padding:9px 0;border-bottom:1px solid var(--edge);font-size:13px;line-height:1.45}
+.wz-rv dt{color:var(--fg3)}.wz-rv dd{margin:0;color:var(--fg);overflow-wrap:anywhere}
+.wz-id{word-break:break-all;font-size:11.5px;color:var(--fg2)}
+.wz-why{margin:8px 0 0;padding-left:20px}.wz-why li{padding:4px 0}.wz-why b{font-size:13px;font-weight:650}
+.wz-rec{padding:10px 0;border-bottom:1px solid var(--edge)}
+.wz-act{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;position:sticky;bottom:0;margin-top:18px;padding:12px 0 2px;background:var(--s1);border-top:1px solid var(--edge);z-index:1}
+.wz-act .btn{min-width:96px}.wz-act .btn.primary{flex:1 1 160px}
+.wz-pay{margin-top:14px}

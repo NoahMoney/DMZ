@@ -621,6 +621,7 @@ try {
     await page.locator("#sheet input[name=tax]").fill("2");   // tax %
     await page.locator("#sheet .seg button").nth(3).click(); // stakers
     await shot("11-launch-form");
+    await (await import("./ui-launch.mjs")).hook(page); // the creation flow: Configure → Review here; the click below is "Pay and launch"
     await page.locator("#sheet button.primary").click();
     // two transactions: install (~2 blocks) then register
     await page.waitForFunction(() => location.hash.startsWith("#token/"), null, { timeout: 300000 });

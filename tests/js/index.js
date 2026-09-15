@@ -19,3 +19,5 @@ import("./sentiment.test.mjs");
 import("./market.test.mjs"); // the market page: price formatter, candle intervals, chart extremes (ui-market)
 // profile docs: the logo, pass-image and links parser against hostile docs (app/profile.js)
 import("./profile.test.mjs");
+// the creation flow's rules (app/create.js): each step's validation, the itemised cost, the unfinished-install record
+import("./create.test.mjs");

@@ -155,7 +155,7 @@
     };
     return [U.sectionHead("gem", "Holder NFTs", "Editions earned by holding a token for a number of blocks", nfts.length ? button("Create", "small", () => V.forms.nft()) : null),
       nfts.length ? h("div", { class: "mt", style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:1px" }, nfts.map(tile))
-        : D.lastRefresh ? U.emptyState("gem", "No collections yet", "A collection mints one edition to every address that has held a token for a set number of blocks. Anyone can create one.", button("Create a collection", "small", () => V.forms.nft()))
+        : D.lastRefresh ? U.emptyState("gem", "No holder NFTs yet", "A holder NFT mints one edition to every address that has locked a coin for a set number of blocks. Anyone can create one, as many as they like.", button("Create a holder NFT", "small", () => V.forms.nft()))
           : U.emptyState("gem", "Holder NFTs", "Reading the registry…")];
   }
 
