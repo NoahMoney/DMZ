@@ -65,7 +65,7 @@ func (l *lazyCoord) Get(ctx context.Context, round string) (map[string][]byte, e
 // startCoord opens this signer's node from -coord and hands it to coordHandle. It refuses a configuration for
 // another vault, an identity that is not this signer's wallet, and a pinned signer the vault never seated; it warns
 // about a pinned signer the vault has since slashed.
-func startCoord(c *rpc.Client, vaultID, self string) (*coord.Node, error) {
+func startCoord(n *signerNode, vaultID, self string) (*coord.Node, error) {
 	fc, err := coord.ReadConfigFile(*coordPath)
 	if err != nil {
 		return nil, err
@@ -84,7 +84,11 @@ func startCoord(c *rpc.Client, vaultID, self string) (*coord.Node, error) {
 	for _, p := range cfg.Signers {
 		pinned = append(pinned, p.ID)
 	}
-	warnings, err := checkPinned(pinned, seatedSigners(c.GetSC(vaultID, false)))
+	st, err := n.getSC(vaultID)
+	if err != nil {
+		return nil, err
+	}
+	warnings, err := checkPinned(pinned, seatedSigners(st))
 	if err != nil {
 		return nil, err
 	}

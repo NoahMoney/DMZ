@@ -224,10 +224,11 @@ named or the vault is not deployed.
 - **BL-80 (A)** **`deploy/federation.md`**: who runs signers (named third parties, their bonds, their
   jurisdictions if they choose to say), n ≥ 2k at `Seal` so a colluding quorum can be slashed, the disclosure the
   app shows when `na < 2k` (PROTO·BC-4 — an operator decision; write the disclosure text now).
-- **BL-81 (A)** **The Monero backend for `vaultsigner`**: `VerifyRelease` against recorded `monero-wallet-rpc`
-  fixtures with subaddresses (not payment ids), deposit detection by subaddress index, the release as a
-  multisig spend or a threshold-signed sweep — decide which, since Monero multisig wallets are their own
-  operational risk.
+- **BL-81 (A)** **The Monero backend for `vaultsigner`**: a `monero-wallet-rpc` client and backend are built
+  (`tools/vaultsigner/monerovault`) with subaddress deposits, `VerifyRelease` through `get_transfer_by_txid`, a
+  per-withdrawal payment id, and retrying reads. Remaining: the release as a multisig spend or a threshold-signed
+  sweep — decide which, since Monero multisig wallets are their own operational risk — and a recorded fixture and
+  stagenet run.
 - **BL-82 (A)** **The Zcash backend for `vaultsigner`**: transparent multisig (P2SH k-of-n) is straightforward;
   shielded custody needs FROST (`frost-zec` PoC). Fixtures and a testnet run.
 - **BL-83 (A)** **The watcher.** Who watches a signer that stops answering, and what happens by construction:

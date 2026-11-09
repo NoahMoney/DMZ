@@ -229,11 +229,24 @@ type Transfer struct {
 }
 
 func Address(wallet string) string {
+	a, err := AddressE(wallet)
+	Must(err)
+	return a
+}
+
+// AddressE is Address with its error returned instead of the process ending. A signer uses it so a wallet that is
+// briefly unreachable does not take the whole daemon down; the caller retries on its next pass.
+func AddressE(wallet string) (string, error) {
 	var r struct {
 		Address string `json:"address"`
 	}
-	Must(WalletCall(wallet, "GetAddress", nil, &r))
-	return r.Address
+	if err := WalletCall(wallet, "GetAddress", nil, &r); err != nil {
+		return "", err
+	}
+	if r.Address == "" {
+		return "", errors.New("GetAddress: the wallet returned an empty address")
+	}
+	return r.Address, nil
 }
 
 // Balance of DERO (scid == "") or of an asset in a wallet.
@@ -261,29 +274,56 @@ func (c *Client) RandomAddress() string {
 }
 
 func (c *Client) Height() int64 {
+	h, err := c.HeightE()
+	Must(err)
+	return h
+}
+
+// HeightE is Height with its error returned.
+func (c *Client) HeightE() (int64, error) {
 	var r struct {
 		Height int64 `json:"height"`
 	}
-	Must(Call(c.Daemon, "DERO.GetHeight", nil, &r))
-	return r.Height
+	if err := Call(c.Daemon, "DERO.GetHeight", nil, &r); err != nil {
+		return 0, err
+	}
+	return r.Height, nil
 }
 
 // StableHeight is the daemon's own finality mark (DERO.GetHeight.stableheight): blocks at or below it are not
 // reorganised by the node's rules. Anything that pays out on another chain waits for it.
 func (c *Client) StableHeight() int64 {
+	h, err := c.StableHeightE()
+	Must(err)
+	return h
+}
+
+// StableHeightE is StableHeight with its error returned.
+func (c *Client) StableHeightE() (int64, error) {
 	var r struct {
 		Stable int64 `json:"stableheight"`
 	}
-	Must(Call(c.Daemon, "DERO.GetHeight", nil, &r))
-	return r.Stable
+	if err := Call(c.Daemon, "DERO.GetHeight", nil, &r); err != nil {
+		return 0, err
+	}
+	return r.Stable, nil
 }
 
 func WalletHeight(wallet string) int64 {
+	h, err := WalletHeightE(wallet)
+	Must(err)
+	return h
+}
+
+// WalletHeightE is WalletHeight with its error returned.
+func WalletHeightE(wallet string) (int64, error) {
 	var r struct {
 		Height int64 `json:"height"`
 	}
-	Must(WalletCall(wallet, "GetHeight", nil, &r))
-	return r.Height
+	if err := WalletCall(wallet, "GetHeight", nil, &r); err != nil {
+		return 0, err
+	}
+	return r.Height, nil
 }
 
 // WaitBlocks blocks until n more blocks exist.
@@ -300,6 +340,14 @@ func (c *Client) WaitBlocks(n int64) {
 
 // WaitTx blocks until txid is in a valid block, one more block exists, and the wallets have synced past it.
 func (c *Client) WaitTx(txid string, wallets ...string) int64 {
+	h, err := c.WaitTxE(txid, wallets...)
+	Must(err)
+	return h
+}
+
+// WaitTxE is WaitTx with its error returned. A caller that must keep running (the federation signer) uses this:
+// a node that is briefly unreachable is a failed pass, not a reason to exit with a lock file and no signer.
+func (c *Client) WaitTxE(txid string, wallets ...string) (int64, error) {
 	deadline := time.Now().Add(c.Timeout)
 	var height int64
 	for {
@@ -316,25 +364,42 @@ func (c *Client) WaitTx(txid string, wallets ...string) int64 {
 			break
 		}
 		if time.Now().After(deadline) {
-			log.Fatalf("tx %s not confirmed within %v", txid, c.Timeout)
+			if err != nil {
+				return 0, fmt.Errorf("tx %s not confirmed within %v: %w", txid, c.Timeout, err)
+			}
+			return 0, fmt.Errorf("tx %s not confirmed within %v", txid, c.Timeout)
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	for c.Height() <= height {
+	for {
+		h, err := c.HeightE()
+		if err != nil {
+			return 0, err
+		}
+		if h > height {
+			break
+		}
 		if time.Now().After(deadline) {
-			log.Fatal("no new block after tx")
+			return 0, fmt.Errorf("no new block after tx %s within %v", txid, c.Timeout)
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	for _, w := range wallets {
-		for WalletHeight(w) < height+1 {
+		for {
+			wh, err := WalletHeightE(w)
+			if err != nil {
+				return 0, fmt.Errorf("wallet %s: %w", redact(w), err)
+			}
+			if wh >= height+1 {
+				break
+			}
 			if time.Now().After(deadline) {
-				log.Fatalf("wallet %s did not sync to %d", redact(w), height+1)
+				return 0, fmt.Errorf("wallet %s did not sync to %d", redact(w), height+1)
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
 	}
-	return height
+	return height, nil
 }
 
 type Gas struct {
@@ -398,13 +463,28 @@ func (c *Client) Send(wallet, signer, code, scid string, xfers []Transfer, scRPC
 // estimator runs the contract with height 0 (dvm.Simulator.height is never set), so such calls "fail" at estimate
 // time while the real TX succeeds.
 func (c *Client) SendWithFee(wallet, signer, scid string, xfers []Transfer, scRPC []Arg, fee uint64, wait ...string) (string, int64) {
+	txid, height, err := c.SendWithFeeE(wallet, signer, scid, xfers, scRPC, fee, wait...)
+	Must(err)
+	return txid, height
+}
+
+// SendWithFeeE is SendWithFee with its error returned.
+func (c *Client) SendWithFeeE(wallet, signer, scid string, xfers []Transfer, scRPC []Arg, fee uint64, wait ...string) (string, int64, error) {
 	params := map[string]interface{}{"transfers": xfers, "sc_rpc": scRPC, "ringsize": c.ring(), "fees": fee, "scid": scid}
 	var r struct {
 		TXID string `json:"txid"`
 	}
-	Must(WalletCall(wallet, "transfer", params, &r))
-	height := c.WaitTx(r.TXID, append([]string{wallet}, wait...)...)
-	return r.TXID, height
+	if err := WalletCall(wallet, "transfer", params, &r); err != nil {
+		return "", 0, err
+	}
+	if r.TXID == "" {
+		return "", 0, errors.New("transfer: the wallet returned no txid")
+	}
+	height, err := c.WaitTxE(r.TXID, append([]string{wallet}, wait...)...)
+	if err != nil {
+		return r.TXID, 0, err
+	}
+	return r.TXID, height, nil
 }
 
 type SCState struct {
@@ -417,27 +497,43 @@ type SCState struct {
 // GetSC decodes the variables with json.Number so a uint64 above 2^53 (a Monero amount in piconero, a large
 // supply) is never rounded through float64 on its way to a payment or a comparison.
 func (c *Client) GetSC(scid string, code bool) SCState {
+	st, err := c.GetSCE(scid, code)
+	Must(err)
+	return st
+}
+
+// GetSCE is GetSC with its error returned. The state is decoded with json.Number exactly as GetSC does, so a
+// caller switching to this method cannot be handed a rounded uint64.
+func (c *Client) GetSCE(scid string, code bool) (SCState, error) {
 	body := map[string]interface{}{"jsonrpc": "2.0", "id": "1", "method": "DERO.GetSC", "params": map[string]interface{}{"scid": scid, "variables": true, "code": code}}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequest(http.MethodPost, "http://"+c.Daemon+"/json_rpc", bytes.NewReader(b))
-	Must(err)
+	if err != nil {
+		return SCState{}, err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := rpcClient().Do(req)
-	Must(err)
+	if err != nil {
+		return SCState{}, err
+	}
 	defer resp.Body.Close()
 	var env struct {
 		Result json.RawMessage `json:"result"`
 		Error  *rpcErr         `json:"error"`
 	}
-	Must(json.NewDecoder(resp.Body).Decode(&env))
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		return SCState{}, err
+	}
 	if env.Error != nil {
-		log.Fatalf("DERO.GetSC: rpc error %d: %s", env.Error.Code, env.Error.Message)
+		return SCState{}, fmt.Errorf("DERO.GetSC: rpc error %d: %s", env.Error.Code, env.Error.Message)
 	}
 	var r SCState
 	dec := json.NewDecoder(bytes.NewReader(env.Result))
 	dec.UseNumber()
-	Must(dec.Decode(&r))
-	return r
+	if err := dec.Decode(&r); err != nil {
+		return SCState{}, err
+	}
+	return r, nil
 }
 
 func (s SCState) Has(k string) bool { _, ok := s.StringKeys[k]; return ok }
@@ -479,12 +575,21 @@ func (s SCState) U0(k string) uint64 {
 
 // Info reports what the daemon says about its network.
 func (c *Client) Info() (testnet bool, network string) {
+	testnet, network, err := c.InfoE()
+	Must(err)
+	return testnet, network
+}
+
+// InfoE is Info with its error returned.
+func (c *Client) InfoE() (testnet bool, network string, err error) {
 	var r struct {
 		Testnet bool   `json:"testnet"`
 		Network string `json:"network"`
 	}
-	Must(Call(c.Daemon, "DERO.GetInfo", nil, &r))
-	return r.Testnet, r.Network
+	if err := Call(c.Daemon, "DERO.GetInfo", nil, &r); err != nil {
+		return false, "", err
+	}
+	return r.Testnet, r.Network, nil
 }
 
 // Str decodes a hex-encoded string variable.

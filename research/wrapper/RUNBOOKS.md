@@ -51,13 +51,13 @@ vault owes — voting to resume by itself once it is not.
 
 ### Start
 
-Two backends run. `zcash` holds the reserve in transparent P2SH k-of-n multisig addresses on Zcash
+Three backends run. `zcash` holds the reserve in transparent P2SH k-of-n multisig addresses on Zcash
 ([Zcash key ceremony and configuration](#zcash-key-ceremony-and-configuration)); it has settled one deposit and one
 withdrawal on zebrad regtest with three live daemons (`research/regtest/vault-zcash-e2e.log`) and nowhere else yet,
-so a testnet pilot comes before anything that holds value. `sim` is a JSON file on the signer's own disk: a "deposit" is a line in it and
-a "payout" is an append; it is accepted only with `-network simulator`. `-backend` has no default so that no one
-can reach either by omission. `monero` and `solana` are names in a switch that exit with a pointer to the build plan
-in `docs/HANDOVER.md` section 5.
+so a testnet pilot comes before anything that holds value. `monero` uses `monero-wallet-rpc` for deposits, reserve and
+single-wallet releases; a multisig txset is refused until a Monero signing coordinator exists. `sim` is a JSON file on
+the signer's own disk: a "deposit" is a line in it and a "payout" is an append; it is accepted only with `-network
+simulator`. `-backend` has no default so that no one can reach either by omission. `solana` is not implemented.
 
 A Zcash signer, on the network its vault lives on (never mainnet without the operator's go and `-yes`):
 
@@ -65,6 +65,18 @@ A Zcash signer, on the network its vault lives on (never mainnet without the ope
 vaultsigner -network testnet -backend zcash -zcash-config <zcash.json> -coord <coord.json> \
             -daemon 127.0.0.1:<rpc> -wallet 127.0.0.1:<wallet rpc> -vault <scid> [-state <file>] [-interval 20s]
 ```
+
+A Monero signer (the `monero.json` names `network: "stagenet"`; `walletRpc`, the vault's primary `address`,
+`finalityDepth` at least 10, and optionally `retries`/`retryDelayMs`):
+
+```
+vaultsigner -network testnet -backend monero -monero-config <monero.json> -coord <coord.json> \
+            -daemon 127.0.0.1:<rpc> -wallet 127.0.0.1:<wallet rpc> -vault <scid> [-state <file>] [-interval 20s]
+```
+
+Set `VEIL_MONERO_RPC_LOGIN=user:password` when monero-wallet-rpc was started with `--rpc-login`. A wallet that is
+in a Monero multisig answers a release with a `multisig_txset`; this build refuses it until a Monero signing
+coordinator exists.
 
 The simulator command line:
 

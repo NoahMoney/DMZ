@@ -8,7 +8,8 @@
 // Backends: `sim` reads and appends to a JSON file. It simulates a foreign chain, it does not observe one — a
 // deposit in it is a line somebody typed and a release in it is a line this signer typed — so it is refused on
 // every DERO network but the simulator. The real backends implement the same interface: zcash is built
-// (transparent P2SH k-of-n, zcash_backend.go and ./zcashvault, -zcash-config); monero and solana are not.
+// (transparent P2SH k-of-n, zcash_backend.go and ./zcashvault, -zcash-config) and monero is built (wallet-rpc,
+// monero_backend.go and ./monerovault, -monero-config); solana is not.
 // -backend has no default: which backend a signer is running is the operator's statement to make,
 // not this tool's to assume. Release MUST be idempotent for a given j (look the payment up before paying):
 // the signer records an intent before it pays and may call Release again after a crash.
@@ -36,13 +37,14 @@ import (
 	"time"
 
 	rpc "veil/tools/simrpc"
+	"veil/tools/vaultsigner/coord"
 )
 
 var (
 	daemon    = flag.String("daemon", "127.0.0.1:20000", "daemon rpc")
 	wallet    = flag.String("wallet", "127.0.0.1:30003", "this signer's wallet rpc")
 	vault     = flag.String("vault", "", "vault.bas scid")
-	backend   = flag.String("backend", "", "required, no default: the foreign backend. sim is a JSON file and is accepted only with -network simulator; zcash is transparent P2SH k-of-n (needs -zcash-config); monero and solana are planned and exit")
+	backend   = flag.String("backend", "", "required, no default: the foreign backend. sim is a JSON file and is accepted only with -network simulator; zcash is transparent P2SH k-of-n (needs -zcash-config); monero is monero-wallet-rpc (needs -monero-config); solana is not implemented")
 	network   = flag.String("network", "simulator", "DERO network the vault lives on: simulator, testnet, mainnet (selects the foreign-chain parameters)")
 	simPath   = flag.String("sim", "../research/crosschain/poc/sim-foreign.json", "sim backend file")
 	statePath = flag.String("state", "", "local vote memory and release intents (default: vaultsigner-<vault prefix>-<signer suffix>.json)")
@@ -114,8 +116,8 @@ type Backend interface {
 //     literal string "sim:<index>". Anyone who can write that file can mint wrapped units against no foreign
 //     coin at all, and a withdrawal through it burns a holder's units and pays nobody. -yes does not buy this;
 //     nothing does.
-//   - -backend zcash, monero or solana anywhere. They are not built. The signer exits instead of degrading to
-//     something that guesses.
+//   - -backend zcash or monero without its configuration, or solana anywhere. They refuse to start rather than
+//     degrade to something that guesses.
 //
 // The sim branch also stops setting -confs on a real network, which it used to do before any of these checks.
 func pickBackend(network, backend string, confs *int64, simPath string) (Backend, error) {
@@ -125,10 +127,10 @@ func pickBackend(network, backend string, confs *int64, simPath string) (Backend
 	}
 	switch backend {
 	case "":
-		return nil, errors.New(`-backend is required and has no default: "sim" (a JSON file, -network simulator only) or one of zcash, monero, solana (not implemented yet)`)
+		return nil, errors.New(`-backend is required and has no default: "sim" (a JSON file, -network simulator only), zcash (needs -zcash-config) or monero (needs -monero-config)`)
 	case "sim":
 		if network != "simulator" {
-			return nil, fmt.Errorf(`-backend sim is a JSON file, not a chain: nothing in it is evidence that a foreign coin exists, so it is allowed only with -network simulator (this is -network %s). No foreign backend is implemented, so no %s vault can be signed for yet`, network, network)
+			return nil, fmt.Errorf(`-backend sim is a JSON file, not a chain: nothing in it is evidence that a foreign coin exists, so it is allowed only with -network simulator (this is -network %s). A %s vault needs -backend zcash or -backend monero with its configuration`, network, network)
 		}
 		if *confs == 0 {
 			*confs = 2
@@ -142,7 +144,10 @@ func pickBackend(network, backend string, confs *int64, simPath string) (Backend
 		if backend == "zcash" { // transparent P2SH k-of-n: zcash_backend.go, tools/vaultsigner/zcashvault
 			return newZcashBackend(network)
 		}
-		return nil, fmt.Errorf("backend %q (%s, rpc %s, %d confirmations) is not implemented yet: docs/HANDOVER.md section 5 is the build plan", backend, p.Name, p.RPC, p.Confirmations)
+		if backend == "monero" { // monero-wallet-rpc: monero_backend.go, tools/vaultsigner/monerovault
+			return newMoneroBackend(network)
+		}
+		return nil, fmt.Errorf("backend %q (%s, rpc %s, %d confirmations) is not implemented yet", backend, p.Name, p.RPC, p.Confirmations)
 	}
 	return nil, fmt.Errorf("unknown backend %q (sim, zcash, monero, solana)", backend)
 }
@@ -562,14 +567,27 @@ func main() {
 	fmt.Printf("network %s; foreign parameters: monero %s (%d conf), zcash %s (%d conf), solana %s (%d conf); this backend %s at %d confirmations\n", *network,
 		params["monero"].RPC, params["monero"].Confirmations, params["zcash"].RPC, params["zcash"].Confirmations, params["solana"].RPC, params["solana"].Confirmations, *backend, *confs)
 	c := &rpc.Client{Daemon: *daemon, Timeout: *timeout}
+	n := &signerNode{c: c}
 	// the daemon must be the network the flag says: the flag picks the -yes gate and the confirmation table
-	if testnet, name := c.Info(); (*network == "mainnet") == testnet {
+	var testnet bool
+	var name string
+	if err := awaitNode("daemon info", func() (e error) { testnet, name, e = c.InfoE(); return e }); err != nil {
+		log.Fatalf("daemon at %s: %v", *daemon, err)
+	}
+	if (*network == "mainnet") == testnet {
 		log.Fatalf("-network %s but the daemon at %s reports %q (testnet=%v)", *network, *daemon, name, testnet)
 	}
-	if v := c.GetSC(*vault, false).U("v"); v != 3 {
+	var st0 rpc.SCState
+	if err := awaitNode("vault read", func() (e error) { st0, e = c.GetSCE(*vault, false); return e }); err != nil {
+		log.Fatalf("vault %s: %v", *vault, err)
+	}
+	if v := st0.U("v"); v != 3 {
 		log.Fatalf("vault %s is version %d; this signer speaks version 3", *vault, v)
 	}
-	me := rpc.Address(*wallet)
+	var me string
+	if err := awaitNode("wallet address", func() (e error) { me, e = n.address(); return e }); err != nil {
+		log.Fatalf("wallet %s: %v", *wallet, err)
+	}
 	// contract keys name a signer by ADDRESS_STRING, which is always the mainnet spelling even on testnet
 	dvmMe := rpc.DVMAddress(me)
 	if dvmMe == "" {
@@ -580,8 +598,8 @@ func main() {
 	}
 	// One daemon per state file: a second would overwrite intents and, with a backend that does not look payments
 	// up by j, pay twice. The lock is held by a heartbeat rather than by its own existence, because its existence
-	// cannot be trusted: simrpc exits through log.Fatal on any RPC trouble, which skips every deferred call, and
-	// SIGKILL and a power cut skip the signal handler too. A lock whose presence alone locks therefore takes the
+	// cannot be trusted: a process can be killed (SIGKILL, a power cut) without running a deferred call, and a
+	// crash in any dependency can skip the signal handler too. A lock whose presence alone locks therefore takes the
 	// signer offline until a human deletes a file — and there is no human. A lock older than lockStale is taken
 	// over instead, so the worst case is a duplicate vote, which the contract refuses, rather than a silent
 	// signer, which is a vault drifting towards a quorum it can no longer reach.
@@ -603,14 +621,22 @@ func main() {
 	// signer coordination (coordwire.go): backends that sign with their peers hold coordHandle, which fails closed
 	// until this has run
 	if *coordPath != "" {
-		node, err := startCoord(c, *vault, dvmMe)
-		if err != nil {
-			die("coordination: %v", err)
+		var node *coord.Node
+		if err := awaitNode("coordination", func() (e error) { node, e = startCoord(n, *vault, dvmMe); return e }); err != nil {
+			// No coordination is a degraded signer, not a retired one: attestation, deposits and verification do
+			// not need peers, and the backend's signing paths fail closed until coordination is available.
+			log.Printf("coordination not started: %v; keeping the signer online without it", err)
+		} else {
+			defer node.Close()
 		}
-		defer node.Close()
+	}
+	if err := awaitNode("foreign backend", be.Health); err != nil {
+		// A node that is still down after the startup wait is not a reason to retire: every pass checks Health
+		// again, so the signer resumes by itself when the node returns, and the log says why it is idle.
+		log.Printf("foreign backend is not ready after the startup wait: %v; keeping the signer online and retrying each pass", err)
 	}
 	for {
-		pass(c, be, me, dvmMe, mem)
+		pass(n, be, me, dvmMe, mem)
 		if *once {
 			return
 		}
@@ -620,18 +646,22 @@ func main() {
 
 // send submits one contract call: estimated when the daemon can judge it, with a fixed fee for entrypoints gated
 // on BLOCK_HEIGHT() (the estimator runs contracts at height 0). Returns the txid and the inclusion height.
-func send(c *rpc.Client, me, entry string, args []rpc.Arg, fixedFee uint64) (string, int64, bool) {
+func send(n *signerNode, me, entry string, args []rpc.Arg, fixedFee uint64) (string, int64, bool) {
 	all := append([]rpc.Arg{rpc.S("entrypoint", entry)}, args...)
 	fee := fixedFee
 	if fee == 0 {
-		gas, err := c.Estimate(me, "", *vault, nil, all)
+		gas, err := n.estimate(me, "", *vault, nil, all)
 		if err != nil {
 			fmt.Printf("%s %s refused at estimate: %v\n", time.Now().Format("15:04:05"), entry, err)
 			return "", 0, false
 		}
 		fee = gas.GasStorage + 200
 	}
-	txid, height := c.SendWithFee(*wallet, me, *vault, nil, all, fee)
+	txid, height, err := n.sendWithFee(me, *vault, nil, all, fee)
+	if err != nil {
+		fmt.Printf("%s %s: %v\n", time.Now().Format("15:04:05"), entry, err)
+		return "", 0, false
+	}
 	if len(txid) < 8 {
 		fmt.Printf("%s %s: the wallet returned no txid\n", time.Now().Format("15:04:05"), entry)
 		return "", 0, false
@@ -644,13 +674,17 @@ func send(c *rpc.Client, me, entry string, args []rpc.Arg, fixedFee uint64) (str
 // counter can also be moved by a co-signer in the same block, so the proof is this signer's own vote key
 // (<f>v_<scope>_<address>), whose value is the choice it made. scope is built from the inclusion height because
 // the contract scopes operational votes by the 2000-block bucket it executed in.
-func vote(c *rpc.Client, me, entry string, args []rpc.Arg, fixedFee uint64, voteKey func(height int64) string, choice string) bool {
-	_, height, ok := send(c, me, entry, args, fixedFee)
+func vote(n *signerNode, me, entry string, args []rpc.Arg, fixedFee uint64, voteKey func(height int64) string, choice string) bool {
+	_, height, ok := send(n, me, entry, args, fixedFee)
 	if !ok {
 		return false
 	}
 	key := voteKey(height)
-	st := c.GetSC(*vault, false)
+	st, err := n.getSC(*vault)
+	if err != nil {
+		fmt.Printf("%s %s: cannot read the vote back: %v\n", time.Now().Format("15:04:05"), entry, err)
+		return false
+	}
 	if !st.Has(key) || st.Str(key) != choice {
 		fmt.Printf("%s %s was included but the contract did not record our vote (%s): will vote again\n", time.Now().Format("15:04:05"), entry, key)
 		return false
@@ -664,12 +698,16 @@ func sha256hex(s string) string { h := sha256.Sum256([]byte(s)); return hex.Enco
 // than on every poll.
 var said = map[string]bool{}
 
-func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
+func pass(n *signerNode, be Backend, me, dvmMe string, mem *memory) {
 	if err := be.Health(); err != nil { // a partial view of the foreign chain is worse than no action at all
 		log.Printf("foreign backend unhealthy, doing nothing this pass: %v", err)
 		return
 	}
-	st := c.GetSC(*vault, false)
+	st, err := n.getSC(*vault)
+	if err != nil {
+		log.Printf("vault unreadable, keeping the signer online: %v", err)
+		return
+	}
 	if st.U("sealed") == 0 {
 		fmt.Println("vault not sealed yet")
 		return
@@ -685,15 +723,22 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 	// the same public state, so the quorum forms and dissolves on its own with nobody to ask. One vote per
 	// direction per 2000-block bucket keeps a boundary case from oscillating at the cost of fees.
 	haltVote := func(want uint64, reason string) {
-		bucket := "he" + he + "_" + strconv.FormatUint(want, 10) + "_" + strconv.FormatInt(c.Height()/2000, 10)
+		h, err := n.height()
+		if err != nil {
+			log.Printf("Halt(%d) skipped, height unreadable: %v", want, err)
+			return
+		}
+		bucket := "he" + he + "_" + strconv.FormatUint(want, 10) + "_" + strconv.FormatInt(h/2000, 10)
 		if mem.Halted[bucket] {
 			return
 		}
 		fmt.Printf("%s; voting Halt(%d)\n", reason, want)
-		if vote(c, me, "Halt", []rpc.Arg{rpc.U("want", want)}, 0, func(h int64) string { return "hv_" + scope(h) + "_" + dvmMe }, strconv.FormatUint(want, 10)) {
+		if vote(n, me, "Halt", []rpc.Arg{rpc.U("want", want)}, 0, func(h int64) string { return "hv_" + scope(h) + "_" + dvmMe }, strconv.FormatUint(want, 10)) {
 			// If that vote completed the quorum the contract has opened a new epoch, and every vote this pass
 			// still casts must be keyed by it: scope closes over he, so refresh it here.
-			he = strconv.FormatUint(c.GetSC(*vault, false).U("he"), 10)
+			if cur, err := n.getSC(*vault); err == nil {
+				he = strconv.FormatUint(cur.U("he"), 10)
+			}
 			mem.Halted[bucket] = true
 			if err := mem.save(); err != nil {
 				die("%v", err)
@@ -724,7 +769,16 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 	sup := st.U("sup")
 	inflight := inflightUnits(st)
 	owed := owedUnits(sup, inflight)
-	tip, stable := c.Height(), c.StableHeight()
+	tip, err := n.height()
+	if err != nil {
+		log.Printf("daemon height: %v", err)
+		return
+	}
+	stable, err := n.stableHeight()
+	if err != nil {
+		log.Printf("daemon stable height: %v", err)
+		return
+	}
 	// halted is the height the lease lapses at (0: not halted); a halt nobody renews expires on its own
 	isHalted := st.U("halted") > uint64(tip)
 	// A halt stops what ADDS exposure — attesting, minting, and this signer starting a new payment. It must not
@@ -777,7 +831,7 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 		}
 		ver := strconv.FormatUint(st.U0("dver_"+js), 10)
 		ah := sha256hex(addr)
-		if vote(c, me, "Attest", []rpc.Arg{rpc.U("j", j), rpc.S("addr", addr)}, 0, voteKey("d", js+"_"+ver), ah) {
+		if vote(n, me, "Attest", []rpc.Arg{rpc.U("j", j), rpc.S("addr", addr)}, 0, voteKey("d", js+"_"+ver), ah) {
 			if _, seen := mem.LiveAt[js]; !seen {
 				mem.LiveAt[js] = fh
 				if err := mem.save(); err != nil {
@@ -851,34 +905,45 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 			continue
 		}
 		th := sha256hex(js + "|" + strconv.FormatUint(d.Amount, 10))
-		vote(c, me, "Mint", []rpc.Arg{rpc.U("j", d.Index), rpc.H("txid", d.TxID), rpc.U("vout", d.Vout), rpc.U("amount", d.Amount)}, 0, voteKey("m", id), th)
+		vote(n, me, "Mint", []rpc.Arg{rpc.U("j", d.Index), rpc.H("txid", d.TxID), rpc.U("vout", d.Vout), rpc.U("amount", d.Amount)}, 0, voteKey("m", id), th)
 	}
 
 	// 3. withdrawals
-	vetoPass(c, be, me, dvmMe, mem, st, scope)
+	vetoPass(n, be, me, dvmMe, mem, st, scope)
 	// Paying is not a vote — one signer's mark protects the withdrawal for every signer — so it is confirmed by
 	// reading the mark back rather than a vote key. A mark a co-signer already set is just as good as our own.
 	markPaying := func(j uint64) bool {
 		k := "w_" + strconv.FormatUint(j, 10) + "_p"
-		if cur := c.GetSC(*vault, false); cur.Has(k) {
+		cur, err := n.getSC(*vault)
+		if err != nil {
+			fmt.Printf("withdrawal %d: cannot read the Paying mark: %v\n", j, err)
+			return false
+		}
+		if cur.Has(k) {
 			// The mark is one-shot and lapses after 2000 blocks (vault.bas Veto line 25). A lapsed mark is not
 			// protection: Veto can land on the withdrawal again, so paying under it is the double payment the
 			// mark exists to prevent. Fail closed; the quorum settles it by Veto or by our Released vote.
-			fresh := uint64(c.Height()) < cur.U(k)+2000
+			h, err := n.height()
+			if err != nil {
+				fmt.Printf("withdrawal %d: cannot read the daemon height: %v\n", j, err)
+				return false
+			}
+			fresh := uint64(h) < cur.U(k)+2000
 			if !fresh {
 				fmt.Printf("withdrawal %d: its Paying mark at %d has lapsed; not paying under it\n", j, cur.U(k))
 			}
 			return fresh
 		}
-		if _, _, ok := send(c, me, "Paying", []rpc.Arg{rpc.U("j", j)}, 0); !ok {
+		if _, _, ok := send(n, me, "Paying", []rpc.Arg{rpc.U("j", j)}, 0); !ok {
 			return false
 		}
-		return c.GetSC(*vault, false).Has(k)
+		cur, err = n.getSC(*vault)
+		return err == nil && cur.Has(k)
 	}
 	voteReleased := func(j uint64, ftx string) bool {
 		// Released is gated on BLOCK_HEIGHT(), which the daemon's estimator runs at height 0, so it goes out
 		// with a fixed fee: a refused vote is mined and reverted, which is the price of the delay.
-		return vote(c, me, "Released", []rpc.Arg{rpc.U("j", j), rpc.S("ftx", ftx)}, 3000,
+		return vote(n, me, "Released", []rpc.Arg{rpc.U("j", j), rpc.S("ftx", ftx)}, 3000,
 			voteKey("r", strconv.FormatUint(j, 10)), ftx)
 	}
 	for j := uint64(0); j < st.U("wn"); j++ {
@@ -938,7 +1003,12 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 		// st is the snapshot from the top of the pass, and a pass spans many blocks because every vote waits for
 		// inclusion. A co-signer's Veto or Released — or our own veto, cast moments ago — may have reached the
 		// quorum since. Re-read this withdrawal's status immediately before paying anything abroad.
-		if c.GetSC(*vault, false).U("w_"+js+"_st") != 0 {
+		cur, err := n.getSC(*vault)
+		if err != nil {
+			log.Printf("withdrawal %d: cannot re-read its status before paying: %v", j, err)
+			continue
+		}
+		if cur.U("w_"+js+"_st") != 0 {
 			if it != nil { // settled by the quorum while this pass ran: close our intent, as the branch above does
 				it.State = "voted"
 				if err := mem.save(); err != nil {
@@ -951,7 +1021,11 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 			log.Printf("withdrawal %d: %v", j, err)
 		}
 	}
-	after := c.GetSC(*vault, false)
+	after, err := n.getSC(*vault)
+	if err != nil {
+		log.Printf("vault summary unreadable: %v", err)
+		return
+	}
 	// print the in-flight total next to the reserve: without it a correct vault looks short of its own supply
 	// during every ordinary withdrawal, which is precisely the misreading that hid the halt deadlock
 	fmt.Printf("%s vault: indexes %d, supply %d / cap %d, withdrawals %d, halted %v (lapses %d), reserve %d (in flight %d)\n", time.Now().Format("15:04:05"),
@@ -961,7 +1035,7 @@ func pass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory) {
 // vetoPass votes to return withdrawals the foreign chain cannot accept. It NEVER vetoes one this signer has
 // already started paying: the units would go back to the burner while the coins were already sent, and the
 // reserve would be short by that amount for good.
-func vetoPass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory, st rpc.SCState, scope func(int64) string) {
+func vetoPass(n *signerNode, be Backend, me, dvmMe string, mem *memory, st rpc.SCState, scope func(int64) string) {
 	for j := uint64(0); j < st.U("wn"); j++ {
 		js := strconv.FormatUint(j, 10)
 		if st.U("w_"+js+"_st") != 0 {
@@ -975,7 +1049,7 @@ func vetoPass(c *rpc.Client, be Backend, me, dvmMe string, mem *memory, st rpc.S
 			continue
 		}
 		fmt.Printf("withdrawal %d names a destination this chain cannot pay (%q): voting Veto\n", j, dest)
-		vote(c, me, "Veto", []rpc.Arg{rpc.U("j", j)}, 0,
+		vote(n, me, "Veto", []rpc.Arg{rpc.U("j", j)}, 0,
 			func(h int64) string { return "gv_" + scope(h) + "_" + js + "_" + dvmMe }, "1")
 	}
 }

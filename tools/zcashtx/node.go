@@ -220,6 +220,11 @@ type ZcashRPC struct {
 	// the node is treated as not synced.
 	MaxResponse int64
 	MaxBehind   uint32
+	// Retries is how many times a read is retried after a transport failure or a 429/5xx. Zero keeps the old
+	// single-attempt behaviour. sendrawtransaction is never retried here: a lost reply may mean the node accepted
+	// the transaction, and the caller is the one that can look the txid up before sending again.
+	Retries    int
+	RetryDelay time.Duration
 
 	mu         sync.Mutex
 	lastHeight uint32
@@ -263,9 +268,29 @@ func (c *ZcashRPC) call(ctx context.Context, method string, params []interface{}
 	if err != nil {
 		return err
 	}
+	for attempt := 0; ; attempt++ {
+		err, retry := c.callOnce(ctx, method, body, out)
+		if err == nil || !retry || attempt >= c.Retries {
+			return err
+		}
+		delay := c.RetryDelay
+		if delay <= 0 {
+			delay = 500 * time.Millisecond
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(time.Duration(attempt+1) * delay):
+		}
+	}
+}
+
+// callOnce makes one attempt and says whether the failure is worth retrying. Reads are safe to repeat; a JSON-RPC
+// error from the node is its answer and is never retried.
+func (c *ZcashRPC) callOnce(ctx context.Context, method string, body []byte, out interface{}) (err error, retry bool) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint(), bytes.NewReader(body))
 	if err != nil {
-		return err
+		return err, false
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.User != "" || c.Pass != "" {
@@ -277,22 +302,23 @@ func (c *ZcashRPC) call(ctx context.Context, method string, params []interface{}
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return fmt.Errorf("zcash %s: %w", method, err)
+		return fmt.Errorf("zcash %s: %w", method, err), method != "sendrawtransaction" && ctx.Err() == nil
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("zcash %s: the node refused the credentials (HTTP %d)", method, resp.StatusCode)
+		resp.Body.Close()
+		return fmt.Errorf("zcash %s: the node refused the credentials (HTTP %d)", method, resp.StatusCode), false
 	}
 	max := c.MaxResponse
 	if max <= 0 {
 		max = 32 << 20
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
+	resp.Body.Close()
 	if err != nil {
-		return fmt.Errorf("zcash %s: read: %w", method, err)
+		return fmt.Errorf("zcash %s: read: %w", method, err), method != "sendrawtransaction" && ctx.Err() == nil
 	}
 	if int64(len(raw)) > max {
-		return fmt.Errorf("zcash %s: the answer is larger than %d bytes", method, max)
+		return fmt.Errorf("zcash %s: the answer is larger than %d bytes", method, max), false
 	}
 	var env struct {
 		Result json.RawMessage `json:"result"`
@@ -302,23 +328,27 @@ func (c *ZcashRPC) call(ctx context.Context, method string, params []interface{}
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(raw, &env); err != nil {
-		return fmt.Errorf("zcash %s: HTTP %d, not a JSON-RPC answer: %w", method, resp.StatusCode, err)
+		return fmt.Errorf("zcash %s: HTTP %d, not a JSON-RPC answer: %w", method, resp.StatusCode, err), transientStatus(resp.StatusCode) && method != "sendrawtransaction"
 	}
 	if env.Error != nil {
-		return &RPCError{Method: method, Code: env.Error.Code, Message: env.Error.Message}
+		return &RPCError{Method: method, Code: env.Error.Code, Message: env.Error.Message}, false
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("zcash %s: HTTP %d with no error in the body", method, resp.StatusCode)
+		return fmt.Errorf("zcash %s: HTTP %d with no error in the body", method, resp.StatusCode), transientStatus(resp.StatusCode) && method != "sendrawtransaction"
 	}
 	if len(env.Result) == 0 || string(env.Result) == "null" {
-		return fmt.Errorf("zcash %s: %w", method, errNullResult)
+		return fmt.Errorf("zcash %s: %w", method, errNullResult), false
 	}
 	dec := json.NewDecoder(bytes.NewReader(env.Result))
 	dec.UseNumber()
 	if err := dec.Decode(out); err != nil {
-		return fmt.Errorf("zcash %s: unexpected result: %w", method, err)
+		return fmt.Errorf("zcash %s: unexpected result: %w", method, err), false
 	}
-	return nil
+	return nil, false
+}
+
+func transientStatus(code int) bool {
+	return code == http.StatusTooManyRequests || code == http.StatusInternalServerError || code == http.StatusBadGateway || code == http.StatusServiceUnavailable || code == http.StatusGatewayTimeout
 }
 
 // ---- shape checks ----

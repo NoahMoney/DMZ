@@ -166,8 +166,10 @@ control; the signers vote and `vault.bas` mints an equal number of DERO-side uni
 withdrawal the signers pay out. **This is custody**: a colluding quorum can take the whole reserve, invisibly to
 DERO. No state in the contract needs a human to leave it — a halt is a lease that expires, `Reclaim` is
 permissionless and pays only the burner, and after `Seal` the installer has no powers. `tools/vaultsigner`'s
-`monero`, `zcash` and `solana` backends are not implemented and exit; its `sim` backend is a JSON file and is
-refused on any network but the simulator. No vault has ever held a real coin.
+`zcash` and `monero` backends are built (`-zcash-config`, `-monero-config`) and use bounded-retry node clients; the
+Monero release path refuses a multisig txset because no Monero signing coordinator is built. `solana` is not
+implemented. Its `sim` backend is a JSON file and is refused on any network but the simulator. No vault has ever
+held a real coin.
 
 ### DERO → tokens, NFAs and the rest
 
