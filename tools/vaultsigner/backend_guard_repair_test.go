@@ -9,7 +9,8 @@ import (
 // simulator. A mainnet signer therefore ran on a JSON file: minting wrapped units against rows anyone with write
 // access to that file could add, and burning a holder's units on withdrawals that paid nobody.
 //
-// The table is the whole contract of pickBackend. A Backend may come back for exactly one pair.
+// The table is the contract of pickBackend's refusals. A Backend may come back only for the simulator file backend or
+// a real backend with its configuration; the real-backend rows here prove the configuration is demanded first.
 func TestPickBackendRefusesTheFileBackendOffTheSimulator(t *testing.T) {
 	cases := []struct {
 		network, backend string
@@ -21,11 +22,11 @@ func TestPickBackendRefusesTheFileBackendOffTheSimulator(t *testing.T) {
 		{"testnet", "sim", false, "-network simulator"},
 		{"simulator", "", false, "-backend is required"},
 		{"mainnet", "", false, "-backend is required"},
-		{"mainnet", "monero", false, "not implemented yet"},
+		{"mainnet", "monero", false, "-monero-config"},
 		{"mainnet", "zcash", false, "-zcash-config"}, // built; it refuses to start without its configuration
 		{"simulator", "zcash", false, "-zcash-config"},
-		{"testnet", "monero", false, "not implemented yet"},
-		{"simulator", "monero", false, "not implemented yet"},
+		{"testnet", "monero", false, "-monero-config"},
+		{"simulator", "monero", false, "-monero-config"},
 		{"mainnet", "solana", false, "not implemented yet"},
 		{"mainnet", "SIM", false, "unknown backend"},
 		{"mainnet", "file", false, "unknown backend"},
@@ -64,12 +65,12 @@ func TestARefusedBackendLeavesConfsAlone(t *testing.T) {
 	}
 }
 
-// A real backend still settles the confirmation floor before it reports that it does not exist: when one is
-// built, the mainnet floor from the network table must already be the number in force.
+// A real backend still settles the confirmation floor before it reports that it needs its configuration: the mainnet
+// floor from the network table must already be the number in force.
 func TestARealBackendKeepsTheMainnetConfirmationFloor(t *testing.T) {
 	confs := int64(1)
 	if _, err := pickBackend("mainnet", "monero", &confs, ""); err == nil {
-		t.Fatal("-backend monero was accepted")
+		t.Fatal("-backend monero was accepted without its configuration")
 	}
 	if want := chainTable["mainnet"]["monero"].Confirmations; confs != want {
 		t.Errorf("-confs 1 on mainnet monero settled at %d, want the table floor %d", confs, want)

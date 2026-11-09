@@ -10,13 +10,14 @@ when something goes wrong. The design it implements is in `research/wrapper/DESI
 The daemon's own procedures (start, stop, crash recovery, reading the log) are in `research/wrapper/RUNBOOKS.md`;
 this file does not repeat them.
 
-**Status on 2026-09-15.** The `sim` backend and the `zcash` backend (transparent P2SH k-of-n,
-`tools/vaultsigner/zcashvault`; one deposit and one withdrawal settled live on zebrad regtest:
-`research/regtest/vault-zcash-e2e.log`) run. The
-`monero` backend (wallet-rpc multisig) is being built. Where this runbook says "per the backend's procedure", the exact
-commands belong to that backend's own documentation (Zcash: `research/wrapper/RUNBOOKS.md`, "Zcash key ceremony"),
-and a signer must not improvise them. This runbook fixes the order, the custody rules and the coordination steps
-around them.
+**Status on 2026-11-09.** The `sim`, `zcash` (transparent P2SH k-of-n, `tools/vaultsigner/zcashvault`; one deposit and
+one withdrawal settled live on zebrad regtest: `research/regtest/vault-zcash-e2e.log`) and `monero`
+(`monero-wallet-rpc`, `tools/vaultsigner/monerovault`) backends run. Monero deposits, reserve, address derivation and
+single-wallet releases are implemented; a `multisig_txset` is refused because this build has no Monero signing
+coordinator, so a Monero federation must not treat `-backend monero` as a multisig release path yet. Where this
+runbook says "per the backend's procedure", the exact commands belong to that backend's own documentation (Zcash:
+`research/wrapper/RUNBOOKS.md`, "Zcash key ceremony"; Monero: `docs/HANDOVER.md` §5.3), and a signer must not improvise
+them. This runbook fixes the order, the custody rules and the coordination steps around them.
 
 **Nothing here touches mainnet.** Mainnet is the operator's decision, behind the gates in `deploy/README.md`.
 

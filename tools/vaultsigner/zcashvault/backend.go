@@ -60,6 +60,10 @@ type Config struct {
 	Epoch          uint32       `json:"epoch,omitempty"`          // default 10 blocks
 	ExpiryWindow   uint32       `json:"expiryWindow,omitempty"`   // default 40 blocks
 	MaxInputs      int          `json:"maxInputs,omitempty"`      // default 200
+	// Bounded retries for a node read that fails in transport or with 429/5xx. A transient node error is a
+	// failed pass, never a reason for the signer to exit; a signed broadcast is not retried here.
+	NodeRetries      int `json:"nodeRetries,omitempty"`      // default 4
+	NodeRetryDelayMS int `json:"nodeRetryDelayMs,omitempty"` // default 500
 }
 
 // LoadConfig reads a JSON configuration file, strictly.
@@ -126,7 +130,16 @@ func New(cfg Config, vault string, vv VaultView, coord Coordinator, logf func(st
 		if name == "" {
 			name = nc.URL
 		}
-		list = append(list, node{name: name, zc: zcashtx.NewZcashRPC(nc.URL, user, pass)})
+		zc := zcashtx.NewZcashRPC(nc.URL, user, pass)
+		zc.Retries = cfg.NodeRetries
+		if zc.Retries <= 0 {
+			zc.Retries = 4
+		}
+		zc.RetryDelay = time.Duration(cfg.NodeRetryDelayMS) * time.Millisecond
+		if zc.RetryDelay <= 0 {
+			zc.RetryDelay = 500 * time.Millisecond
+		}
+		list = append(list, node{name: name, zc: zc})
 	}
 	if coord == nil && cfg.CoordinatorDir != "" {
 		coord = DirCoordinator{Dir: cfg.CoordinatorDir, Me: acct.XPub()}

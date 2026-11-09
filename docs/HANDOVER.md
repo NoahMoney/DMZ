@@ -233,7 +233,8 @@ Rules the daemon now enforces, each of which came from an audit finding:
 `tools/vaultsigner` `Backend` is the whole interface a foreign chain must satisfy, and every method must fail
 rather than guess: `Height()`, `Finalized()`, `Deposits()`, `Verify(d Deposit)`, `Address(index)`,
 `ValidDest(dest)`, `Release(j, dest, amount)` (idempotent per `j`), `VerifyRelease(j, ftx, dest, amount)`,
-`Reserve()`, `Health()`. Only the sim backend implements it today. What each one must mean on a real chain:
+`Reserve()`, `Health()`. The sim, Zcash and Monero backends implement it (the Monero release path is single-wallet
+only until a Monero signing coordinator exists). What each one must mean on a real chain:
 
 - `Finalized() (height int64)` — the highest height this chain treats as irreversible under the network table
   (Zebra: tip − 100; Monero: tip − 10 spendable age is *not* finality, use tip − 10 as policy and re-verify);
@@ -283,6 +284,22 @@ rather than guess: `Height()`, `Finalized()`, `Deposits()`, `Verify(d Deposit)`,
 8. Known limits to write into the trust statement: multisig is experimental upstream; the 2021 multisig
    vulnerabilities; the FCMP++ migration will require a new vault (funds move to a new multisig).
 
+**As built (2026-11-09).** `tools/vaultsigner/monerovault` implements the wallet-rpc client and the backend: per-index
+subaddresses, `get_transfers` deposits grouped by `(txid, subaddress)`, `get_balance` reserve, a payment-id idempotency
+key for each withdrawal, `get_transfer_by_txid` verification at the tip less the finality policy, and a
+`get_address`/`create_address` address path. Reads retry transport failures and 429/5xx; sends are single-attempt and
+are looked up before they are repeated. It requires the vault's primary address in the configuration and refuses a
+wallet that does not hold it. A wallet that returns a `multisig_txset` is refused with `ErrNeedsSignatures`: this
+build has no Monero txset coordinator, so it will not record or certify a multisig payment. The daemon's DERO reads
+also retry and return errors instead of exiting, so a node restart does not retire a signer.
+
+`-monero-config` is JSON: `network` (`mainnet`, `stagenet` or `testnet`), `walletRpc`, the vault's primary `address`,
+optional `account`, `finalityDepth` (default and minimum 10), `timeoutSeconds` (default 300), `retries` (default 4)
+and `retryDelayMs` (default 500). The wallet-rpc login, when `--rpc-login` is set, comes from
+`VEIL_MONERO_RPC_LOGIN` as `user:password`; it is never put in the URL. `-network simulator` and `-network testnet`
+select Monero stagenet, and `-network mainnet` selects Monero mainnet. The wallet's primary address is checked at
+startup, and a subaddress at an index must have a subaddress prefix; the wallet itself remains trusted for the keys.
+
 ### 5.4 Zcash backend, as built (transparent P2SH k-of-n, 2026-09-15)
 
 `vaultsigner -backend zcash -zcash-config <file> -coord <coordination config>`; code in `tools/vaultsigner/zcashvault`
@@ -298,7 +315,9 @@ rather than guess: `Height()`, `Finalized()`, `Deposits()`, `Verify(d Deposit)`,
 2. **Descriptor.** Network, k and the sorted account keys; `NewDescriptor` refuses k ≥ n, k < 2, more than 15 keys,
    an xprv, a key of the other network, and a repeated key (one signer would fill two CHECKMULTISIG slots). Its text
    (366 characters for 2-of-3) is published with `SetViewKey`; `zcashkey -audit` sums the reserve from it.
-3. **Nodes.** One or more zebrad (or zcashd) JSON-RPC nodes. The tip is the lowest any node reports; the finalized
+3. **Nodes.** One or more zebrad (or zcashd) JSON-RPC nodes. Reads retry transport failures and 429/5xx a bounded
+   number of times (`nodeRetries`, default 4; `nodeRetryDelayMs`, default 500); a broadcast is not retried by the
+   client. The tip is the lowest any node reports; the finalized
    height is that tip less 100, and every node must name the same block there, or nothing is read. `Deposits` are
    every output ever paid to an attested index address (spent or not — the vault may spend a deposit before minting
    it) in blocks at or below the finalized height, reported identically by every node; an index whose attested

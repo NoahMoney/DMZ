@@ -352,10 +352,12 @@ new SCID, published the same way. Users open an INDEX they have checked with `to
 
    `-backend` has no default and `-backend sim` is refused on any network but the simulator. `sim` is a JSON file
    the signer reads and appends to: a deposit in it is a line somebody typed, so a signer running on it votes
-   Mint for Monero that does not exist and votes Released for a payout nobody was sent. No real backend
-   (`zcash`, `monero`, `solana`) is implemented — each one exits saying so — so **there is no configuration in
-   which a mainnet vault can be signed for today**, and the federation gate above cannot pass. Sealing a mainnet
-   vault before a backend exists is what this refusal is there to stop.
+   Mint for Monero that does not exist and votes Released for a payout nobody was sent. The real `zcash` and
+   `monero` backends exist (`-zcash-config`, `-monero-config`) and their node clients retry transient reads, but
+   the Monero release path refuses a multisig txset and `solana` is not implemented. A mainnet vault still has no
+   reviewed install path here, so **there is no production configuration in which a mainnet vault should be signed
+   for today**, and the federation gate above cannot pass. Sealing a mainnet vault before that path exists is what
+   this refusal is there to stop.
 4. Publish: INDEX SCID, factory SCID, template hashes, signer set, caps and viewing keys in one signed post.
 5. Nothing to renounce. `factory.bas` v2 has no owner: the treasury and the registration fee were fixed at install and
    no function changes them, so the step that used to call `Renounce` here is gone (MT-J15(b)). Read back with

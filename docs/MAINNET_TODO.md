@@ -101,7 +101,7 @@ the row named, or is the operator's to decide.
 
 | ID | Blocker | Carried by | Status |
 |---|---|---|---|
-| YB-1 | Real Monero and Zcash backends for `tools/vaultsigner`. On main, every real backend refuses to start with "not implemented yet" (`tools/vaultsigner/main.go:128`, `142`) | Y3-1, Y3-2 | wip |
+| YB-1 | Real Monero and Zcash backends for `tools/vaultsigner`. Zcash is built; Monero now has a `monero-wallet-rpc` client/backend (deposits, reserve, subaddresses, single-wallet release, retrying reads) but refuses a multisig txset because no Monero signing coordinator exists | Y3-1, Y3-2 | wip: Monero multisig coordination |
 | YB-2 | Signer coordination for the Monero multisig rounds and the Zcash P2SH signatures: authenticated, encrypted, with no trusted server | Y3-4 | wip |
 | YB-3 | Named signers who are not the operator, and k-of-n, recorded in `deploy/federation.md`, which does not exist yet (`deploy/VAULT_PARAMETERS.md:55`). The operator's rule is n ≥ 2k (2026-09-08). Check that vault v4 enforces it at Seal | Y3-8 | decide |
 | YB-4 | LIV-03 / SEC-K-01: one signer's Paying mark. Vault v4 (wrap-vault, under review) lets a mark delay Reclaim by at most 20,000 blocks, and never remove it. Still open: the payout circuit breaker that bounds v4's loss (`research/wrapper/FEDERATION_STUDY_2026-09-11.md` §3) | Y3-3 | wip |
